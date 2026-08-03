@@ -1,0 +1,42 @@
+# Ambiente virtual
+.venv/
+venv/
+env/
+
+# Bytecode Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.idea/
+.vscode/
+
+# Dados de treino — 127k+ imagens, distribuir fora do git
+training_data/
+training_data_2/
+
+# Modelos treinados — binários grandes, distribuir por release
+*.pth
+*.onnx
+
+# Scans de livros — grandes e derivados de material com copyright
+ilovepdf_pages-to-jpg/
+
+# Logs e artefatos de execução
+crash_log.txt
+full_log.txt
+*.pyboxsession.json
+*.log
+
+# Saídas de teste manual
+test_image.png
+test_emj.png
+test_sym.png
+test_chess.pdf
+test_chess_out.pdf
+
+# Sistema operacional
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,195 @@
+import os
+import cv2
+import numpy as np
+import uuid
+import glob
+from typing import List, Tuple, Optional, Callable
+from PIL import Image
+
+from core.learner import CharacterLearner, char_to_folder
+from core.neural_trainer import NeuralTrainer, NeuralPredictor
+
+
+class LearningService:
+    """
+    Serviço puro que encapsula:
+      - Aprendizado interativo (k-NN / CharacterLearner)
+      - Treinamento e predição da Rede Neural
+      - Processamento em lote (extração + classificação)
+    """
+
+    def __init__(
+        self,
+        data_dir: str = "training_data",
+        model_path: str = "custom_model.pth",
+        meta_path: str = "model_meta.json",
+    ):
+        self.data_dir = data_dir
+        self.model_path = model_path
+        self.meta_path = meta_path
+
+        self._learner: Optional[CharacterLearner] = None
+        self._predictor: Optional[NeuralPredictor] = None
+
+    # ------------------------------------------------------------------
+    # Learner (k-NN)
+    # ------------------------------------------------------------------
+    def _get_learner(self) -> CharacterLearner:
+        if self._learner is None:
+            self._learner = CharacterLearner(self.data_dir)
+        return self._learner
+
+    def learn_from_boxes(self, image: Image.Image, boxes: List[dict]) -> int:
+        """
+        Adiciona todos os boxes que têm caractere definido à base de conhecimento.
+        Retorna quantidade de amostras adicionadas.
+        """
+        learner = self._get_learner()
+        count = 0
+        img = image
+
+        for b in boxes:
+            char = b.get("char", "")
+            if not char:
+                continue
+
+            x1, y1, x2, y2 = b["x1"], b["y1"], b["x2"], b["y2"]
+            crop = img.crop((x1, y1, x2, y2))
+            crop_np = np.array(crop)
+
+            learner.learn(crop_np, char)
+            count += 1
+
+        return count
+
+    def predict_learner(self, crop_np: np.ndarray) -> Tuple[str, float]:
+        """Predição via k-NN."""
+        learner = self._get_learner()
+        return learner.predict(crop_np)
+
+    # ------------------------------------------------------------------
+    # Neural Network
+    # ------------------------------------------------------------------
+    def load_predictor(self) -> bool:
+        """Carrega o modelo neural (lazy). Retorna True se conseguiu."""
+        if self._predictor is None:
+            self._predictor = NeuralPredictor(self.model_path, self.meta_path)
+        if getattr(self._predictor, "loaded", False):
+            return True
+        return self._predictor.load()
+
+    def predict_neural(self, crop_np: np.ndarray) -> Tuple[str, float]:
+        """Predição via CNN. Retorna ('?', 0.0) se modelo não carregado."""
+        if not self.load_predictor():
+            return "?", 0.0
+        return self._predictor.predict(crop_np)
+
+    def train_neural(self, epochs: int = 20, callback: Optional[Callable[[str], None]] = None) -> bool:
+        """Treina a rede neural com os dados atuais."""
+        if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
+            if callback:
+                callback("Nenhum dado de treinamento encontrado.")
+            return False
+
+        trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
+        return trainer.train(epochs=epochs, callback=callback)
+
+    # ------------------------------------------------------------------
+    # Batch processing (extract + classify)
+    # ------------------------------------------------------------------
+    def batch_extract_and_classify(
+        self,
+        images: List[Tuple[str, Image.Image]],
+        output_dir: str,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    ) -> int:
+        """
+        Recebe uma lista de (nome, PIL.Image), detecta boxes, classifica via neural
+        e salva os recortes em subpastas de output_dir.
+        Retorna total de recortes salvos.
+        """
+        from core.services.box_service import BoxService
+
+        if not self.load_predictor():
+            raise RuntimeError("Modelo neural não encontrado. Treine a rede primeiro.")
+
+        total_crops = 0
+        predictor = self._predictor
+
+        for i, (source_name, pil_img) in enumerate(images):
+            if progress_callback:
+                progress_callback(source_name, i + 1, len(images))
+
+            pil_gray = pil_img.convert("L")
+            img_cv = np.array(pil_gray)
+
+            # Threshold + contornos
+            _, th = cv2.threshold(img_cv, 180, 255, cv2.THRESH_BINARY_INV)
+            contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            page_boxes = []
+            for c in contours:
+                x, y, w, h = cv2.boundingRect(c)
+                if w < 5 or h < 5:
+                    continue
+                if w > 150 or h > 150:
+                    continue  # ignorar diagramas grandes
+                page_boxes.append({"char": "", "x1": x, "y1": y, "x2": x + w, "y2": y + h})
+
+            page_boxes.sort(key=lambda b: (b["y1"], b["x1"]))
+            page_boxes = BoxService.merge_vertical_boxes(page_boxes)
+            page_boxes = BoxService.sort_boxes_reading_order(page_boxes)
+
+            for b in page_boxes:
+                crop = pil_gray.crop((b["x1"], b["y1"], b["x2"], b["y2"]))
+                crop_np = np.array(crop)
+
+                char, _ = predictor.predict(crop_np)
+                if not char:
+                    char = "unknown"
+
+                safe_folder = char_to_folder(char)
+                save_path = os.path.join(output_dir, safe_folder)
+                os.makedirs(save_path, exist_ok=True)
+
+                if len(crop_np.shape) == 3:
+                    img_gray = cv2.cvtColor(crop_np, cv2.COLOR_RGB2GRAY)
+                else:
+                    img_gray = crop_np
+
+                img_resized = cv2.resize(img_gray, (32, 32))
+                fname = f"{uuid.uuid4()}.png"
+                cv2.imwrite(os.path.join(save_path, fname), img_resized)
+                total_crops += 1
+
+        return total_crops
+
+    # ------------------------------------------------------------------
+    # Importação de dados externos
+    # ------------------------------------------------------------------
+    @staticmethod
+    def import_character_images(src_dir: str, dest_dir: str = "training_data") -> int:
+        """
+        Importa imagens de uma pasta externa (organizada por caracteres)
+        para a pasta oficial de treinamento.
+        """
+        import shutil
+
+        if not os.path.exists(dest_dir):
+            os.makedirs(dest_dir)
+
+        count = 0
+        for subdir in os.listdir(src_dir):
+            src_sub = os.path.join(src_dir, subdir)
+            if not os.path.isdir(src_sub):
+                continue
+
+            dest_sub = os.path.join(dest_dir, subdir)
+            os.makedirs(dest_sub, exist_ok=True)
+
+            for f in glob.glob(os.path.join(src_sub, "*.png")):
+                new_name = f"{uuid.uuid4()}.png"
+                shutil.copy2(f, os.path.join(dest_sub, new_name))
+                count += 1
+
+        return count

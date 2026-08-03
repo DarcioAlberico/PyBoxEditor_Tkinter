@@ -1,0 +1,715 @@
+# PyBoxEditor — Especificação de Implementação
+
+Versão: 2.0
+Data: 2026-08-03
+Status: implementável
+Substitui parcialmente: [`Substituição de Glifos de Xadrez.md`](../Substituição%20de%20Glifos%20de%20Xadrez.md) (v1.0)
+Companheiro: [`ROADMAP.md`](../ROADMAP.md)
+
+**Relação com a v1.0:** a spec v1.0 descreve apenas o módulo de substituição de glifos
+e continua válida como referência de requisitos (RF-01…RF-06). Esta v2.0 cobre o sistema
+inteiro, corrige decisões da v1.0 que a implementação provou erradas (§4.2) e adiciona
+os contratos que faltavam. Onde houver conflito, **v2.0 prevalece**.
+
+---
+
+## 1. Escopo
+
+Ferramenta desktop para OCR de livros de xadrez em PDF, com três capacidades:
+
+1. **Editor de boxes** — desenhar, ajustar e rotular caixas de caractere sobre a página
+2. **Reconhecimento** — cadeia neural → k-NN → EasyOCR, com aprendizado incremental
+3. **Substituição de glifos** — converter notação em fonte de xadrez para Unicode
+
+Não incluído nesta versão: extração de FEN, exportação PGN, correção por modelo de
+linguagem.
+
+---
+
+## 2. Modelo de domínio
+
+### 2.1 `BoxEntry` — fonte única da verdade
+
+`core/box_model.py` define um dataclass. **Não é um dicionário.** Quatro pontos do
+código ainda o tratam como dict e falham em runtime (ROADMAP F0.1).
+
+**Regra:** acesso exclusivamente por atributo. Nada de `b["x1"]`, `b.get()`, `b.copy()`.
+
+Estender o dataclass com o que o código precisa e hoje não existe:
+
+```python
+from dataclasses import dataclass, replace, field
+
+@dataclass
+class BoxEntry:
+    char: str
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+    confidence: float = 0.0      # 0.0–1.0
+    source: str = "manual"       # manual | neural | learner | easyocr | tesseract | opencv
+
+    def copy(self) -> "BoxEntry":
+        return replace(self)
+
+    @property
+    def width(self) -> int:  return self.x2 - self.x1
+
+    @property
+    def height(self) -> int: return self.y2 - self.y1
+
+    def to_dict(self) -> dict:   # apenas na fronteira de serialização
+        ...
+```
+
+`confidence` e `source` são o que viabiliza F3.2 e F3.3 do roadmap. O
+`fallback_chain` já produz os dois valores e hoje os descarta
+(`main_window.py:525` faz `char, source, _ = ...`).
+
+**Invariantes** (validar ao construir e após qualquer mutação):
+
+- `x1 < x2` e `y1 < y2`
+- coordenadas dentro dos limites da imagem
+- largura e altura mínimas de 3 px
+- `0.0 <= confidence <= 1.0`
+
+### 2.2 Fronteiras de conversão
+
+Só três lugares convertem `BoxEntry` ↔ outra representação:
+
+| Fronteira | Função |
+|-----------|--------|
+| Arquivo `.box` | `core/box_io.py` |
+| Serialização de histórico | `core/services/history_service.py` |
+| Interoperabilidade OpenCV | `core/services/box_service.py` |
+
+Qualquer outro lugar que converta é bug.
+
+### 2.3 Formato `.box`
+
+Existem **dois formatos incompatíveis** no projeto hoje: 5 campos em `box_io.py`,
+6 campos em `main_window.py`. Consolidar no formato Tesseract (6 campos, origem
+inferior-esquerda):
+
+```
+<char> <x1> <y_bottom> <x2> <y_top> <page>
+```
+
+Regras:
+
+- `core/box_io.py` é a **única** implementação; `main_window` passa a chamá-lo
+- caractere vazio grava `~`; um `~` literal grava `\~`
+- **não truncar** com `ch[0]` — ligaduras (`fi`, `ffi`) são gravadas inteiras
+  (`main_window.py:709` trunca hoje, perdendo dados em silêncio)
+- ler tolerando 5 ou 6 campos; escrever sempre 6
+- UTF-8 sem BOM
+
+---
+
+## 3. Pré-processamento de imagem
+
+Novo módulo `core/preprocess.py`. Substitui o threshold fixo `180` replicado em três
+arquivos (`box_service.py:20`, `learning_service.py:127`,
+`neural_pdf_processor.py:17`).
+
+```python
+def binarize(img: np.ndarray, method: str = "auto") -> np.ndarray:
+    """
+    auto     — Otsu se o histograma for bimodal, senão adaptativo
+    otsu     — cv2.THRESH_OTSU
+    adaptive — cv2.adaptiveThreshold gaussiano (páginas com iluminação irregular)
+    fixed    — threshold fixo (compatibilidade com o comportamento atual)
+    """
+
+def deskew(img: np.ndarray, max_angle: float = 15.0) -> tuple[np.ndarray, float]:
+    """Corrige inclinação por minAreaRect sobre os pixels de tinta. Retorna (img, ângulo)."""
+
+def denoise(img: np.ndarray) -> np.ndarray:
+    """Remove partículas menores que ~0.5% da altura mediana de caractere."""
+
+def normalize_dpi(img: np.ndarray, source_dpi: int, target_dpi: int = 300) -> np.ndarray:
+    """Reamostra para o DPI em que o modelo foi treinado."""
+```
+
+Ordem do pipeline: `normalize_dpi → deskew → denoise → binarize`.
+
+`core/opencv_autobox.py` já tem uma binarização Otsu melhor que a em uso, com filtros
+de tamanho relativos à página. **Migrar essa lógica para cá** e apagar o arquivo — ele
+está morto desde sempre.
+
+Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
+literal deve sobrar no código.
+
+---
+
+## 4. Processamento de PDF
+
+### 4.1 Um único backend: PyMuPDF
+
+Remover `pdf2image`/Poppler. O projeto já depende de PyMuPDF (`fitz`), que renderiza
+páginas nativamente e elimina uma dependência binária externa — hoje fonte recorrente
+de erro no Windows, a ponto de existir tratamento dedicado em `main_window.py:980`.
+
+```python
+class PDFService:
+    def load(self, path: str) -> int: ...
+    def render_page(self, index: int, dpi: int = 300) -> Image.Image: ...
+    def page_text_spans(self, index: int) -> list[Span]: ...   # texto nativo, quando houver
+    def is_scanned(self, index: int) -> bool: ...              # heurística: sem texto extraível
+    def close(self): ...
+```
+
+`is_scanned` é o que permite escolher automaticamente entre o caminho de texto (§4.2) e
+o caminho de OCR (§4.3), em vez de exigir que o usuário adivinhe qual menu usar.
+
+### 4.2 Substituição de glifos em PDF de texto
+
+Corrige o defeito mais grave do projeto: `fontname="helv"` transforma toda peça em `·`
+sem levantar erro (ROADMAP F0.2).
+
+**A v1.0 §5 recomendava DejaVu Sans. Esta máquina não tem DejaVu instalada** —
+`C:\Windows\Fonts\DejaVuSans.ttf` não existe. `seguisym.ttf` (Segoe UI Symbol) está
+presente e foi verificado preservando os 12 glifos. A regra passa a ser: fonte
+**empacotada no projeto**, com fallback para fontes do sistema.
+
+```python
+CHESS_FONT_CANDIDATES = [
+    "assets/fonts/DejaVuSans.ttf",          # empacotada — caminho preferencial
+    r"C:\Windows\Fonts\seguisym.ttf",       # Segoe UI Symbol (verificada)
+    r"C:\Windows\Fonts\arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+
+def resolve_chess_font() -> str:
+    """Primeira fonte existente que contenha U+2654–U+265F. Levanta se nenhuma servir."""
+```
+
+**Obrigatório: validar a cobertura antes de escrever.** O modo de falha é silencioso —
+sem esta checagem, o usuário só descobre abrindo o PDF destruído.
+
+```python
+def assert_glyph_coverage(font_path: str, chars: str) -> None:
+    font = fitz.Font(fontfile=font_path)
+    faltando = [c for c in chars if font.has_glyph(ord(c))]   # conferir semântica na versão
+    if faltando:
+        raise ChessFontError(f"Fonte {font_path} não cobre: {faltando}")
+```
+
+Inserção:
+
+```python
+page.insert_font(fontname="chessuni", fontfile=resolve_chess_font())
+page.insert_text(origin, texto, fontname="chessuni", fontsize=size)
+```
+
+**Não usar `insert_textbox` para spans curtos.** Ele reflui o texto dentro do
+retângulo e desloca a notação. Para um span inline como `♘f3`, usar `insert_text` na
+`origin` (baseline) do span original — preserva o alinhamento com a linha de texto.
+
+Ajuste de largura: glifos Unicode de xadrez costumam ser mais largos que os da fonte
+original. Medir com `fitz.Font.text_length()` e, se exceder o bbox, reduzir o
+`fontsize` em passos de 0.5 pt até caber (mínimo 60% do original; abaixo disso,
+registrar aviso no relatório em vez de deformar).
+
+### 4.3 PDF pesquisável (camada de texto invisível)
+
+Substitui `neural_pdf_processor.process_scanned_pdf`, que hoje rasteriza o documento
+inteiro e destrói todo o texto selecionável (ROADMAP F2.1).
+
+**Regra:** a página original nunca é rasterizada. O OCR entra como camada de texto
+invisível por cima.
+
+```python
+def write_searchable_layer(page: fitz.Page, boxes: list[BoxEntry], dpi_scale: float):
+    """
+    Escreve o texto reconhecido com render_mode=3 (invisível) posicionado sobre
+    cada box. O resultado é pesquisável e copiável; visualmente idêntico ao original.
+    """
+    for b in boxes:
+        if not b.char:
+            continue
+        rect = fitz.Rect(b.x1, b.y1, b.x2, b.y2) * dpi_scale
+        size = _fit_size(b.char, rect)
+        page.insert_text(
+            (rect.x0, rect.y1),          # baseline no rodapé do box
+            b.char,
+            fontname="ocruni",
+            fontsize=size,
+            render_mode=3,               # invisível
+        )
+```
+
+Três modos de saída, escolhidos pelo usuário:
+
+| Modo | Comportamento |
+|------|---------------|
+| `searchable` | Página original + camada invisível — **padrão** |
+| `replace` | Substitui glifos de xadrez por Unicode visível (§4.2) |
+| `both` | Substituição visível + camada pesquisável |
+
+`resolution=200.0` fixo (`neural_pdf_processor.py:117`) deixa de existir — a
+resolução da página original é preservada porque ela não é reescrita.
+
+### 4.4 Relatório e dry-run
+
+Requisitos RF-06 e RNF-04 da v1.0, nunca implementados.
+
+```python
+@dataclass
+class Replacement:
+    page: int
+    bbox: tuple[float, float, float, float]
+    original_font: str
+    original_text: str
+    replacement_text: str
+    confidence: float
+    warnings: list[str]
+```
+
+- `--dry-run` (e checkbox na UI): detecta, gera relatório, **não escreve o PDF**
+- relatório em JSON e CSV, salvo ao lado do arquivo de saída
+- avisos obrigatórios: fonte sem glifo, fonte reduzida além de 80%, confiança abaixo
+  do limiar, span ignorado por heurística de diagrama
+
+Num conversor que reescreve PDFs, dry-run é o único jeito de conferir antes de destruir.
+
+### 4.5 Perfis de mapeamento
+
+V1.0 §10 pede perfis por livro/editora. Hoje há um dict hardcoded
+(`chess_pdf_processor.py:12`).
+
+`config/profiles/<nome>.json`:
+
+```json
+{
+  "name": "Quality Chess — Merida",
+  "mode": "unicode",
+  "font_patterns": ["merida", "chess"],
+  "mapping": { "K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘", "P": "♙",
+               "k": "♚", "q": "♛", "r": "♜", "b": "♝", "n": "♞", "p": "♟" },
+  "diagram_detection": { "min_lines": 4, "chess_span_ratio": 0.7 }
+}
+```
+
+Seleção automática por `font_patterns`, com override manual na UI. Os limiares de
+detecção de diagrama, hoje literais em `is_block_a_diagram`, passam a ser configuráveis
+— fontes com subset e nome aleatório (`ABCD+F1`) precisam de ajuste por livro.
+
+---
+
+## 5. Reconhecimento
+
+### 5.1 Cadeia de fallback
+
+`OCRService.fallback_chain` já implementa neural → k-NN → EasyOCR. Manter, com
+mudanças:
+
+- **retornar sempre `(char, source, confidence)` e gravar os três no `BoxEntry`**;
+  hoje a confiança é calculada e descartada
+- limiares vêm de configuração, não de literais espalhados
+  (0.85/0.85 em `main_window.py:475`, 0.8/0.9 em `main_window.py:530`)
+- EasyOCR retorna `0.0` de confiança (`ocr_service.py:155`) — usar a confiança real
+  que a lib fornece em `results[0][2]`
+
+`ocr_service.py:150-163` tem os dois ramos do `if reader` duplicados. Unificar.
+
+### 5.2 Dados de treino — saneamento obrigatório
+
+Executar **antes** de qualquer novo treino:
+
+1. **`sym_f7`** — 127 amostras cuja pasta não reverte para caractere
+   (`chr(int("f7"))` → `ValueError` → `"?"`). Identificar o caractere real e renomear,
+   ou remover. Hoje treina o modelo a prever `"?"`.
+2. **`lower_ä`** — pasta vazia ocupando um índice de classe. Remover ou popular.
+3. **`training_data_2/`** — 138 PNGs soltos fora do padrão de pastas por classe.
+   Classificar ou descartar.
+4. **`folder_to_char`** — implementar a decodificação de `ligature_hex_*`, hoje um
+   TODO que retorna `"?"` (`learner.py:56`).
+5. **Peças pretas** — coletar amostras de ♙♚♛♜♝♞♟, **ausentes do modelo atual**.
+   Sem isso, retreinar não melhora o reconhecimento de notação.
+
+Adicionar validação que roda antes do treino e falha alto:
+
+```python
+def validate_dataset(data_dir: str) -> list[str]:
+    """Erros: pasta vazia, nome irreversível, classe abaixo do mínimo, PNG ilegível."""
+```
+
+### 5.3 Balanceamento
+
+Proporção atual: 25.075 (`lower_e`) para 1 (`upper_Z`). Com `CrossEntropyLoss` sem
+pesos, classes raras nunca são previstas.
+
+```python
+from torch.utils.data import WeightedRandomSampler
+
+counts  = np.bincount(labels)
+weights = 1.0 / counts[labels]
+sampler = WeightedRandomSampler(weights, num_samples=len(labels), replacement=True)
+loader  = DataLoader(dataset, batch_size=64, sampler=sampler)   # sem shuffle com sampler
+```
+
+Complementar com `MIN_SAMPLES_PER_CLASS = 10`: classes abaixo do piso são excluídas do
+treino e **reportadas**, em vez de entrarem como ruído.
+
+Augmentation permanece só no treino — hoje é aplicada ao dataset inteiro
+(`neural_trainer.py:181`), o que contamina qualquer avaliação futura.
+
+### 5.4 Avaliação
+
+Hoje: acurácia calculada sobre o treino aumentado, e "melhor modelo" escolhido por
+*training loss* (`neural_trainer.py:231-234`) — critério que seleciona exatamente o
+ponto de maior overfitting.
+
+```
+split estratificado 80 / 15 / 5   (treino / validação / teste)
+early stopping por validation loss, paciência 5
+checkpoint pelo melhor validation loss  ← não training loss
+```
+
+Relatório ao final do treino:
+
+- acurácia global de validação
+- **matriz de confusão por classe** — é ela que revela `e`↔`c`, `1`↔`l`, ♔↔`K`
+- lista das 10 piores classes
+- amostras de validação erradas, salvas em disco para inspeção
+
+### 5.5 Compatibilidade de modelo
+
+`model_meta.json` mapeia índice → caractere. Os índices vêm de
+`sorted(os.listdir(data_dir))` (`neural_trainer.py:125`). **Adicionar ou remover
+qualquer pasta desloca todos os índices seguintes** — e um `custom_model.pth` antigo
+passa a devolver caracteres errados, sem nenhum erro.
+
+Correção: gravar no meta a versão do schema e um hash da lista de classes; recusar
+carregar modelo cujo hash não bata com o dataset.
+
+```json
+{ "schema_version": 2,
+  "classes_hash": "sha256:…",
+  "trained_at": "2026-08-03T…",
+  "num_classes": 105,
+  "idx_to_char": { … } }
+```
+
+---
+
+## 6. Aplicação
+
+### 6.1 Estado e histórico
+
+Padrão único: **snapshot após a mutação**.
+
+```
+abrir arquivo         → snapshot(estado inicial)
+qualquer mutação      → aplica; snapshot(novo estado)
+undo                  → índice−1
+redo                  → índice+1
+```
+
+Remover `on_mutation_start` e todas as chamadas de snapshot pré-mutação. Hoje os dois
+padrões coexistem e o redo perde estado permanentemente (verificado — ROADMAP F0.3).
+
+`HistoryManager` passa a expor `is_dirty()`, consumido por §6.4 e pelo autosave.
+
+### 6.2 Concorrência
+
+Nenhum trabalho pesado na thread da UI. Nenhuma chamada a `self.parent.update()`
+dentro de laço de processamento — além de congelar, o `update()` reentrante pode
+reentrar num handler no meio da mutação da lista de boxes.
+
+```python
+class BackgroundTask:
+    def start(self, fn, on_progress, on_done, on_error): ...
+    def cancel(self): ...          # cooperativo, via threading.Event
+```
+
+- worker em `threading.Thread`; comunicação por `queue.Queue`
+- UI consome a fila com `widget.after(50, ...)`
+- toda operação longa é **cancelável**: OCR de página, treino, lote, conversão de PDF
+- barra de progresso real na status bar (`ui/status_bar.py` já existe, nunca foi usado)
+
+Trabalho de CPU pesada (OpenCV, PyTorch) libera o GIL, então threads bastam —
+`multiprocessing` só se o perfil apontar necessidade.
+
+### 6.3 Configuração
+
+`config/settings.py` já existe e não é usado por ninguém. Ligar de fato:
+
+| Chave | Padrão |
+|-------|--------|
+| `ocr.neural_threshold` | 0.80 |
+| `ocr.learner_threshold` | 0.90 |
+| `ocr.easyocr_gpu` | false |
+| `preprocess.binarize_method` | "auto" |
+| `preprocess.target_dpi` | 300 |
+| `pdf.render_dpi` | 300 |
+| `pdf.output_mode` | "searchable" |
+| `ui.autosave_interval` | 25 (alterações) |
+| `ui.zoom_on_select` | false |
+| `ui.confidence_colors` | true |
+| `paths.last_dir`, `paths.tesseract` | — |
+
+Eliminar todo literal de limiar espalhado pelo código.
+
+### 6.4 Ciclo de vida do documento
+
+Corrige perda silenciosa de trabalho (ROADMAP F3.7): `_load_pdf_page` hoje faz
+`self.boxes = []` sem aviso — trocar de página apaga tudo que foi digitado.
+
+```python
+class DocumentSession:
+    """Um PDF/imagem aberto. Mantém os boxes de TODAS as páginas visitadas."""
+    pages: dict[int, list[BoxEntry]]
+    dirty_pages: set[int]
+
+    def switch_page(self, index: int): ...   # preserva os boxes da página que sai
+    def save_all(self, path: str): ...
+    def autosave(self): ...                  # sidecar .pyboxsession.json
+```
+
+Regras:
+
+- trocar de página **preserva** os boxes da página anterior
+- autosave a cada N alterações, em sidecar ao lado do arquivo
+- ao abrir, detectar sidecar mais recente e oferecer recuperação
+- confirmar antes de sair/abrir outro arquivo com trabalho não salvo
+- título da janela marca estado sujo com `*`
+
+---
+
+## 7. Interface
+
+### 7.1 Layout
+
+```
+┌─ Menu ────────────────────────────────────────────────────┐
+├─ Barra de ferramentas ────────────────────────────────────┤
+│  [Abrir] [Salvar] │ [Detectar] [OCR] │ [Undo] [Redo]      │
+├──────────────────────────────────────┬────────────────────┤
+│                                      │ Filtro: [        ] │
+│                                      │ ☐ só vazios        │
+│              Canvas                  │ ☐ conf < 90%       │
+│                                      ├────────────────────┤
+│                                      │  0001 'e'  98% ██  │
+│                                      │  0002 '?'  --  ░░  │
+│                                      │  0003 'c'  71% ▓▓  │
+├──────────────────────────────────────┴────────────────────┤
+│ Caractere: [_] [Aplicar] [Próximo>>] │ NAGs: ! !! ? ?? …  │
+├───────────────────────────────────────────────────────────┤
+│ ◀ Pág 12/248 ▶ │ 1.847 boxes │ 23 vazios │ ▓▓▓░ 68%      │
+└───────────────────────────────────────────────────────────┘
+```
+
+### 7.2 Confiança visível
+
+O dado mais útil para revisão de OCR já é calculado e jogado fora hoje.
+
+| Confiança | Cor do box | Significado |
+|-----------|-----------|-------------|
+| ≥ 0.90 | verde | provavelmente certo |
+| 0.70–0.89 | amarelo | conferir |
+| < 0.70 | vermelho | conferir obrigatoriamente |
+| vazio | cinza tracejado | não reconhecido |
+
+Mesma escala na lista lateral. É isso que transforma "reler 2.000 caracteres" em
+"conferir 80".
+
+### 7.3 Modo digitação contínua
+
+Ativável por `F2`. Com ele ligado, a tecla digitada aplica o caractere e avança
+sozinha — sem Enter. Numa página de 2.000 caracteres, elimina 2.000 teclas.
+
+`Backspace` volta um box. `Esc` sai do modo.
+
+### 7.4 Filtros de navegação
+
+- caixa de busca por caractere
+- alternadores: só vazios / só abaixo do limiar / só de uma fonte específica
+- `F3` / `Shift+F3` — próximo/anterior **dentro do filtro ativo**
+
+### 7.5 Aplicar a todos os semelhantes
+
+Com um box selecionado e corrigido: **"Aplicar a todos os semelhantes"** (`Ctrl+Shift+A`)
+encontra boxes com imagem parecida (distância L2 abaixo de um limiar ajustável), mostra
+uma prévia em grade com seleção individual, e aplica em lote.
+
+Corrigir um `e` mal reconhecido pode corrigir 300 de uma vez. É o maior ganho isolado
+de produtividade do roadmap.
+
+### 7.6 Atalhos
+
+| Tecla | Ação |
+|-------|------|
+| `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | Abrir / Salvar / Salvar como |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `↑` `↓` | Box anterior / próximo |
+| `PgUp` `PgDn` | Página anterior / próxima |
+| `Del` | Excluir box |
+| `Ctrl+D` | Dividir box |
+| `F2` | Modo digitação contínua |
+| `F3` / `Shift+F3` | Próximo / anterior no filtro |
+| `Ctrl+Shift+A` | Aplicar a semelhantes |
+| `Z` | Zoom no box selecionado |
+| `Esc` | Cancelar operação em andamento |
+
+`d` sozinho deixa de dividir box — passa a `Ctrl+D`. O guard atual
+(`_on_key_split_safe`) só testa `tk.Entry` e não cobre `ttk.Entry`, `Text` ou
+`Spinbox`, então digitar "d" no widget errado divide um box.
+
+### 7.7 Comportamento do zoom
+
+`select_box` **não** deve mais chamar `zoom_to_box`. Hoje toda seleção re-enquadra a
+imagem com zoom mínimo forçado de 1.5×, e navegar com as setas faz a página saltar a
+cada tecla.
+
+Novo comportamento: rolar o mínimo necessário para o box ficar visível, mantendo o
+nível de zoom. Zoom explícito só com `Z` ou duplo-clique. Configurável por
+`ui.zoom_on_select`.
+
+### 7.8 Desempenho da lista
+
+`update_sidebar` refaz a listbox inteira a cada seleção (`delete(0,"end")` + N inserts).
+Com 2.000 boxes, cada seta reconstrói 2.000 linhas e a digitação engasga.
+
+Migrar para `ttk.Treeview` e atualizar **só as linhas alteradas**.
+
+---
+
+## 8. Testes
+
+Não existe nenhum teste hoje. `test_chess_pdf.py` é um stub cuja única função está
+comentada — imprime "a sintaxe está correta" e não verifica nada.
+
+### 8.1 Mínimo para desbloquear (fazer junto com F0)
+
+```python
+def test_box_entry_nao_e_dict():
+    """Trava os 4 bugs de F0.1 de uma vez."""
+    b = BoxEntry("a", 1, 2, 3, 4)
+    assert b.x1 == 1 and b.copy().x1 == 1
+    with pytest.raises(TypeError):
+        b["x1"]
+
+def test_update_sidebar_com_boxes():
+    """Reproduz o TypeError que impede o uso do programa."""
+
+def test_fonte_de_xadrez_cobre_12_pecas():
+    """Reproduz o bug do '·'. Falha com helv, passa com fonte Unicode."""
+    font = resolve_chess_font()
+    assert_glyph_coverage(font, "♔♕♖♗♘♙♚♛♜♝♞♟")
+
+def test_undo_redo_ida_e_volta():
+    """add → undo → redo devolve o estado. Hoje falha."""
+
+def test_box_roundtrip():
+    """salvar → carregar preserva coordenadas e ligaduras."""
+```
+
+### 8.2 Cobertura seguinte
+
+- `merge_vertical_boxes`: `i`, `j`, `:`, `;`, `?`, `!` fundem corretamente
+- `sort_boxes_reading_order`: coluna única, duas colunas, com diagrama no meio
+- `binarize`: página limpa, escaneada, com iluminação irregular
+- `folder_to_char` ∘ `char_to_folder` = identidade para todas as 105 classes
+  (**hoje falha em `sym_f7` e em `ligature_hex_*`**)
+- PDF pesquisável: texto extraível do resultado bate com os boxes de entrada
+
+### 8.3 Regressão de OCR
+
+Um conjunto fixo de 10 páginas com verdade-fundamental em `.box`, e um alvo de
+acurácia que não pode regredir entre commits.
+
+---
+
+## 9. Empacotamento
+
+### 9.1 `requirements.txt`
+
+Reescrever — o arquivo atual está em UTF-16 na última linha (o pip lê
+`PyMuPDF>=1.23.0` como `P y M u P D F`), omite `torch` e `easyocr` que o código usa,
+e lista `pydantic` e `python-Levenshtein` que não estão instalados nem são usados.
+
+```
+Pillow>=10.0
+numpy>=1.26
+opencv-python>=4.8
+PyMuPDF>=1.23
+torch>=2.0
+easyocr>=1.7
+pytesseract>=0.3.10     # opcional — só o caminho Tesseract
+```
+
+Gravar em **UTF-8 sem BOM**. Fixar versões em `requirements.lock.txt`.
+
+Removidos: `pdf2image` (§4.1), `imutils`, `pydantic`, `python-Levenshtein`, `rich`,
+`PyYAML`, `platformdirs` — nenhum é importado pelo código de produção.
+
+### 9.2 Estrutura
+
+```
+PyBoxEditor_Tkinter/
+├── assets/fonts/DejaVuSans.ttf      ← novo, empacotado (§4.2)
+├── config/{settings.py,profiles/}
+├── core/
+│   ├── box_model.py  box_io.py  preprocess.py   ← preprocess é novo
+│   └── services/{box,ocr,pdf,learning,history,document}_service.py
+├── ui/{main_window,canvas_view,sidebar,status_bar,toolbar}.py
+├── tests/
+└── docs/{SPEC.md,ROADMAP.md}
+```
+
+Apagar: `core/opencv_autobox.py` (migrar Otsu para `preprocess.py` antes),
+`core/image_loader.py`, `core/tesseract_utils.py`, `debug_*.py`, `crash_log.txt`,
+`full_log.txt`, `test_{image,emj,sym}.png`, `Novo Documento de Texto.txt`.
+
+`ui/sidebar.py`, `ui/menu_bar.py` e `ui/status_bar.py` estão mortos hoje mas são úteis:
+**ligar** em vez de apagar.
+
+### 9.3 Controle de versão
+
+O projeto **não é um repositório git**. Antes de qualquer refatoração desta spec:
+
+```bash
+git init && git add -A && git commit -m "baseline antes da refatoração"
+```
+
+`.gitignore`: `.venv/`, `__pycache__/`, `*.pth`, `training_data*/`, `crash_log.txt`,
+`*.pyboxsession.json`, `.idea/`.
+
+`custom_model.pth` (2,5 MB) e as 127 mil imagens de treino não pertencem ao git —
+distribuir por release ou armazenamento externo.
+
+---
+
+## 10. Critérios de aceitação
+
+### F0 — desbloqueio
+- [ ] Abrir imagem com 500 boxes, editar, salvar, recarregar — sem exceção
+- [ ] Mover e redimensionar box com o mouse funciona
+- [ ] "Aprender com Página Atual" e "Treinamento Batch" concluem sem erro
+- [ ] PDF convertido contém `♔♕♖♗♘♙♚♛♜♝♞♟` extraíveis — **nenhum `·`**
+- [ ] `pip install -r requirements.txt` reproduz o ambiente em máquina limpa
+
+### F1 — qualidade
+- [ ] Modelo reconhece as 12 peças, pretas inclusive
+- [ ] Nenhuma classe com menos de 10 amostras entra no treino
+- [ ] Acurácia reportada vem de conjunto de validação separado
+- [ ] `folder_to_char ∘ char_to_folder` = identidade para as 105 classes
+
+### F2 — saída
+- [ ] PDF de saída mantém o texto original selecionável
+- [ ] Texto de OCR é pesquisável no PDF resultante
+- [ ] Dry-run gera relatório sem escrever arquivo
+- [ ] Poppler não é mais necessário
+
+### F3/F4 — produtividade e UI
+- [ ] Nenhuma operação bloqueia a UI por mais de 100 ms
+- [ ] Toda operação longa é cancelável
+- [ ] Trocar de página preserva os boxes da anterior
+- [ ] Crash com trabalho pendente permite recuperação pelo sidecar
+- [ ] Revisão de uma página de 2.000 caracteres cabe em 15 minutos
+
+O último critério é o que resume o projeto. Hoje ele é inatingível — porque o programa
+não abre.
