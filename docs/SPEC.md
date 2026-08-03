@@ -589,9 +589,23 @@ sozinha — sem Enter. Numa página de 2.000 caracteres, elimina 2.000 teclas.
 
 ### 7.4 Filtros de navegação
 
-- caixa de busca por caractere
-- alternadores: só vazios / só abaixo do limiar / só de uma fonte específica
-- `F3` / `Shift+F3` — próximo/anterior **dentro do filtro ativo**
+**Implementados na F3.3.**
+
+- [feito] caixa de busca por caractere (`Ctrl+F` foca nela)
+- [feito] alternadores: só pendentes / só vazios / por origem
+- [feito] `F3` / `Shift+F3` — próximo/anterior pendente dentro do filtro ativo,
+  circular
+- [feito] contador "mostrando N de M"
+
+**Contrato que não pode ser quebrado:** com filtro ativo a lista deixa de mapear 1:1
+com `self.boxes`. Toda conversão passa por `_visiveis` (índices dos boxes exibidos) e
+`linha_do_box()`. Confundir linha de lista com índice de box faz o usuário editar o
+caractere errado sem perceber — é o modo de falha mais perigoso desta parte da UI.
+
+A busca trata o texto digitado como **conjunto** de caracteres, não como substring:
+num editor onde cada box tem um caractere só, "aeiou" achar qualquer vogal é mais útil
+que casar substrings. Diferencia maiúscula de minúscula porque o OCR diferencia
+(`upper_A` e `lower_a` são classes distintas).
 
 ### 7.5 Aplicar a todos os semelhantes
 

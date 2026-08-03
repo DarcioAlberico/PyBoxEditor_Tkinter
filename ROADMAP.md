@@ -24,7 +24,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.2 e F3.7 feitas) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.2, F3.3 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
@@ -322,7 +322,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 |---|----------|---------|
 | F3.1 | **Modo digitação contínua** — tecla aplica e avança sozinha, sem Enter | Corta metade das teclas |
 | F3.2 | ~~Cor por confiança~~ — **CONCLUÍDA** | O olho vai direto ao suspeito |
-| F3.3 | **Filtros na lista** — só vazios / só baixa confiança / busca por caractere | Revisar 80 boxes em vez de 2.000 |
+| F3.3 | ~~Filtros na lista~~ — **CONCLUÍDA** | Revisar 80 boxes em vez de 2.000 |
 | F3.4 | **Autosave** a cada N alterações + recuperação de crash | O `crash_log.txt` existe por um motivo |
 | F3.5 | **Atalhos** — Ctrl+S, Ctrl+O, PgUp/PgDn (páginas), Tab/Shift+Tab | Fluxo sem mouse |
 | F3.6 | **Aplicar a todos os semelhantes** — corrigiu um `e`, corrige os 300 iguais | Ganho de ordem de grandeza |
@@ -352,6 +352,28 @@ Tesseract não tem onde guardá-la. Os boxes voltam como "sem informação", que
 comportamento honesto. Persistir isso é natural na F3.4, junto do sidecar de autosave.
 
 Cobertura: `tests/test_f32_confianca.py`, 12 testes.
+
+**F3.3 — concluída em 2026-08-03.** Painel de filtros na barra lateral (busca por
+caractere, só pendentes, só vazios, por origem), contador "mostrando N de M", e
+`F3`/`Shift+F3` para saltar entre pendências, com volta ao chegar na ponta.
+
+Medido na página real: **416 de 764 boxes** entram no filtro "só pendentes" — é a
+diferença entre reler a página inteira e conferir o que está duvidoso.
+
+O risco desta fase era estrutural: com filtro, a lista deixa de mapear 1:1 com
+`self.boxes`. Um erro no mapeamento linha→índice faria o usuário editar o caractere
+errado sem perceber. Toda seleção passa por `linha_do_box()` / `_visiveis`, e há teste
+dedicado (`test_clicar_na_lista_filtrada_seleciona_o_box_certo`).
+
+Detalhe que os testes pegaram: `"" in "a"` é verdadeiro em Python, então boxes vazios
+passavam por qualquer busca de caractere. A busca trata o texto digitado como conjunto
+("e" acha os 'e', "aeiou" acha qualquer vogal) e diferencia maiúscula de minúscula,
+porque o OCR também diferencia.
+
+Corrigir um box com "só pendentes" ativo o tira da lista; a lista encolhe e o cursor
+fica na mesma posição, que já é o próximo pendente — sem pular nenhum.
+
+Cobertura: `tests/test_f33_filtros.py`, 18 testes.
 
 **F3.7 — concluída em 2026-08-03.** `_load_pdf_page` fazia `self.boxes = []` sem aviso
 nem confirmação: navegar para a próxima página apagava tudo que havia sido digitado,
@@ -535,6 +557,7 @@ apostar.
 [FEITO] F4.1  threads                  ← precisa vir antes de F3
 [FEITO] F4.2  barra de status
 [FEITO] F3.2  cor por confiança        ← habilita F3.3 e F1.7
+[FEITO] F3.3  filtros e navegação
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino

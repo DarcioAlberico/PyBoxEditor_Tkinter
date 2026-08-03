@@ -30,6 +30,10 @@ NAGS = [
 
 
 class MainWindow(tk.Frame):
+
+    ORIGEM_TODAS = "(todas)"
+    ORIGEM_VAZIA = "(sem)"
+
     def __init__(self, parent):
         super().__init__(parent)
 
@@ -39,6 +43,10 @@ class MainWindow(tk.Frame):
         self.boxes = []            # lista de BoxEntry da página atual
         self.selected_index = -1
         self.current_pdf_page = 0
+
+        # Índices dos boxes visíveis na lista. Com filtro ativo a lista deixa
+        # de mapear 1:1 com self.boxes, e toda seleção precisa passar por aqui.
+        self._visiveis = []
 
         # Documento aberto: guarda os boxes de todas as páginas visitadas
         # e o que ainda não foi gravado em disco.
@@ -217,8 +225,51 @@ class MainWindow(tk.Frame):
         sidebar.rowconfigure(0, weight=1)
         sidebar.columnconfigure(0, weight=1)
 
+        sidebar.rowconfigure(0, weight=0)
+        sidebar.rowconfigure(1, weight=1)
+
+        # --- Filtros -------------------------------------------------
+        self.var_busca = tk.StringVar()
+        self.var_so_pendentes = tk.BooleanVar(value=False)
+        self.var_so_vazios = tk.BooleanVar(value=False)
+        self.var_origem = tk.StringVar(value=self.ORIGEM_TODAS)
+
+        filtros = tk.LabelFrame(sidebar, text="Filtrar")
+        filtros.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
+
+        linha1 = tk.Frame(filtros)
+        linha1.pack(fill="x", padx=2, pady=1)
+        tk.Label(linha1, text="Caractere:").pack(side="left")
+        self.entry_busca = tk.Entry(linha1, textvariable=self.var_busca, width=8)
+        self.entry_busca.pack(side="left", padx=3)
+        tk.Button(linha1, text="Limpar", command=self.limpar_filtros,
+                  padx=2).pack(side="left")
+
+        tk.Checkbutton(filtros, text="só pendentes", variable=self.var_so_pendentes,
+                       command=self.on_boxes_changed_view).pack(anchor="w", padx=2)
+        tk.Checkbutton(filtros, text="só vazios", variable=self.var_so_vazios,
+                       command=self.on_boxes_changed_view).pack(anchor="w", padx=2)
+
+        linha2 = tk.Frame(filtros)
+        linha2.pack(fill="x", padx=2, pady=1)
+        tk.Label(linha2, text="Origem:").pack(side="left")
+        self.combo_origem = ttk.Combobox(linha2, textvariable=self.var_origem,
+                                         width=12, state="readonly",
+                                         values=[self.ORIGEM_TODAS])
+        self.combo_origem.pack(side="left", padx=3)
+        self.combo_origem.bind("<<ComboboxSelected>>",
+                               lambda e: self.on_boxes_changed_view())
+
+        self.lbl_filtro = tk.Label(filtros, text="", fg="gray20")
+        self.lbl_filtro.pack(anchor="w", padx=2)
+
+        # Filtrar a cada tecla: com 2.000 boxes o custo é irrelevante perto do
+        # ganho de ver o resultado enquanto digita.
+        self.var_busca.trace_add("write", lambda *a: self.on_boxes_changed_view())
+
+        # --- Lista ---------------------------------------------------
         frame_list = tk.Frame(sidebar)
-        frame_list.grid(row=0, column=0, sticky="ns")
+        frame_list.grid(row=1, column=0, sticky="ns")
 
         scrollbar = tk.Scrollbar(frame_list, orient="vertical")
         scrollbar.pack(side="right", fill="y")
@@ -377,6 +428,11 @@ class MainWindow(tk.Frame):
         root.bind("<Control-S>", lambda e: (self.save_all_pages(), "break")[1])
         root.bind("<Prior>", lambda e: (self.prev_page(), "break")[1])
         root.bind("<Next>", lambda e: (self.next_page(), "break")[1])
+        root.bind("<F3>", lambda e: self.proximo_pendente(1))
+        root.bind("<Shift-F3>", lambda e: self.proximo_pendente(-1))
+        root.bind("<Control-f>", lambda e: (self.entry_busca.focus_set(),
+                                            self.entry_busca.select_range(0, "end"),
+                                            "break")[2])
         root.bind("<Control-z>", self._on_key_undo)
         root.bind("<Control-y>", self._on_key_redo)
         root.bind("<Control-Z>", self._on_key_redo)  # Shift+Ctrl+Z fallback
@@ -804,28 +860,95 @@ class MainWindow(tk.Frame):
     # Sidebar / seleção
     # -------------------------------------------------------
 
-    def update_sidebar(self):
-        self.listbox.delete(0, "end")
+    def boxes_visiveis(self):
+        """
+        Índices dos boxes que passam pelo filtro ativo.
+
+        A busca por caractere trata o texto digitado como um *conjunto*: "e"
+        acha os 'e', e "aeiou" acha qualquer vogal. É mais útil que substring
+        num editor onde cada box tem um caractere só. Diferencia maiúscula de
+        minúscula, porque o OCR também diferencia.
+        """
+        termo = self.var_busca.get().strip()
+        so_pendentes = self.var_so_pendentes.get()
+        so_vazios = self.var_so_vazios.get()
+        origem = self.var_origem.get()
+
+        visiveis = []
         for i, b in enumerate(self.boxes):
+            if so_vazios and b.char:
+                continue
+            if so_pendentes and not conf_ui.precisa_revisao(b):
+                continue
+            if origem != self.ORIGEM_TODAS and (b.source or self.ORIGEM_VAZIA) != origem:
+                continue
+            # Cuidado: `"" in "a"` é verdadeiro em Python, então sem o teste de
+            # b.char todo box vazio passaria por qualquer busca de caractere.
+            if termo and (not b.char or b.char not in termo):
+                continue
+            visiveis.append(i)
+        return visiveis
+
+    def limpar_filtros(self):
+        self.var_so_pendentes.set(False)
+        self.var_so_vazios.set(False)
+        self.var_origem.set(self.ORIGEM_TODAS)
+        self.var_busca.set("")          # o trace já redesenha a lista
+
+    def on_boxes_changed_view(self):
+        """Só o filtro mudou: redesenha lista e canvas, sem tocar no documento."""
+        self.update_sidebar()
+        self.update_canvas()
+
+    def _atualizar_origens(self):
+        """Mantém o combo com as origens que existem na página."""
+        presentes = sorted({b.source or self.ORIGEM_VAZIA for b in self.boxes})
+        valores = [self.ORIGEM_TODAS] + presentes
+        if list(self.combo_origem["values"]) != valores:
+            self.combo_origem["values"] = valores
+        if self.var_origem.get() not in valores:
+            self.var_origem.set(self.ORIGEM_TODAS)
+
+    def update_sidebar(self):
+        self._atualizar_origens()
+        self._visiveis = self.boxes_visiveis()
+
+        self.listbox.delete(0, "end")
+        for linha, i in enumerate(self._visiveis):
+            b = self.boxes[i]
             disp_ch = b.char if b.char else "?"
             self.listbox.insert(
                 "end", f"{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})")
             # A mesma escala do canvas, para o olho não ter que traduzir.
-            self.listbox.itemconfig(i, foreground=conf_ui.cor_do_box(b))
+            self.listbox.itemconfig(linha, foreground=conf_ui.cor_do_box(b))
 
-        if 0 <= self.selected_index < len(self.boxes):
-            self.listbox.select_set(self.selected_index)
-            self.listbox.see(self.selected_index)
+        linha = self.linha_do_box(self.selected_index)
+        if linha is not None:
+            self.listbox.select_set(linha)
+            self.listbox.see(linha)
 
         self._atualizar_contadores()
+
+    def linha_do_box(self, indice):
+        """Linha da lista que mostra o box de índice `indice` (None se filtrado)."""
+        try:
+            return self._visiveis.index(indice)
+        except ValueError:
+            return None
 
     def _atualizar_contadores(self):
         """Quantos boxes ainda pedem revisão. É o que diz se a página acabou."""
         if not self.boxes:
             self.lbl_revisao.config(text="")
+            self.lbl_filtro.config(text="")
             return
-        pendentes = sum(1 for b in self.boxes if conf_ui.precisa_revisao(b))
         total = len(self.boxes)
+        mostrando = len(self._visiveis)
+        self.lbl_filtro.config(
+            text=("mostrando todos os %d" % total) if mostrando == total
+            else "mostrando %d de %d" % (mostrando, total))
+
+        pendentes = sum(1 for b in self.boxes if conf_ui.precisa_revisao(b))
         if pendentes:
             self.lbl_revisao.config(
                 text=f"{pendentes} de {total} a revisar", fg=conf_ui.COR_BAIXA)
@@ -851,10 +974,13 @@ class MainWindow(tk.Frame):
         self.update_canvas()
 
     def on_sidebar_select(self, event):
-        if not self.listbox.curselection():
+        sel = self.listbox.curselection()
+        if not sel:
             return
-        idx = self.listbox.curselection()[0]
-        self.select_box(idx)
+        linha = sel[0]
+        if 0 <= linha < len(self._visiveis):
+            # A linha da lista não é o índice do box quando há filtro ativo.
+            self.select_box(self._visiveis[linha])
 
     # -------------------------------------------------------
     # Mutação (undo/redo support)
@@ -909,11 +1035,24 @@ class MainWindow(tk.Frame):
         self.update_canvas()
 
     def apply_char_and_next(self):
-        self.apply_char()
-        if not self.boxes:
+        anterior = self.selected_index
+        linha_antes = self.linha_do_box(anterior)
+
+        self.apply_char()          # aplica e refiltra a lista
+        if not self.boxes or not self._visiveis:
             return
-        idx = min(len(self.boxes) - 1, self.selected_index + 1)
-        self.select_box(idx)
+
+        linha = self.linha_do_box(anterior)
+        if linha is not None:
+            # o box continua visível: seguir para o de baixo
+            proxima = linha + 1
+        else:
+            # corrigi-lo o tirou do filtro (ex.: "só pendentes"); a lista
+            # encolheu e a mesma posição já é o próximo item
+            proxima = linha_antes if linha_antes is not None else 0
+
+        proxima = max(0, min(len(self._visiveis) - 1, proxima))
+        self.select_box(self._visiveis[proxima])
         self.char_entry.focus_set()
         self.char_entry.select_range(0, "end")
 
@@ -1158,18 +1297,55 @@ class MainWindow(tk.Frame):
     # Key handlers
     # -------------------------------------------------------
 
+    def _mover_selecao(self, passo):
+        """Anda pela lista *visível* — com filtro ativo, pular os escondidos
+        seria confuso: o usuário navega o que está vendo."""
+        vis = self._visiveis
+        if not vis:
+            return
+        linha = self.linha_do_box(self.selected_index)
+        if linha is None:
+            linha = 0
+        else:
+            linha = max(0, min(len(vis) - 1, linha + passo))
+        self.select_box(vis[linha])
+
+    def proximo_pendente(self, direcao=1):
+        """
+        Pula para o próximo box que pede revisão, dentro do filtro ativo.
+
+        É o que transforma "reler 2.000 caracteres" em "conferir os 80 duvidosos":
+        os verdes são pulados. Dá a volta ao chegar na ponta.
+        """
+        pendentes = [i for i in self._visiveis
+                     if conf_ui.precisa_revisao(self.boxes[i])]
+        if not pendentes:
+            self.status.set("Nada pendente na lista atual.")
+            return "break"
+
+        atual = self.selected_index
+        if direcao > 0:
+            alvo = next((i for i in pendentes if i > atual), pendentes[0])
+        else:
+            anteriores = [i for i in pendentes if i < atual]
+            alvo = anteriores[-1] if anteriores else pendentes[-1]
+
+        self.select_box(alvo)
+        self.status.set(f"Pendente {pendentes.index(alvo) + 1} de {len(pendentes)}.")
+        self.char_entry.focus_set()
+        self.char_entry.select_range(0, "end")
+        return "break"
+
     def _on_key_up(self, event):
         if not self.boxes:
             return "break"
-        idx = max(0, self.selected_index - 1)
-        self.select_box(idx)
+        self._mover_selecao(-1)
         return "break"
 
     def _on_key_down(self, event):
         if not self.boxes:
             return "break"
-        idx = min(len(self.boxes) - 1, self.selected_index + 1)
-        self.select_box(idx)
+        self._mover_selecao(1)
         return "break"
 
     def _on_key_delete(self, event):
