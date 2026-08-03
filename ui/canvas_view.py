@@ -3,6 +3,7 @@ from typing import Tuple
 from PIL import ImageTk, Image
 
 from core.box_model import BoxEntry
+from ui.confidence import cor_do_box, COR_SELECAO
 
 
 class CanvasView(tk.Canvas):
@@ -289,7 +290,7 @@ class CanvasView(tk.Canvas):
             y1, y2 = sorted((int(y1), int(y2)))
 
             if x2 - x1 > 3 and y2 - y1 > 3:
-                self.controller.boxes.append(BoxEntry("?", x1, y1, x2, y2))
+                self.controller.boxes.append(BoxEntry("", x1, y1, x2, y2))
                 self.controller.select_box(len(self.controller.boxes) - 1)
                 self.controller.on_boxes_changed()
 
@@ -410,11 +411,15 @@ class CanvasView(tk.Canvas):
             x1, y1 = self.img_to_canvas(b.x1, b.y1)
             x2, y2 = self.img_to_canvas(b.x2, b.y2)
 
-            color = "yellow" if i == sel else "red"
+            # A cor carrega a confiança do reconhecimento; a seleção é marcada
+            # pela espessura e pelos handles amarelos, para não esconder o dado.
+            color = cor_do_box(b)
             width = 3 if i == sel else 2
-            
-            # Desenha o box
-            self.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+
+            self.create_rectangle(
+                x1, y1, x2, y2, outline=color, width=width,
+                dash=(3, 3) if not b.char else None,
+            )
 
             # --- FEATURES EXTRAS DE SELECAO ---
             if i == sel:
@@ -427,7 +432,7 @@ class CanvasView(tk.Canvas):
                 ]:
                     self.create_rectangle(
                         px - hs, py - hs, px + hs, py + hs,
-                        outline="black", fill="yellow"
+                        outline="black", fill=COR_SELECAO
                     )
                 
                 # 2. Box de preview do caractere abaixo

@@ -24,7 +24,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.7 feita) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.2 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
@@ -321,16 +321,37 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | # | Melhoria | Impacto |
 |---|----------|---------|
 | F3.1 | **Modo digitação contínua** — tecla aplica e avança sozinha, sem Enter | Corta metade das teclas |
-| F3.2 | **Cor por confiança** — vermelho <70%, amarelo <90%, verde ≥90% | O olho vai direto ao suspeito |
+| F3.2 | ~~Cor por confiança~~ — **CONCLUÍDA** | O olho vai direto ao suspeito |
 | F3.3 | **Filtros na lista** — só vazios / só baixa confiança / busca por caractere | Revisar 80 boxes em vez de 2.000 |
 | F3.4 | **Autosave** a cada N alterações + recuperação de crash | O `crash_log.txt` existe por um motivo |
 | F3.5 | **Atalhos** — Ctrl+S, Ctrl+O, PgUp/PgDn (páginas), Tab/Shift+Tab | Fluxo sem mouse |
 | F3.6 | **Aplicar a todos os semelhantes** — corrigiu um `e`, corrige os 300 iguais | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 
-Sobre F3.2: o pipeline **já calcula** a confiança em `fallback_chain` e a descarta em
-`main_window.py:525` (`char, source, _`). O dado mais útil para revisão de OCR está
-sendo jogado fora.
+**F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
+`fallback_chain` e a descartava (`char, source, _`). Agora `BoxEntry` guarda
+`confidence` e `source`, o canvas e a lista lateral pintam por essa escala, e há legenda
+e contador de pendentes.
+
+Três decisões que mudaram o resultado:
+
+- **"Sem informação" não é confiança baixa.** Um box vindo de um `.box` não traz
+  confiança (o formato do Tesseract não guarda isso). Pintá-lo de vermelho diria
+  "confira este" quando o certo é "não sei" — e encheria a tela de falso alarme ao abrir
+  um arquivo salvo. Ganhou cor própria (azul) e fica fora da fila de revisão.
+- **Corrigir um box tem que tirá-lo do vermelho.** Digitar um caractere grava
+  `confidence=1.0, source="manual"`. Sem isso a cor nunca convergiria e a revisão não
+  teria fim visível.
+- **A confiança do EasyOCR era jogada fora**: `fallback_chain` devolvia `0.0` fixo para
+  esse elo (`ocr_service.py:155`), com um comentário dizendo que a lib não fornecia o
+  dado. Fornece — é o terceiro item de cada resultado de `readtext(detail=1)`. O
+  Tesseract também passou a reportar confiança, via `image_to_data`.
+
+Limitação conhecida: salvar e recarregar **perde** a confiança, porque o `.box` do
+Tesseract não tem onde guardá-la. Os boxes voltam como "sem informação", que é o
+comportamento honesto. Persistir isso é natural na F3.4, junto do sidecar de autosave.
+
+Cobertura: `tests/test_f32_confianca.py`, 12 testes.
 
 **F3.7 — concluída em 2026-08-03.** `_load_pdf_page` fazia `self.boxes = []` sem aviso
 nem confirmação: navegar para a próxima página apagava tudo que havia sido digitado,
@@ -513,6 +534,7 @@ apostar.
 [FEITO] F3.7  boxes por página + aviso ← evita perda de trabalho
 [FEITO] F4.1  threads                  ← precisa vir antes de F3
 [FEITO] F4.2  barra de status
+[FEITO] F3.2  cor por confiança        ← habilita F3.3 e F1.7
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino

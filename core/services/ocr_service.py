@@ -38,6 +38,16 @@ class OCRService:
     # ------------------------------------------------------------------
     def tesseract_ocr(self, crop: Image.Image, whitelist: Optional[str] = None) -> str:
         """Roda Tesseract num recorte PIL. Retorna string (pode ser vazia)."""
+        return self.tesseract_ocr_conf(crop, whitelist)[0]
+
+    def tesseract_ocr_conf(self, crop: Image.Image,
+                           whitelist: Optional[str] = None) -> Tuple[str, float]:
+        """
+        Como tesseract_ocr, mas devolve (char, confiança 0..1).
+
+        image_to_data expõe a confiança por token, que image_to_string descarta.
+        O Tesseract reporta -1 quando não classificou nada; nesse caso vale 0.
+        """
         import pytesseract
 
         config = "--psm 10"
@@ -45,16 +55,26 @@ class OCRService:
             config += f" -c tessedit_char_whitelist={whitelist}"
 
         try:
-            text = pytesseract.image_to_string(crop, config=config)
+            dados = pytesseract.image_to_data(
+                crop, config=config, output_type=pytesseract.Output.DICT)
         except Exception:
-            text = ""
+            return "", 0.0
 
-        text = text.strip()
-        if len(text) == 1:
-            return text
-        elif len(text) > 1:
-            return text[0]
-        return ""
+        melhor, melhor_conf = "", 0.0
+        for texto, conf in zip(dados.get("text", []), dados.get("conf", [])):
+            texto = (texto or "").strip()
+            if not texto:
+                continue
+            try:
+                conf = float(conf)
+            except (TypeError, ValueError):
+                conf = -1.0
+            if conf > melhor_conf:
+                melhor, melhor_conf = texto[0], conf
+
+        if not melhor:
+            return "", 0.0
+        return melhor, max(0.0, melhor_conf) / 100.0
 
     # ------------------------------------------------------------------
     # EasyOCR
@@ -69,20 +89,36 @@ class OCRService:
             self._reader = easyocr.Reader(list(languages), gpu=gpu)
         return self._reader
 
-    def easyocr_ocr(self, crop_np: np.ndarray, languages: Tuple[str, ...] = ("en",), gpu: bool = False) -> str:
-        """
-        Roda EasyOCR num recorte numpy.
-        Retorna o primeiro caractere do resultado (ou string vazia).
-        """
-        reader = self._init_easyocr(languages, gpu)
-        processed = preprocess_for_easyocr(crop_np)
-        results = reader.readtext(processed, detail=1)
+    def easyocr_ocr(self, crop_np: np.ndarray, languages: Tuple[str, ...] = ("en",),
+                    gpu: bool = False) -> str:
+        """Primeiro caractere reconhecido (ou string vazia)."""
+        return self.easyocr_ocr_conf(crop_np, languages, gpu)[0]
 
-        if results:
-            text = results[0][1].strip()
-            if text:
-                return text[0]
-        return ""
+    @staticmethod
+    def _primeiro_char_easyocr(resultados) -> Tuple[str, float]:
+        """
+        Extrai (char, confiança) de uma saída de readtext(detail=1).
+
+        Cada item é (bbox, texto, confiança). A confiança era descartada, e o
+        fallback_chain devolvia 0.0 fixo para tudo que viesse do EasyOCR — o
+        que apagava justamente o dado mais útil para revisão. Como o recorte é
+        de um caractere só, a confiança da detecção é a do caractere.
+        """
+        if not resultados:
+            return "", 0.0
+        item = resultados[0]
+        texto = (item[1] or "").strip()
+        if not texto:
+            return "", 0.0
+        conf = float(item[2]) if len(item) > 2 else 0.0
+        return texto[0], max(0.0, min(1.0, conf))
+
+    def easyocr_ocr_conf(self, crop_np: np.ndarray, languages: Tuple[str, ...] = ("en",),
+                         gpu: bool = False) -> Tuple[str, float]:
+        """Roda EasyOCR num recorte numpy. Retorna (char, confiança 0..1)."""
+        reader = self._init_easyocr(languages, gpu)
+        return self._primeiro_char_easyocr(
+            reader.readtext(preprocess_for_easyocr(crop_np), detail=1))
 
     # ------------------------------------------------------------------
     # Neural (Custom CNN)
@@ -146,20 +182,13 @@ class OCRService:
             if conf > learner_threshold:
                 return char, "learner", conf
 
-        # 3. EasyOCR
-        if reader is not None:
-            text = reader.readtext(preprocess_for_easyocr(crop_np), detail=1)
-            if text:
-                txt = text[0][1].strip()
-                if txt:
-                    return txt[0], "easyocr", 0.0  # EasyOCR não dá confiabilidade por caractere aqui
-        else:
-            # fallback: inicializa reader interno
+        # 3. EasyOCR (último elo: aceita o que vier, com a confiança real)
+        if reader is None:
             reader = self._init_easyocr(easyocr_languages, easyocr_gpu)
-            text = reader.readtext(preprocess_for_easyocr(crop_np), detail=1)
-            if text:
-                txt = text[0][1].strip()
-                if txt:
-                    return txt[0], "easyocr", 0.0
+
+        char, conf = self._primeiro_char_easyocr(
+            reader.readtext(preprocess_for_easyocr(crop_np), detail=1))
+        if char:
+            return char, "easyocr", conf
 
         return "", "none", 0.0

@@ -37,8 +37,7 @@ código o tratavam como dict e falhavam em runtime — corrigidos na F0.1, trava
 **Regra:** acesso exclusivamente por atributo. Nada de `b["x1"]` nem `b.get()`.
 (`b.copy()` passou a existir e é o jeito certo de duplicar um box.)
 
-Estado alvo do dataclass — `copy()`, `width` e `height` já foram implementados;
-`confidence` e `source` continuam pendentes (F1/F3):
+Estado do dataclass — implementado por completo (F0.1 e F3.2):
 
 ```python
 from dataclasses import dataclass, replace, field
@@ -66,9 +65,15 @@ class BoxEntry:
         ...
 ```
 
-`confidence` e `source` são o que viabiliza F3.2 e F3.3 do roadmap. O
-`fallback_chain` já produz os dois valores e hoje os descarta
-(`main_window.py:525` faz `char, source, _ = ...`).
+`confidence` e `source` são o que viabiliza F3.2, F3.3 e F1.7. O `fallback_chain` já
+produzia os dois valores e o código os descartava.
+
+`source == ""` significa **sem informação**, não confiança baixa — é o estado de um box
+novo ou carregado de um `.box` (formato que não guarda confiança). A distinção importa:
+tratá-lo como suspeito encheria a tela de falso alarme ao abrir um arquivo salvo.
+
+`source == "manual"` com `confidence = 1.0` é o que a correção do usuário grava. Sem
+isso a cor não convergiria e a revisão não teria fim visível.
 
 **Invariantes** (validar ao construir e após qualquer mutação):
 
@@ -332,10 +337,11 @@ mudanças:
   hoje a confiança é calculada e descartada
 - limiares vêm de configuração, não de literais espalhados
   (0.85/0.85 em `main_window.py:475`, 0.8/0.9 em `main_window.py:530`)
-- EasyOCR retorna `0.0` de confiança (`ocr_service.py:155`) — usar a confiança real
-  que a lib fornece em `results[0][2]`
+- [feito] EasyOCR retornava `0.0` fixo — passou a usar a confiança real de
+  `results[0][2]`. O Tesseract também reporta confiança, via `image_to_data`
+  (`tesseract_ocr_conf`)
 
-`ocr_service.py:150-163` tem os dois ramos do `if reader` duplicados. Unificar.
+[feito] Os dois ramos duplicados do `if reader` em `ocr_service` foram unificados.
 
 ### 5.2 Dados de treino — saneamento obrigatório
 
@@ -560,7 +566,8 @@ errado. A navegação passa o índice de destino como argumento e quem atualiza 
 
 ### 7.2 Confiança visível
 
-O dado mais útil para revisão de OCR já é calculado e jogado fora hoje.
+**Implementada na F3.2** — `ui/confidence.py` centraliza limiares, cores e o teste
+`precisa_revisao()`, usado pelo canvas, pela lista lateral e pelo contador.
 
 | Confiança | Cor do box | Significado |
 |-----------|-----------|-------------|
@@ -568,6 +575,7 @@ O dado mais útil para revisão de OCR já é calculado e jogado fora hoje.
 | 0.70–0.89 | amarelo | conferir |
 | < 0.70 | vermelho | conferir obrigatoriamente |
 | vazio | cinza tracejado | não reconhecido |
+| sem informação | azul | não avaliado (ex.: carregado de `.box`) |
 
 Mesma escala na lista lateral. É isso que transforma "reler 2.000 caracteres" em
 "conferir 80".

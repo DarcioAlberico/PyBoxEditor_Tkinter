@@ -16,6 +16,15 @@ class BoxEntry:
     x2: int
     y2: int
 
+    # De onde veio o caractere e o quanto se confia nele. É o que permite
+    # colorir os boxes por confiança e revisar só os duvidosos.
+    #   source == ""  -> sem informação (box novo, ou carregado de um .box,
+    #                    que não guarda confiança). Não é o mesmo que confiança
+    #                    baixa: é "não avaliado".
+    #   source == "manual" -> o usuário digitou; confiança 1.0, é autoridade.
+    confidence: float = 0.0
+    source: str = ""
+
     def as_tuple(self):
         return (self.char, self.x1, self.y1, self.x2, self.y2)
 

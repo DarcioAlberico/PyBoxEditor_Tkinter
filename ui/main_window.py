@@ -18,6 +18,7 @@ from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
 from ui.status_bar import StatusBar
+from ui import confidence as conf_ui
 
 
 NAGS = [
@@ -278,6 +279,16 @@ class MainWindow(tk.Frame):
 
         self.btn_next_page = tk.Button(self.nav_frame, text="Próxima Página >>", command=self.next_page, state="disabled")
         self.btn_next_page.pack(side="left", padx=10)
+
+        # Legenda da escala de confiança — sem ela as cores são adivinhação.
+        legenda = tk.Frame(self.nav_frame)
+        legenda.pack(side="left", padx=20)
+        for cor, texto in conf_ui.LEGENDA:
+            tk.Label(legenda, text="\u25a0", fg=cor).pack(side="left")
+            tk.Label(legenda, text=texto, fg="gray20").pack(side="left", padx=(0, 8))
+
+        self.lbl_revisao = tk.Label(self.nav_frame, text="", fg="gray20")
+        self.lbl_revisao.pack(side="left", padx=10)
 
         # Barra de status: mensagem + progresso + cancelar
         self.status = StatusBar(self, on_cancel=self.task.cancel)
@@ -685,8 +696,10 @@ class MainWindow(tk.Frame):
         def aplicar(saida):
             resultados = saida["resultados"]
             fontes = {}
-            for b, (char, fonte) in zip(self.boxes, resultados):
+            for b, (char, fonte, conf) in zip(self.boxes, resultados):
                 b.char = char
+                b.source = fonte if char else ""
+                b.confidence = conf
                 fontes[fonte] = fontes.get(fonte, 0) + 1
 
             self._commit_change()
@@ -706,8 +719,9 @@ class MainWindow(tk.Frame):
 
         def preparar(h):
             def classificar(crop):
-                ch = self.ocr_service.tesseract_ocr(Image.fromarray(crop), whitelist)
-                return (ch, "tesseract")
+                ch, c = self.ocr_service.tesseract_ocr_conf(
+                    Image.fromarray(crop), whitelist)
+                return (ch, "tesseract" if ch else "vazio", c)
             return classificar
 
         self._preencher_boxes(
@@ -718,8 +732,8 @@ class MainWindow(tk.Frame):
     def auto_fill_characters_easyocr(self):
         def preparar(h):
             def classificar(crop):
-                ch = self.ocr_service.easyocr_ocr(crop)
-                return (ch, "easyocr" if ch else "vazio")
+                ch, c = self.ocr_service.easyocr_ocr_conf(crop)
+                return (ch, "easyocr" if ch else "vazio", c)
             return classificar
 
         self._preencher_boxes(
@@ -743,11 +757,13 @@ class MainWindow(tk.Frame):
             learner = self.learning_service._get_learner()
 
             def classificar(crop):
-                char, fonte, _ = self.ocr_service.fallback_chain(
+                char, fonte, c = self.ocr_service.fallback_chain(
                     crop, learner=learner,
                     neural_threshold=0.85, learner_threshold=0.85,
                 )
-                return (char if fonte in ("learner", "easyocr") else "", fonte)
+                if fonte not in ("learner", "easyocr"):
+                    return ("", "vazio", 0.0)
+                return (char, fonte, c)
             return classificar
 
         self._preencher_boxes(
@@ -770,11 +786,11 @@ class MainWindow(tk.Frame):
             predictor = self.learning_service._predictor
 
             def classificar(crop):
-                char, fonte, _ = self.ocr_service.fallback_chain(
+                char, fonte, c = self.ocr_service.fallback_chain(
                     crop, predictor=predictor, learner=learner,
                     neural_threshold=0.8, learner_threshold=0.9,
                 )
-                return (char, fonte)
+                return (char, fonte, c)
             return classificar
 
         self._preencher_boxes(
@@ -791,14 +807,31 @@ class MainWindow(tk.Frame):
     def update_sidebar(self):
         self.listbox.delete(0, "end")
         for i, b in enumerate(self.boxes):
-            ch = b.char
-            disp_ch = ch if ch else "?"
-            line = f"{i:04d}: '{disp_ch}' @ ({b.x1},{b.y1})-({b.x2},{b.y2})"
-            self.listbox.insert("end", line)
+            disp_ch = b.char if b.char else "?"
+            self.listbox.insert(
+                "end", f"{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})")
+            # A mesma escala do canvas, para o olho não ter que traduzir.
+            self.listbox.itemconfig(i, foreground=conf_ui.cor_do_box(b))
 
         if 0 <= self.selected_index < len(self.boxes):
             self.listbox.select_set(self.selected_index)
             self.listbox.see(self.selected_index)
+
+        self._atualizar_contadores()
+
+    def _atualizar_contadores(self):
+        """Quantos boxes ainda pedem revisão. É o que diz se a página acabou."""
+        if not self.boxes:
+            self.lbl_revisao.config(text="")
+            return
+        pendentes = sum(1 for b in self.boxes if conf_ui.precisa_revisao(b))
+        total = len(self.boxes)
+        if pendentes:
+            self.lbl_revisao.config(
+                text=f"{pendentes} de {total} a revisar", fg=conf_ui.COR_BAIXA)
+        else:
+            self.lbl_revisao.config(text=f"{total} boxes, nada pendente",
+                                    fg=conf_ui.COR_ALTA)
 
     def update_canvas(self):
         self.canvas.redraw()
@@ -864,7 +897,13 @@ class MainWindow(tk.Frame):
         ch = self.char_entry.get()
         if not ch:
             ch = ""
-        self.boxes[self.selected_index].char = ch
+
+        b = self.boxes[self.selected_index]
+        b.char = ch
+        # O usuário é autoridade: corrigir um box tem que tirá-lo do vermelho,
+        # senão a cor nunca converge e a revisão não tem fim visível.
+        b.confidence = 1.0
+        b.source = "manual" if ch else ""
         self._commit_change()
         self.update_sidebar()
         self.update_canvas()
