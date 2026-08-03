@@ -197,11 +197,68 @@ isso perde caracteres inteiros nas bordas.
 Detalhe irônico: `core/opencv_autobox.py:17` **já implementa Otsu** com filtros de
 tamanho melhores. O arquivo nunca é importado. Está morto.
 
+### F1.7 — Validar notação contra as regras do xadrez
+
+Ideia trazida do [DocuVision-AI](https://github.com/betulkizilkaya/DocuVision-AI)
+(MIT, projeto acadêmico), avaliado em 2026-08-03. Era o único item realmente aplicável
+daquele projeto ao nosso.
+
+Eles usam `python-chess` para pontuar qual bloco de texto da página é a notação. Para
+nós o uso mais forte é outro: **desambiguar caracteres de baixa confiança**. Se a rede
+hesita entre dois candidatos, o tabuleiro decide qual é possível.
+
+Verificado aqui:
+
+| Confusão típica de OCR | Candidatos | Legal na posição |
+|---|---|---|
+| `b` ↔ `h` (glifos parecidos) | `Bb4` / `Bh4` | só `Bb4` |
+| `3` ↔ `8` | `Nf3` / `Nf8` | só `Nf3` |
+| `N` ↔ `R` (altos e estreitos) | `Nf3` / `Rf3` | só `Nf3` |
+| linha inexistente | `Qh5` / `Qh9` | só `Qh5` |
+
+Numa posição típica (após 1.e4 e5 2.Nf3 Nc6) há **27 lances legais**, contra centenas de
+notações que o OCR poderia produzir. A legalidade descarta a maioria esmagadora das
+leituras erradas — de graça, sem treino.
+
+Não resolve tudo: `Nbd2` e `Nfd2` podem ser ambos legais na mesma posição. A legalidade
+**estreita** o conjunto, nem sempre decide.
+
+Depende de: F3.2 (confiança gravada no `BoxEntry`) — sem saber quais caracteres são
+duvidosos, não há o que desambiguar.
+
+Custo: `python-chess` (5,9 MB, Python puro, sem dependências).
+
+**Não copiar o código deles.** O `fix_chess_moves` do DocuVision é o oposto do que
+queremos:
+
+```python
+text = re.sub(r"2d3", "Bd3", text)
+text = re.sub(r"2e7", "Ne7", text)
+```
+
+São remendos decorados para os erros de um corpus específico — frágeis e intransferíveis.
+A versão principiada é justamente o teste de legalidade.
+
+### F1.8 — Mascarar diagramas antes de detectar boxes
+
+Também sugerido pela leitura do DocuVision (`mask_board_regions`). Hoje só tratamos
+diagramas em PDF de **texto** (`is_block_a_diagram`); em página escaneada, o tabuleiro
+vira milhares de boxes de lixo — o pipeline de lote apenas descarta boxes acima de 150 px,
+o que não pega as casas individuais.
+
+Detectar a região do tabuleiro e mascará-la antes da detecção de contornos evita o
+problema na origem. Não é preciso YOLO (que o DocuVision usa): análise de contornos e
+detecção de linhas com Hough bastam para uma grade 8×8.
+
 ### F1.6 — Ordenação de leitura ignora colunas
 
 `sort_boxes_reading_order` (`box_service.py:36`) agrupa por sobreposição vertical.
 Livros de xadrez são fortemente diagramados, muitos em duas colunas. O algoritmo vai
 intercalar as colunas linha a linha, produzindo texto embaralhado.
+
+O DocuVision confirma que o problema é real, mas a solução dele não vale a cópia: mede a
+brancura de uma faixa fixa (42%–58% da largura) e assume duas colunas iguais. Um perfil de
+projeção vertical acha as calhas em qualquer posição e com qualquer número de colunas.
 
 ---
 
@@ -482,8 +539,8 @@ usuário. Vale fazer isolado, hoje, antes de qualquer planejamento maior.
 
 - Extração de FEN dos diagramas (a spec v1.0 §3 já marca como fase posterior)
 - Exportação PGN da notação reconhecida
-- Modelo de linguagem sobre notação de xadrez para corrigir OCR por contexto
-  (`Nf3` é válido, `Nf9` não — corretor gratuito de alta precisão)
+- ~~Modelo de linguagem sobre notação de xadrez~~ — **promovido para F1.7** depois de
+  avaliar o DocuVision-AI (ver abaixo)
 - Substituição do k-NN linear de `CharacterLearner` (varre 127k referências por
   predição — O(n) por caractere) por índice FAISS/KD-tree
 - Empacotamento com PyInstaller
