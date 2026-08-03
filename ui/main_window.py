@@ -238,11 +238,14 @@ class MainWindow(tk.Frame):
         self.boxes = []
         self.selected_index = -1
 
+        # Zerar o histórico ao trocar de documento: sem isso, um undo logo após
+        # abrir traria de volta os boxes da imagem anterior.
+        self.history.reset()
+
         box_path = os.path.splitext(path)[0] + ".box"
         if os.path.exists(box_path):
             self._load_box_from_path(box_path)
         else:
-            self.history.reset()
             self.history.snapshot(self.boxes, self.selected_index)
             self.update_sidebar()
             self.update_canvas()
@@ -275,6 +278,12 @@ class MainWindow(tk.Frame):
             self.image_path = f"{os.path.basename(self.pdf_service.pdf_path)} [Pág {page_index+1}]"
             self.boxes = []
             self.selected_index = -1
+
+            # Cada página é um documento novo para efeito de undo. Sem este reset,
+            # um Ctrl+Z após virar a página despejaria os boxes da página anterior
+            # sobre a atual.
+            self.history.reset()
+            self.history.snapshot(self.boxes, self.selected_index)
 
             self.update_sidebar()
             self.update_canvas()
@@ -320,8 +329,8 @@ class MainWindow(tk.Frame):
             messagebox.showinfo("Aviso", "Carregue uma imagem primeiro.")
             return
 
-        self.history.snapshot(self.boxes, self.selected_index)
         self.boxes = self.box_service.generate_boxes_opencv(self.image)
+        self.history.snapshot(self.boxes, self.selected_index)
         self.update_canvas()
         self.update_sidebar()
 
@@ -566,7 +575,7 @@ class MainWindow(tk.Frame):
         for i, b in enumerate(self.boxes):
             ch = b.char
             disp_ch = ch if ch else "?"
-            line = f"{i:04d}: '{disp_ch}' @ ({b['x1']},{b['y1']})-({b['x2']},{b['y2']})"
+            line = f"{i:04d}: '{disp_ch}' @ ({b.x1},{b.y1})-({b.x2},{b.y2})"
             self.listbox.insert("end", line)
 
         if 0 <= self.selected_index < len(self.boxes):
@@ -600,15 +609,17 @@ class MainWindow(tk.Frame):
     # Mutação (undo/redo support)
     # -------------------------------------------------------
 
-    def on_mutation_start(self):
-        """
-        Chamado pelo CanvasView antes de uma operação mutável (move, resize, novo box).
-        Salva snapshot para undo.
-        """
-        if hasattr(self, 'history'):
-            self.history.snapshot(self.boxes, self.selected_index)
-
     def on_boxes_changed(self):
+        """
+        Chamado pelo CanvasView DEPOIS de concluir uma mutação (move, resize, novo box).
+
+        Regra única do histórico: snapshot sempre APÓS a mutação. O estado inicial
+        é gravado ao abrir o arquivo, então o estado anterior a qualquer operação já
+        está no histórico e o undo tem para onde voltar. O padrão antigo gravava
+        antes da mutação, e por isso o estado novo nunca entrava no histórico — o
+        redo devolvia o estado velho e a alteração se perdia.
+        """
+        self.history.snapshot(self.boxes, self.selected_index)
         self.update_sidebar()
         self.update_canvas()
 
@@ -771,20 +782,20 @@ class MainWindow(tk.Frame):
         b = self.boxes[self.selected_index]
         b1, b2 = self.box_service.split_box(b)
 
-        self.history.snapshot(self.boxes, self.selected_index)
         self.boxes.pop(self.selected_index)
         self.boxes.insert(self.selected_index, b2)
         self.boxes.insert(self.selected_index, b1)
+        self.history.snapshot(self.boxes, self.selected_index)
 
         self.select_box(self.selected_index)
 
     def delete_selected_box(self):
         if self.selected_index < 0 or self.selected_index >= len(self.boxes):
             return
-        self.history.snapshot(self.boxes, self.selected_index)
         self.boxes.pop(self.selected_index)
         if self.selected_index >= len(self.boxes):
             self.selected_index = len(self.boxes) - 1
+        self.history.snapshot(self.boxes, self.selected_index)
         self.update_sidebar()
         self.update_canvas()
 

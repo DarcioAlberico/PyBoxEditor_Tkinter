@@ -6,6 +6,7 @@ import glob
 from typing import List, Tuple, Optional, Callable
 from PIL import Image
 
+from core.box_model import BoxEntry
 from core.learner import CharacterLearner, char_to_folder
 from core.neural_trainer import NeuralTrainer, NeuralPredictor
 
@@ -39,7 +40,7 @@ class LearningService:
             self._learner = CharacterLearner(self.data_dir)
         return self._learner
 
-    def learn_from_boxes(self, image: Image.Image, boxes: List[dict]) -> int:
+    def learn_from_boxes(self, image: Image.Image, boxes: List[BoxEntry]) -> int:
         """
         Adiciona todos os boxes que têm caractere definido à base de conhecimento.
         Retorna quantidade de amostras adicionadas.
@@ -49,15 +50,13 @@ class LearningService:
         img = image
 
         for b in boxes:
-            char = b.get("char", "")
-            if not char:
+            if not b.char:
                 continue
 
-            x1, y1, x2, y2 = b["x1"], b["y1"], b["x2"], b["y2"]
-            crop = img.crop((x1, y1, x2, y2))
+            crop = img.crop((b.x1, b.y1, b.x2, b.y2))
             crop_np = np.array(crop)
 
-            learner.learn(crop_np, char)
+            learner.learn(crop_np, b.char)
             count += 1
 
         return count
@@ -134,14 +133,14 @@ class LearningService:
                     continue
                 if w > 150 or h > 150:
                     continue  # ignorar diagramas grandes
-                page_boxes.append({"char": "", "x1": x, "y1": y, "x2": x + w, "y2": y + h})
+                page_boxes.append(BoxEntry("", x, y, x + w, y + h))
 
-            page_boxes.sort(key=lambda b: (b["y1"], b["x1"]))
+            page_boxes.sort(key=lambda b: (b.y1, b.x1))
             page_boxes = BoxService.merge_vertical_boxes(page_boxes)
             page_boxes = BoxService.sort_boxes_reading_order(page_boxes)
 
             for b in page_boxes:
-                crop = pil_gray.crop((b["x1"], b["y1"], b["x2"], b["y2"]))
+                crop = pil_gray.crop((b.x1, b.y1, b.x2, b.y2))
                 crop_np = np.array(crop)
 
                 char, _ = predictor.predict(crop_np)

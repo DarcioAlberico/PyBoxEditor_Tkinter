@@ -19,22 +19,30 @@ runtime bloqueiam o caminho principal, e a funcionalidade-carro-chefe
 
 Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos por leitura.
 
-| Fase | Tema | Resultado esperado |
-|------|------|--------------------|
-| **F0** | Desbloqueio | O app abre, edita e salva sem exceção |
-| **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando |
-| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável |
-| **F4** | UI | Interface responsiva, sem congelar |
-| **F5** | Higiene | Dependências corretas, código morto removido, testes |
+| Fase | Tema | Resultado esperado | Status |
+|------|------|--------------------|--------|
+| **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
+| **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
+| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | pendente |
+| **F4** | UI | Interface responsiva, sem congelar | pendente |
+| **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (testes de F0 feitos) |
 
 ---
 
-## F0 — Desbloqueio (crítico)
+## F0 — Desbloqueio (crítico) — CONCLUÍDA
 
 > Sem esta fase nada mais importa: o programa quebra ao carregar qualquer box.
 
-### F0.1 — `BoxEntry` acessado como dicionário
+**Aplicada em 2026-08-03**, branch `fix/f0-desbloqueio` (4 commits sobre a baseline
+`54bf80d`). Cobertura em `tests/test_f0_smoke.py` — 11 testes, dos quais 9 reprovam
+na baseline e passam no código corrigido.
+
+Verificação final: fluxo completo do editor sobre uma página real de 1310×1900
+(abrir → detectar 764 boxes → editar → dividir → excluir → undo/redo → arrastar →
+salvar → recarregar) sem nenhuma exceção.
+
+### F0.1 — `BoxEntry` acessado como dicionário — corrigido
 `ui/main_window.py:569` faz `b['x1']` num dataclass.
 
 ```
@@ -56,7 +64,7 @@ Mesma falha em três outros pontos:
 **Causa raiz:** houve migração de `dict` para `BoxEntry` que parou no meio. A correção
 não é só trocar sintaxe — é fechar a migração e travá-la com teste.
 
-### F0.2 — Substituição de glifos escreve `·` no lugar das peças
+### F0.2 — Substituição de glifos escreve `·` no lugar das peças — corrigido
 
 `core/chess_pdf_processor.py:92` usa `fontname="helv"` (Helvetica Base-14, Latin-1).
 Essa fonte não tem os glifos U+2654–U+265F. O PyMuPDF **não levanta erro**: troca cada
@@ -81,7 +89,7 @@ page.insert_font(fontname="chessuni", fontfile=r"C:\Windows\Fonts\seguisym.ttf")
 projeto (`assets/fonts/`) — depender de fonte do sistema quebra em outro computador.
 Ver SPEC §4.2.
 
-### F0.3 — Undo/redo perde estado
+### F0.3 — Undo/redo perde estado — corrigido
 
 Verificado: o projeto mistura dois padrões incompatíveis.
 
@@ -98,7 +106,7 @@ add B → undo → ['A']      (ok por acidente)
 **Correção:** um único padrão — `snapshot()` sempre *após* a mutação, com o estado
 inicial gravado ao abrir a imagem. Ver SPEC §6.1.
 
-### F0.4 — `requirements.txt` inutilizável
+### F0.4 — `requirements.txt` inutilizável — corrigido
 
 - `PyMuPDF>=1.23.0` está gravado em **UTF-16**; o pip lê como `P y M u P D F`
 - `torch` e `easyocr` — usados no código, **ausentes** do arquivo
@@ -367,14 +375,13 @@ apostar.
 ## Ordem de execução sugerida
 
 ```
-F0.1  BoxEntry (4 pontos)      ──┐
-F0.2  fonte Unicode do PDF       ├── desbloqueio, faz sentido junto
-F0.4  requirements.txt         ──┘
+[FEITO] F0.1  BoxEntry (4 pontos)
+[FEITO] F0.2  fonte Unicode do PDF
+[FEITO] F0.4  requirements.txt
+[FEITO] F5.3  teste de fumaça mínimo   ← trava as correções acima
+[FEITO] F0.3  undo/redo
       ↓
-F5.3  teste de fumaça mínimo     ← trava as correções acima
 F5.1  remover código morto       ← reduz superfície antes de refatorar
-      ↓
-F0.3  undo/redo                  ← toca o mesmo código de mutação
 F3.7  boxes por página + aviso   ← evita perda de trabalho
       ↓
 F1.4  limpar sym_f7              ─┐
