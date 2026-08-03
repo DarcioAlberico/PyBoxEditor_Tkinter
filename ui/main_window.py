@@ -48,6 +48,9 @@ class MainWindow(tk.Frame):
         # de mapear 1:1 com self.boxes, e toda seleção precisa passar por aqui.
         self._visiveis = []
 
+        # Modo digitação contínua: a tecla aplica e avança, sem Enter.
+        self.modo_digitacao = False
+
         # Documento aberto: guarda os boxes de todas as páginas visitadas
         # e o que ainda não foi gravado em disco.
         self.session = None
@@ -302,6 +305,14 @@ class MainWindow(tk.Frame):
         self.btn_ocr_box = tk.Button(editor, text="OCR (box)", command=self.ocr_selected_box)
         self.btn_ocr_box.grid(row=0, column=4, padx=5)
 
+        tk.Button(editor, text="Digitação (F2)",
+                  command=self.alternar_modo_digitacao).grid(row=0, column=5, padx=5)
+
+        # Indicador do modo: sem ele o usuário não sabe por que as teclas
+        # mudaram de comportamento.
+        self.lbl_modo = tk.Label(editor, text="", font=("Segoe UI", 9, "bold"))
+        self.lbl_modo.grid(row=0, column=6, padx=8)
+
         # NAGs Quick Access
         nag_frame = tk.Frame(self)
         nag_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
@@ -421,9 +432,15 @@ class MainWindow(tk.Frame):
         root.bind("<Up>", self._on_key_up)
         root.bind("<Down>", self._on_key_down)
         root.bind("<Delete>", self._on_key_delete)
-        root.bind("<BackSpace>", self._on_key_delete)
-        root.bind("d", self._on_key_split_safe)
-        root.bind("D", self._on_key_split_safe)
+        root.bind("<BackSpace>", self._on_key_backspace)
+        # Dividir saiu de 'd' para Ctrl+D: com o modo digitação, uma tecla nua
+        # não pode disparar comando — 'd' precisa poder ser digitado. (O guard
+        # antigo só testava tk.Entry e não cobria ttk.Entry nem Combobox.)
+        root.bind("<Control-d>", self._on_key_split_safe)
+        root.bind("<Control-D>", self._on_key_split_safe)
+        root.bind("<F2>", lambda e: self.alternar_modo_digitacao())
+        root.bind("<Escape>", self._on_key_escape)
+        root.bind("<Key>", self._on_tecla_digitacao)
         root.bind("<Control-s>", lambda e: (self.save_box_file(), "break")[1])
         root.bind("<Control-S>", lambda e: (self.save_all_pages(), "break")[1])
         root.bind("<Prior>", lambda e: (self.prev_page(), "break")[1])
@@ -436,6 +453,103 @@ class MainWindow(tk.Frame):
         root.bind("<Control-z>", self._on_key_undo)
         root.bind("<Control-y>", self._on_key_redo)
         root.bind("<Control-Z>", self._on_key_redo)  # Shift+Ctrl+Z fallback
+
+    # -------------------------------------------------------
+    # Modo digitação contínua
+    # -------------------------------------------------------
+
+    AVISO_DIGITACAO = ("MODO DIGITAÇÃO — a tecla aplica e avança  |  "
+                       "Espaço pula  |  Backspace volta  |  Esc sai")
+
+    def alternar_modo_digitacao(self, ligar=None):
+        """
+        Liga/desliga a digitação contínua (F2).
+
+        Fora dele, rotular um caractere custa duas teclas: o caractere e o
+        Enter. Numa página de 2.000 caracteres isso são 2.000 teclas a mais.
+        """
+        novo = (not self.modo_digitacao) if ligar is None else bool(ligar)
+        if novo == self.modo_digitacao:
+            return "break"
+        self.modo_digitacao = novo
+
+        if novo:
+            if not self.boxes:
+                self.modo_digitacao = False
+                self.status.set("Nada para digitar: a página não tem boxes.")
+                return "break"
+            if self.linha_do_box(self.selected_index) is None and self._visiveis:
+                self.select_box(self._visiveis[0])
+            # Tirar o foco do campo de texto é o que permite capturar as teclas
+            # sem que o Entry as consuma antes.
+            self.canvas.focus_set()
+            self.lbl_modo.config(text="  ⌨ DIGITAÇÃO  ", bg="#FFD400", fg="black")
+            self._status_digitacao()
+        else:
+            self.lbl_modo.config(text="", bg=self.cget("bg"))
+            self.char_entry.focus_set()
+            self.status.set("Modo digitação desligado.")
+
+        self.update_canvas()
+        return "break"
+
+    def _status_digitacao(self):
+        pendentes = sum(1 for i in self._visiveis
+                        if conf_ui.precisa_revisao(self.boxes[i]))
+        pos = self.linha_do_box(self.selected_index)
+        onde = f"{pos + 1}/{len(self._visiveis)}" if pos is not None else "-"
+        self.status.set(f"{self.AVISO_DIGITACAO}   [{onde}, {pendentes} pendentes]")
+
+    def _on_key_escape(self, event):
+        if self.modo_digitacao:
+            return self.alternar_modo_digitacao(False)
+        return None
+
+    def _on_key_backspace(self, event):
+        """Backspace volta um box no modo digitação; fora dele, exclui."""
+        if self.modo_digitacao:
+            self._mover_selecao(-1)
+            self._status_digitacao()
+            return "break"
+        return self._on_key_delete(event)
+
+    def _on_tecla_digitacao(self, event):
+        """
+        Captura uma tecla imprimível e a aplica ao box selecionado.
+
+        Teclas de controle (setas, F3, Ctrl+algo) têm event.char vazio ou não
+        imprimível, então caem fora naturalmente e seguem para seus atalhos.
+        """
+        if not self.modo_digitacao:
+            return None
+
+        # Se o foco está num campo de texto (busca, caractere), quem manda é ele.
+        foco = self.parent.focus_get()
+        if isinstance(foco, (tk.Entry, tk.Text, ttk.Entry, ttk.Combobox)):
+            return None
+
+        ch = event.char
+        if not ch or not ch.isprintable():
+            return None
+
+        if ch == " ":
+            # Espaço avança sem alterar. Na revisão, a maioria dos caracteres
+            # está certa: dá para passar por eles sem digitar nada.
+            self._mover_selecao(1)
+            self._status_digitacao()
+            return "break"
+
+        if self.selected_index < 0 or self.selected_index >= len(self.boxes):
+            return "break"
+
+        b = self.boxes[self.selected_index]
+        b.char = ch
+        b.confidence = 1.0
+        b.source = "manual"
+        self._commit_change()
+        self._avancar_apos_edicao(self.selected_index)
+        self._status_digitacao()
+        return "break"
 
     # -------------------------------------------------------
     # Imagem
@@ -1034,27 +1148,38 @@ class MainWindow(tk.Frame):
         self.update_sidebar()
         self.update_canvas()
 
-    def apply_char_and_next(self):
-        anterior = self.selected_index
-        linha_antes = self.linha_do_box(anterior)
+    def _avancar_apos_edicao(self, anterior, linha_antes=None):
+        """
+        Vai para o próximo box após editar `anterior`.
 
-        self.apply_char()          # aplica e refiltra a lista
+        Com "só pendentes" ativo, corrigir o box o tira da lista: ela encolhe e
+        a mesma posição já é o próximo pendente. Sem esse cuidado, o cursor
+        pularia um item a cada correção.
+        """
         if not self.boxes or not self._visiveis:
             return
 
         linha = self.linha_do_box(anterior)
         if linha is not None:
-            # o box continua visível: seguir para o de baixo
             proxima = linha + 1
         else:
-            # corrigi-lo o tirou do filtro (ex.: "só pendentes"); a lista
-            # encolheu e a mesma posição já é o próximo item
             proxima = linha_antes if linha_antes is not None else 0
 
         proxima = max(0, min(len(self._visiveis) - 1, proxima))
         self.select_box(self._visiveis[proxima])
-        self.char_entry.focus_set()
-        self.char_entry.select_range(0, "end")
+
+    def apply_char_and_next(self):
+        anterior = self.selected_index
+        linha_antes = self.linha_do_box(anterior)
+
+        self.apply_char()          # aplica e refiltra a lista
+        self._avancar_apos_edicao(anterior, linha_antes)
+
+        if not self.modo_digitacao:
+            # No modo digitação o foco fica no canvas, senão o Entry passaria a
+            # consumir as teclas e o modo pararia de funcionar.
+            self.char_entry.focus_set()
+            self.char_entry.select_range(0, "end")
 
     def ocr_selected_box(self):
         if self.image is None or self.selected_index < 0 or self.selected_index >= len(self.boxes):
@@ -1332,8 +1457,9 @@ class MainWindow(tk.Frame):
 
         self.select_box(alvo)
         self.status.set(f"Pendente {pendentes.index(alvo) + 1} de {len(pendentes)}.")
-        self.char_entry.focus_set()
-        self.char_entry.select_range(0, "end")
+        if not self.modo_digitacao:
+            self.char_entry.focus_set()
+            self.char_entry.select_range(0, "end")
         return "break"
 
     def _on_key_up(self, event):

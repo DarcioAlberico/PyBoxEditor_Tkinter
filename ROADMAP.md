@@ -24,7 +24,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.2, F3.3 e F3.7 feitas) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1, F3.2, F3.3 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
@@ -320,7 +320,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 
 | # | Melhoria | Impacto |
 |---|----------|---------|
-| F3.1 | **Modo digitação contínua** — tecla aplica e avança sozinha, sem Enter | Corta metade das teclas |
+| F3.1 | ~~Modo digitação contínua~~ — **CONCLUÍDA** | Corta metade das teclas |
 | F3.2 | ~~Cor por confiança~~ — **CONCLUÍDA** | O olho vai direto ao suspeito |
 | F3.3 | ~~Filtros na lista~~ — **CONCLUÍDA** | Revisar 80 boxes em vez de 2.000 |
 | F3.4 | **Autosave** a cada N alterações + recuperação de crash | O `crash_log.txt` existe por um motivo |
@@ -374,6 +374,35 @@ Corrigir um box com "só pendentes" ativo o tira da lista; a lista encolhe e o c
 fica na mesma posição, que já é o próximo pendente — sem pular nenhum.
 
 Cobertura: `tests/test_f33_filtros.py`, 18 testes.
+
+**F3.1 — concluída em 2026-08-03.** `F2` liga a digitação contínua: a tecla aplica o
+caractere e avança sozinha. Fora do modo, rotular custa duas teclas (o caractere e o
+Enter) — numa página de 2.000 caracteres são 2.000 teclas a mais.
+
+Três teclas fazem o fluxo de revisão inteiro:
+
+| Tecla | Ação |
+|---|---|
+| qualquer imprimível | aplica e avança |
+| **Espaço** | pula sem alterar |
+| **Backspace** | volta um box |
+| `Esc` | sai do modo |
+
+O Espaço não estava na spec e mudou o fluxo: na revisão a maioria dos caracteres já
+está certa, então dá para passar por eles sem digitar nada e só corrigir os errados.
+
+**Conflito que precisou ser resolvido:** `d` estava ligado a "dividir box" na janela
+inteira. Com o modo digitação isso viraria bug — digitar 'd' partiria um box em dois.
+Passou para `Ctrl+D`, como a SPEC §7.6 já previa. O guard antigo
+(`_on_key_split_safe`) só testava `tk.Entry` e não cobria `ttk.Entry` nem `Combobox`.
+
+O modo tira o foco do campo de texto e o põe no canvas — senão o `Entry` consumiria as
+teclas antes de o binding da janela ver o evento, e o modo simplesmente não funcionaria.
+
+Verificado com despacho real do Tk (`event_generate`), não só chamando os handlers:
+a precedência de bindings é exatamente onde este desenho poderia furar em silêncio.
+
+Cobertura: `tests/test_f31_digitacao.py`, 15 testes.
 
 **F3.7 — concluída em 2026-08-03.** `_load_pdf_page` fazia `self.boxes = []` sem aviso
 nem confirmação: navegar para a próxima página apagava tudo que havia sido digitado,
@@ -558,6 +587,7 @@ apostar.
 [FEITO] F4.2  barra de status
 [FEITO] F3.2  cor por confiança        ← habilita F3.3 e F1.7
 [FEITO] F3.3  filtros e navegação
+[FEITO] F3.1  digitação contínua
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino

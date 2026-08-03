@@ -582,10 +582,27 @@ Mesma escala na lista lateral. É isso que transforma "reler 2.000 caracteres" e
 
 ### 7.3 Modo digitação contínua
 
-Ativável por `F2`. Com ele ligado, a tecla digitada aplica o caractere e avança
-sozinha — sem Enter. Numa página de 2.000 caracteres, elimina 2.000 teclas.
+**Implementado na F3.1.** Ativável por `F2`. Com ele ligado, a tecla digitada aplica o
+caractere e avança sozinha — sem Enter. Numa página de 2.000 caracteres, elimina 2.000
+teclas.
 
-`Backspace` volta um box. `Esc` sai do modo.
+`Espaço` pula sem alterar, `Backspace` volta um box, `Esc` sai do modo.
+
+O Espaço não constava do rascunho e mudou o fluxo de revisão: como a maioria dos
+caracteres já está certa, passar por eles sem digitar nada é o caso comum.
+
+Dois requisitos de implementação que não são opcionais:
+
+- **O foco tem de sair do campo de texto** (vai para o canvas). Em Tk os bindings
+  disparam na ordem widget → classe → toplevel; com o `Entry` focado, ele insere o
+  caractere antes de o binding da janela ver o evento, e devolver `"break"` no nível do
+  toplevel não desfaz a inserção.
+- **Nenhuma tecla nua pode disparar comando.** `d` dividia box na janela inteira; com o
+  modo ligado, digitar 'd' partiria um box. Passou para `Ctrl+D`.
+
+Teclas de controle (setas, `F3`, `Ctrl+algo`) têm `event.char` vazio ou não imprimível,
+então o filtro `isprintable()` as deixa passar para os seus próprios atalhos sem
+tratamento especial.
 
 ### 7.4 Filtros de navegação
 
