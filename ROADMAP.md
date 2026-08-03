@@ -25,7 +25,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.7 feita) |
-| **F4** | UI | Interface responsiva, sem congelar | pendente |
+| **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
 ---
@@ -302,7 +302,7 @@ Cobertura: `tests/test_f37_paginas.py`, 10 testes.
 
 ## F4 — Interface
 
-### F4.1 — A UI congela em toda operação pesada
+### F4.1 — A UI congela em toda operação pesada — CONCLUÍDA
 
 Todo processamento roda na thread do Tkinter com `self.parent.update()` no meio do
 laço (`main_window.py:436, 491, 546`). Durante OCR de uma página, treino ou lote:
@@ -312,12 +312,43 @@ laço (`main_window.py:436, 491, 546`). Durante OCR de uma página, treino ou lo
 - `update()` reentrante durante processamento é uma fonte clássica de corrupção de
   estado no Tk (pode reentrar num handler no meio da mutação da lista de boxes)
 
-**Ação:** worker em `threading.Thread` + fila; UI só lê a fila via `after()`. SPEC §6.2.
+**Concluída em 2026-08-03.** Worker em `threading.Thread` + fila; a UI só lê a fila via
+`after()`. Não sobrou nenhum `parent.update()` em `ui/`.
 
-### F4.2 — Progresso comunicado pelo título da janela
+Onze operações convertidas: os quatro preenchimentos por OCR, as duas conversões de PDF,
+treino, lote, importação, "salvar todas as páginas" e **o carregamento de página do PDF**.
 
-`self.parent.title(f"Processando... ({i+1}/{total})")` é um recurso improvisado.
-Existe um `ui/status_bar.py` no projeto — nunca usado.
+Este último não estava na lista original e acabou sendo o mais importante: medi **948 ms**
+para renderizar uma página de um PDF sintético *simples* — quase 10× o critério de 100 ms,
+e um scan de livro a 300 dpi é bem pior. Como virar a página é a operação mais frequente
+do app, era o congelamento que o usuário mais sentia.
+
+Também entrou `ui/status_bar.py` (F4.2), recriado como `Frame` com mensagem, barra de
+progresso e botão Cancelar. Sumiram os dois improvisos: o progresso escrito no título da
+janela e os `Toplevel` que cada operação longa criava por conta própria.
+
+Cancelamento tem duas formas, conforme o parcial sirva ou não:
+
+- `h.cancelled` + `break` — os preenchimentos por OCR devolvem o que já reconheceram,
+  em vez de jogar fora
+- `h.raise_if_cancelled()` — conversão de PDF aborta de vez (o arquivo só é gravado no
+  fim, então não fica nada pela metade)
+
+O treino consulta `should_stop` a cada época e mantém salvo o melhor modelo até ali.
+
+**Bug encontrado ao escrever os testes:** `is_running()` consultava `thread.is_alive()`,
+que vira `False` no instante em que a thread enfileira o resultado — antes de `on_done`
+rodar. Nessa janela dava para disparar outra tarefa por cima de um estado ainda não
+aplicado. Passou a ser um estado próprio, baixado só na entrega.
+
+Cobertura: `tests/test_f41_threads.py`, 10 testes.
+
+### F4.2 — Progresso comunicado pelo título da janela — CONCLUÍDA
+
+`self.parent.title(f"Processando... ({i+1}/{total})")` era um recurso improvisado.
+Resolvido junto com a F4.1: `ui/status_bar.py` foi recriado como `Frame` (a versão
+antiga, removida na F5.1, era um `tk.Label` e não comportava um `Progressbar`) e é
+usado por todas as operações longas.
 
 ### F4.3 — Zoom automático desorienta
 
@@ -423,6 +454,8 @@ apostar.
 [FEITO] F0.3  undo/redo
 [FEITO] F5.1  remover código morto     ← reduz superfície antes de refatorar
 [FEITO] F3.7  boxes por página + aviso ← evita perda de trabalho
+[FEITO] F4.1  threads                  ← precisa vir antes de F3
+[FEITO] F4.2  barra de status
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino
@@ -432,9 +465,8 @@ F1.3  split de validação         ─┘
 F2.1  PDF pesquisável            ← a maior lacuna funcional
 F2.2  remover Poppler
       ↓
-F4.1  threads                    ← precisa vir antes de F3 (UI travada)
-F3.1–F3.6  produtividade
-F4.2–F4.6  polimento de UI
+F3.1–F3.6  produtividade         ← desbloqueado: a UI não trava mais
+F4.3–F4.6  polimento de UI
 ```
 
 **Dependência que importa:** F1.1 (coletar peças pretas) precisa preceder qualquer

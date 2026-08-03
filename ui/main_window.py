@@ -14,8 +14,10 @@ from core.services.pdf_service import PDFService
 from core.services.learning_service import LearningService
 from core.services.history_service import HistoryManager
 from core.services.document_service import DocumentSession
+from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
+from ui.status_bar import StatusBar
 
 
 NAGS = [
@@ -47,6 +49,9 @@ class MainWindow(tk.Frame):
         self.pdf_service = PDFService()
         self.learning_service = LearningService()
         self.history = HistoryManager(max_history=50)
+
+        # Trabalho pesado roda em thread separada; a UI só lê a fila.
+        self.task = BackgroundTask(self)
 
         self._build_layout()
         self._build_menu()
@@ -115,8 +120,78 @@ class MainWindow(tk.Frame):
         )
 
     def _on_close(self):
+        if self.task.is_running():
+            if not messagebox.askyesno(
+                "Operação em andamento",
+                "Há uma operação rodando. Cancelar e fechar mesmo assim?",
+                icon="warning",
+            ):
+                return
+            self.task.cancel()
         if self._confirm_discard():
+            self.task.shutdown()
             self.parent.destroy()
+
+    # -------------------------------------------------------
+    # Trabalho pesado fora da thread da UI
+    # -------------------------------------------------------
+
+    def _busy(self, acao="Esta operação") -> bool:
+        """True (e avisa) se já houver uma tarefa rodando."""
+        if self.task.is_running():
+            messagebox.showinfo(
+                "Aguarde",
+                f"{acao} não pode começar agora: já há uma operação em andamento.\n"
+                "Use 'Cancelar' na barra de status para interrompê-la."
+            )
+            return True
+        return False
+
+    def _run_task(self, titulo, trabalho, ao_concluir,
+                  ao_cancelar=None, indeterminado=False):
+        """
+        Executa `trabalho(handle)` numa thread, com progresso e cancelamento.
+
+        `trabalho` roda FORA da thread da UI e não pode tocar em widget algum —
+        ela calcula e devolve dados. Quem mexe na tela é `ao_concluir`, chamado
+        de volta na thread da interface.
+        """
+        self.status.reset_cancel_button()
+        self.status.start_task(f"{titulo}...", indeterminado=indeterminado)
+
+        def progresso(atual, total, mensagem=""):
+            self.status.set_progress(atual, total, f"{titulo}: {mensagem}" if mensagem else "")
+
+        def encerrar(texto):
+            self.status.end_task(texto)
+            self.status.reset_cancel_button()
+            self.parent.config(cursor="")
+            # Reabilita a navegação em qualquer desfecho — inclusive erro e
+            # cancelamento, senão os botões ficariam travados.
+            self._update_nav_controls()
+
+        def concluir(resultado):
+            encerrar(f"{titulo}: concluído.")
+            ao_concluir(resultado)
+
+        def cancelado():
+            encerrar(f"{titulo}: cancelado.")
+            if ao_cancelar:
+                ao_cancelar()
+
+        def falhou(exc):
+            encerrar(f"{titulo}: erro.")
+            messagebox.showerror(titulo, f"{type(exc).__name__}: {exc}")
+
+        self.parent.config(cursor="watch")
+        self.task.start(
+            trabalho,
+            on_progress=progresso,
+            on_done=concluir,
+            on_error=falhou,
+            on_cancel=cancelado,
+            on_log=self.status.set,
+        )
 
     # -------------------------------------------------------
     # Layout
@@ -129,6 +204,7 @@ class MainWindow(tk.Frame):
         self.rowconfigure(1, weight=0)
         self.rowconfigure(2, weight=0)
         self.rowconfigure(3, weight=0)
+        self.rowconfigure(4, weight=0)
 
         # Canvas principal
         self.canvas = CanvasView(self, controller=self)
@@ -202,6 +278,10 @@ class MainWindow(tk.Frame):
 
         self.btn_next_page = tk.Button(self.nav_frame, text="Próxima Página >>", command=self.next_page, state="disabled")
         self.btn_next_page.pack(side="left", padx=10)
+
+        # Barra de status: mensagem + progresso + cancelar
+        self.status = StatusBar(self, on_cancel=self.task.cancel)
+        self.status.grid(row=4, column=0, columnspan=2, sticky="ew")
 
         self._build_context_menu()
 
@@ -295,6 +375,8 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def open_image(self, path=None):
+        if self._busy("Abrir imagem"):
+            return
         if not self._confirm_discard():
             return
 
@@ -338,6 +420,10 @@ class MainWindow(tk.Frame):
         self._update_title()
 
     def open_pdf(self, path=None):
+        # pdf_service é lido pela thread de trabalho; trocar o PDF por baixo
+        # dela corromperia o resultado.
+        if self._busy("Abrir PDF"):
+            return
         if not self._confirm_discard():
             return
 
@@ -361,21 +447,34 @@ class MainWindow(tk.Frame):
         self._load_pdf_page(0, arquivar_atual=False)
 
     def _load_pdf_page(self, page_index, arquivar_atual=True):
-        self.parent.config(cursor="wait")
-        self.parent.update()
+        """
+        Troca de página. A renderização vai para a thread de trabalho: medido em
+        ~950 ms num PDF sintético simples, e um scan de livro a 300 dpi é bem
+        pior. Como virar a página é a operação mais frequente do app, fazer isso
+        na thread da UI travava a janela a cada clique.
+        """
+        if self.task.is_running():
+            return  # navegação não abre diálogo; os botões já ficam desativados
 
-        try:
-            # Guardar o trabalho da página que está saindo ANTES de trocar.
-            # Sem isto, virar a página descartava tudo que havia sido digitado.
-            if arquivar_atual and self.session is not None:
-                self.session.store(self.current_pdf_page, self.boxes)
+        # Arquivar o trabalho da página que sai é rápido e acontece já, antes de
+        # qualquer coisa poder dar errado.
+        if arquivar_atual and self.session is not None:
+            self.session.store(self.current_pdf_page, self.boxes)
 
-            page_img = self.pdf_service.load_page(page_index)
-            if page_img is None:
+        self.btn_prev_page.config(state="disabled")
+        self.btn_next_page.config(state="disabled")
+
+        def trabalho(h):
+            h.log(f"Renderizando página {page_index + 1}...")
+            img = self.pdf_service.load_page(page_index)
+            if img is None:
                 raise ValueError("Nenhuma imagem retornada para a página.")
+            return img
 
+        def aplicar(page_img):
             self.image = page_img
-            self.image_path = f"{os.path.basename(self.pdf_service.pdf_path)} [Pág {page_index+1}]"
+            self.image_path = (f"{os.path.basename(self.pdf_service.pdf_path)} "
+                               f"[Pág {page_index + 1}]")
             self.current_pdf_page = page_index
 
             # Restaura o que já havia sido feito nesta página (lista vazia se
@@ -393,10 +492,9 @@ class MainWindow(tk.Frame):
             self.update_canvas()
             self._update_nav_controls()
             self._update_title()
-        except Exception as e:
-            messagebox.showerror("Erro Carregar Página", str(e))
-        finally:
-            self.parent.config(cursor="")
+
+        self._run_task(f"Página {page_index + 1}", trabalho, aplicar,
+                       indeterminado=True)
 
     def prev_page(self):
         # Não mexer em current_pdf_page aqui: _load_pdf_page usa o valor atual
@@ -454,6 +552,9 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def substitute_chess_glyphs_action(self):
+        if self._busy("A conversão"):
+            return
+
         input_pdf = filedialog.askopenfilename(
             title="Selecionar PDF de Origem",
             filetypes=[("Arquivos PDF", "*.pdf")]
@@ -469,16 +570,30 @@ class MainWindow(tk.Frame):
         if not output_pdf:
             return
 
-        try:
-            total_pages, replaced = substitute_chess_glyphs(input_pdf, output_pdf)
+        def trabalho(h):
+            def progresso(pagina, total):
+                # O PDF só é gravado no fim, então cancelar aqui não deixa
+                # arquivo pela metade.
+                h.raise_if_cancelled()
+                h.progress(pagina + 1, total, f"página {pagina + 1}/{total}")
+
+            return substitute_chess_glyphs(input_pdf, output_pdf,
+                                           progress_callback=progresso)
+
+        def concluir(resultado):
+            total_pages, replaced = resultado
             messagebox.showinfo(
                 "Concluído",
-                f"Conversão finalizada!\nPáginas processadas: {total_pages}\nSubstituições realizadas: {replaced}\n\nArquivo salvo em:\n{output_pdf}"
+                f"Conversão finalizada!\nPáginas processadas: {total_pages}\n"
+                f"Substituições realizadas: {replaced}\n\nArquivo salvo em:\n{output_pdf}"
             )
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro na conversão:\n{str(e)}")
+
+        self._run_task("Substituir glifos", trabalho, concluir)
 
     def substitute_glyphs_neural_action(self):
+        if self._busy("A conversão"):
+            return
+
         input_pdf = filedialog.askopenfilename(
             title="Selecionar PDF Escaneado",
             filetypes=[("Arquivos PDF", "*.pdf")]
@@ -494,85 +609,128 @@ class MainWindow(tk.Frame):
         if not output_pdf:
             return
 
-        def update_progress(page, total):
-            self.parent.title(f"PyBoxEditor - Processando Neural OCR: Pág {page+1} de {total}")
-            self.parent.update()
+        def trabalho(h):
+            def progresso(pagina, total):
+                h.raise_if_cancelled()
+                h.progress(pagina + 1, total, f"página {pagina + 1}/{total}")
 
-        self.parent.config(cursor="wait")
-        try:
-            total_pages, replaced = process_scanned_pdf(
+            return process_scanned_pdf(
                 input_pdf=input_pdf,
                 output_pdf=output_pdf,
                 model_path="custom_model.pth",
                 meta_path="model_meta.json",
-                progress_callback=update_progress
+                progress_callback=progresso,
             )
+
+        def concluir(resultado):
+            total_pages, replaced = resultado
             messagebox.showinfo(
                 "Concluído Neural",
-                f"Conversão finalizada!\nPáginas escaneadas: {total_pages}\nPeças reconhecidas/substituídas: {replaced}\n\nArquivo salvo em:\n{output_pdf}"
+                f"Conversão finalizada!\nPáginas escaneadas: {total_pages}\n"
+                f"Peças reconhecidas/substituídas: {replaced}\n\n"
+                f"Arquivo salvo em:\n{output_pdf}"
             )
-        except Exception as e:
-            messagebox.showerror("Erro Neural", f"Erro na conversão OCR:\n{str(e)}")
-        finally:
-            self._update_title()
-            self.parent.config(cursor="")
+
+        self._run_task("OCR neural do PDF", trabalho, concluir)
 
     # -------------------------------------------------------
     # OCR automático para todos os boxes
     # -------------------------------------------------------
 
-    def auto_fill_characters(self):
+    def _recortes_dos_boxes(self):
+        """
+        Recorta todos os boxes para numpy ANTES de entregar à thread.
+
+        A PIL.Image da página é compartilhada com o redraw do canvas; deixar a
+        thread de trabalho recortando dela enquanto o usuário faz pan/zoom seria
+        dois acessos concorrentes ao mesmo objeto. Os recortes de caractere são
+        pequenos, então o custo é baixo.
+        """
+        return [np.array(self.image.crop((b.x1, b.y1, b.x2, b.y2)))
+                for b in self.boxes]
+
+    def _preencher_boxes(self, titulo, preparar, resumo):
+        """
+        Preenche os caracteres de todos os boxes fora da thread da UI.
+
+        `preparar(h)` roda na thread e devolve `classificar(crop) -> (char, fonte)`;
+        é lá que a carga pesada acontece (o learner lê 127 mil imagens de
+        referência, o predictor carrega o modelo).
+
+        Cancelar devolve o resultado parcial: o que já foi reconhecido é aplicado
+        em vez de descartado.
+        """
         if self.image is None or not self.boxes:
             messagebox.showinfo("Aviso", "Não há boxes para preencher.")
             return
-
-        whitelist = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?+-=()#:/'\""
-
-        for b in self.boxes:
-            crop = self.image.crop((b.x1, b.y1, b.x2, b.y2))
-            b.char = self.ocr_service.tesseract_ocr(crop, whitelist)
-
-        self._commit_change()
-        self.update_sidebar()
-        self.update_canvas()
-
-    def auto_fill_characters_easyocr(self):
-        if self.image is None or not self.boxes:
-            messagebox.showinfo("Aviso", "Não há boxes para preencher.")
+        if self._busy(titulo):
             return
 
-        self.parent.config(cursor="wait")
-        self.parent.update()
+        recortes = self._recortes_dos_boxes()
+        total = len(recortes)
 
-        count = 0
-        try:
-            for i, b in enumerate(self.boxes):
-                crop = self.image.crop((b.x1, b.y1, b.x2, b.y2))
-                crop_np = np.array(crop)
-                ch = self.ocr_service.easyocr_ocr(crop_np)
-                if ch:
-                    b.char = ch
-                    count += 1
-                else:
-                    b.char = b.char
+        def trabalho(h):
+            classificar = preparar(h)
+            resultados = []
+            cancelado = False
+            for i, crop in enumerate(recortes):
+                if h.cancelled:
+                    cancelado = True
+                    break
+                resultados.append(classificar(crop))
+                if i % 5 == 0 or i == total - 1:
+                    h.progress(i + 1, total, f"{i + 1}/{total}")
+            return {"resultados": resultados, "cancelado": cancelado}
 
-                if i % 5 == 0:
-                    self.parent.title(f"PyBoxEditor - Processando OCR... ({i+1}/{len(self.boxes)})")
-                    self.parent.update()
-        except Exception as e:
-            messagebox.showerror("Erro EasyOCR", str(e))
-        finally:
-            self._update_title()
-            self.parent.config(cursor="")
+        def aplicar(saida):
+            resultados = saida["resultados"]
+            fontes = {}
+            for b, (char, fonte) in zip(self.boxes, resultados):
+                b.char = char
+                fontes[fonte] = fontes.get(fonte, 0) + 1
+
             self._commit_change()
             self.update_sidebar()
             self.update_canvas()
-            messagebox.showinfo("EasyOCR", f"Processamento concluído.\nCaracteres preenchidos: {count}")
+
+            texto = resumo(fontes, len(resultados))
+            if saida["cancelado"]:
+                texto += f"\n\nCancelado: {len(resultados)} de {total} boxes processados."
+                self.status.set(f"{titulo}: cancelado ({len(resultados)}/{total}).")
+            messagebox.showinfo(titulo, texto)
+
+        self._run_task(titulo, trabalho, aplicar)
+
+    def auto_fill_characters(self):
+        whitelist = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?+-=()#:/\'\""
+
+        def preparar(h):
+            def classificar(crop):
+                ch = self.ocr_service.tesseract_ocr(Image.fromarray(crop), whitelist)
+                return (ch, "tesseract")
+            return classificar
+
+        self._preencher_boxes(
+            "OCR (Tesseract)", preparar,
+            lambda fontes, n: f"Processados: {n} boxes.",
+        )
+
+    def auto_fill_characters_easyocr(self):
+        def preparar(h):
+            def classificar(crop):
+                ch = self.ocr_service.easyocr_ocr(crop)
+                return (ch, "easyocr" if ch else "vazio")
+            return classificar
+
+        self._preencher_boxes(
+            "OCR (EasyOCR)", preparar,
+            lambda fontes, n: (f"Processados: {n} boxes.\n"
+                               f"Caracteres preenchidos: {fontes.get('easyocr', 0)}"),
+        )
 
     def generate_and_fill_easyocr(self):
         self.generate_boxes_opencv()
         if self.boxes:
-            self.parent.update()
             self.auto_fill_characters_easyocr()
 
     def generate_and_fill_combined(self):
@@ -580,106 +738,51 @@ class MainWindow(tk.Frame):
         if not self.boxes:
             return
 
-        self.parent.update()
-        self.parent.config(cursor="wait")
+        def preparar(h):
+            h.log("Carregando base de referência...")
+            learner = self.learning_service._get_learner()
 
-        count_learned = 0
-        count_ocr = 0
-        total = len(self.boxes)
-
-        try:
-            for i, b in enumerate(self.boxes):
-                crop = self.image.crop((b.x1, b.y1, b.x2, b.y2))
-                crop_np = np.array(crop)
-
-                char, source, _ = self.ocr_service.fallback_chain(
-                    crop_np,
-                    learner=self.learning_service._get_learner(),
-                    neural_threshold=0.85,
-                    learner_threshold=0.85,
+            def classificar(crop):
+                char, fonte, _ = self.ocr_service.fallback_chain(
+                    crop, learner=learner,
+                    neural_threshold=0.85, learner_threshold=0.85,
                 )
+                return (char if fonte in ("learner", "easyocr") else "", fonte)
+            return classificar
 
-                if source == "learner":
-                    b.char = char
-                    count_learned += 1
-                elif source == "easyocr":
-                    b.char = char
-                    count_ocr += 1
-                else:
-                    b.char = ""
-
-                if i % 5 == 0:
-                    self.parent.title(
-                        f"Processando... ({i+1}/{total}) - Base: {count_learned} | OCR: {count_ocr}"
-                    )
-                    self.parent.update()
-        except Exception as e:
-            messagebox.showerror("Erro", str(e))
-        finally:
-            self._update_title()
-            self.parent.config(cursor="")
-            self._commit_change()
-            self.update_sidebar()
-            self.update_canvas()
-            messagebox.showinfo(
-                "Concluído",
-                f"Total: {total}\nEncontrados via Base: {count_learned}\nEncontrados via OCR: {count_ocr}"
-            )
+        self._preencher_boxes(
+            "Detectar e preencher (Híbrido)", preparar,
+            lambda fontes, n: (f"Total: {n}\n"
+                               f"Encontrados via Base: {fontes.get('learner', 0)}\n"
+                               f"Encontrados via OCR: {fontes.get('easyocr', 0)}"),
+        )
 
     def generate_and_fill_neural(self):
         self.generate_boxes_opencv()
         if not self.boxes:
             return
 
-        self.parent.config(cursor="wait")
-        self.parent.update()
-
-        count_neural = 0
-        count_learner = 0
-        count_ocr = 0
-
-        try:
+        def preparar(h):
+            h.log("Carregando modelo neural...")
             self.learning_service.load_predictor()
-            total = len(self.boxes)
+            h.log("Carregando base de referência...")
+            learner = self.learning_service._get_learner()
+            predictor = self.learning_service._predictor
 
-            for i, b in enumerate(self.boxes):
-                crop = self.image.crop((b.x1, b.y1, b.x2, b.y2))
-                crop_np = np.array(crop)
-
-                char, source, _ = self.ocr_service.fallback_chain(
-                    crop_np,
-                    predictor=self.learning_service._predictor,
-                    learner=self.learning_service._get_learner(),
-                    neural_threshold=0.8,
-                    learner_threshold=0.9,
+            def classificar(crop):
+                char, fonte, _ = self.ocr_service.fallback_chain(
+                    crop, predictor=predictor, learner=learner,
+                    neural_threshold=0.8, learner_threshold=0.9,
                 )
+                return (char, fonte)
+            return classificar
 
-                if source == "neural":
-                    count_neural += 1
-                elif source == "learner":
-                    count_learner += 1
-                elif source == "easyocr":
-                    count_ocr += 1
-
-                b.char = char
-
-                if i % 5 == 0:
-                    self.parent.title(
-                        f"Processando... ({i+1}/{total}) - Neural: {count_neural} | Ref: {count_learner}"
-                    )
-                    self.parent.update()
-        except Exception as e:
-            messagebox.showerror("Erro", str(e))
-        finally:
-            self._update_title()
-            self.parent.config(cursor="")
-            self._commit_change()
-            self.update_sidebar()
-            self.update_canvas()
-            messagebox.showinfo(
-                "Concluído",
-                f"Neural: {count_neural}\nReferencia: {count_learner}\nEasyOCR: {count_ocr}"
-            )
+        self._preencher_boxes(
+            "Detectar e preencher (Neural)", preparar,
+            lambda fontes, n: (f"Neural: {fontes.get('neural', 0)}\n"
+                               f"Referência: {fontes.get('learner', 0)}\n"
+                               f"EasyOCR: {fontes.get('easyocr', 0)}"),
+        )
 
     # -------------------------------------------------------
     # Sidebar / seleção
@@ -828,6 +931,9 @@ class MainWindow(tk.Frame):
         self._load_box_from_path(path)
 
     def save_all_pages(self):
+        if self._busy("O salvamento"):
+            return
+
         """
         Grava um par .box/.png por página que tenha boxes.
 
@@ -844,36 +950,48 @@ class MainWindow(tk.Frame):
             messagebox.showinfo("Aviso", "Nenhuma página tem boxes para salvar.")
             return
 
-        self.parent.config(cursor="wait")
-        salvos, falhas = [], []
-        try:
-            for n, page in enumerate(paginas):
-                self.parent.title(f"Salvando página {n + 1}/{len(paginas)}...")
-                self.parent.update()
+        # A imagem da página atual é compartilhada com o canvas: copiar antes
+        # de entregar à thread evita que worker e redraw leiam o mesmo objeto.
+        img_atual = self.image.copy() if self.image is not None else None
+        pagina_atual = self.current_pdf_page
+        sessao = self.session
 
-                if page == self.current_pdf_page:
-                    img = self.image
-                elif self.session.is_pdf:
+        def trabalho(h):
+            salvos, falhas = [], []
+            for n, page in enumerate(paginas):
+                h.raise_if_cancelled()
+                h.progress(n + 1, len(paginas), f"página {page + 1}")
+
+                if page == pagina_atual:
+                    img = img_atual
+                elif sessao.is_pdf:
                     img = self.pdf_service.load_page(page)
                 else:
-                    img = self.image
+                    img = img_atual
 
                 if img is None:
                     falhas.append(f"pág {page + 1}: não foi possível renderizar")
                     continue
 
-                destino = self.session.page_stem(page) + ".box"
-                erro = self._write_box_pair(destino, img, self.session.boxes_for(page))
+                destino = sessao.page_stem(page) + ".box"
+                erro = self._write_box_pair(destino, img, sessao.boxes_for(page))
                 if erro:
                     falhas.append(f"pág {page + 1}: {erro}")
                 else:
-                    self.session.mark_saved(page)
-                    salvos.append(destino)
-        finally:
-            self.parent.config(cursor="")
+                    salvos.append((page, destino))
+            return salvos, falhas
+
+        def concluir(resultado):
+            salvos, falhas = resultado
+            for page, _ in salvos:
+                sessao.mark_saved(page)
             self._update_nav_controls()
             self._update_title()
+            self._relatar_salvamento([d for _, d in salvos], falhas)
 
+        self._run_task("Salvar todas as páginas", trabalho, concluir)
+
+    def _relatar_salvamento(self, salvos, falhas):
         resumo = f"{len(salvos)} página(s) salva(s) em:\n{os.path.dirname(self.session.path)}"
         if falhas:
             messagebox.showerror("Salvo com erros", resumo + "\n\nFalhas:\n" + "\n".join(falhas))
@@ -1059,6 +1177,9 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def learn_from_current_page(self):
+        if self._busy("O aprendizado"):
+            return
+
         if self.image is None or not self.boxes:
             messagebox.showinfo("Aviso", "Nada para aprender na página atual.")
             return
@@ -1070,22 +1191,27 @@ class MainWindow(tk.Frame):
         ):
             return
 
-        self.parent.config(cursor="wait")
-        self.parent.update()
+        imagem = self.image.copy()
+        boxes = [b.copy() for b in self.boxes]
 
-        try:
-            count = self.learning_service.learn_from_boxes(self.image, self.boxes)
-            messagebox.showinfo("Sucesso", f"Aprendizado concluído.\n{count} novos modelos adicionados.")
-        except Exception as e:
-            messagebox.showerror("Erro no Aprendizado", str(e))
-        finally:
-            self.parent.config(cursor="")
+        def trabalho(h):
+            h.progress(0, len(boxes), "gravando amostras")
+            return self.learning_service.learn_from_boxes(imagem, boxes)
+
+        def concluir(count):
+            messagebox.showinfo(
+                "Sucesso", f"Aprendizado concluído.\n{count} novos modelos adicionados.")
+
+        self._run_task("Aprender com a página", trabalho, concluir, indeterminado=True)
 
     # -------------------------------------------------------
     # Neural Network
     # -------------------------------------------------------
 
     def train_neural_network(self):
+        if self._busy("O treino"):
+            return
+
         if not self.learning_service.data_dir or not os.listdir(self.learning_service.data_dir):
             messagebox.showinfo(
                 "Aviso",
@@ -1104,42 +1230,34 @@ class MainWindow(tk.Frame):
         if epochs is None:
             return
 
-        self.parent.config(cursor="wait")
-        self.parent.update()
+        def trabalho(h):
+            # should_stop é consultado a cada época: cancelar mantém salvo o
+            # melhor modelo obtido até ali.
+            return self.learning_service.train_neural(
+                epochs=epochs,
+                callback=h.log,
+                should_stop=lambda: h.cancelled,
+            )
 
-        try:
-            top = tk.Toplevel(self.parent)
-            top.title("Treinando...")
-            top.geometry("400x120")
-            lbl = tk.Label(top, text="Iniciando...", padx=20, pady=20)
-            lbl.pack()
-            top.update()
-
-            def callback(msg):
-                lbl.config(text=msg)
-                top.update()
-                print(msg)
-
-            success = self.learning_service.train_neural(epochs=epochs, callback=callback)
-            top.destroy()
-
-            if success:
+        def concluir(sucesso):
+            if sucesso:
                 messagebox.showinfo(
                     "Sucesso",
                     "Treinamento concluído!\nAgora você pode usar 'Detectar e Preencher (Neural)'."
                 )
             else:
                 messagebox.showerror("Erro", "Falha no treinamento.")
-        except Exception as e:
-            messagebox.showerror("Erro Fatal", str(e))
-        finally:
-            self.parent.config(cursor="")
+
+        self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)
 
     # -------------------------------------------------------
     # Treinamento Geral (Batch) & Importacao
     # -------------------------------------------------------
 
     def run_general_neural_training(self):
+        if self._busy("O processamento em lote"):
+            return
+
         if not self.learning_service.load_predictor():
             messagebox.showerror(
                 "Erro",
@@ -1162,83 +1280,64 @@ class MainWindow(tk.Frame):
         if not output_dir:
             return
 
-        self.parent.config(cursor="wait")
-        self.parent.update()
-
-        top = tk.Toplevel(self.parent)
-        top.title("Processamento em Lote")
-        top.geometry("400x150")
-        lbl = tk.Label(top, text="Iniciando...", padx=20, pady=20)
-        lbl.pack()
-        progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(top, variable=progress_var, maximum=100, length=300)
-        progress_bar.pack()
-        top.update()
-
-        try:
+        def trabalho(h):
             images = []
-            for fpath in filepaths:
+            for n, fpath in enumerate(filepaths):
+                h.raise_if_cancelled()
                 ext = os.path.splitext(fpath)[1].lower()
+                h.progress(n + 1, len(filepaths), f"lendo {os.path.basename(fpath)}")
+
                 if ext == ".pdf":
                     try:
-                        lbl.config(text=f"Convertendo PDF: {os.path.basename(fpath)}...")
-                        top.update()
                         pages = self.pdf_service.convert_pdf_to_images(fpath, dpi=200)
-                        for i, page in enumerate(pages):
-                            images.append((f"{os.path.basename(fpath)}_pg{i+1}", page))
                     except Exception as e:
-                        err_str = str(e)
-                        if "poppler" in err_str.lower():
-                            messagebox.showerror(
-                                "Erro Poppler",
-                                "Para ler PDF, você precisa do POPPLER instalado e no PATH.\n"
+                        if "poppler" in str(e).lower():
+                            raise RuntimeError(
+                                "Para ler PDF é preciso o POPPLER instalado e no PATH.\n"
                                 "Baixe em: https://github.com/oschwartz10612/poppler-windows/releases/"
-                            )
-                            return
-                        else:
-                            messagebox.showerror("Erro PDF", f"Falha ao ler PDF: {e}")
-                            continue
+                            ) from e
+                        raise
+                    for i, page in enumerate(pages):
+                        images.append((f"{os.path.basename(fpath)}_pg{i+1}", page))
                 else:
                     try:
-                        img = Image.open(fpath).convert("L")
-                        images.append((os.path.basename(fpath), img))
+                        images.append((os.path.basename(fpath),
+                                       Image.open(fpath).convert("L")))
                     except Exception:
                         continue
 
-            def progress_cb(name, current, total):
-                lbl.config(text=f"Processando {current}/{total}...\n{name}")
-                progress_var.set((current / total) * 100)
-                top.update()
+            def progresso(nome, atual, total):
+                h.raise_if_cancelled()
+                h.progress(atual, total, f"{atual}/{total} — {nome}")
 
-            total_crops = self.learning_service.batch_extract_and_classify(
-                images, output_dir, progress_callback=progress_cb
+            return self.learning_service.batch_extract_and_classify(
+                images, output_dir, progress_callback=progresso
             )
-            top.destroy()
+
+        def concluir(total_crops):
             messagebox.showinfo(
                 "Concluído",
                 f"Processamento finalizado!\n{total_crops} caracteres extraídos em:\n{output_dir}"
             )
-        except Exception as e:
-            top.destroy()
-            messagebox.showerror("Erro", str(e))
-        finally:
-            self.parent.config(cursor="")
+
+        self._run_task("Processamento em lote", trabalho, concluir)
 
     def import_character_images(self):
+        if self._busy("A importação"):
+            return
+
         src_dir = filedialog.askdirectory(title="Selecione a pasta de ORIGEM")
         if not src_dir:
             return
 
-        self.parent.config(cursor="wait")
-        self.parent.update()
+        def trabalho(h):
+            h.log("Copiando imagens...")
+            return self.learning_service.import_character_images(src_dir)
 
-        try:
-            count = self.learning_service.import_character_images(src_dir)
+        def concluir(count):
             messagebox.showinfo(
                 "Sucesso",
                 f"Importação concluída.\n{count} imagens importadas para training_data."
             )
-        except Exception as e:
-            messagebox.showerror("Erro", str(e))
-        finally:
-            self.parent.config(cursor="")
+
+        self._run_task("Importar imagens", trabalho, concluir, indeterminado=True)

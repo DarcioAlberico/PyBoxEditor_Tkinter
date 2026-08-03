@@ -438,6 +438,8 @@ padrões coexistem e o redo perde estado permanentemente (verificado — ROADMAP
 
 ### 6.2 Concorrência
 
+**Implementado na F4.1** — `core/services/task_service.py`.
+
 Nenhum trabalho pesado na thread da UI. Nenhuma chamada a `self.parent.update()`
 dentro de laço de processamento — além de congelar, o `update()` reentrante pode
 reentrar num handler no meio da mutação da lista de boxes.
@@ -451,7 +453,22 @@ class BackgroundTask:
 - worker em `threading.Thread`; comunicação por `queue.Queue`
 - UI consome a fila com `widget.after(50, ...)`
 - toda operação longa é **cancelável**: OCR de página, treino, lote, conversão de PDF
-- barra de progresso real na status bar (`ui/status_bar.py` já existe, nunca foi usado)
+- barra de progresso real na status bar (`ui/status_bar.py`, recriado como `Frame`)
+
+Regra que não pode ser quebrada: **a função de trabalho nunca toca em widget.** Ela
+calcula e devolve dados; quem mexe na tela é `on_done`, na thread da UI.
+
+Corolário prático: dados compartilhados com a UI são copiados antes de ir para a thread.
+Os recortes dos boxes viram `numpy` em `_recortes_dos_boxes()`, e `save_all_pages` copia
+`self.image` — senão o worker e o `redraw` do canvas leriam a mesma `PIL.Image`.
+
+`is_running()` fica verdadeiro até o resultado ter sido **entregue**, não só até a thread
+morrer. Consultar `thread.is_alive()` é cedo demais: a thread termina ao enfileirar o
+resultado, e `on_done` só roda no ciclo seguinte de `after` — nessa janela dava para
+disparar outra tarefa por cima de um estado ainda não aplicado.
+
+`shutdown()` solta o `after` pendente antes de destruir a janela; sem isso o callback
+agendado dispara contra uma aplicação que já não existe.
 
 Trabalho de CPU pesada (OpenCV, PyTorch) libera o GIL, então threads bastam —
 `multiprocessing` só se o perfil apontar necessidade.

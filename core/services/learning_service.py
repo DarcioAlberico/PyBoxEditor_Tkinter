@@ -83,7 +83,9 @@ class LearningService:
             return "?", 0.0
         return self._predictor.predict(crop_np)
 
-    def train_neural(self, epochs: int = 20, callback: Optional[Callable[[str], None]] = None) -> bool:
+    def train_neural(self, epochs: int = 20,
+                     callback: Optional[Callable[[str], None]] = None,
+                     should_stop: Optional[Callable[[], bool]] = None) -> bool:
         """Treina a rede neural com os dados atuais."""
         if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             if callback:
@@ -91,7 +93,7 @@ class LearningService:
             return False
 
         trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
-        return trainer.train(epochs=epochs, callback=callback)
+        return trainer.train(epochs=epochs, callback=callback, should_stop=should_stop)
 
     # ------------------------------------------------------------------
     # Batch processing (extract + classify)

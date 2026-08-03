@@ -10,6 +10,7 @@ Rodar sem pytest:      python tests/test_f37_paginas.py
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -58,12 +59,34 @@ class _App:
         self.perguntas.append((titulo, msg))
         return self._descartar
 
+    def aguardar(self, limite=60.0):
+        """
+        Bombeia o laço do Tk até a tarefa de fundo terminar.
+
+        Necessário desde a F4.1: renderizar página do PDF passou a rodar em
+        thread (medido em ~950 ms), então open_pdf/next_page/prev_page voltam
+        antes de a página estar carregada.
+        """
+        fim = time.time() + limite
+        self.root.update()
+        while self.win.task.is_running() and time.time() < fim:
+            self.root.update()
+            time.sleep(0.01)
+        self.root.update()
+        assert not self.win.task.is_running(), "tarefa nao terminou no tempo"
+
     def __enter__(self):
         return self
 
     def __exit__(self, *a):
         messagebox.showinfo, messagebox.showerror, messagebox.askyesno = (
             self._info, self._erro, self._sim)
+        try:
+            self.win.task.shutdown()
+            self.win.status.end_task()
+            self.root.update()
+        except Exception:
+            pass
         try:
             self.root.destroy()
         except tk.TclError:
@@ -127,12 +150,14 @@ def test_virar_pagina_preserva_boxes():
         with _App() as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
             assert w.current_pdf_page == 0
 
             w.boxes.append(BoxEntry("X", 10, 10, 20, 20))
             w._commit_change()
 
             w.next_page()                                   # <- apagava aqui
+            app.aguardar()
             assert w.current_pdf_page == 1
             assert w.boxes == [], "página nova deve começar vazia"
 
@@ -140,10 +165,12 @@ def test_virar_pagina_preserva_boxes():
             w._commit_change()
 
             w.prev_page()
+            app.aguardar()
             assert w.current_pdf_page == 0
             assert [b.char for b in w.boxes] == ["X"], "o trabalho da página 1 sumiu"
 
             w.next_page()
+            app.aguardar()
             assert [b.char for b in w.boxes] == ["Y"], "o trabalho da página 2 sumiu"
 
 
@@ -156,12 +183,15 @@ def test_navegacao_arquiva_na_pagina_certa():
         with _App() as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
 
             for esperado in ("P0", "P1", "P2"):
                 w.boxes.append(BoxEntry(esperado, 1, 1, 9, 9))
                 w._commit_change()
                 if esperado != "P2":
                     w.next_page()
+                    app.aguardar()
+            app.aguardar()
 
             for pagina, esperado in enumerate(("P0", "P1", "P2")):
                 assert [b.char for b in w.session.boxes_for(pagina)] == [esperado], \
@@ -179,6 +209,7 @@ def test_titulo_marca_nao_salvo():
         with _App() as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
             assert "*" not in w.parent.title()
 
             w.boxes.append(BoxEntry("A", 1, 1, 9, 9))
@@ -197,6 +228,7 @@ def test_avisa_antes_de_descartar():
         with _App(descartar=True) as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
             w.boxes.append(BoxEntry("A", 1, 1, 9, 9))
             w._commit_change()
 
@@ -214,6 +246,7 @@ def test_recusar_descarte_cancela_abertura():
         with _App(descartar=False) as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
             w.boxes.append(BoxEntry("A", 1, 1, 9, 9))
             w._commit_change()
 
@@ -234,16 +267,20 @@ def test_salvar_todas_as_paginas():
         with _App() as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
 
             w.boxes.append(BoxEntry("A", 10, 10, 20, 20))
             w._commit_change()
             w.next_page()
+            app.aguardar()
             w.next_page()                                   # pula a página 2
+            app.aguardar()
             w.boxes.append(BoxEntry("C", 10, 10, 20, 20))
             w._commit_change()
 
             assert w.session.dirty_pages() == [0, 2]
             w.save_all_pages()
+            app.aguardar()
 
             assert os.path.exists(os.path.join(tmp, "livro_pg001.box"))
             assert os.path.exists(os.path.join(tmp, "livro_pg001.png"))
@@ -265,9 +302,11 @@ def test_salvar_pagina_atual_nao_limpa_as_outras():
         with _App() as app:
             w = app.win
             w.open_pdf(pdf)
+            app.aguardar()
             w.boxes.append(BoxEntry("A", 10, 10, 20, 20))
             w._commit_change()
             w.next_page()
+            app.aguardar()
             w.boxes.append(BoxEntry("B", 10, 10, 20, 20))
             w._commit_change()
 

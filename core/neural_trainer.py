@@ -177,7 +177,12 @@ class NeuralTrainer:
         self.meta_path = meta_path
         self.device = get_device()
         
-    def train(self, epochs=20, callback=None):
+    def train(self, epochs=20, callback=None, should_stop=None):
+        """
+        should_stop: callable sem argumentos consultado a cada época. Se devolver
+        True, o treino para e o melhor modelo até ali fica salvo. Necessário para
+        que a UI consiga cancelar (o treino chega a durar minutos).
+        """
         dataset = CharDataset(self.data_dir, augment=True, augment_factor=8)
         if len(dataset) == 0:
             if callback: callback("Nenhum dado encontrado para treinamento.")
@@ -201,11 +206,18 @@ class NeuralTrainer:
         
         best_loss = float('inf')
         
+        accuracy = 0.0
         for epoch in range(epochs):
+            if should_stop is not None and should_stop():
+                if callback:
+                    callback(f"Treino interrompido na epoch {epoch+1}. "
+                             "O melhor modelo até aqui está salvo.")
+                return True
+
             running_loss = 0.0
             correct = 0
             total_samples = 0
-            
+
             for inputs, labels in dataloader:
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 
