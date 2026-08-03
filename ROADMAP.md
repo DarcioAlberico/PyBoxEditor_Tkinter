@@ -26,7 +26,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | pendente |
 | **F4** | UI | Interface responsiva, sem congelar | pendente |
-| **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (testes de F0 feitos) |
+| **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
 ---
 
@@ -330,7 +330,7 @@ trocar de página. Combinado com F3.7, é perda de trabalho garantida.
 
 ## F5 — Higiene do código
 
-### F5.1 — Código morto (7 arquivos, ~180 linhas)
+### F5.1 — Código morto (7 arquivos, 211 linhas) — CONCLUÍDA
 
 | Arquivo | Situação |
 |---------|----------|
@@ -342,8 +342,29 @@ trocar de página. Combinado com F3.7, é perda de trabalho garantida.
 | `core/image_loader.py` | 6 linhas, nunca importado |
 | `core/tesseract_utils.py` | Nunca importado |
 
-`box_io.py` é o mais perigoso: dois formatos `.box` incompatíveis convivendo no mesmo
-projeto. Quem usar o módulo errado lê lixo.
+`box_io.py` era o mais perigoso: dois formatos `.box` incompatíveis convivendo no mesmo
+projeto. Quem usasse o módulo errado leria lixo.
+
+**Aplicada em 2026-08-03.** Os 7 arquivos foram removidos; 211 linhas a menos. Os 15
+módulos restantes importam, os 11 testes passam e o fluxo completo do editor continua
+rodando sobre a página real.
+
+Ao executar, dois deles se revelaram piores do que "mortos" — estavam **quebrados**, e
+a recomendação anterior da SPEC (§9.2, "ligar em vez de apagar") não se sustentava:
+
+| Arquivo | O que apareceu ao conferir |
+|---------|----------------------------|
+| `ui/menu_bar.py` | chama `controller.load_box_dialog` e `controller.generate_autobox` — **métodos que não existem**. Quebraria se ligado |
+| `ui/sidebar.py` | chama `controller.apply_char(c)` com um argumento; `MainWindow.apply_char` não aceita nenhum |
+| `ui/status_bar.py` | é um `tk.Label`; a F4.2 precisa de algo que comporte um `ttk.Progressbar`, ou seja um `Frame` |
+| `core/image_loader.py` | devolve RGB; o app trabalha em grayscale (`'L'`) em todo lugar |
+| `core/tesseract_utils.py` | tinha `menu_bar.py` como único consumidor — caiu junto |
+
+Nada foi perdido: o histórico guarda tudo. O Otsu do `opencv_autobox.py`, que a F1.5
+vai querer, sai com `git show 6a4b7a1:core/opencv_autobox.py`.
+
+Fica pendente a consolidação do formato `.box` num módulo próprio (SPEC §2.3) — a F5.1
+removeu o leitor divergente, não unificou o que sobrou.
 
 ### F5.2 — Formato `.box` perde dados
 
@@ -380,8 +401,8 @@ apostar.
 [FEITO] F0.4  requirements.txt
 [FEITO] F5.3  teste de fumaça mínimo   ← trava as correções acima
 [FEITO] F0.3  undo/redo
+[FEITO] F5.1  remover código morto     ← reduz superfície antes de refatorar
       ↓
-F5.1  remover código morto       ← reduz superfície antes de refatorar
 F3.7  boxes por página + aviso   ← evita perda de trabalho
       ↓
 F1.4  limpar sym_f7              ─┐

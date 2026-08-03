@@ -31,11 +31,14 @@ linguagem.
 ### 2.1 `BoxEntry` — fonte única da verdade
 
 `core/box_model.py` define um dataclass. **Não é um dicionário.** Quatro pontos do
-código ainda o tratam como dict e falham em runtime (ROADMAP F0.1).
+código o tratavam como dict e falhavam em runtime — corrigidos na F0.1, travados por
+`tests/test_f0_smoke.py`.
 
-**Regra:** acesso exclusivamente por atributo. Nada de `b["x1"]`, `b.get()`, `b.copy()`.
+**Regra:** acesso exclusivamente por atributo. Nada de `b["x1"]` nem `b.get()`.
+(`b.copy()` passou a existir e é o jeito certo de duplicar um box.)
 
-Estender o dataclass com o que o código precisa e hoje não existe:
+Estado alvo do dataclass — `copy()`, `width` e `height` já foram implementados;
+`confidence` e `source` continuam pendentes (F1/F3):
 
 ```python
 from dataclasses import dataclass, replace, field
@@ -80,7 +83,7 @@ Só três lugares convertem `BoxEntry` ↔ outra representação:
 
 | Fronteira | Função |
 |-----------|--------|
-| Arquivo `.box` | `core/box_io.py` |
+| Arquivo `.box` | `core/box_io.py` (a recriar, ver §2.3) |
 | Serialização de histórico | `core/services/history_service.py` |
 | Interoperabilidade OpenCV | `core/services/box_service.py` |
 
@@ -88,9 +91,10 @@ Qualquer outro lugar que converta é bug.
 
 ### 2.3 Formato `.box`
 
-Existem **dois formatos incompatíveis** no projeto hoje: 5 campos em `box_io.py`,
-6 campos em `main_window.py`. Consolidar no formato Tesseract (6 campos, origem
-inferior-esquerda):
+Havia **dois formatos incompatíveis**: 5 campos em `box_io.py` e 6 em `main_window.py`.
+A F5.1 removeu o `box_io.py`, então hoje sobra só o de 6 campos, inline no
+`main_window`. Falta consolidá-lo num módulo próprio, no formato Tesseract (6 campos,
+origem inferior-esquerda):
 
 ```
 <char> <x1> <y_bottom> <x2> <y_top> <page>
@@ -98,7 +102,11 @@ inferior-esquerda):
 
 Regras:
 
-- `core/box_io.py` é a **única** implementação; `main_window` passa a chamá-lo
+- **recriar** `core/box_io.py` como a **única** implementação, e `main_window` passa a
+  chamá-lo. (O `box_io.py` original foi removido na F5.1: implementava o formato de
+  5 campos, incompatível com o de 6 campos que o `main_window` realmente grava — dois
+  leitores divergentes do mesmo formato é pior que nenhum. O código antigo segue
+  recuperável: `git show 6a4b7a1:core/box_io.py`.)
 - caractere vazio grava `~`; um `~` literal grava `\~`
 - **não truncar** com `ch[0]` — ligaduras (`fi`, `ffi`) são gravadas inteiras
   (`main_window.py:709` trunca hoje, perdendo dados em silêncio)
@@ -134,9 +142,10 @@ def normalize_dpi(img: np.ndarray, source_dpi: int, target_dpi: int = 300) -> np
 
 Ordem do pipeline: `normalize_dpi → deskew → denoise → binarize`.
 
-`core/opencv_autobox.py` já tem uma binarização Otsu melhor que a em uso, com filtros
-de tamanho relativos à página. **Migrar essa lógica para cá** e apagar o arquivo — ele
-está morto desde sempre.
+O antigo `core/opencv_autobox.py` já tinha uma binarização Otsu melhor que a em uso,
+com filtros de tamanho relativos à página. O arquivo foi removido na F5.1 (estava morto
+desde sempre), mas **essa lógica é o ponto de partida deste módulo** — recuperar com
+`git show 6a4b7a1:core/opencv_autobox.py`.
 
 Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
 literal deve sobrar no código.
@@ -173,28 +182,42 @@ sem levantar erro (ROADMAP F0.2).
 presente e foi verificado preservando os 12 glifos. A regra passa a ser: fonte
 **empacotada no projeto**, com fallback para fontes do sistema.
 
+**Implementado na F0.2.** Duas coisas foram aprendidas ao codificar, e esta seção já
+reflete as duas:
+
+**1. Checar se o arquivo existe não basta — e a lista de candidatas era ingênua.**
+Medido neste Windows sobre as 12 peças:
+
+| Fonte | Existe no disco | Cobre as 12 peças |
+|-------|-----------------|-------------------|
+| `seguisym.ttf` (Segoe UI Symbol) | sim | **sim** |
+| `msgothic.ttc` (MS Gothic) | sim | **sim** |
+| `arial.ttf` | sim | não — 0 de 12 |
+| `segoeui.ttf` | sim | não — 0 de 12 |
+| `times.ttf`, `calibri.ttf`, `cambria.ttc` | sim | não — 0 de 12 |
+
+Arial estava na lista de candidatas do rascunho: passaria no teste "o arquivo existe"
+e produziria exatamente o PDF corrompido que a seção tenta evitar. Foi retirada.
+
+**2. `has_glyph` devolve o id do glifo, não um booleano** — `0` significa ausente.
+O rascunho desta spec tinha a condição invertida, o que faria a validação aprovar
+justamente as fontes ruins:
+
 ```python
-CHESS_FONT_CANDIDATES = [
-    "assets/fonts/DejaVuSans.ttf",          # empacotada — caminho preferencial
-    r"C:\Windows\Fonts\seguisym.ttf",       # Segoe UI Symbol (verificada)
-    r"C:\Windows\Fonts\arial.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-]
-
-def resolve_chess_font() -> str:
-    """Primeira fonte existente que contenha U+2654–U+265F. Levanta se nenhuma servir."""
-```
-
-**Obrigatório: validar a cobertura antes de escrever.** O modo de falha é silencioso —
-sem esta checagem, o usuário só descobre abrindo o PDF destruído.
-
-```python
-def assert_glyph_coverage(font_path: str, chars: str) -> None:
+def missing_glyphs(font_path: str, chars: str = CHESS_UNICODE) -> list:
     font = fitz.Font(fontfile=font_path)
-    faltando = [c for c in chars if font.has_glyph(ord(c))]   # conferir semântica na versão
-    if faltando:
-        raise ChessFontError(f"Fonte {font_path} não cobre: {faltando}")
+    return [c for c in chars if not font.has_glyph(ord(c))]   # 0 = ausente
+
+def resolve_chess_font(chars: str = CHESS_UNICODE) -> str:
+    """
+    Primeira candidata que cobre TODOS os caracteres. Levanta ChessFontError com
+    o diagnóstico por fonte se nenhuma servir — falhar alto aqui é proposital.
+    """
 ```
+
+`assets/fonts/DejaVuSans.ttf` continua **não empacotada**: hoje o código cai no Segoe
+UI Symbol desta máquina. Numa máquina sem ele, agora falha com mensagem clara em vez
+de corromper — mas empacotar a fonte segue pendente.
 
 Inserção:
 
@@ -653,19 +676,45 @@ PyBoxEditor_Tkinter/
 ├── assets/fonts/DejaVuSans.ttf      ← novo, empacotado (§4.2)
 ├── config/{settings.py,profiles/}
 ├── core/
-│   ├── box_model.py  box_io.py  preprocess.py   ← preprocess é novo
-│   └── services/{box,ocr,pdf,learning,history,document}_service.py
-├── ui/{main_window,canvas_view,sidebar,status_bar,toolbar}.py
+│   ├── box_model.py                             ← existe
+│   ├── box_io.py  preprocess.py                 ← a criar (§2.3, §3)
+│   └── services/{box,ocr,pdf,learning,history}_service.py      ← existem
+│       └── document_service.py                  ← a criar (§6.4)
+├── ui/
+│   ├── {main_window,canvas_view}.py             ← existem
+│   └── {status_bar,toolbar}.py                  ← a criar (§7.1, F4.2)
 ├── tests/
 └── docs/{SPEC.md,ROADMAP.md}
 ```
 
-Apagar: `core/opencv_autobox.py` (migrar Otsu para `preprocess.py` antes),
-`core/image_loader.py`, `core/tesseract_utils.py`, `debug_*.py`, `crash_log.txt`,
-`full_log.txt`, `test_{image,emj,sym}.png`, `Novo Documento de Texto.txt`.
+**Removidos na F5.1** (7 módulos, 211 linhas): `ui/sidebar.py`, `ui/menu_bar.py`,
+`ui/status_bar.py`, `core/opencv_autobox.py`, `core/box_io.py`, `core/image_loader.py`,
+`core/tesseract_utils.py`.
 
-`ui/sidebar.py`, `ui/menu_bar.py` e `ui/status_bar.py` estão mortos hoje mas são úteis:
-**ligar** em vez de apagar.
+> **Correção desta spec.** A v2.0 recomendava *ligar* `sidebar.py`, `menu_bar.py` e
+> `status_bar.py` em vez de apagá-los. Ao executar a F5.1 ficou claro que nenhum dos
+> três é aproveitável como está:
+>
+> - `sidebar.py` chama `controller.apply_char(c)` com um argumento; `MainWindow.apply_char`
+>   não aceita nenhum — quebraria ao ser ligado.
+> - `menu_bar.py` chama `controller.load_box_dialog` e `controller.generate_autobox`,
+>   **métodos que não existem**. Também quebraria.
+> - `status_bar.py` é um `tk.Label`, e a F4.2 precisa de uma barra que comporte um
+>   `ttk.Progressbar` — ou seja, um `Frame`, não um `Label`.
+>
+> `tesseract_utils.py` tinha `menu_bar.py` como único consumidor, então caiu junto.
+> A configuração do caminho do Tesseract continua prevista em §6.3 (`paths.tesseract`)
+> e será reescrita lá, ligada de verdade.
+
+Recuperar do histórico quando for preciso:
+
+```bash
+git show 6a4b7a1:core/opencv_autobox.py   # binarização Otsu, insumo da §3
+git show 6a4b7a1:core/box_io.py           # leitor/escritor .box antigo (5 campos)
+```
+
+Ainda pendente (F5.4, fora da F5.1): `debug_*.py`, `crash_log.txt`, `full_log.txt`,
+`test_{image,emj,sym}.png`, `Novo Documento de Texto.txt`, `test_chess_pdf.py`.
 
 ### 9.3 Controle de versão
 
