@@ -7,6 +7,65 @@ CHESS_FONT_KEYWORDS = [
     "chess", "merida", "diagram", "figurine", "skak", "cburnett", "alpha", "leipzig"
 ]
 
+# Os 12 símbolos Unicode de peças (U+2654..U+265F).
+CHESS_UNICODE = "\u2654\u2655\u2656\u2657\u2658\u2659\u265A\u265B\u265C\u265D\u265E\u265F"
+
+# Fontes candidatas, em ordem de preferência.
+# ATENÇÃO: a maioria das fontes comuns NÃO tem estes glifos. Verificado neste
+# sistema: Arial, Segoe UI, Times e Calibri falham nas 12 peças; apenas
+# Segoe UI Symbol e MS Gothic cobrem. Por isso resolve_chess_font() valida a
+# cobertura de verdade em vez de só checar se o arquivo existe.
+CHESS_FONT_CANDIDATES = [
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "assets", "fonts", "DejaVuSans.ttf"),   # empacotada (preferencial)
+    r"C:\Windows\Fonts\seguisym.ttf",                    # Segoe UI Symbol
+    r"C:\Windows\Fonts\msgothic.ttc",                    # MS Gothic
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+]
+
+
+class ChessFontError(RuntimeError):
+    """Nenhuma fonte disponível consegue desenhar as peças de xadrez."""
+
+
+def missing_glyphs(font_path: str, chars: str = CHESS_UNICODE) -> list:
+    """Retorna os caracteres que a fonte NÃO consegue desenhar."""
+    font = fitz.Font(fontfile=font_path)
+    # has_glyph devolve o id do glifo; 0 significa ausente.
+    return [c for c in chars if not font.has_glyph(ord(c))]
+
+
+def resolve_chess_font(chars: str = CHESS_UNICODE) -> str:
+    """
+    Primeira fonte candidata que cobre TODOS os caracteres pedidos.
+
+    Levanta ChessFontError se nenhuma servir. Falhar alto aqui é proposital:
+    a alternativa é o PyMuPDF trocar cada peça por '·' sem avisar, e o usuário
+    só descobrir ao abrir o PDF já convertido.
+    """
+    tentativas = []
+    for path in CHESS_FONT_CANDIDATES:
+        if not os.path.exists(path):
+            continue
+        try:
+            falta = missing_glyphs(path, chars)
+        except Exception as e:
+            tentativas.append(f"  {path}: erro ao ler ({e})")
+            continue
+        if not falta:
+            return path
+        tentativas.append(f"  {path}: não cobre {''.join(falta)}")
+
+    detalhe = "\n".join(tentativas) if tentativas else "  (nenhuma candidata encontrada no disco)"
+    raise ChessFontError(
+        "Nenhuma fonte disponível desenha os símbolos de xadrez.\n"
+        f"Fontes testadas:\n{detalhe}\n\n"
+        "Solução: coloque DejaVuSans.ttf em assets/fonts/ "
+        "(https://dejavu-fonts.github.io/)."
+    )
+
 # Default profile for mapping chess pseudo-ASCII to Unicode
 # This is a generic fallback that attempts to cover the most common mappings.
 DEFAULT_MAPPING_PROFILE = {
@@ -67,35 +126,56 @@ def is_block_a_diagram(block: dict) -> bool:
     return total_span_count > 0 and (chess_span_count / total_span_count) > 0.7
 
 
-def process_span(page: fitz.Page, span: dict, mapping_profile: dict, base_font: str = "helv"):
+def process_span(page: fitz.Page, span: dict, mapping_profile: dict,
+                 fontname: str, font: fitz.Font) -> bool:
     """
-    Substitutes chess glyphs in a single span with Unicode text.
+    Substitui os glifos de xadrez de um span por texto Unicode.
+
+    'fontname' é o alias já registrado na página via page.insert_font(), e 'font'
+    o objeto fitz.Font correspondente (usado para medir a largura do texto).
+    Retorna True se algo foi escrito.
     """
     font_name = span.get("font", "")
     if not is_chess_font(font_name):
-        return  # Not a chess font, do nothing
+        return False  # Not a chess font, do nothing
 
     original_text = span.get("text", "")
+    if not original_text:
+        return False
+
     bbox = fitz.Rect(span["bbox"])
-    
+
     # Map the text
     new_text = "".join(mapping_profile.get(char, char) for char in original_text)
-    
+
     # 1. Erase the original text by drawing a white rectangle over the bounding box
     # We use white assuming white background. Ideally, we should detect background color,
     # but for most PDFs white is safe.
     page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
-    
-    # 2. Insert the new Unicode text
-    # We use a standard font that supports Unicode chess symbols (e.g., helv or a specific embedded font if added)
-    # The font size might need tweaking since Unicode symbols can be wider/narrower than the glyphs.
-    page.insert_textbox(
-        rect=bbox,
-        buffer=new_text,
-        fontname=base_font,
-        fontsize=span["size"],
-        align=0  # Left align. 1 is center.
+
+    # 2. Ajustar o corpo da fonte para caber na largura original.
+    #    Os símbolos Unicode costumam ser mais largos que os glifos da fonte de
+    #    xadrez, e estourar o bbox empurraria a notação por cima do texto vizinho.
+    size = span["size"]
+    largura_alvo = bbox.width
+    if largura_alvo > 0:
+        limite = size * 0.6  # abaixo disso a leitura sofre; melhor deixar estourar
+        while size > limite and font.text_length(new_text, fontsize=size) > largura_alvo:
+            size -= 0.5
+
+    # 3. Escrever na baseline do span original.
+    #    insert_text (e não insert_textbox): o textbox reflui o conteúdo dentro do
+    #    retângulo e desloca a notação inline; para um trecho curto como "♘f3" o
+    #    que importa é manter o alinhamento com a linha de texto.
+    origin = span.get("origin") or (bbox.x0, bbox.y1)
+
+    page.insert_text(
+        fitz.Point(origin),
+        new_text,
+        fontname=fontname,
+        fontsize=size,
     )
+    return True
 
 
 def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: dict = None, progress_callback=None) -> Tuple[int, int]:
@@ -120,11 +200,17 @@ def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: di
     total_pages = len(doc)
     replaced_spans_count = 0
 
-    # Optional: Insert a Unicode-capable font if standard fonts fail.
-    # For now, we rely on standard fallback (PyMuPDF's built-in fonts might not support all 
-    # Unicode chess symbols on all systems, but we'll try 'helv' first, or try to insert a base one).
+    # Resolver a fonte ANTES de tocar no documento: se nenhuma fonte do sistema
+    # desenhar as peças, é melhor abortar do que gerar um PDF com '·' no lugar
+    # de cada símbolo. resolve_chess_font() levanta ChessFontError nesse caso.
+    font_path = resolve_chess_font()
+    font_obj = fitz.Font(fontfile=font_path)
+    FONT_ALIAS = "chessuni"
 
     for page_num, page in enumerate(doc):
+        # O alias precisa ser registrado em cada página que for usá-lo.
+        page.insert_font(fontname=FONT_ALIAS, fontfile=font_path)
+
         # Notify progress
         if progress_callback:
             progress_callback(page_num, total_pages)
@@ -149,8 +235,9 @@ def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: di
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
                     if is_chess_font(span["font"]):
-                        process_span(page, span, mapping_profile, base_font="helv")
-                        replaced_spans_count += 1
+                        if process_span(page, span, mapping_profile,
+                                        FONT_ALIAS, font_obj):
+                            replaced_spans_count += 1
 
     try:
         doc.save(output_pdf)

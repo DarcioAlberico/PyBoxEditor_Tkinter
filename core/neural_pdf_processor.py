@@ -26,15 +26,14 @@ def generate_boxes_opencv(img_np):
 
 def get_unicode_font(size):
     """
-    Tenta carregar uma fonte do sistema que suporte caracteres Unicode de xadrez.
+    Carrega uma fonte que realmente desenhe as peças de xadrez.
+
+    A lista antiga tentava segoeui/arial como fallback — nenhuma das duas tem os
+    glifos U+2654..U+265F, então elas carregavam sem erro e desenhavam quadradinhos
+    vazios. Reaproveitamos resolve_chess_font(), que valida a cobertura de verdade.
     """
-    fonts_to_try = ["seguisym.ttf", "seguiemj.ttf", "segoeui.ttf", "arial.ttf", "dejavusans.ttf", "FreeSerif.ttf"]
-    for f in fonts_to_try:
-        try:
-            return ImageFont.truetype(f, size)
-        except IOError:
-            continue
-    return ImageFont.load_default()
+    from core.chess_pdf_processor import resolve_chess_font
+    return ImageFont.truetype(resolve_chess_font(), size)
 
 def process_scanned_pdf(input_pdf: str, output_pdf: str, model_path: str = "custom_model.pth", meta_path: str = "model_meta.json", progress_callback=None) -> tuple:
     """
