@@ -197,7 +197,6 @@ class CanvasView(tk.Canvas):
         # 1) teste nos cantos do box selecionado (resize)
         hit_idx, corner = self._hit_test_handles(event.x, event.y, boxes)
         if hit_idx is not None:
-            self.controller.on_mutation_start()
             self.drag_mode = "resize"
             self.drag_box_index = hit_idx
             self.drag_corner = corner
@@ -209,7 +208,6 @@ class CanvasView(tk.Canvas):
         # 2) clique dentro de algum box → mover
         for i, b in enumerate(boxes):
             if b.x1 <= img_x <= b.x2 and b.y1 <= img_y <= b.y2:
-                self.controller.on_mutation_start()
                 self.drag_mode = "move"
                 self.drag_box_index = i
                 self.drag_start_img = (img_x, img_y)
@@ -218,7 +216,7 @@ class CanvasView(tk.Canvas):
                 return
 
         # 3) área vazia → novo box
-        self.controller.on_mutation_start()
+        # (o snapshot para undo é feito em on_boxes_changed, após concluir a criação)
         self.drag_mode = "new"
         self.new_box_start = (img_x, img_y)
         self.new_box_end = (img_x, img_y)
