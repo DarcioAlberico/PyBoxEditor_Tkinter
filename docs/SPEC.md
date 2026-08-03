@@ -478,8 +478,9 @@ Eliminar todo literal de limiar espalhado pelo código.
 
 ### 6.4 Ciclo de vida do documento
 
-Corrige perda silenciosa de trabalho (ROADMAP F3.7): `_load_pdf_page` hoje faz
-`self.boxes = []` sem aviso — trocar de página apaga tudo que foi digitado.
+**Implementado na F3.7** (`core/services/document_service.py`), exceto o autosave,
+que continua pendente na F3.4. Corrigia perda silenciosa de trabalho: `_load_pdf_page`
+fazia `self.boxes = []` sem aviso — trocar de página apagava tudo que foi digitado.
 
 ```python
 class DocumentSession:
@@ -494,11 +495,26 @@ class DocumentSession:
 
 Regras:
 
-- trocar de página **preserva** os boxes da página anterior
-- autosave a cada N alterações, em sidecar ao lado do arquivo
-- ao abrir, detectar sidecar mais recente e oferecer recuperação
-- confirmar antes de sair/abrir outro arquivo com trabalho não salvo
-- título da janela marca estado sujo com `*`
+- [feito] trocar de página **preserva** os boxes da página anterior
+- [feito] confirmar antes de sair/abrir outro arquivo com trabalho não salvo
+- [feito] título da janela marca estado sujo com `*`
+- [feito] **salvar todas as páginas** — um par `.box`/`.png` por página com boxes,
+  em `<base>_pgNNN`. Sem isso a persistência seria uma armadilha: trabalho acumulado
+  em várias páginas sem forma de gravá-lo
+- [F3.4] autosave a cada N alterações, em sidecar ao lado do arquivo
+- [F3.4] ao abrir, detectar sidecar mais recente e oferecer recuperação
+
+Detalhe de implementação que vale registrar: `store()` guarda a lista recebida **sem
+copiar**, e `boxes_for()` devolve a própria lista. Copiar a cada tecla numa página de
+2.000 boxes seria caro. O contrato é que todo ponto que *reatribui* `self.boxes` chame
+`store()` em seguida — é o que `_commit_change()` e `_sync_session()` garantem
+(este último cobre undo/redo, que reatribuem a lista).
+
+Armadilha encontrada ao implementar: `prev_page`/`next_page` alteravam
+`self.current_pdf_page` **antes** de chamar `_load_pdf_page`. Como a nova versão usa
+esse campo para saber qual página arquivar, o trabalho seria gravado sob o índice
+errado. A navegação passa o índice de destino como argumento e quem atualiza o campo
+é `_load_pdf_page`.
 
 ---
 

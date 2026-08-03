@@ -13,6 +13,7 @@ from core.services.ocr_service import OCRService
 from core.services.pdf_service import PDFService
 from core.services.learning_service import LearningService
 from core.services.history_service import HistoryManager
+from core.services.document_service import DocumentSession
 
 from ui.canvas_view import CanvasView
 
@@ -32,9 +33,13 @@ class MainWindow(tk.Frame):
         self.parent = parent
         self.image = None          # PIL.Image
         self.image_path = None
-        self.boxes = []            # cada box: {"char","x1","y1","x2","y2"}
+        self.boxes = []            # lista de BoxEntry da página atual
         self.selected_index = -1
         self.current_pdf_page = 0
+
+        # Documento aberto: guarda os boxes de todas as páginas visitadas
+        # e o que ainda não foi gravado em disco.
+        self.session = None
 
         # Services
         self.box_service = BoxService()
@@ -46,6 +51,72 @@ class MainWindow(tk.Frame):
         self._build_layout()
         self._build_menu()
         self._bind_keys()
+
+        # Fechar pela janela passa pela mesma confirmação do menu Sair.
+        self.parent.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._update_title()
+
+    # -------------------------------------------------------
+    # Documento: estado sujo, título e confirmações
+    # -------------------------------------------------------
+
+    def _commit_change(self):
+        """
+        Registra uma mutação dos boxes: snapshot para undo + marca a página
+        como não salva.
+
+        Ponto único de entrada — todo lugar que altera self.boxes chama isto
+        em vez de history.snapshot() direto.
+        """
+        self.history.snapshot(self.boxes, self.selected_index)
+        if self.session is not None:
+            self.session.store(self.current_pdf_page, self.boxes)
+            self.session.mark_dirty(self.current_pdf_page)
+        self._update_title()
+
+    def _sync_session(self):
+        """Reassocia self.boxes à página atual sem marcá-la como suja.
+        Usado após undo/redo, que reatribuem a lista."""
+        if self.session is not None:
+            self.session.store(self.current_pdf_page, self.boxes)
+
+    def _update_title(self):
+        base = "PyBoxEditor"
+        if self.session is not None:
+            nome = os.path.basename(self.session.path)
+            if self.session.is_pdf:
+                base += f" — {nome} [Pág {self.current_pdf_page + 1}/{self.session.num_pages}]"
+            else:
+                base += f" — {nome}"
+            if self.session.is_dirty():
+                base += " *"
+        self.parent.title(base)
+
+    def _confirm_discard(self) -> bool:
+        """True se pode prosseguir (nada pendente, ou o usuário aceitou perder)."""
+        if self.session is None or not self.session.is_dirty():
+            return True
+
+        paginas = self.session.dirty_pages()
+        if self.session.is_pdf:
+            onde = f"{len(paginas)} página(s): " + ", ".join(str(p + 1) for p in paginas[:8])
+            if len(paginas) > 8:
+                onde += f" e mais {len(paginas) - 8}"
+        else:
+            onde = "esta imagem"
+
+        return messagebox.askyesno(
+            "Trabalho não salvo",
+            f"Há alterações não salvas em {onde}.\n"
+            f"Total na sessão: {self.session.total_boxes()} box(es).\n\n"
+            "Use 'Salvar todas as páginas' para gravar tudo.\n\n"
+            "Descartar as alterações e continuar?",
+            icon="warning",
+        )
+
+    def _on_close(self):
+        if self._confirm_discard():
+            self.parent.destroy()
 
     # -------------------------------------------------------
     # Layout
@@ -145,10 +216,13 @@ class MainWindow(tk.Frame):
         m_file = tk.Menu(menubar, tearoff=0)
         m_file.add_command(label="Abrir imagem...", command=self.open_image)
         m_file.add_command(label="Abrir PDF...", command=self.open_pdf)
-        m_file.add_command(label="Salvar .box", command=self.save_box_file)
+        m_file.add_command(label="Salvar .box (página atual)", accelerator="Ctrl+S",
+                           command=self.save_box_file)
+        m_file.add_command(label="Salvar todas as páginas...", accelerator="Ctrl+Shift+S",
+                           command=self.save_all_pages)
         m_file.add_command(label="Carregar .box", command=self.load_box_file)
         m_file.add_separator()
-        m_file.add_command(label="Sair", command=self.parent.quit)
+        m_file.add_command(label="Sair", command=self._on_close)
         menubar.add_cascade(label="Arquivo", menu=m_file)
 
         m_tools = tk.Menu(menubar, tearoff=0)
@@ -208,6 +282,10 @@ class MainWindow(tk.Frame):
         root.bind("<BackSpace>", self._on_key_delete)
         root.bind("d", self._on_key_split_safe)
         root.bind("D", self._on_key_split_safe)
+        root.bind("<Control-s>", lambda e: (self.save_box_file(), "break")[1])
+        root.bind("<Control-S>", lambda e: (self.save_all_pages(), "break")[1])
+        root.bind("<Prior>", lambda e: (self.prev_page(), "break")[1])
+        root.bind("<Next>", lambda e: (self.next_page(), "break")[1])
         root.bind("<Control-z>", self._on_key_undo)
         root.bind("<Control-y>", self._on_key_redo)
         root.bind("<Control-Z>", self._on_key_redo)  # Shift+Ctrl+Z fallback
@@ -217,6 +295,9 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def open_image(self, path=None):
+        if not self._confirm_discard():
+            return
+
         if path is None:
             path = filedialog.askopenfilename(
                 filetypes=[("Imagens", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff")]
@@ -231,12 +312,16 @@ class MainWindow(tk.Frame):
             return
 
         self.pdf_service.close()
-        self._update_nav_controls()
+
+        self.session = DocumentSession(path, num_pages=1, is_pdf=False)
+        self.current_pdf_page = 0
 
         self.image = img.convert("L")
         self.image_path = path
-        self.boxes = []
+        self.boxes = self.session.boxes_for(0)
         self.selected_index = -1
+
+        self._update_nav_controls()
 
         # Zerar o histórico ao trocar de documento: sem isso, um undo logo após
         # abrir traria de volta os boxes da imagem anterior.
@@ -244,16 +329,22 @@ class MainWindow(tk.Frame):
 
         box_path = os.path.splitext(path)[0] + ".box"
         if os.path.exists(box_path):
-            self._load_box_from_path(box_path)
+            self._load_box_from_path(box_path, marcar_sujo=False)
         else:
             self.history.snapshot(self.boxes, self.selected_index)
             self.update_sidebar()
             self.update_canvas()
 
-    def open_pdf(self):
-        path = filedialog.askopenfilename(
-            filetypes=[("Arquivos PDF", "*.pdf")]
-        )
+        self._update_title()
+
+    def open_pdf(self, path=None):
+        if not self._confirm_discard():
+            return
+
+        if path is None:
+            path = filedialog.askopenfilename(
+                filetypes=[("Arquivos PDF", "*.pdf")]
+            )
         if not path:
             return
 
@@ -262,57 +353,81 @@ class MainWindow(tk.Frame):
             messagebox.showerror("Erro PDF", err)
             return
 
+        # A sessão nova precisa existir antes de carregar a página, e a página
+        # atual não deve ser arquivada na sessão nova (ela é do documento antigo).
+        self.session = DocumentSession(path, num_pages=num_pages, is_pdf=True)
+        self.boxes = []
         self.current_pdf_page = 0
-        self._load_pdf_page(self.current_pdf_page)
+        self._load_pdf_page(0, arquivar_atual=False)
 
-    def _load_pdf_page(self, page_index):
+    def _load_pdf_page(self, page_index, arquivar_atual=True):
         self.parent.config(cursor="wait")
         self.parent.update()
 
         try:
+            # Guardar o trabalho da página que está saindo ANTES de trocar.
+            # Sem isto, virar a página descartava tudo que havia sido digitado.
+            if arquivar_atual and self.session is not None:
+                self.session.store(self.current_pdf_page, self.boxes)
+
             page_img = self.pdf_service.load_page(page_index)
             if page_img is None:
                 raise ValueError("Nenhuma imagem retornada para a página.")
 
             self.image = page_img
             self.image_path = f"{os.path.basename(self.pdf_service.pdf_path)} [Pág {page_index+1}]"
-            self.boxes = []
+            self.current_pdf_page = page_index
+
+            # Restaura o que já havia sido feito nesta página (lista vazia se
+            # for a primeira visita).
+            self.boxes = (self.session.boxes_for(page_index)
+                          if self.session is not None else [])
             self.selected_index = -1
 
-            # Cada página é um documento novo para efeito de undo. Sem este reset,
-            # um Ctrl+Z após virar a página despejaria os boxes da página anterior
-            # sobre a atual.
+            # O histórico é por página: um Ctrl+Z logo após virar a página não
+            # deve despejar os boxes da página anterior sobre a atual.
             self.history.reset()
             self.history.snapshot(self.boxes, self.selected_index)
 
             self.update_sidebar()
             self.update_canvas()
             self._update_nav_controls()
+            self._update_title()
         except Exception as e:
             messagebox.showerror("Erro Carregar Página", str(e))
         finally:
             self.parent.config(cursor="")
 
     def prev_page(self):
+        # Não mexer em current_pdf_page aqui: _load_pdf_page usa o valor atual
+        # para arquivar o trabalho da página que está saindo.
         if self.current_pdf_page > 0:
-            self.current_pdf_page -= 1
-            self._load_pdf_page(self.current_pdf_page)
+            self._load_pdf_page(self.current_pdf_page - 1)
 
     def next_page(self):
         if self.current_pdf_page < self.pdf_service.num_pages - 1:
-            self.current_pdf_page += 1
-            self._load_pdf_page(self.current_pdf_page)
+            self._load_pdf_page(self.current_pdf_page + 1)
 
     def _update_nav_controls(self):
         if not self.pdf_service.is_loaded():
-            self.lbl_page_info.config(text="Página: -/-")
+            if self.session is not None and self.session.has_boxes(0):
+                self.lbl_page_info.config(text=f"{len(self.boxes)} boxes")
+            else:
+                self.lbl_page_info.config(text="Página: -/-")
             self.btn_prev_page.config(state="disabled")
             self.btn_next_page.config(state="disabled")
             return
 
-        self.lbl_page_info.config(
-            text=f"Página: {self.current_pdf_page + 1}/{self.pdf_service.num_pages}"
-        )
+        info = f"Página: {self.current_pdf_page + 1}/{self.pdf_service.num_pages}"
+        if self.session is not None:
+            com_boxes = self.session.pages_with_boxes()
+            if com_boxes:
+                info += (f"   |   {len(com_boxes)} pág. com boxes"
+                         f", {self.session.total_boxes()} no total")
+            sujas = self.session.dirty_pages()
+            if sujas:
+                info += f"   |   {len(sujas)} não salva(s)"
+        self.lbl_page_info.config(text=info)
         self.btn_prev_page.config(
             state="normal" if self.current_pdf_page > 0 else "disabled"
         )
@@ -330,7 +445,7 @@ class MainWindow(tk.Frame):
             return
 
         self.boxes = self.box_service.generate_boxes_opencv(self.image)
-        self.history.snapshot(self.boxes, self.selected_index)
+        self._commit_change()
         self.update_canvas()
         self.update_sidebar()
 
@@ -399,7 +514,7 @@ class MainWindow(tk.Frame):
         except Exception as e:
             messagebox.showerror("Erro Neural", f"Erro na conversão OCR:\n{str(e)}")
         finally:
-            self.parent.title("PyBoxEditor (Tkinter Modular)")
+            self._update_title()
             self.parent.config(cursor="")
 
     # -------------------------------------------------------
@@ -417,7 +532,7 @@ class MainWindow(tk.Frame):
             crop = self.image.crop((b.x1, b.y1, b.x2, b.y2))
             b.char = self.ocr_service.tesseract_ocr(crop, whitelist)
 
-        self.history.snapshot(self.boxes, self.selected_index)
+        self._commit_change()
         self.update_sidebar()
         self.update_canvas()
 
@@ -447,9 +562,9 @@ class MainWindow(tk.Frame):
         except Exception as e:
             messagebox.showerror("Erro EasyOCR", str(e))
         finally:
-            self.parent.title("PyBoxEditor (Tkinter Modular)")
+            self._update_title()
             self.parent.config(cursor="")
-            self.history.snapshot(self.boxes, self.selected_index)
+            self._commit_change()
             self.update_sidebar()
             self.update_canvas()
             messagebox.showinfo("EasyOCR", f"Processamento concluído.\nCaracteres preenchidos: {count}")
@@ -501,9 +616,9 @@ class MainWindow(tk.Frame):
         except Exception as e:
             messagebox.showerror("Erro", str(e))
         finally:
-            self.parent.title("PyBoxEditor (Tkinter Modular)")
+            self._update_title()
             self.parent.config(cursor="")
-            self.history.snapshot(self.boxes, self.selected_index)
+            self._commit_change()
             self.update_sidebar()
             self.update_canvas()
             messagebox.showinfo(
@@ -556,9 +671,9 @@ class MainWindow(tk.Frame):
         except Exception as e:
             messagebox.showerror("Erro", str(e))
         finally:
-            self.parent.title("PyBoxEditor (Tkinter Modular)")
+            self._update_title()
             self.parent.config(cursor="")
-            self.history.snapshot(self.boxes, self.selected_index)
+            self._commit_change()
             self.update_sidebar()
             self.update_canvas()
             messagebox.showinfo(
@@ -619,7 +734,7 @@ class MainWindow(tk.Frame):
         antes da mutação, e por isso o estado novo nunca entrava no histórico — o
         redo devolvia o estado velho e a alteração se perdia.
         """
-        self.history.snapshot(self.boxes, self.selected_index)
+        self._commit_change()
         self.update_sidebar()
         self.update_canvas()
 
@@ -647,7 +762,7 @@ class MainWindow(tk.Frame):
         if not ch:
             ch = ""
         self.boxes[self.selected_index].char = ch
-        self.history.snapshot(self.boxes, self.selected_index)
+        self._commit_change()
         self.update_sidebar()
         self.update_canvas()
 
@@ -712,10 +827,67 @@ class MainWindow(tk.Frame):
 
         self._load_box_from_path(path)
 
-    def _save_box_to_path(self, path):
-        H = self.image.height
+    def save_all_pages(self):
+        """
+        Grava um par .box/.png por página que tenha boxes.
+
+        Contrapartida necessária da persistência entre páginas: sem isto o
+        usuário acumularia trabalho em várias páginas sem nenhuma forma de
+        gravá-lo, o que seria pior que o comportamento antigo.
+        """
+        if self.session is None:
+            messagebox.showinfo("Aviso", "Nenhum documento aberto.")
+            return
+
+        paginas = self.session.pages_with_boxes()
+        if not paginas:
+            messagebox.showinfo("Aviso", "Nenhuma página tem boxes para salvar.")
+            return
+
+        self.parent.config(cursor="wait")
+        salvos, falhas = [], []
+        try:
+            for n, page in enumerate(paginas):
+                self.parent.title(f"Salvando página {n + 1}/{len(paginas)}...")
+                self.parent.update()
+
+                if page == self.current_pdf_page:
+                    img = self.image
+                elif self.session.is_pdf:
+                    img = self.pdf_service.load_page(page)
+                else:
+                    img = self.image
+
+                if img is None:
+                    falhas.append(f"pág {page + 1}: não foi possível renderizar")
+                    continue
+
+                destino = self.session.page_stem(page) + ".box"
+                erro = self._write_box_pair(destino, img, self.session.boxes_for(page))
+                if erro:
+                    falhas.append(f"pág {page + 1}: {erro}")
+                else:
+                    self.session.mark_saved(page)
+                    salvos.append(destino)
+        finally:
+            self.parent.config(cursor="")
+            self._update_nav_controls()
+            self._update_title()
+
+        resumo = f"{len(salvos)} página(s) salva(s) em:\n{os.path.dirname(self.session.path)}"
+        if falhas:
+            messagebox.showerror("Salvo com erros", resumo + "\n\nFalhas:\n" + "\n".join(falhas))
+        else:
+            messagebox.showinfo("Sucesso", resumo)
+
+    def _write_box_pair(self, path, image, boxes):
+        """
+        Escreve o par .box/.png. Devolve None em caso de sucesso, ou a mensagem
+        de erro. Sem diálogos — quem chama decide como reportar.
+        """
+        H = image.height
         lines = []
-        for b in self.boxes:
+        for b in boxes:
             ch = b.char
             save_ch = ch[0] if ch else "~"
             x1, y1, x2, y2 = b.x1, b.y1, b.x2, b.y2
@@ -726,19 +898,36 @@ class MainWindow(tk.Frame):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
-
-            base_name = os.path.splitext(path)[0]
-            img_path = base_name + ".png"
-            self.image.save(img_path, format="PNG")
-
-            messagebox.showinfo(
-                "Sucesso",
-                f"Salvo com sucesso:\n- {os.path.basename(path)}\n- {os.path.basename(img_path)}"
-            )
+            image.save(os.path.splitext(path)[0] + ".png", format="PNG")
+            return None
         except Exception as e:
-            messagebox.showerror("Erro", f"Não foi possível salvar os arquivos:\n{e}")
+            return str(e)
 
-    def _load_box_from_path(self, path):
+    def _save_box_to_path(self, path):
+        erro = self._write_box_pair(path, self.image, self.boxes)
+        if erro:
+            messagebox.showerror("Erro", f"Não foi possível salvar os arquivos:\n{erro}")
+            return
+
+        if self.session is not None:
+            self.session.mark_saved(self.current_pdf_page)
+            self._update_nav_controls()
+        self._update_title()
+
+        img_path = os.path.splitext(path)[0] + ".png"
+        aviso = ""
+        if self.session is not None and self.session.is_dirty():
+            pend = len(self.session.dirty_pages())
+            aviso = (f"\n\nAtenção: ainda há {pend} outra(s) página(s) não salva(s)."
+                     "\nUse 'Salvar todas as páginas' para gravar tudo.")
+
+        messagebox.showinfo(
+            "Sucesso",
+            f"Salvo com sucesso:\n- {os.path.basename(path)}\n"
+            f"- {os.path.basename(img_path)}{aviso}"
+        )
+
+    def _load_box_from_path(self, path, marcar_sujo=True):
         if self.image is None:
             return
 
@@ -767,7 +956,16 @@ class MainWindow(tk.Frame):
         boxes.sort(key=lambda b: (b.y1, b.x1))
         self.boxes = boxes
         self.selected_index = 0 if boxes else -1
-        self.history.snapshot(self.boxes, self.selected_index)
+
+        if marcar_sujo:
+            self._commit_change()
+        else:
+            # Sidecar carregado junto com a imagem: o conteúdo já está em disco,
+            # no lugar canônico. Marcar como sujo aqui faria a janela abrir com
+            # '*' sem o usuário ter mexido em nada.
+            self.history.snapshot(self.boxes, self.selected_index)
+            self._sync_session()
+            self._update_title()
         self.update_sidebar()
         self.update_canvas()
 
@@ -785,7 +983,7 @@ class MainWindow(tk.Frame):
         self.boxes.pop(self.selected_index)
         self.boxes.insert(self.selected_index, b2)
         self.boxes.insert(self.selected_index, b1)
-        self.history.snapshot(self.boxes, self.selected_index)
+        self._commit_change()
 
         self.select_box(self.selected_index)
 
@@ -795,7 +993,7 @@ class MainWindow(tk.Frame):
         self.boxes.pop(self.selected_index)
         if self.selected_index >= len(self.boxes):
             self.selected_index = len(self.boxes) - 1
-        self.history.snapshot(self.boxes, self.selected_index)
+        self._commit_change()
         self.update_sidebar()
         self.update_canvas()
 
@@ -841,6 +1039,7 @@ class MainWindow(tk.Frame):
         if boxes is not None:
             self.boxes = boxes
             self.selected_index = sel
+            self._sync_session()
             self.update_sidebar()
             self.update_canvas()
 
@@ -851,6 +1050,7 @@ class MainWindow(tk.Frame):
         if boxes is not None:
             self.boxes = boxes
             self.selected_index = sel
+            self._sync_session()
             self.update_sidebar()
             self.update_canvas()
 

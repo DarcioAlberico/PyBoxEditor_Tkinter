@@ -24,7 +24,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | pendente |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.7 feita) |
 | **F4** | UI | Interface responsiva, sem congelar | pendente |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
@@ -269,14 +269,34 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.4 | **Autosave** a cada N alterações + recuperação de crash | O `crash_log.txt` existe por um motivo |
 | F3.5 | **Atalhos** — Ctrl+S, Ctrl+O, PgUp/PgDn (páginas), Tab/Shift+Tab | Fluxo sem mouse |
 | F3.6 | **Aplicar a todos os semelhantes** — corrigiu um `e`, corrige os 300 iguais | Ganho de ordem de grandeza |
-| F3.7 | **Boxes persistem por página de PDF** — hoje trocar de página descarta tudo | Evita perda silenciosa de trabalho |
+| F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 
 Sobre F3.2: o pipeline **já calcula** a confiança em `fallback_chain` e a descarta em
 `main_window.py:525` (`char, source, _`). O dado mais útil para revisão de OCR está
 sendo jogado fora.
 
-Sobre F3.7 — merece destaque: `_load_pdf_page` faz `self.boxes = []` sem aviso nem
-confirmação. Navegar para a próxima página apaga tudo que foi digitado. Silenciosamente.
+**F3.7 — concluída em 2026-08-03.** `_load_pdf_page` fazia `self.boxes = []` sem aviso
+nem confirmação: navegar para a próxima página apagava tudo que havia sido digitado,
+em silêncio. Reproduzido no código anterior antes de corrigir.
+
+O que entrou:
+
+- `core/services/document_service.py` — `DocumentSession` guarda os boxes de todas as
+  páginas visitadas e registra quais têm alterações não gravadas
+- virar a página arquiva o trabalho da página que sai e restaura o da que entra
+- `_commit_change()` como ponto único de mutação (aproveita o invariante estabelecido
+  na F0.3: toda alteração passa por um snapshot)
+- título marca `*` quando há trabalho pendente, e mostra arquivo e página
+- confirmação ao abrir outro documento ou fechar a janela com pendências
+- **"Salvar todas as páginas"** (Ctrl+Shift+S) — grava um par `.box`/`.png` por página
+  com boxes, seguindo a convenção `livro_pg003.box` que o projeto já usa em `Box/`
+- PgUp/PgDn para navegar, Ctrl+S para salvar a página atual
+
+O item de salvar tudo não era opcional: preservar boxes entre páginas sem oferecer como
+gravá-los deixaria o usuário acumulando trabalho insalvável — pior que o comportamento
+antigo, porque dá a impressão de estar seguro.
+
+Cobertura: `tests/test_f37_paginas.py`, 10 testes.
 
 ---
 
@@ -402,8 +422,7 @@ apostar.
 [FEITO] F5.3  teste de fumaça mínimo   ← trava as correções acima
 [FEITO] F0.3  undo/redo
 [FEITO] F5.1  remover código morto     ← reduz superfície antes de refatorar
-      ↓
-F3.7  boxes por página + aviso   ← evita perda de trabalho
+[FEITO] F3.7  boxes por página + aviso ← evita perda de trabalho
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino
