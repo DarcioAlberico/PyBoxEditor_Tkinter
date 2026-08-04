@@ -541,6 +541,7 @@ class MainWindow(tk.Frame):
         root.bind("<Control-S>", lambda e: (self.save_all_pages(), "break")[1])
         root.bind("<Prior>", lambda e: (self.prev_page(), "break")[1])
         root.bind("<Next>", lambda e: (self.next_page(), "break")[1])
+        root.bind("<F4>", self._on_key_zoom)
         root.bind("<F3>", lambda e: self.proximo_pendente(1))
         root.bind("<Shift-F3>", lambda e: self.proximo_pendente(-1))
         root.bind("<Control-f>", lambda e: (self.entry_busca.focus_set(),
@@ -620,8 +621,7 @@ class MainWindow(tk.Frame):
             return None
 
         # Se o foco está num campo de texto (busca, caractere), quem manda é ele.
-        foco = self.parent.focus_get()
-        if isinstance(foco, (tk.Entry, tk.Text, ttk.Entry, ttk.Combobox)):
+        if self._foco_em_campo_de_texto():
             return None
 
         ch = event.char
@@ -1245,7 +1245,9 @@ class MainWindow(tk.Frame):
             b = self.boxes[index]
             self.char_entry.delete(0, "end")
             self.char_entry.insert(0, b.char)
-            self.canvas.zoom_to_box(index)
+            # F4.3: rolar o mínimo, não re-enquadrar. Com zoom_to_box aqui,
+            # navegar com as setas fazia a imagem saltar a cada tecla.
+            self.canvas.garantir_visivel(index)
 
         self.update_sidebar()
         self.update_canvas()
@@ -1644,11 +1646,40 @@ class MainWindow(tk.Frame):
     def _on_key_delete(self, event):
         self.delete_selected_box()
 
+    # Widgets que consomem a tecla: enquanto um deles tem o foco, atalho de
+    # janela não pode disparar. `ttk.Entry` e `ttk.Spinbox` herdam de `tk.Entry`
+    # e já entram por ele; `tk.Text`, `tk.Spinbox` e `ttk.Combobox`, não — e era
+    # essa a falha do guard antigo do Ctrl+D, que testava só `tk.Entry`.
+    CAMPOS_DE_TEXTO = (tk.Entry, tk.Text, tk.Spinbox, ttk.Entry, ttk.Combobox)
+
+    def _foco_em_campo_de_texto(self) -> bool:
+        """Verdadeiro se quem tem o foco é um campo onde se digita."""
+        try:
+            foco = self.parent.focus_get()
+        except KeyError:
+            # focus_get() levanta quando o foco está num widget de outra
+            # aplicação ou já destruído. Nesse caso não há campo nosso em foco.
+            return False
+        return isinstance(foco, self.CAMPOS_DE_TEXTO)
+
     def _on_key_split_safe(self, event):
-        focus_widget = self.parent.focus_get()
-        if isinstance(focus_widget, tk.Entry):
+        if self._foco_em_campo_de_texto():
             return
         self.split_selected_box()
+
+    def _on_key_zoom(self, event):
+        """F4 enquadra o box selecionado (F4.3).
+
+        Tecla de função, e não `Z` como o roadmap sugeria: com o modo digitação
+        ligado (F3.1), uma letra solta é capturada por `_on_tecla_digitacao` e
+        vira o caractere do box. F2 e F3 já são atalhos da janela pelo mesmo
+        motivo.
+        """
+        if self._foco_em_campo_de_texto():
+            return
+        if self.selected_index >= 0:
+            self.canvas.zoom_to_box(self.selected_index)
+        return "break"
 
     def _on_key_undo(self, event):
         self._perform_undo()

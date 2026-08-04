@@ -55,6 +55,9 @@ class CanvasView(tk.Canvas):
         self.bind("<ButtonPress-1>", self.on_left_press)
         self.bind("<B1-Motion>", self.on_left_drag)
         self.bind("<ButtonRelease-1>", self.on_left_release)
+        # Zoom sob comando explícito (F4.3). O duplo-clique já seleciona pelo
+        # <ButtonPress-1>, então aqui só falta enquadrar.
+        self.bind("<Double-Button-1>", self.on_double_click)
 
     # -------------------------------------------------------
     # Conversão de coordenadas
@@ -128,9 +131,86 @@ class CanvasView(tk.Canvas):
                 
         self._pan_start = None
 
+    # Folga, em pixels de tela, entre o box e a borda da view. Sem ela o box
+    # encosta no canto e o vizinho seguinte já entra cortado.
+    MARGEM_VISIVEL = 40
+
+    def viewport(self) -> Tuple[int, int]:
+        """
+        Tamanho útil da view, com o mesmo recuo que o resto do arquivo usa.
+
+        `winfo_width()` devolve 1 enquanto o Tk ainda não calculou a geometria —
+        antes do primeiro `update_idletasks`, ou com a janela retraída. Cair num
+        tamanho plausível evita dividir por um pixel; ser um método só garante
+        que enquadrar e rolar concordem sobre onde é a borda.
+        """
+        vw, vh = self.winfo_width(), self.winfo_height()
+        return (vw if vw > 1 else 800), (vh if vh > 1 else 600)
+
+    def on_double_click(self, event):
+        """Duplo-clique enquadra o box sob o cursor (F4.3)."""
+        if self.controller.image is None:
+            return
+        if self.controller.selected_index >= 0:
+            self.zoom_to_box(self.controller.selected_index)
+        return "break"
+
+    def garantir_visivel(self, index, margem=None):
+        """
+        Rola o **mínimo necessário** para o box aparecer. Não mexe no zoom.
+
+        É o que a seleção usa desde a F4.3. Antes ela chamava `zoom_to_box` a
+        cada troca de box, então navegar com as setas re-enquadrava a imagem a
+        cada tecla e o contexto da linha se perdia — dava para ver o caractere e
+        não dava para ver a palavra. Zoom agora só sob comando explícito (F4 ou
+        duplo-clique).
+
+        Se o box já está na área visível, nada acontece: rolar sem necessidade é
+        o próprio defeito que esta função veio corrigir.
+        """
+        if self.controller.image is None:
+            return
+
+        boxes = self.controller.boxes
+        if index < 0 or index >= len(boxes):
+            return
+
+        margem = self.MARGEM_VISIVEL if margem is None else margem
+        b = boxes[index]
+
+        vw, vh = self.viewport()
+
+        x1 = b.x1 * self.zoom + self.offset_x
+        x2 = b.x2 * self.zoom + self.offset_x
+        y1 = b.y1 * self.zoom + self.offset_y
+        y2 = b.y2 * self.zoom + self.offset_y
+
+        def deslocamento(inicio, fim, tamanho):
+            # Box maior que a janela: encostar numa borda deixaria a outra ponta
+            # fora de qualquer jeito, então centraliza.
+            if (fim - inicio) > (tamanho - 2 * margem):
+                return (tamanho / 2) - ((inicio + fim) / 2)
+            if inicio < margem:
+                return margem - inicio
+            if fim > tamanho - margem:
+                return (tamanho - margem) - fim
+            return 0.0
+
+        dx = deslocamento(x1, x2, vw)
+        dy = deslocamento(y1, y2, vh)
+
+        if dx or dy:
+            self.offset_x += dx
+            self.offset_y += dy
+            self.controller.update_canvas()
+
     def zoom_to_box(self, index):
         """
         Zoom e centraliza no box de índice 'index'.
+
+        Desde a F4.3 só é chamada sob comando explícito — F4 ou duplo-clique —,
+        não a cada seleção. Quem só precisa que o box apareça usa
+        `garantir_visivel`.
         """
         if self.controller.image is None:
             return
@@ -154,11 +234,7 @@ class CanvasView(tk.Canvas):
         cy = (y1 + y2) / 2
 
         # Dimensões da view atual
-        vw = self.winfo_width()
-        vh = self.winfo_height()
-        
-        if vw <= 1: vw = 800
-        if vh <= 1: vh = 600
+        vw, vh = self.viewport()
 
         # Margem de contexto: queremos ver o caractere e um pouco em volta
         # Fator de zoom ideal: view / (box * margin_factor)

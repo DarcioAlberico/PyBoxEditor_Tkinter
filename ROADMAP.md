@@ -25,7 +25,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
-| **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
+| **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1–F4.3, F4.5 e F4.6 feitas; falta F4.4) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
 ---
@@ -1377,7 +1377,7 @@ Resolvido junto com a F4.1: `ui/status_bar.py` foi recriado como `Frame` (a vers
 antiga, removida na F5.1, era um `tk.Label` e não comportava um `Progressbar`) e é
 usado por todas as operações longas.
 
-### F4.3 — Zoom automático desorienta
+### F4.3 — Zoom automático desorienta — CONCLUÍDA
 
 `select_box` (`main_window.py:588`) chama `zoom_to_box` **em toda seleção**, com
 `margin = 10.0` e zoom mínimo forçado de 1.5×. Navegar com as setas faz a imagem
@@ -1386,6 +1386,28 @@ saltar e re-enquadrar a cada tecla. Perde-se completamente o contexto da linha.
 **Ação:** rolar o mínimo necessário para o box ficar visível; zoom só sob comando
 explícito (tecla `Z` ou duplo-clique).
 
+**Concluída em 2026-08-04.** `CanvasView.garantir_visivel` rola o mínimo e **não toca
+no zoom**; se o box já está visível, não faz nada — rolar sem necessidade era o próprio
+defeito. Box maior que a janela é centralizado, porque encostar numa borda deixaria a
+outra ponta fora de qualquer jeito.
+
+Enquadrar virou comando explícito: **duplo-clique** ou **F4**. Tecla de função e não `Z`
+como o roadmap sugeria: com o modo digitação ligado (F3.1), uma letra solta é capturada
+por `_on_tecla_digitacao` e vira o caractere do box — F2 e F3 já são atalhos de janela
+pelo mesmo motivo.
+
+Saiu daí um `viewport()`: `winfo_width()` devolve 1 enquanto o Tk não calculou a
+geometria, e o recuo para 800×600 estava duplicado. Ser um método só garante que rolar e
+enquadrar concordem sobre onde é a borda — foi o que fez dois testes falharem antes,
+medindo uma borda diferente da que o código usava.
+
+### F4.5 — Sem indicação de trabalho não salvo — JÁ ESTAVA FEITA
+
+Verificado em 2026-08-04: o item está implementado e a descrição abaixo estava velha.
+`_update_title` marca o título quando `session.is_dirty()`, e `_confirm_discard()` guarda
+os três caminhos que o item pedia — sair (`_on_close`), abrir outro arquivo e trocar de
+página. Veio junto com a sessão de várias páginas da F3.7.
+
 ### F4.4 — `update_sidebar` reconstrói a lista inteira a cada tecla
 
 `delete(0,"end")` + N `insert()` a cada seleção (`main_window.py:564`). Com 2.000
@@ -1393,16 +1415,28 @@ boxes, cada seta pressionada refaz 2.000 linhas. A digitação engasga.
 
 **Ação:** atualizar só as linhas alteradas, ou migrar para `ttk.Treeview` virtualizado.
 
-### F4.5 — Sem indicação de trabalho não salvo
-
-Nenhum marcador de "sujo", nenhuma confirmação ao sair, ao abrir outro arquivo ou ao
-trocar de página. Combinado com F3.7, é perda de trabalho garantida.
-
-### F4.6 — Colisão de tecla
+### F4.6 — Colisão de tecla — CONCLUÍDA
 
 `d` está ligado a "dividir box" na janela inteira (`main_window.py:209`). O guard
 `_on_key_split_safe` só testa `isinstance(focus_widget, tk.Entry)` — não cobre
 `ttk.Entry`, `Text` ou `Spinbox`. Digitar "d" no lugar errado divide um box.
+
+**Concluída em 2026-08-04, com o diagnóstico corrigido.** Duas coisas acima já não valiam:
+
+1. **`d` já era `Ctrl+D`.** A colisão descrita — digitar "d" e partir um box — foi
+   resolvida antes, em alguma fase anterior.
+2. **`ttk.Entry` nunca foi o buraco.** Medido: `ttk.Entry` e `ttk.Spinbox` **herdam** de
+   `tk.Entry`, então o `isinstance` já os cobria. Quem escapava era `tk.Text`,
+   `tk.Spinbox` e `ttk.Combobox`.
+
+O defeito real era outro, e mais interessante: **havia dois guards de foco no mesmo
+arquivo**, um completo (`_on_tecla_digitacao`, que listava `tk.Text` e `ttk.Combobox`) e
+o do Ctrl+D, que ficou para trás. Guard duplicado é guard que sai de sincronia. Agora há
+um só, `_foco_em_campo_de_texto`, usado pelos três atalhos que precisam dele — e um teste
+reprova se alguém escrever um `isinstance` de foco por fora.
+
+Ele também trata o `KeyError` que `focus_get()` levanta quando o foco está noutra
+aplicação: sem isso o atalho morreria com exceção em vez de simplesmente disparar.
 
 ---
 
