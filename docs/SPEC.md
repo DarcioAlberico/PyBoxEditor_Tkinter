@@ -364,14 +364,25 @@ mudanças:
 
 Executar **antes** de qualquer novo treino:
 
-1. **`sym_f7`** — 127 amostras cuja pasta não reverte para caractere
-   (`chr(int("f7"))` → `ValueError` → `"?"`). Identificar o caractere real e renomear,
-   ou remover. Hoje treina o modelo a prever `"?"`.
-2. **`lower_ä`** — pasta vazia ocupando um índice de classe. Remover ou popular.
+1. [feito] **`sym_f7`** — eram 127 imagens da casa de xadrez **"f7"** (confirmado
+   olhando as amostras; a hipótese de `f7` hexadecimal = `÷` estava errada).
+   Renomeada para `ligature_f7`. Corrigir o rótulo no `model_meta.json` fez o modelo
+   **já treinado** acertar 127/127 dessas amostras, sem retreinar.
+2. [feito] **`lower_ä`** — estava vazia porque `cv2.imwrite` falha em caminho
+   não-ASCII no Windows e devolve `False` sem levantar erro. É a razão de ser da
+   regra de nomes só-ASCII do `char_to_folder`.
 3. **`training_data_2/`** — 138 PNGs soltos fora do padrão de pastas por classe.
    Classificar ou descartar.
-4. **`folder_to_char`** — implementar a decodificação de `ligature_hex_*`, hoje um
-   TODO que retorna `"?"` (`learner.py:56`).
+4. [feito] **`folder_to_char`** — decodificação de `ligature_hex_*` implementada,
+   com hex de largura fixa (a variável era ambígua). Ganhou `strict=True`, que
+   levanta em vez de devolver `"?"`: devolver `"?"` em silêncio foi o que deixou o
+   defeito de `sym_f7` passar despercebido.
+
+**Regra que saiu daqui:** nunca usar `cv2.imread`/`cv2.imwrite` como teste de
+integridade de arquivo. No Windows eles falham em caminho não-ASCII e devolvem
+`None`/`False`, indistinguível de "arquivo corrompido". A primeira versão da
+migração caiu nisso e apagou PNGs válidos. Use `open()` + `cv2.imdecode`, e prefira
+mover para quarentena a apagar.
 5. **Peças pretas** — coletar amostras de ♙♚♛♜♝♞♟, **ausentes do modelo atual**.
    Sem isso, retreinar não melhora o reconhecimento de notação.
 

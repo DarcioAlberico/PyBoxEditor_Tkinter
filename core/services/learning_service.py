@@ -11,6 +11,22 @@ from core.learner import CharacterLearner, char_to_folder
 from core.neural_trainer import NeuralTrainer, NeuralPredictor
 
 
+class DatasetInvalido(RuntimeError):
+    """A base de treino tem problemas que invalidariam o modelo."""
+
+    def __init__(self, problemas):
+        self.problemas = problemas
+        linhas = "\n".join(f"  - {p}" for p in problemas[:12])
+        extra = (f"\n  ... e mais {len(problemas) - 12}"
+                 if len(problemas) > 12 else "")
+        super().__init__(
+            f"A base de treino tem {len(problemas)} problema(s) que "
+            f"invalidariam o modelo:\n\n{linhas}{extra}\n\n"
+            "Use 'Verificar base de treino' no menu Ferramentas para o "
+            "diagnóstico completo."
+        )
+
+
 class LearningService:
     """
     Serviço puro que encapsula:
@@ -83,14 +99,28 @@ class LearningService:
             return "?", 0.0
         return self._predictor.predict(crop_np)
 
+    def validar_dados(self, checar_pngs: bool = False):
+        """Problemas na base de treino. Lista vazia = pode treinar."""
+        from core.dataset_check import validar_dataset
+        return validar_dataset(self.data_dir, checar_pngs=checar_pngs)
+
     def train_neural(self, epochs: int = 20,
                      callback: Optional[Callable[[str], None]] = None,
-                     should_stop: Optional[Callable[[], bool]] = None) -> bool:
+                     should_stop: Optional[Callable[[], bool]] = None,
+                     validar: bool = True) -> bool:
         """Treina a rede neural com os dados atuais."""
         if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             if callback:
                 callback("Nenhum dado de treinamento encontrado.")
             return False
+
+        if validar:
+            # Falhar alto antes do treino, em vez de deixar o problema virar
+            # ruído no modelo. Foi assim que 127 amostras de "f7" passaram
+            # meses treinando a classe "?" sem ninguém notar.
+            graves = [p for p in self.validar_dados() if p.grave]
+            if graves:
+                raise DatasetInvalido(graves)
 
         trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
         return trainer.train(epochs=epochs, callback=callback, should_stop=should_stop)

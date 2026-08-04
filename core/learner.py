@@ -17,15 +17,17 @@ def char_to_folder(char: str) -> str:
     if not char:
         return "unknown"
 
-    # Ligaduras (ex: 'fi', 'ffi')
+    # Ligaduras (ex: 'fi', 'ffi', 'f7')
     if len(char) > 1:
-        # Se contiver apenas letras, usa o nome da ligadura direto
-        if char.isalpha() and char.isascii():
-             return f"ligature_{char}"
-        else:
-             # Se tiver simbolos estranhos, codifica tudo em hex para garantir
-             hex_str = "".join([f"{ord(c):x}" for c in char])
-             return f"ligature_hex_{hex_str}"
+        # Alfanumérico ASCII cabe no nome da pasta e fica legível.
+        # Antes o teste era isalpha(), o que jogava 'f7' — casa de xadrez,
+        # comum como box único nestes livros — no ramo hexadecimal.
+        if char.isalnum() and char.isascii():
+            return f"ligature_{char}"
+        # Hex de largura fixa: com largura variável a volta é ambígua
+        # ('ab' + 'c' e 'a' + 'bc' geram a mesma cadeia).
+        hex_str = "".join(f"{ord(c):04x}" for c in char)
+        return f"ligature_hex_{hex_str}"
 
     # Apenas A-Z, a-z e 0-9 sao mantidos "legíveis"
     if 'A' <= char <= 'Z':
@@ -39,48 +41,67 @@ def char_to_folder(char: str) -> str:
         return f"sym_{ord(char)}"
 
 
-def folder_to_char(folder_name: str) -> str:
+class NomeDePastaInvalido(ValueError):
+    """O nome da pasta não corresponde a nenhum caractere conhecido."""
+
+
+# Pastas de formatos antigos cujo caractere real foi confirmado olhando as
+# amostras. 'sym_f7' guardava 127 imagens da casa de xadrez "f7"; como
+# chr(int("f7")) levanta ValueError, elas viravam "?" e colidiam com sym_63,
+# que é o "?" de verdade — duas classes distintas ensinando o mesmo símbolo.
+LEGADO = {
+    "sym_f7": "f7",
+}
+
+
+def folder_to_char(folder_name: str, strict: bool = False) -> str:
     """
     Converte um nome de pasta de volta para o caractere original.
     Ex: 'upper_A' -> 'A', 'lower_a' -> 'a', 'digit_1' -> '1', 'sym_46' -> '.'
+
+    Com strict=True, levanta NomeDePastaInvalido em vez de devolver "?".
+    Devolver "?" em silêncio é o que permitiu 127 amostras treinarem a classe
+    errada sem ninguém notar; a validação do dataset usa o modo estrito.
     """
+    def falhar():
+        if strict:
+            raise NomeDePastaInvalido(folder_name)
+        return "?"
+
+    if folder_name in LEGADO:
+        return LEGADO[folder_name]
+
     if folder_name.startswith("ligature_hex_"):
+        hex_str = folder_name[13:]
+        if len(hex_str) % 4 != 0:
+            return falhar()
         try:
-            hex_str = folder_name[13:]
-            # decodificar de 2 em 2 ou assumir unicode variable length?
-            # Melhor simplificar: se usou hex, eh pq era estranho.
-            # Mas espera, ord(c):x pode ter tamanho variavel.
-            # Vamos assumir que ligaduras sao chars ASCII por enquanto para simplificar
-            # Se cair no hex, a volta pode ser complicada se nao tiver delimitador.
-            # Como fallback, retorne o proprio nome se der ruim.
-            return "?" # TODO: Implementar decodificacao robusta se necessario
-        except:
-            return "?"
-            
+            return "".join(chr(int(hex_str[i:i + 4], 16))
+                           for i in range(0, len(hex_str), 4))
+        except ValueError:
+            return falhar()
+
     if folder_name.startswith("ligature_"):
         return folder_name[9:]
 
-    if folder_name.startswith("upper_"):
+    if folder_name.startswith(("upper_", "lower_", "digit_")):
         return folder_name[6:]
-    elif folder_name.startswith("lower_"):
-        return folder_name[6:]
-    elif folder_name.startswith("digit_"):
-        return folder_name[6:]
-    elif folder_name.startswith("sym_"):
+
+    if folder_name.startswith("sym_"):
         try:
             return chr(int(folder_name[4:]))
-        except:
-            return "?"
-    elif folder_name.startswith("ASCII_"):
+        except ValueError:
+            return falhar()
+
+    if folder_name.startswith("ASCII_"):
         # Compatibilidade com formato antigo
         try:
             return chr(int(folder_name[6:]))
-        except:
-            return "?"
-    else:
-        # Formato antigo (pasta = caractere diretamente)
-        # Manter compatibilidade
-        return folder_name
+        except ValueError:
+            return falhar()
+
+    # Formato antigo (pasta = caractere diretamente)
+    return folder_name
 
 
 class CharacterLearner:
@@ -142,8 +163,14 @@ class CharacterLearner:
         filename = f"{uuid.uuid4()}.png"
         path = os.path.join(save_dir, filename)
 
-        cv2.imwrite(path, img_resized)
-        
+        # cv2.imwrite devolve False em vez de levantar quando não consegue
+        # gravar — notoriamente em caminhos não-ASCII no Windows. Foi assim que
+        # a pasta 'lower_ä' da base ficou vazia: as amostras eram descartadas em
+        # silêncio. Os nomes gerados por char_to_folder são só-ASCII justamente
+        # por isso, mas conferir aqui evita perder amostra sem ninguém saber.
+        if not cv2.imwrite(path, img_resized):
+            raise IOError(f"Não foi possível gravar a amostra em {path}")
+
         self.reference_images.append((char, img_resized))
 
     def predict(self, crop_np: np.ndarray, threshold=2000.0) -> Tuple[str, float]:

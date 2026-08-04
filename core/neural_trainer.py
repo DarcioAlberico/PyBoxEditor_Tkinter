@@ -251,8 +251,12 @@ class NeuralTrainer:
                     "idx_to_char": dataset.idx_to_char,
                     "num_classes": num_classes
                 }
-                with open(self.meta_path, "w") as f:
-                    json.dump(meta, f)
+                # Encoding explícito: sem ele o Python usa o do sistema (cp1252
+                # no Windows) e o metadado, que é cheio de símbolos Unicode,
+                # quebra na leitura. Funcionava por acaso porque o json.dump
+                # padrão escapa tudo em ASCII.
+                with open(self.meta_path, "w", encoding="utf-8") as f:
+                    json.dump(meta, f, ensure_ascii=False)
             
             if callback: callback(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc: {accuracy:.1f}% - LR: {lr:.6f}")
             
@@ -273,7 +277,7 @@ class NeuralPredictor:
             return False
             
         try:
-            with open(self.meta_path, "r") as f:
+            with open(self.meta_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
             
             self.idx_to_char = {int(k): v for k, v in meta["idx_to_char"].items()}

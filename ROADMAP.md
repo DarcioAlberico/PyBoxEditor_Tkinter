@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
+| **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | parcial (F1.4 feita) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -170,7 +170,7 @@ Pior: `torch.save` em `neural_trainer.py:234` usa *training loss* como critério
 **Ação:** split estratificado 80/15/5, early stopping por *validation* loss,
 matriz de confusão por classe no relatório. SPEC §5.4.
 
-### F1.4 — Classe corrompida no dataset
+### F1.4 — Classe corrompida no dataset — CONCLUÍDA
 
 A pasta `training_data/sym_f7/` tem **127 amostras**. Mas:
 
@@ -184,6 +184,51 @@ São 127 amostras treinando o modelo a prever literalmente `"?"`. O nome veio de
 
 O mesmo caminho engole erro em `ligature_hex_*`, que retorna `"?"` por TODO
 não implementado (`learner.py:56`).
+
+**Concluída em 2026-08-03.**
+
+**O que `sym_f7` era.** Minha hipótese inicial (`f7` em hexadecimal = `÷`) estava
+errada. Olhando as amostras, são literalmente **"f7"** — a casa de xadrez, num box
+de dois caracteres. E colidiam com `sym_63`, que é o `?` de verdade: duas classes
+distintas ensinando o mesmo símbolo.
+
+**Ganho imediato, sem retreinar.** O índice 79 do modelo já treinado foi aprendido
+com as 127 imagens de "f7", mas o `model_meta.json` o rotulava `"?"`. Corrigido o
+rótulo, o modelo existente acerta **127/127** dessas amostras — antes, todas saíam
+como `?`.
+
+Também entrou:
+
+- ida e volta nome↔caractere consertada: `'f7'` caía no ramo hexadecimal porque o
+  teste era `isalpha()`; o hex passou a ter largura fixa (com largura variável,
+  `'ab'+'c'` e `'a'+'bc'` geram o mesmo nome)
+- `folder_to_char(..., strict=True)` levanta em vez de devolver `"?"` — devolver
+  `"?"` em silêncio foi o que deixou o defeito passar
+- `core/dataset_check.py` com validação e migração, ligadas ao treino (que agora
+  falha alto) e a um item de menu **Verificar base de treino**
+
+**Dois bugs de encoding descobertos no caminho:**
+
+1. `NeuralPredictor.load()` abria o `model_meta.json` **sem encoding**, caindo no
+   cp1252 do Windows. Funcionava por acaso porque o `json.dump` padrão escapa tudo
+   em ASCII — bastou gravar o arquivo em UTF-8 de verdade para o carregamento do
+   modelo quebrar.
+2. `cv2.imwrite` e `cv2.imread` **falham em caminho não-ASCII no Windows** e
+   devolvem `False`/`None` sem levantar erro. É a explicação da pasta `lower_ä`
+   estar vazia: alguém tentou salvar amostras de "ä" e o OpenCV as descartou em
+   silêncio.
+
+**Erro meu, com custo real:** a primeira versão da migração usou `cv2.imread` para
+detectar PNG corrompido. Como ele também falha em caminho não-ASCII, ela marcou
+como ilegíveis 7 PNGs válidos num teste — e os apagou. Na base real isso custou
+**1 arquivo** (a única amostra de `lower_ü`, classe já inutilizável com 1 amostra).
+Corrigido: a leitura passa por `open()` + `cv2.imdecode`, o que separa
+"não consegui abrir o caminho" de "não é uma imagem", e a migração **põe em
+quarentena em vez de apagar**.
+
+Resultado na base real: 105 → 103 classes, 0 problemas graves, 127.263 amostras.
+
+Cobertura: `tests/test_f14_dataset.py`, 24 testes.
 
 ### F1.5 — Pré-processamento fraco para material escaneado
 
@@ -670,6 +715,7 @@ apostar.
 [FEITO] F3.1  digitação contínua
 [FEITO] F3.4  autosave e recuperação
 [FEITO] F2.1  PDF pesquisável          ← maior lacuna funcional, fechada
+[FEITO] F1.4  limpar sym_f7            ← pré-requisito de qualquer retreino
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino

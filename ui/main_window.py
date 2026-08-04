@@ -472,6 +472,8 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Detectar e Preencher (Neural)", command=self.generate_and_fill_neural)
         m_tools.add_separator()
         m_tools.add_command(label="Aprender com Página Atual (Coletar)", command=self.learn_from_current_page)
+        m_tools.add_command(label="Verificar base de treino...",
+                            command=self.verificar_base_treino)
         m_tools.add_command(label="Treinar Rede Neural", command=self.train_neural_network)
         m_tools.add_separator()
         m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
@@ -1687,6 +1689,48 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
     # Neural Network
     # -------------------------------------------------------
+
+    def verificar_base_treino(self):
+        """
+        Diagnóstico completo da base, inclusive lendo cada PNG.
+
+        Vale um item de menu próprio: o defeito que motivou isto (127 amostras
+        treinando a classe errada) só era visível para quem fosse conferir os
+        nomes das pastas à mão.
+        """
+        if self._busy("A verificação"):
+            return
+
+        def trabalho(h):
+            h.log("Lendo a base de treino...")
+            return self.learning_service.validar_dados(checar_pngs=True)
+
+        def concluir(problemas):
+            graves = [p for p in problemas if p.grave]
+            avisos = [p for p in problemas if not p.grave]
+            if not problemas:
+                messagebox.showinfo("Base de treino", "Nenhum problema encontrado.")
+                return
+
+            linhas = []
+            if graves:
+                linhas.append(f"{len(graves)} problema(s) que impedem o treino:")
+                linhas += [f"  {p}" for p in graves[:15]]
+                if len(graves) > 15:
+                    linhas.append(f"  ... e mais {len(graves) - 15}")
+            if avisos:
+                if linhas:
+                    linhas.append("")
+                linhas.append(f"{len(avisos)} aviso(s) de classe com poucas amostras:")
+                linhas += [f"  {p}" for p in avisos[:10]]
+                if len(avisos) > 10:
+                    linhas.append(f"  ... e mais {len(avisos) - 10}")
+
+            mostrar = messagebox.showerror if graves else messagebox.showinfo
+            mostrar("Base de treino", "\n".join(linhas))
+
+        self._run_task("Verificar base de treino", trabalho, concluir,
+                       indeterminado=True)
 
     def train_neural_network(self):
         if self._busy("O treino"):
