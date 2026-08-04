@@ -104,6 +104,11 @@ class LearningService:
         from core.dataset_check import validar_dataset
         return validar_dataset(self.data_dir, checar_pngs=checar_pngs)
 
+    def caminho_relatorio(self) -> str:
+        """Onde o último treino gravou o relatório (pode não existir ainda)."""
+        pasta = os.path.dirname(os.path.abspath(self.model_path))
+        return os.path.join(pasta, "relatorio_treino.txt")
+
     def train_neural(self, epochs: int = 20,
                      callback: Optional[Callable[[str], None]] = None,
                      should_stop: Optional[Callable[[], bool]] = None,

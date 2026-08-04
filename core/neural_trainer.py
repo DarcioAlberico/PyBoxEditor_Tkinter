@@ -6,11 +6,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+from torch.utils.data import Dataset, DataLoader, Subset, WeightedRandomSampler
 import cv2
 import numpy as np
 from core.neural_model import SimpleCNN, get_device
 from core.learner import folder_to_char
+from core.avaliacao import (SEMENTE_PADRAO, avaliar, dividir_estratificado,
+                            gravar_relatorio, salvar_amostras_erradas,
+                            texto_do_relatorio)
 
 
 # -------------------------------------------------------
@@ -290,7 +293,8 @@ class NeuralTrainer:
         self.device = get_device()
         
     def train(self, epochs=20, callback=None, should_stop=None,
-              balanceamento="sqrt"):
+              balanceamento="sqrt", paciencia=5, semente=SEMENTE_PADRAO,
+              relatorio=True):
         """
         should_stop: callable sem argumentos consultado a cada época. Se devolver
         True, o treino para e o melhor modelo até ali fica salvo. Necessário para
@@ -302,6 +306,12 @@ class NeuralTrainer:
         semente), o sorteio uniforme deixa o recall macro em 88,7% contra 96,6%
         de acurácia global, com 5 classes zeradas; com "sqrt" os dois números
         sobem, para 96,7% e 98,6%, e sobra uma classe zerada.
+
+        paciencia: epochs sem melhora da perda de validação até parar. O modelo
+        gravado é o da melhor epoch, não o da última.
+
+        semente: fixa o split. Dois treinos da mesma base são comparáveis; se
+        variasse, cada relatório mediria um conjunto diferente.
         """
         dataset = CharDataset(self.data_dir, augment=True)
         if len(dataset) == 0:
@@ -309,19 +319,33 @@ class NeuralTrainer:
             return False
 
         num_classes = len(dataset.label_map)
+        rotulos = np.asarray(dataset.labels, dtype=np.int64)
 
-        # Um epoch = uma passada de len(dataset) sorteios. Com o sampler as
+        divisao = dividir_estratificado(rotulos, num_classes, semente=semente)
+        idx_treino = divisao.treino
+        rotulos_treino = rotulos[idx_treino]
+        contagens_treino = contar_por_classe(rotulos_treino, num_classes)
+        tem_validacao = len(divisao.validacao) > 0
+
+        # A augmentation fica no subconjunto de treino; a validação é avaliada
+        # direto sobre os originais, por `avaliacao.avaliar`. Medir sobre imagem
+        # aumentada tornaria o número irreprodutível entre execuções.
+        treino_ds = Subset(dataset, idx_treino.tolist())
+
+        # Um epoch = uma passada de len(treino) sorteios. Com o sampler as
         # classes raras aparecem muitas vezes e as comuns poucas, mas o total
-        # sorteado continua sendo o tamanho da base.
+        # sorteado continua sendo o tamanho do conjunto de treino.
         if balanceamento == "nenhum":
-            dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+            dataloader = DataLoader(treino_ds, batch_size=64, shuffle=True)
         else:
-            pesos = pesos_de_amostragem(dataset.contagens, dataset.labels,
+            # Os pesos vêm das contagens **do treino**, não da base inteira:
+            # usar a base contaria amostras que o modelo não vai ver.
+            pesos = pesos_de_amostragem(contagens_treino, rotulos_treino,
                                         modo=balanceamento)
             sampler = WeightedRandomSampler(torch.DoubleTensor(pesos),
-                                            len(dataset), replacement=True)
+                                            len(idx_treino), replacement=True)
             # shuffle é incompatível com sampler — o sorteio já é aleatório.
-            dataloader = DataLoader(dataset, batch_size=64, sampler=sampler)
+            dataloader = DataLoader(treino_ds, batch_size=64, sampler=sampler)
 
         model = SimpleCNN(num_classes).to(self.device)
 
@@ -338,6 +362,18 @@ class NeuralTrainer:
             maior, menor = int(n.max()), int(n[n > 0].min())
             callback(f"Treinando: {len(dataset)} amostras, {num_classes} classes "
                      f"(augmentation sob demanda, balanceamento={balanceamento})")
+            callback(f"Divisão: {divisao}")
+            if divisao.sem_validacao:
+                # Dizer isto alto é metade do ponto da F1.3: uma acurácia de
+                # validação que ignora um terço das classes em silêncio é o
+                # mesmo defeito que esta fase veio corrigir.
+                callback(f"{len(divisao.sem_validacao)} classes pequenas demais "
+                         "para dividir vão inteiras para o treino — os números "
+                         "de validação não dizem nada sobre elas")
+            if not tem_validacao:
+                callback("AVISO: base pequena demais para separar validação. O "
+                         "melhor modelo volta a ser escolhido pela perda de "
+                         "treino, que é o critério ruim que a F1.3 substituiu.")
             callback(f"Desbalanceamento da base: {maior}:{menor}")
             if dataset.classes_vazias:
                 callback(f"Ignoradas {len(dataset.classes_vazias)} pasta(s) sem "
@@ -353,15 +389,32 @@ class NeuralTrainer:
                 callback("Elas entram no treino com repetição, mas colete mais "
                          "amostras: uma classe assim generaliza pouco.")
 
-        best_loss = float('inf')
+        def gravar_modelo(estado):
+            torch.save(estado, self.model_path)
+            meta = {
+                "label_map": dataset.label_map,
+                "idx_to_char": dataset.idx_to_char,
+                "num_classes": num_classes,
+            }
+            # Encoding explícito: sem ele o Python usa o do sistema (cp1252
+            # no Windows) e o metadado, que é cheio de símbolos Unicode,
+            # quebra na leitura. Funcionava por acaso porque o json.dump
+            # padrão escapa tudo em ASCII.
+            with open(self.meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False)
 
-        accuracy = 0.0
+        melhor_perda = float("inf")
+        melhor_epoch = 0
+        melhor_estado = None
+        sem_melhora = 0
+        historico = []
+        av_val = None
+        cancelado = False
+
         for epoch in range(epochs):
             if should_stop is not None and should_stop():
-                if callback:
-                    callback(f"Treino interrompido na epoch {epoch+1}. "
-                             "O melhor modelo até aqui está salvo.")
-                return True
+                cancelado = True
+                break
 
             running_loss = 0.0
             correct = 0
@@ -369,51 +422,115 @@ class NeuralTrainer:
 
             for inputs, labels in dataloader:
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
-                
+
                 optimizer.zero_grad()
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
-                
+
                 running_loss += loss.item()
-                
-                # Accuracy tracking
+
                 _, predicted = torch.max(outputs, 1)
                 correct += (predicted == labels).sum().item()
                 total_samples += labels.size(0)
-            
-            scheduler.step()
-            
-            avg_loss = running_loss / len(dataloader)
-            accuracy = 100.0 * correct / total_samples
-            lr = optimizer.param_groups[0]['lr']
-            
-            if avg_loss < best_loss:
-                best_loss = avg_loss
-                # Save Best Model immediately
-                torch.save(model.state_dict(), self.model_path)
-                
-                # Save Metadata
-                meta = {
-                    "label_map": dataset.label_map,
-                    "idx_to_char": dataset.idx_to_char,
-                    "num_classes": num_classes
-                }
-                # Encoding explícito: sem ele o Python usa o do sistema (cp1252
-                # no Windows) e o metadado, que é cheio de símbolos Unicode,
-                # quebra na leitura. Funcionava por acaso porque o json.dump
-                # padrão escapa tudo em ASCII.
-                with open(self.meta_path, "w", encoding="utf-8") as f:
-                    json.dump(meta, f, ensure_ascii=False)
-            
-            # "Acc(treino)" e não "Acc": é medida sobre as próprias amostras de
-            # treino, aumentadas. Com o sampler ela ainda cai, porque as classes
-            # raras deixaram de ser arredondamento — o número menor é o número
-            # honesto. Acurácia de validação é a F1.3.
-            if callback: callback(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc(treino): {accuracy:.1f}% - LR: {lr:.6f}")
 
-        if callback: callback(f"Treinamento concluido! Acc(treino) final: {accuracy:.1f}% | Modelo salvo.")
+            scheduler.step()
+
+            perda_treino = running_loss / len(dataloader)
+            acc_treino = 100.0 * correct / total_samples
+            lr = optimizer.param_groups[0]["lr"]
+
+            if tem_validacao:
+                av_val = avaliar(model, dataset.data, rotulos, divisao.validacao,
+                                 num_classes, self.device)
+                criterio_atual = av_val.perda
+                linha = (f"Epoch {epoch+1}/{epochs} - val loss {av_val.perda:.4f} "
+                         f"- val acc {av_val.acuracia:.2f}% "
+                         f"- macro {av_val.recall_macro:.2f}% "
+                         f"- treino loss {perda_treino:.4f}")
+            else:
+                criterio_atual = perda_treino
+                linha = (f"Epoch {epoch+1}/{epochs} - Loss: {perda_treino:.4f} "
+                         f"- Acc(treino): {acc_treino:.1f}% - LR: {lr:.6f}")
+
+            historico.append({
+                "epoch": epoch + 1,
+                "perda_treino": perda_treino,
+                "acuracia_treino": acc_treino,
+                "perda_val": av_val.perda if av_val else float("nan"),
+                "acuracia_val": av_val.acuracia if av_val else float("nan"),
+                "macro_val": av_val.recall_macro if av_val else float("nan"),
+                "lr": lr,
+            })
+
+            # O checkpoint é pela perda de VALIDAÇÃO. Pela perda de treino, o
+            # "melhor modelo" era o do momento de maior overfitting — quanto
+            # mais o modelo decorava, melhor parecia.
+            if criterio_atual < melhor_perda:
+                melhor_perda = criterio_atual
+                melhor_epoch = epoch + 1
+                melhor_estado = {k: v.detach().cpu().clone()
+                                 for k, v in model.state_dict().items()}
+                gravar_modelo(melhor_estado)
+                sem_melhora = 0
+            else:
+                sem_melhora += 1
+
+            if callback:
+                callback(linha)
+
+            if tem_validacao and sem_melhora >= paciencia:
+                if callback:
+                    callback(f"Early stopping: {paciencia} epochs sem melhora da "
+                             f"validação. Vale a epoch {melhor_epoch}.")
+                break
+
+        epochs_rodadas = len(historico)
+        if melhor_estado is None:
+            # Cancelado antes de terminar a primeira epoch: nada foi treinado.
+            if callback:
+                callback("Treino cancelado antes da primeira epoch; nada foi gravado.")
+            return False
+
+        # O relatório descreve o modelo GRAVADO, não o da última epoch.
+        model.load_state_dict(melhor_estado)
+
+        if cancelado and callback:
+            callback(f"Treino interrompido. Vale a epoch {melhor_epoch}, "
+                     "que está gravada.")
+
+        caminho_relatorio = None
+        if relatorio and tem_validacao:
+            av_val = avaliar(model, dataset.data, rotulos, divisao.validacao,
+                             num_classes, self.device)
+            av_teste = (avaliar(model, dataset.data, rotulos, divisao.teste,
+                                num_classes, self.device)
+                        if len(divisao.teste) else None)
+
+            pasta = os.path.dirname(os.path.abspath(self.model_path))
+            pasta_erros = os.path.join(pasta, "relatorio_treino_erros")
+            gravados = salvar_amostras_erradas(pasta_erros, dataset.data, av_val,
+                                               dataset.idx_to_char)
+            texto = texto_do_relatorio(av_val, dataset.idx_to_char, divisao,
+                                       epochs_rodadas, melhor_epoch, historico,
+                                       av_teste,
+                                       pasta_erros if gravados else None)
+            caminho_relatorio = gravar_relatorio(
+                os.path.join(pasta, "relatorio_treino.txt"), texto, av_val,
+                dataset.idx_to_char, divisao, historico, av_teste)
+
+            if callback:
+                callback(f"Validação: {av_val.acuracia:.2f}% de acurácia, "
+                         f"{av_val.recall_macro:.2f}% de recall macro, "
+                         f"{av_val.classes_zeradas()} classe(s) zerada(s)")
+                if av_teste is not None:
+                    callback(f"Teste (nunca usado em decisão): "
+                             f"{av_teste.acuracia:.2f}%")
+                callback(f"Relatório em {caminho_relatorio}")
+        elif callback:
+            callback(f"Treinamento concluído na epoch {melhor_epoch}. Modelo salvo.")
+
         return True
 
 class NeuralPredictor:

@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1, F1.2, F1.4, F1.5 e F1.6 feitas) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1–F1.6 feitas; faltam F1.7 e F1.8) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -329,7 +329,7 @@ ganhos acima aparecem no próximo treino.
 
 Cobertura: `tests/test_f12_balanceamento.py`, 24 testes.
 
-### F1.3 — A acurácia reportada não significa nada
+### F1.3 — A acurácia reportada não significa nada — CONCLUÍDA
 
 `neural_trainer.py:389` calcula acurácia sobre o **próprio conjunto de treino, já
 aumentado**. Não existe split de validação. O "Acc: 98%" exibido ao usuário não diz
@@ -339,8 +339,95 @@ mais comuns já daria número alto.
 Pior: `torch.save` em `neural_trainer.py:395` usa *training loss* como critério de
 "melhor modelo". Isso seleciona o ponto de maior overfitting.
 
-**Ação:** split estratificado 80/15/5, early stopping por *validation* loss,
-matriz de confusão por classe no relatório. SPEC §5.4.
+**Concluída em 2026-08-03.** `core/avaliacao.py` com split estratificado 80/15/5,
+early stopping por perda de validação, checkpoint pela melhor epoch de validação e
+relatório com matriz de confusão. Menu **Ferramentas → Relatório do último treino**.
+
+#### O treino real, com o código de produção
+
+15 epochs sobre a base inteira. A divisão saiu em **101.827 / 19.081 / 6.355**.
+
+| | Validação | Teste |
+|---|---:|---:|
+| Acurácia global | 99,86% | **99,84%** |
+| Recall macro | 97,45% | **98,41%** |
+| Classes zeradas | 1 | — |
+
+O teste é o número que vale: ele não entrou em nenhuma decisão do treino, nem no
+checkpoint nem no early stopping. A validação entrou, então já está um pouco
+contaminada como estimativa.
+
+As confusões que apareceram são exatamente as que a SPEC §5.4 previa que a matriz
+revelaria:
+
+| | | |
+|---|---|---:|
+| `,` lido como `'` | e o inverso | 3x / 2x |
+| `.` lido como `-` | e o inverso | 3x / 2x |
+| `1` lido como `l` | e o inverso | 2x / 1x |
+| `W` lido como `w` | | 3x |
+| `✝` lido como `+` | e o inverso | 1x / 1x |
+| `f` lido como `f7` | a ligadura da F1.4 | 1x |
+
+#### Nesta rodada o critério novo escolheu a mesma epoch que o velho
+
+Vale dizer alto, porque é o contrário do que o item sugeria. A perda de treino caiu
+monotonicamente (0,6047 → 0,0377) e a de validação também terminou no mínimo
+(0,0055 na epoch 15): **os dois critérios apontaram a epoch 15**. Em 15 epochs este
+modelo ainda não tinha começado a piorar na validação, então o "ponto de maior
+overfitting" ainda não havia chegado.
+
+O que mudou, então, não foi o modelo desta rodada. Foi passar a existir um número
+que diz se ele generaliza, e um critério capaz de perceber quando ele deixar de
+generalizar — o que a perda de treino, que só cai, nunca poderia fazer.
+
+#### Uma armadilha de leitura que o relatório passou a avisar
+
+O recall macro **não** teve pico na epoch de menor perda:
+
+| epoch | perda(val) | acurácia(val) | macro(val) |
+|---:|---:|---:|---:|
+| 8 | 0,0063 | 99,82% | **98,99%** |
+| 10 | 0,0056 | 99,86% | 97,78% |
+| 15 | **0,0055** | 99,86% | 97,45% |
+
+A tentação é trocar o critério para o recall macro. Medindo antes de mexer: das 79
+classes avaliáveis, 9 têm **1** amostra de validação e 14 têm de 2 a 4. Com 79
+classes, uma única amostra que muda de lado mexe **1,27 ponto** no macro — e a
+oscilação toda, de 97,15% a 98,99%, cabe em uma amostra e meia. É ruído.
+
+A perda de validação usa as 19.081 amostras e por isso é estável; o macro é uma
+média por classe sobre conjuntos minúsculos. O critério ficou como a SPEC pedia, e o
+relatório passou a dizer quantas classes estão nessa situação e quanto vale uma
+amostra, para ninguém ler ruído como melhora. O teste dá macro **maior** que a
+validação (98,41% contra 97,45%) pelo mesmo motivo: são amostras diferentes,
+poucas por classe.
+
+O caminho para tornar o macro confiável não é trocar o critério — é coletar mais
+amostras das classes raras.
+
+#### Decisões que não estavam na SPEC
+
+- **Classe com menos de 5 amostras não é dividida.** São **24 das 103**, e elas vão
+  inteiras para o treino. Tirar 15% de uma classe de 3 deixa o treino com 2 para
+  medir mal 1. O relatório lista as 24 pelo nome, em primeiro lugar, e o log do
+  treino avisa: uma acurácia de validação que ignora um quarto das classes em
+  silêncio seria o mesmo defeito deste item, com outra roupa.
+- **O conjunto de teste não tem piso de 1 amostra por classe** — serve para um único
+  número final, não para recall por classe.
+- **Os pesos do sampler da F1.2 passaram a vir das contagens do treino**, não da base
+  inteira: contar amostras que o modelo não vai ver subestimaria as classes raras.
+- **Base pequena demais para dividir continua treinando**, e avisa que voltou ao
+  critério ruim. É o caso de quem começou a coletar hoje.
+
+#### O que fica em aberto
+
+- O modelo é treinado com 80% dos dados e fica assim. Retreinar na base inteira
+  depois de descobrir a melhor epoch recuperaria os 20%, ao custo de dobrar o tempo.
+- `custom_model.pth` **continua sendo o de março**: este treino foi para um diretório
+  de rascunho, para não sobrescrever o modelo em uso sem pedir.
+
+Cobertura: `tests/test_f13_validacao.py`, 25 testes.
 
 ### F1.4 — Classe corrompida no dataset — CONCLUÍDA
 
@@ -938,11 +1025,9 @@ CONCLUÍDAS
   F2.1  PDF pesquisável                F3.4  autosave e recuperação
   F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
   F1.6  ordem de leitura e colunas     F1.5  pré-processamento e glifos colados
-  F1.2  balanceamento (25.075:1)
+  F1.2  balanceamento (25.075:1)       F1.3  split de validação
 
 PRÓXIMAS — qualidade de reconhecimento
-  F1.3  split de validação          ← o holdout da F1.2 foi montado à mão
-      ↓                               para medir; falta virar produto
   F1.7  validação por legalidade (python-chess)
   F1.8  mascarar diagramas antes de detectar
 
@@ -960,11 +1045,10 @@ figurina foi **fundida com a coordenada seguinte**. Ou seja, o limitador de qual
 hoje é **segmentação** (F1.5 e F1.6), não o modelo. Retreinar antes de arrumar a
 segmentação renderia pouco.
 
-**Dependência que continua valendo, agora só a metade dela:** a F1.2 saiu, então o
-retreino já não ignora classes raras. Falta a F1.3 — sem split de validação no
-produto, a acurácia que o usuário vê continua sendo medida sobre o próprio treino,
-e o "melhor modelo" continua sendo escolhido pelo critério que seleciona o ponto de
-maior overfitting.
+**A dependência que travava o retreino saiu inteira.** F1.2 e F1.3 estão feitas: o
+sorteio compensa o desbalanceamento, o número exibido é medido em dados que o modelo
+não viu, e o checkpoint deixou de ser o ponto de maior overfitting. Falta apenas
+**retreinar de fato** — `custom_model.pth` ainda é o de março.
 
 **F1.7 depende de F3.2**, que já está feita: sem saber quais caracteres são duvidosos,
 não há o que desambiguar pela legalidade.

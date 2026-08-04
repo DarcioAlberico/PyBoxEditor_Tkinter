@@ -475,6 +475,8 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Verificar base de treino...",
                             command=self.verificar_base_treino)
         m_tools.add_command(label="Treinar Rede Neural", command=self.train_neural_network)
+        m_tools.add_command(label="Relatório do último treino...",
+                            command=self.abrir_relatorio_treino)
         m_tools.add_separator()
         m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
         m_tools.add_command(label="Importar Imagens de Caracteres", command=self.import_character_images)
@@ -1769,15 +1771,47 @@ class MainWindow(tk.Frame):
             )
 
         def concluir(sucesso):
-            if sucesso:
+            if not sucesso:
+                messagebox.showerror("Erro", "Falha no treinamento.")
+                return
+
+            # O relatório da F1.3 é o único lugar onde a qualidade do modelo
+            # aparece medida sobre dados que ele não viu. Não adianta gravá-lo e
+            # deixar o usuário sem saber que existe.
+            relatorio = self.learning_service.caminho_relatorio()
+            if os.path.exists(relatorio):
+                if messagebox.askyesno(
+                    "Treinamento concluído",
+                    "Treinamento concluído! Agora você pode usar "
+                    "'Detectar e Preencher (Neural)'.\n\n"
+                    "Deseja abrir o relatório de validação?"
+                ):
+                    self.abrir_relatorio_treino()
+            else:
                 messagebox.showinfo(
                     "Sucesso",
                     "Treinamento concluído!\nAgora você pode usar 'Detectar e Preencher (Neural)'."
                 )
-            else:
-                messagebox.showerror("Erro", "Falha no treinamento.")
 
         self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)
+
+    def abrir_relatorio_treino(self):
+        """Abre o relatório do último treino no aplicativo padrão do sistema."""
+        caminho = self.learning_service.caminho_relatorio()
+        if not os.path.exists(caminho):
+            messagebox.showinfo(
+                "Relatório de treino",
+                "Nenhum relatório encontrado.\n\n"
+                "Ele é gravado ao final de 'Treinar Rede Neural', desde que a "
+                "base seja grande o bastante para separar um conjunto de "
+                "validação."
+            )
+            return
+        try:
+            os.startfile(caminho)   # noqa: S606 — Windows; é o app do usuário
+        except (AttributeError, OSError) as e:
+            messagebox.showinfo("Relatório de treino",
+                                f"O relatório está em:\n{caminho}\n\n({e})")
 
     # -------------------------------------------------------
     # Treinamento Geral (Batch) & Importacao

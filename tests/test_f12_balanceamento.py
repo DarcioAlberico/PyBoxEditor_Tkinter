@@ -328,16 +328,19 @@ def test_treino_relata_o_desbalanceamento():
 def test_acuracia_de_treino_e_rotulada_como_tal():
     """
     Com o sampler o número cai, porque as classes raras deixaram de ser
-    arredondamento. Chamar isso de "Acc" faria parecer piora; é acurácia de
-    treino, e sempre foi. Validação de verdade é a F1.3.
+    arredondamento — chamar isso de "Acc" faria parecer piora.
+
+    A F1.3 passou a exibir acurácia de validação no caminho normal; este rótulo
+    sobrevive só onde não há validação possível (toda classe pequena demais para
+    dividir), que é justamente onde ele mais precisa ser honesto.
     """
     with tempfile.TemporaryDirectory() as tmp:
-        dados = _base(os.path.join(tmp, "d"), {"lower_a": 20, "lower_b": 20})
+        dados = _base(os.path.join(tmp, "d"), {"lower_a": 3, "lower_b": 3})
         msgs = []
         NeuralTrainer(dados, os.path.join(tmp, "m.pth"),
                       os.path.join(tmp, "m.json")).train(epochs=1,
                                                          callback=msgs.append)
-        assert any("Acc(treino)" in m for m in msgs)
+        assert any("Acc(treino)" in m for m in msgs), msgs
 
 
 # ----------------------------------------------------------------------

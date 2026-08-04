@@ -465,11 +465,10 @@ Pastas que não são classe deixaram de virar classe: as que começam com `_`
 que não têm nenhuma amostra legível (`lower_ä` ocupava uma saída da rede que
 nunca poderia estar certa).
 
-### 5.4 Avaliação
+### 5.4 Avaliação — [feito]
 
-Hoje: acurácia calculada sobre o treino aumentado, e "melhor modelo" escolhido por
-*training loss* (`neural_trainer.py:389-395`) — critério que seleciona exatamente o
-ponto de maior overfitting.
+Antes: acurácia calculada sobre o treino aumentado, e "melhor modelo" escolhido por
+*training loss* — critério que seleciona exatamente o ponto de maior overfitting.
 
 ```
 split estratificado 80 / 15 / 5   (treino / validação / teste)
@@ -477,17 +476,45 @@ early stopping por validation loss, paciência 5
 checkpoint pelo melhor validation loss  ← não training loss
 ```
 
-Relatório ao final do treino:
+Implementado em `core/avaliacao.py` e ligado ao `NeuralTrainer`. Relatório ao
+final do treino, em `relatorio_treino.txt` (+ `.json`), ao lado do modelo, e
+alcançável pelo menu **Ferramentas → Relatório do último treino**:
 
-- acurácia global de validação
-- **matriz de confusão por classe** — é ela que revela `e`↔`c`, `1`↔`l`, ♔↔`K`
+- acurácia global de validação, **recall macro** e número de classes zeradas
+- confusões mais frequentes — é o que a matriz serve para mostrar; a tabela
+  103×103 é quase toda zero, então o `.json` guarda os pares fora da diagonal,
+  que carregam a mesma informação (a diagonal são os acertos, já registrados)
 - lista das 10 piores classes
-- amostras de validação erradas, salvas em disco para inspeção
+- histórico por epoch (perda de treino, perda de validação, acurácia, macro)
+- amostras de validação erradas, gravadas em `relatorio_treino_erros/`, em
+  subpastas `esperado_virou_previsto/`, **com teto de 200** e priorizando os
+  pares mais frequentes: um treino ruim erra milhares, e despejar tudo em disco
+  transformaria o relatório em outro problema
+
+Três decisões que não estavam aqui e vieram de olhar a base:
+
+1. **Classe com menos de `MIN_PARA_DIVIDIR` (5) amostras não é dividida** — vai
+   inteira para o treino e entra na lista de não avaliáveis, que o relatório
+   mostra em primeiro lugar e o `callback` anuncia. São 24 das 103 classes.
+   Tirar 15% de uma classe de 3 piora o modelo para medir mal; esconder isso
+   seria o mesmo defeito que esta seção veio corrigir, com outra roupa.
+2. **O conjunto de teste não tem piso de 1 amostra por classe.** Serve para um
+   único número final, não para recall por classe.
+3. **Os pesos do sampler (§5.3) passam a vir das contagens do treino**, não da
+   base inteira — contar amostras que o modelo não vai ver subestimaria o peso
+   das classes raras.
+
+Quando a base é pequena demais para separar validação (toda classe abaixo do
+mínimo), o treino continua funcionando e **avisa** que voltou a escolher o
+checkpoint pela perda de treino. É o caso de uma base recém-começada.
+
+Pendente: retreinar depois de encontrar a melhor epoch, usando 100% dos dados.
+Recuperaria os 20% separados, ao custo de dobrar o tempo de treino.
 
 ### 5.5 Compatibilidade de modelo
 
 `model_meta.json` mapeia índice → caractere. Os índices vêm de
-`sorted(os.listdir(data_dir))` (`neural_trainer.py:215`). **Adicionar ou remover
+`sorted(os.listdir(data_dir))` (`neural_trainer.py:220`). **Adicionar ou remover
 qualquer pasta desloca todos os índices seguintes** — e um `custom_model.pth` antigo
 passa a devolver caracteres errados, sem nenhum erro.
 
