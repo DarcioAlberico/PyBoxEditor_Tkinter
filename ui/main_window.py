@@ -1186,21 +1186,59 @@ class MainWindow(tk.Frame):
         if self.var_origem.get() not in valores:
             self.var_origem.set(self.ORIGEM_TODAS)
 
+    def _linha_da_lista(self, i):
+        """(texto, cor) de um box na lista lateral."""
+        b = self.boxes[i]
+        disp_ch = b.char if b.char else "?"
+        return (f"{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})",
+                # A mesma escala do canvas, para o olho não ter que traduzir.
+                conf_ui.cor_do_box(b))
+
     def update_sidebar(self):
+        """
+        Redesenha a lista lateral — só o que mudou (F4.4).
+
+        Antes era `delete(0,"end")` mais N `insert()` a **cada** chamada, e
+        `select_box` chama isto a cada seleção: com 2.000 boxes, cada seta
+        pressionada refazia 2.000 linhas e a digitação engasgava.
+
+        O ponto é que navegar não muda o conteúdo da lista, só qual linha está
+        marcada. Guardando o que foi desenhado dá para comparar e não fazer nada
+        — o caminho da seta passa a custar zero operação de lista. Quando o
+        conteúdo muda de verdade (um caractere digitado, um filtro), só as linhas
+        diferentes são reescritas; quando o *tamanho* muda (box criado,
+        excluído, filtro que corta), aí sim vale refazer tudo, que é raro e
+        simples.
+        """
         self._atualizar_origens()
         self._visiveis = self.boxes_visiveis()
 
-        self.listbox.delete(0, "end")
-        for linha, i in enumerate(self._visiveis):
-            b = self.boxes[i]
-            disp_ch = b.char if b.char else "?"
-            self.listbox.insert(
-                "end", f"{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})")
-            # A mesma escala do canvas, para o olho não ter que traduzir.
-            self.listbox.itemconfig(linha, foreground=conf_ui.cor_do_box(b))
+        linhas = [self._linha_da_lista(i) for i in self._visiveis]
+        anterior = getattr(self, "_linhas_desenhadas", None)
+
+        if anterior is None or len(anterior) != len(linhas):
+            self.listbox.delete(0, "end")
+            for linha, (texto, cor) in enumerate(linhas):
+                self.listbox.insert("end", texto)
+                self.listbox.itemconfig(linha, foreground=cor)
+        else:
+            for linha, (novo, velho) in enumerate(zip(linhas, anterior)):
+                if novo == velho:
+                    continue
+                # `delete` + `insert` na mesma posição: o Listbox do Tk não tem
+                # como trocar o texto de uma linha no lugar.
+                self.listbox.delete(linha)
+                self.listbox.insert(linha, novo[0])
+                self.listbox.itemconfig(linha, foreground=novo[1])
+
+        self._linhas_desenhadas = linhas
 
         linha = self.linha_do_box(self.selected_index)
         if linha is not None:
+            # A seleção do Listbox não sobrevive a um delete/insert da própria
+            # linha, e no caminho rápido ela nem foi tocada — limpar antes deixa
+            # os dois casos com o mesmo resultado.
+            self.listbox.selection_clear(0, "end")
             self.listbox.select_set(linha)
             self.listbox.see(linha)
 

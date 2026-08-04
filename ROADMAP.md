@@ -25,7 +25,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
-| **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1–F4.3, F4.5 e F4.6 feitas; falta F4.4) |
+| **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
 ---
@@ -1408,12 +1408,38 @@ Verificado em 2026-08-04: o item está implementado e a descrição abaixo estav
 os três caminhos que o item pedia — sair (`_on_close`), abrir outro arquivo e trocar de
 página. Veio junto com a sessão de várias páginas da F3.7.
 
-### F4.4 — `update_sidebar` reconstrói a lista inteira a cada tecla
+### F4.4 — `update_sidebar` reconstrói a lista inteira a cada tecla — CONCLUÍDA
 
 `delete(0,"end")` + N `insert()` a cada seleção (`main_window.py:564`). Com 2.000
 boxes, cada seta pressionada refaz 2.000 linhas. A digitação engasga.
 
 **Ação:** atualizar só as linhas alteradas, ou migrar para `ttk.Treeview` virtualizado.
+
+**Concluída em 2026-08-04**, pelo primeiro caminho — sem trocar de widget.
+
+O que destrava é notar que **navegar não muda o conteúdo da lista**, só qual linha está
+marcada. Guardando o que foi desenhado (`_linhas_desenhadas`) dá para comparar e não
+fazer nada. Medido com um `Listbox` de verdade e 2.000 boxes:
+
+| | por seta pressionada |
+|---|---:|
+| antes (refaz tudo) | **94,5 ms** |
+| depois (só o que mudou) | **2,9 ms** |
+
+33× — e os 94 ms eram o engasgo do enunciado, muito acima do limiar em que a digitação
+começa a parecer travada. Editar um caractere custa 3,2 ms e toca **uma** linha.
+
+Três caminhos, por custo: conteúdo igual não faz nada; conteúdo diferente com o mesmo
+tamanho reescreve só as linhas que mudaram; tamanho diferente (box criado, excluído,
+filtro que corta) refaz tudo, que é raro e não vale a complicação de um *diff*.
+
+O `Listbox` do Tk não troca o texto de uma linha no lugar, daí o `delete`+`insert` na
+mesma posição. E a seleção não sobrevive a isso: ela é reposta no fim, com um
+`selection_clear` antes para o caminho rápido e o lento terminarem iguais.
+
+Os testes contam as operações que chegam ao `Listbox`, com um dublê no lugar dele.
+Contar operações é estável; cronometrar numa máquina compartilhada não é — o número de
+milissegundos acima serve para dimensionar o ganho, não para reprovar num CI.
 
 ### F4.6 — Colisão de tecla — CONCLUÍDA
 
