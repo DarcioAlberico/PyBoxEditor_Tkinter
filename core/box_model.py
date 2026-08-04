@@ -28,6 +28,21 @@ class BoxEntry:
     def as_tuple(self):
         return (self.char, self.x1, self.y1, self.x2, self.y2)
 
+    def as_state(self) -> tuple:
+        """
+        Todos os campos, na ordem do construtor.
+
+        Não é o `as_tuple`, e a diferença importa: aquele devolve só caractere e
+        coordenadas, para quem desenha e mede. Este serve para guardar e
+        restaurar **sem perder nada** — confiança e origem inclusive.
+        """
+        return (self.char, self.x1, self.y1, self.x2, self.y2,
+                self.confidence, self.source)
+
+    @classmethod
+    def from_state(cls, estado) -> "BoxEntry":
+        return cls(*estado)
+
     def center(self):
         return ((self.x1 + self.x2) // 2, (self.y1 + self.y2) // 2)
 

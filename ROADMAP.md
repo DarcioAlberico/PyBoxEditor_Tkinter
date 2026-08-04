@@ -25,7 +25,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (F0.1–F0.4) |
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9, F1.5b) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.7) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.8) |
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 
@@ -35,7 +35,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 em recorte já segmentado, dá **99,83%** no conjunto de teste. A distância entre os dois
 números é o trabalho que sobra, e ele é de **segmentação**, não de modelo.
 
-Cobertura: **513 testes**, `pytest` na raiz.
+Cobertura: **533 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1250,6 +1250,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.5 | ~~Atalhos~~ — **CONCLUÍDA** | Fluxo sem mouse |
 | F3.6 | ~~Aplicar a todos os semelhantes~~ — **CONCLUÍDA** | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
+| F3.8 | ~~Snapshot do histórico a cada tecla~~ — **CONCLUÍDA** | 15,8 ms por tecla viram 0,24 |
 
 **F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
 `fallback_chain` e a descartava (`char, source, _`). Agora `BoxEntry` guarda
@@ -1365,10 +1366,9 @@ Isso também fecha a limitação registrada na F3.2: o rascunho guarda `confiden
 
 Cobertura: `tests/test_f34_autosave.py`, 13 testes.
 
-**Custo colateral medido, ainda em aberto:** `_commit_change` gasta ~15,7 ms numa página
-de 2.000 boxes só no `deepcopy` do histórico — ou seja, ~15 ms por tecla no modo
-digitação contínua. Está dentro do critério, mas é o próximo gargalo natural
-(snapshot incremental em vez de cópia integral).
+**Custo colateral medido:** `_commit_change` gastava ~15,7 ms numa página de 2.000 boxes
+só no `deepcopy` do histórico — ou seja, ~15 ms por tecla no modo digitação contínua.
+Ficou registrado como o próximo gargalo natural e virou a **F3.8**.
 
 **F3.7 — concluída em 2026-08-03.** `_load_pdf_page` fazia `self.boxes = []` sem aviso
 nem confirmação: navegar para a próxima página apagava tudo que havia sido digitado,
@@ -1477,6 +1477,53 @@ Os aceleradores foram para os rótulos do menu: atalho que não aparece no menu 
 que ninguém descobre.
 
 Cobertura: `tests/test_f35_atalhos.py`, 31 testes.
+
+**F3.8 — concluída em 2026-08-04.** O custo que a F3.4 deixou registrado. Toda mutação
+passa por `_commit_change`, que tira um snapshot; no modo digitação da F3.1 isso é uma
+vez por tecla, e o `copy.deepcopy` de uma lista de dataclasses custava 15,8 ms numa
+página de 2.000 boxes.
+
+Medido, numa página de 2.000:
+
+| forma de copiar | custo |
+|---|---:|
+| `copy.deepcopy(boxes)` (antes) | 15,79 ms |
+| `[copy.copy(b) for b in boxes]` | 3,33 ms |
+| `[b.copy() for b in boxes]` (`dataclasses.replace`) | 3,72 ms |
+| `[BoxEntry(b.char, b.x1, ...) for b in boxes]` | 0,57 ms |
+| `[b.as_state() for b in boxes]` — tupla (agora) | **0,19 ms** |
+| reconstruir de tuplas (o custo do undo) | 0,55 ms |
+
+O `deepcopy` fazia trabalho para um caso que não existe aqui: os campos do `BoxEntry`
+são todos imutáveis (str, int, float), então não há grafo de objetos a percorrer nem
+ciclo a memoizar. Ele pagava por essa generalidade a cada tecla.
+
+Resultado ponta a ponta, com o histórico cheio (50 posições):
+
+| | antes | agora |
+|---|---:|---:|
+| snapshot (2.000 boxes) | 18,15 ms | **0,24 ms** |
+| undo + redo | 30,65 ms | **1,44 ms** |
+| memória do histórico cheio | 21,1 MB | **10,4 MB** |
+
+**A F3.4 previa "snapshot incremental em vez de cópia integral", e a medição diz para
+não fazer isso.** Guardar só o que mudou custaria a comparação das listas (0,16 ms) mais
+a cópia dos alterados — 0,17 ms contra os 0,19 ms da cópia integral. Nada, em troca de um
+delta com estado próprio, que precisa acertar inserção e remoção (dividir e excluir box)
+e é exatamente onde esse tipo de código erra. **O problema não era a cópia ser integral;
+era ela ser profunda.**
+
+O `DocumentSession.montar_payload` tinha chegado à mesma conclusão antes, pelo mesmo
+caminho, para o rascunho em disco — e ninguém aplicou ao histórico. A diferença entre os
+dois: lá a confiança é arredondada para 4 casas, para o arquivo encolher; aqui não pode
+haver arredondamento nenhum, porque o undo tem de devolver o estado idêntico.
+
+O risco desta mudança era perder campo na ida e volta. Confiança e origem não aparecem
+como número exato no canvas nem na lista, e um undo que os zerasse passaria despercebido
+até o box reaparecer sem cor — daí a maior parte dos testes ser igualdade exata de
+estado, e não de caractere.
+
+Cobertura: `tests/test_f38_historico.py`, 20 testes.
 
 ---
 
@@ -1766,7 +1813,7 @@ F2  saída de PDF     F2.1 PDF pesquisável   F2.2 remover Poppler
 F3  produtividade    F3.1 digitação contínua   F3.2 cor por confiança
                      F3.3 filtros e navegação  F3.4 autosave e recuperação
                      F3.5 atalhos              F3.6 aplicar aos semelhantes
-                     F3.7 boxes por página
+                     F3.7 boxes por página     F3.8 custo do snapshot
 
 F4  interface        F4.1 threads       F4.2 barra de status
                      F4.3 rolagem       F4.4 lista incremental
@@ -1805,10 +1852,11 @@ F1; o modelo, medido em recorte já segmentado, dá 99,8%. A distância entre os
 números é o trabalho que sobrou, e ele é de detecção de caixa — nenhum retreino o
 alcança.
 
-**Custo colateral ainda em aberto** (registrado na F3.4): `_commit_change` gasta
-~15,7 ms numa página de 2.000 boxes só no `deepcopy` do histórico, ou seja ~15 ms
-por tecla no modo digitação contínua. Está dentro do critério, mas é o próximo
-gargalo natural — snapshot incremental em vez de cópia integral.
+**O custo que a F3.4 deixou em aberto foi fechado pela F3.8**, e a solução prevista
+não era a certa: o problema não era a cópia ser integral, era ela ser profunda.
+Trocar `copy.deepcopy` por tupla levou o snapshot de 18,15 ms para 0,24 ms numa
+página de 2.000 boxes; um snapshot incremental teria rendido 0,02 ms a mais, com
+estado próprio para errar.
 
 **A dependência que travava o retreino saiu inteira, e o retreino foi feito.** F1.2 e
 F1.3 estão prontas — o sorteio compensa o desbalanceamento, o número exibido é medido
