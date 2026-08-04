@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1–F1.7 feitas; faltam F1.8 e F1.9) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -584,6 +584,73 @@ com segurança. Zero cortes falsos é a propriedade que importa.
 
 Cobertura: `tests/test_f15_preprocess.py`, 20 testes.
 
+#### Correção durante a F1.7 — a escala do limiar era global
+
+**"Zero cortes falsos" acima está errado, e o erro era da medida.** A propriedade
+verificada era "nenhum pedaço estreito novo", e as duas metades de uma figurina
+partida ao meio são largas demais para caírem nela. O separador partia glifos
+inteiros desde o início e a validação não tinha como ver.
+
+O gatilho: o limiar de candidato a corte era `mediana_da_página * 1.6`. Estes
+livros misturam tamanhos de fonte — a linha principal da partida é maior que o
+texto das variantes. Medido na página 0108: mediana de 21 px na linha principal
+contra 17 px nas variantes, com a mediana da página em 17. A figurina de cavalo,
+de 32 px, passava do limiar e era partida no vale interno do contorno, e
+`1.d4 Nf6` saía `1.d4 N□f6`.
+
+A referência passou a ser **a mediana da linha, nunca abaixo da global**
+(`BoxService._largura_de_referencia`). O piso não é enfeite: a mediana de uma
+linha mede também quais caracteres calharam de cair nela, e uma linha cheia de
+`i`, `l` e pontuação tem mediana pequena sem ser fonte pequena. A mediana da
+linha pura leva os cortes falsos de 221 para 182 mas *piora* a página 0020
+(2 → 9); com o piso caem para 162 e a 0020 melhora (2 → 1).
+
+Revalidação nas **páginas rotuladas à mão** — 9 hoje (7 do Kasparov + 2 do
+Aagaard, 9.369 caracteres) — em vez do proxy de "boxes largos". Com o rótulo dá
+para separar corte bom de corte falso, que é o que faltava. `python
+medir_paginas.py` reproduz, e usa o conjunto que existir na hora:
+
+| | recall | precisão | F1 | cortes bons | cortes falsos |
+|---|---:|---:|---:|---:|---:|
+| separador desligado | 94,1% | **93,0%** | **93,5** | — | — |
+| escala global (antes) | 93,8% | 87,5% | 90,5 | 80 | 257 |
+| escala local (agora) | 94,0% | 88,5% | 91,2 | 73 | **182** |
+
+**Precisão e recall dizem coisas diferentes aqui.** Partir um glifo quase não
+mexe no recall — o pedaço da esquerda ainda casa com o rótulo — mas despeja um
+caractere inventado no texto a cada corte. Medir só por recall foi o segundo
+motivo de o defeito ter passado.
+
+**O que a revalidação mostrou, e não era o esperado: o separador não se paga em
+nenhuma das páginas.** Desligado ele dá 93,5 de F1 contra 91,2 com a correção.
+Os cortes falsos ainda superam os bons por 2,5:1. A correção é real — 257 → 182
+cortes falsos, e o `N□f6` do relato sumiu — mas ela reduz um prejuízo, não o
+inverte.
+
+A razão é que o critério não tem como decidir. Medidos os dois grupos na página
+0108, o vale de colagem e o vale interno de glifo são indistinguíveis:
+
+| | largura do vale | fundo (% do pico) | menor pedaço (medianas) |
+|---|---:|---:|---:|
+| colagem de verdade | 7 colunas | 13,3% | 0,62 |
+| glifo inteiro (`♘`, `♖`, `m`) | 7 colunas | 10,5% | 0,62 |
+
+Também foram medidos e descartados: largura do pai, número de faixas de tinta na
+coluna de corte e posição vertical da ponte — todos com as duas populações
+sobrepostas. As medidas originais da F1.5 (`♞e5` com vale de 10 colunas contra
+`♛` com 0) valem para a figurina **colada em texto figurino**; onde a figurina
+aparece isolada entre texto normal, a folga desaparece.
+
+Consequência prática: `separar_colados` continua ligado por padrão, mas o número
+que manda é o da página. Para material como estes livros, desligar rende mais que
+qualquer ajuste do critério — e um separador que se pague vai precisar de outra
+coisa que não a projeção de tinta (componentes conexos, ou o próprio
+classificador pontuando o corte).
+
+Cobertura: `tests/test_f15_preprocess.py`, 26 testes, incluindo a página 0108 no
+conjunto de validação. `core/avaliacao_pagina.py` mede página contra `.box`
+rotulado e é reusável pela F1.7.
+
 ### F1.7 — Validar notação contra as regras do xadrez — CONCLUÍDA
 
 Ideia trazida do [DocuVision-AI](https://github.com/betulkizilkaya/DocuVision-AI)
@@ -741,7 +808,7 @@ item próprio, fora desta fase.
 
 Cobertura: `tests/test_f17_notacao.py`, 28 testes.
 
-### F1.8 — Mascarar diagramas antes de detectar boxes
+### F1.8 — Mascarar diagramas antes de detectar boxes — CONCLUÍDA
 
 Também sugerido pela leitura do DocuVision (`mask_board_regions`). Hoje só tratamos
 diagramas em PDF de **texto** (`is_block_a_diagram`); em página escaneada, o tabuleiro
@@ -752,7 +819,51 @@ Detectar a região do tabuleiro e mascará-la antes da detecção de contornos e
 problema na origem. Não é preciso YOLO (que o DocuVision usa): análise de contornos e
 detecção de linhas com Hough bastam para uma grade 8×8.
 
-### F1.9 — Calibrar a confiança do modelo
+**Concluída em 2026-08-04, e o problema era muito menor do que o descrito acima.**
+
+**O tabuleiro não vira milhares de boxes.** `findContours` roda com `RETR_EXTERNAL`, e o
+tabuleiro destes livros tem moldura preta fechada: as 64 casas e as peças são contornos
+*filhos* e nunca são devolvidos. Medido em 8 páginas com diagrama, o tabuleiro sai como
+**um** box de ~479×478 — um, não mil:
+
+| página | boxes na página | boxes dentro do tabuleiro |
+|---|---:|---:|
+| 0144 | 1.609 | **1** |
+| 0151 | 1.548 | **1** |
+| 0109 | 1.622 | **1** |
+
+E esse box não atrapalha o que se temia: a detecção de colunas da F1.6 devolve o mesmo
+número de faixas com ele e sem ele, nas 8 páginas, e nenhuma delas ganha elemento
+transversal por causa dele.
+
+Por isso **não há detecção de grade nem transformada de Hough** aqui. Seria maquinário
+para um problema que não existe neste formato — e maquinário que teria de ser mantido e
+que erra em página torta. O que sobra é um punhado de blocos grandes demais para serem
+caractere, e um limiar de tamanho resolve:
+
+`BoxService.descartar_blocos_nao_texto` descarta o contorno que passa de **4× a altura
+mediana de caractere nos dois eixos**. Nos dois eixos porque um travessão é largo e
+legítimo. Relativo, e não os `w > 150 or h > 150` do pipeline de lote, que dependem do DPI:
+a 600 dpi aquilo corta letra de verdade, a 150 dpi deixa o tabuleiro passar.
+
+Medido nas 9 páginas rotuladas:
+
+| | boxes | espúrios | casados com rótulo |
+|---|---:|---:|---:|
+| sem o descarte | 9.540 | 336 | 9.204 |
+| com o descarte | 9.521 | **317** | **9.204** |
+
+19 boxes descartados, 19 espúrios a menos, e **nenhum** caractere de verdade perdido.
+
+**O descarte acontece depois do `merge_vertical_boxes`, e a ordem foi medida.** O box do
+diagrama absorve os respingos à volta dele durante o merge — borda serrilhada da
+digitalização, legenda encostada — e descartá-lo depois leva esse lixo junto. Descartando
+antes, os respingos sobram soltos: na página 0108 os espúrios iam de 11 para **29**, pior
+que não fazer nada. `test_descarte_acontece_depois_do_merge` fixa a ordem.
+
+Cobertura: `tests/test_f15_preprocess.py`, 6 testes novos (32 no total do arquivo).
+
+### F1.9 — Calibrar a confiança do modelo — CONCLUÍDA
 
 Saiu da medição da F1.7: a confiança mediana de um caractere **errado** é 1,000, igual à
 de um certo. O `softmax` de uma CNN treinada com augmentation pesada é conhecidamente
@@ -763,6 +874,79 @@ ponderação por confiança da F1.7 fica inerte.
 *Temperature scaling* sobre o conjunto de validação que a F1.3 já monta resolve com um
 único parâmetro e sem retreinar. Medida a usar: erro de calibração esperado antes e
 depois, e a fração de erros que um corte em 0,9 passa a pegar.
+
+**Concluída em 2026-08-04.** `core/calibracao.py`, `calibrar_modelo.py`, e a temperatura
+gravada em `model_meta.json` e aplicada por `NeuralPredictor.predict`. Duas coisas do
+plano acima estavam erradas, e as duas foram medidas antes de mudar o desenho.
+
+#### O conjunto de validação é o lugar errado para calibrar
+
+O split que a F1.3 monta sai de `training_data`, que é recorte já segmentado e limpo.
+Medido ali com o modelo em uso:
+
+| | acurácia | ECE | confiança mediana de um erro |
+|---|---:|---:|---:|
+| split de validação (19.317) | 99,93% | **0,0003** | 0,72 |
+| split de teste (6.436) | 99,89% | 0,0010 | 0,93 |
+| 9 páginas reais (9.274) | 95,32% | **0,0315** | 0,85 |
+
+Não há o que calibrar no split — a temperatura ajustada ali dá **0,995**, ou seja, não
+faz nada. A miscalibração é um efeito de **mudança de distribuição**, não de `softmax`
+quente: a página traz recorte mal segmentado, glifo colado e fonte não vista, e é lá que
+a confiança é consumida. A temperatura passou a ser ajustada nas páginas rotuladas, com
+validação **leave-one-page-out** — ajustar e medir nas mesmas 8 páginas daria um número
+bonito e falso.
+
+#### Calibrar não faz o filtro achar mais erro
+
+A temperatura divide os logits: muda o **valor** da confiança, não a **ordem** entre as
+amostras. Como triagem é "olhe os N mais duvidosos", o que ela consome é a ordem. A AUROC
+entre certo e errado confirma:
+
+| T | 0,5 | 1,0 | 2,0 | 4,0 | 8,0 |
+|---|---:|---:|---:|---:|---:|
+| AUROC | 0,860 | 0,862 | 0,868 | 0,878 | 0,876 |
+
+Então o ganho de "pegar mais erros" que aparece ao subir a temperatura é exatamente o que
+se obteria mexendo no limiar com T = 1. **A promessa de que calibrar destrava a F3.3 não
+se sustenta** — o que decide onde pôr o corte é a curva de triagem, não o ECE:
+
+| corte | da página revisada | dos erros achados | erros que escapam |
+|---:|---:|---:|---:|
+| 0,50 | 0,8% | 16,1% | 364 |
+| 0,70 | 2,2% | 38,7% | 266 |
+| **0,90** (o de hoje) | **4,0%** | **52,5%** | 206 |
+| 0,999 | 13,6% | 70,7% | 127 |
+
+O `LIMIAR_ALTO = 0,90` de `ui/confidence.py` já está num ponto defensável: revisando 4%
+da página o revisor acha metade dos erros. Subir para 0,999 troca +10 pontos de esforço
+por +18 de erros achados. Ficou como está — a escolha é de quem revisa, e agora está
+medida.
+
+#### O que a calibração entrega
+
+O número exibido passa a ser honesto, que importa porque a UI mostra "95%" para uma
+pessoa decidir. Com T = **1,968**:
+
+| | ECE | NLL | confiança média | AUROC |
+|---|---:|---:|---:|---:|
+| T = 1 | 0,0315 | 0,8879 | 0,9847 | 0,8620 |
+| T = 1,968 | **0,0222** | **0,4837** | 0,9669 | 0,8673 |
+
+Leave-one-page-out, que é o número que vale: ECE de **0,0349 → 0,0307**, com 6 das 9
+páginas melhorando. Modesto e real. A leitura não muda em nenhum caractere — dividir os
+logits não muda quem vence.
+
+Escolha de critério: a temperatura é ajustada minimizando **ECE**, não NLL. A NLL é
+dominada por poucos erros catastroficamente confiantes e pede uma temperatura bem mais
+alta; amaciar todo o resto para acomodá-los piora o ECE. O que se quer calibrar é o
+número exibido.
+
+Retreinar **zera** a temperatura no metadado, de propósito: ela é ajustada para um
+conjunto de pesos, e herdá-la aplicaria uma correção medida sobre outra rede.
+`python calibrar_modelo.py --gravar` reajusta.
+
+Cobertura: `tests/test_f19_calibracao.py`, 21 testes.
 
 ### F1.6 — Ordenação de leitura ignora colunas
 

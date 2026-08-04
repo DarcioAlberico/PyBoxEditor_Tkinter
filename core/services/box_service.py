@@ -15,7 +15,8 @@ class BoxService:
     @staticmethod
     def generate_boxes_opencv(image: Image.Image, threshold: int = 180,
                               method: str = "auto",
-                              separar_colados: bool = True) -> List[BoxEntry]:
+                              separar_colados: bool = True,
+                              descartar_nao_texto: bool = True) -> List[BoxEntry]:
         """
         Gera boxes automaticamente a partir de uma imagem PIL (grayscale).
 
@@ -36,12 +37,104 @@ class BoxService:
 
         boxes.sort(key=lambda b: (b.y1, b.x1))
         boxes = BoxService.merge_vertical_boxes(boxes)
+        # Depois do merge, não antes: medido, o box do diagrama absorve os
+        # respingos em volta dele (borda serrilhada, legenda encostada), e
+        # descartá-lo depois leva esse lixo junto. Descartando antes, os
+        # respingos sobram soltos — na página 0108, 11 boxes espúrios viram 29.
+        if descartar_nao_texto:
+            boxes = BoxService.descartar_blocos_nao_texto(boxes)
         if separar_colados:
             # Depois do merge vertical: fundir o pingo do 'i' primeiro evita
             # que ele seja tratado como peça solta na hora de cortar.
             boxes = BoxService.dividir_glifos_colados(boxes, th)
         boxes = BoxService.sort_boxes_reading_order(boxes)
         return boxes
+
+    # Abaixo disto a linha tem amostra pequena demais para uma mediana confiável
+    # (número de página, cabeçalho de uma palavra) e volta a usar a da página.
+    MIN_BOXES_PARA_MEDIANA_LOCAL = 5
+
+    # Múltiplo da altura mediana de caractere acima do qual um contorno deixa de
+    # ser texto. Precisa valer nos DOIS eixos: um travessão é largo e legítimo.
+    FATOR_NAO_TEXTO = 4.0
+    # Com poucos boxes a mediana não é confiável (uma página que é só diagrama
+    # teria "altura mediana de caractere" do tamanho do diagrama).
+    MIN_BOXES_PARA_DESCARTE = 20
+
+    @staticmethod
+    def descartar_blocos_nao_texto(boxes: List[BoxEntry],
+                                   fator: float = None) -> List[BoxEntry]:
+        """
+        Remove contornos grandes demais para serem caractere — o diagrama.
+
+        **O problema aqui é menor do que o roadmap supunha, e isso foi medido.**
+        A F1.8 previa que "em página escaneada o tabuleiro vira milhares de boxes
+        de lixo". Não vira: `findContours` roda com `RETR_EXTERNAL` e o tabuleiro
+        destes livros tem moldura fechada, então as 64 casas e as peças são
+        contornos *filhos* e não são devolvidos. O tabuleiro inteiro sai como
+        **um** box de 479x478. Medido em 8 páginas com diagrama: 1 box por
+        tabuleiro, e a detecção de colunas da F1.6 não muda com ele nem sem ele.
+
+        Por isso não há detecção de grade nem transformada de Hough aqui — seria
+        maquinário para um problema que não existe neste formato. Um limiar de
+        tamanho relativo resolve o que sobra, sem risco: medido nas 9 páginas
+        rotuladas, 19 boxes caem e **nenhum** deles casava com caractere
+        rotulado.
+
+        O limiar é relativo à altura mediana de caractere, não absoluto. O
+        pipeline de lote usava `w > 150 or h > 150`, que depende do DPI da
+        digitalização: a 600 dpi corta letra legítima, a 150 dpi deixa o
+        tabuleiro passar.
+        """
+        fator = BoxService.FATOR_NAO_TEXTO if fator is None else fator
+        if len(boxes) < BoxService.MIN_BOXES_PARA_DESCARTE:
+            return boxes
+
+        alturas = sorted(b.y2 - b.y1 for b in boxes)
+        mediana = alturas[len(alturas) // 2] or 1
+        limite = mediana * fator
+
+        return [b for b in boxes
+                if (b.y2 - b.y1) <= limite or (b.x2 - b.x1) <= limite]
+
+    @staticmethod
+    def _largura_de_referencia(boxes: List[BoxEntry]) -> dict:
+        """
+        Largura mediana de caractere **local a cada box**, indexada por `id`.
+
+        A mediana da página inteira só serve quando a página tem um tamanho de
+        fonte só. Nestes livros a linha principal da partida é maior que o texto
+        de variantes: medido na página 0108, mediana de 21 px na linha principal
+        contra 17 px nas variantes, com a mediana da página em 17. Com o limiar
+        preso à mediana global, glifos grandes e legítimos passavam de
+        `mediana * fator_largo` e viravam candidatos a corte — 147 dos 1.404
+        caracteres rotulados, quase todos figurina (R, N, Q, B).
+
+        **A referência local nunca fica abaixo da global**, e isso foi medido, não
+        suposto. A mediana de uma linha não mede só o tamanho da fonte: mede
+        também quais caracteres calharam de cair nela. Uma linha carregada de
+        'i', 'l', '1' e pontuação tem mediana pequena sem ser fonte pequena, e
+        baixar o limiar ali só fabrica candidato a corte. Medido nas 8 páginas
+        rotuladas, a mediana da linha pura leva os cortes falsos de 221 para 182,
+        mas *piora* a página 0020 (2 -> 9); tomando o máximo com a global, caem
+        para 162 e a 0020 melhora (2 -> 1). O máximo também deixa a mudança
+        segura por construção: o limiar só sobe, então nenhum corte que hoje não
+        acontece passa a acontecer.
+
+        Linha curta demais não tem mediana confiável e volta para a global.
+        """
+        larguras = sorted(b.x2 - b.x1 for b in boxes)
+        global_ = larguras[len(larguras) // 2] or 1
+
+        referencia = {}
+        for linha in BoxService._linhas(boxes):
+            local = global_
+            if len(linha) >= BoxService.MIN_BOXES_PARA_MEDIANA_LOCAL:
+                ls = sorted(b.x2 - b.x1 for b in linha)
+                local = max(ls[len(ls) // 2], global_)
+            for b in linha:
+                referencia[id(b)] = local
+        return referencia
 
     @staticmethod
     def dividir_glifos_colados(boxes: List[BoxEntry], imagem_bin: np.ndarray,
@@ -55,9 +148,9 @@ class BoxService:
         classificador então lê como um caractere errado. Era a origem de todos
         os erros de figurina observados na página real.
 
-        **O critério é a largura do vale, não a profundidade.** Medido nesta
-        página (largura mediana de caractere = 19 px), contando colunas cuja
-        tinta fica abaixo de 30% do pico:
+        **O critério é a largura do vale, não a profundidade.** Medido (largura
+        mediana de caractere = 19 px), contando colunas cuja tinta fica abaixo
+        de 30% do pico:
 
             ♞e5  (3 glifos)  vale de 10 colunas, fundo a  8% do pico
             ♞a6  (3 glifos)  vale de 10 colunas, fundo a 10% do pico
@@ -65,26 +158,36 @@ class BoxService:
             ♛    (1 glifo)   vale de  0 colunas, fundo a 41% do pico
 
         Cortar por profundidade partiria a coroa da dama, que tem vales
-        internos fundos entre as pontas. A largura separa os casos com folga.
+        internos fundos entre as pontas.
+
+        **A escala é local à linha** (ver `_largura_de_referencia`). Com a
+        mediana da página, uma página que mistura tamanhos de fonte transforma
+        os glifos da linha maior em candidatos a corte.
+
+        **Este critério tem alcance limitado, e está medido.** Nas páginas de
+        notação *figurina* ele paga: as figurinas coladas têm vale largo e os
+        vizinhos não. Nas páginas em que a figurina aparece isolada entre texto
+        normal, largura e profundidade do vale **não separam** as duas
+        populações — medido na página 0108, vale de colagem com largura mediana
+        de 7 colunas e fundo a 13% do pico, contra 7 colunas e 10% para vales
+        internos de glifo inteiro. Ali o separador corta mais glifo bom do que
+        colagem, e por isso ele é opcional (`separar_colados`) e não obrigatório.
         """
         if not boxes or imagem_bin is None:
             return boxes
 
-        larguras = sorted(b.x2 - b.x1 for b in boxes)
-        mediana = larguras[len(larguras) // 2] or 1
-        largura_min_peca = max(3, int(mediana * 0.40))
-        largura_min_vale = max(3, int(mediana * 0.25))
-        limite_largo = mediana * fator_largo
+        referencia = BoxService._largura_de_referencia(boxes)
 
         saida = []
         for b in boxes:
-            if (b.x2 - b.x1) <= limite_largo:
+            mediana = referencia[id(b)]
+            if (b.x2 - b.x1) <= mediana * fator_largo:
                 saida.append(b)
                 continue
 
             cortes = BoxService._cortes_do_perfil(
-                imagem_bin[b.y1:b.y2, b.x1:b.x2],
-                razao_vale, largura_min_vale, largura_min_peca)
+                imagem_bin[b.y1:b.y2, b.x1:b.x2], razao_vale,
+                max(3, int(mediana * 0.25)), max(3, int(mediana * 0.40)))
 
             if not cortes:
                 saida.append(b)
@@ -193,39 +296,47 @@ class BoxService:
         return [f for f in faixas if f[1] > f[0]] or [(x_min, x_max)]
 
     @staticmethod
+    def _linhas(boxes: List[BoxEntry]) -> List[List[BoxEntry]]:
+        """
+        Agrupa em linhas de texto por sobreposição vertical, de cima para baixo.
+
+        Um box entra na linha corrente se o seu centro vertical não passa do
+        fundo médio da linha (com folga de 20% da própria altura); senão abre
+        uma linha nova. Dentro da linha a ordem é a de entrada — quem precisa
+        delas ordenadas usa `_agrupar_em_linhas`.
+        """
+        if not boxes:
+            return []
+
+        grupos: List[List[BoxEntry]] = []
+        atual: List[BoxEntry] = []
+
+        for b in sorted(boxes, key=lambda b: b.y1):
+            if not atual:
+                atual = [b]
+                continue
+
+            fundo = sum(i.y2 for i in atual) / len(atual)
+            if (b.y1 + b.y2) / 2 <= fundo + (b.y2 - b.y1) * 0.2:
+                atual.append(b)
+            else:
+                grupos.append(atual)
+                atual = [b]
+
+        if atual:
+            grupos.append(atual)
+
+        return grupos
+
+    @staticmethod
     def _agrupar_em_linhas(boxes: List[BoxEntry]) -> List[BoxEntry]:
         """
         Ordena por linha de texto: agrupa por sobreposição vertical, linhas de
         cima para baixo, itens da esquerda para a direita dentro da linha.
         """
-        if not boxes:
-            return []
-
-        boxes_sorted_y = sorted(boxes, key=lambda b: b.y1)
-
-        lines = []
-        current_line = []
-
-        for b in boxes_sorted_y:
-            y_center = (b.y1 + b.y2) / 2
-
-            if not current_line:
-                current_line.append(b)
-            else:
-                avg_bottom = sum(item.y2 for item in current_line) / len(current_line)
-                if y_center <= avg_bottom + (b.y2 - b.y1) * 0.2:
-                    current_line.append(b)
-                else:
-                    lines.append(current_line)
-                    current_line = [b]
-
-        if current_line:
-            lines.append(current_line)
-
         final_boxes = []
-        for line in lines:
-            final_boxes.extend(sorted(line, key=lambda b: b.x1))
-
+        for linha in BoxService._linhas(boxes):
+            final_boxes.extend(sorted(linha, key=lambda b: b.x1))
         return final_boxes
 
     @staticmethod

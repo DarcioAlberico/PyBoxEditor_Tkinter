@@ -395,6 +395,11 @@ class NeuralTrainer:
                 "label_map": dataset.label_map,
                 "idx_to_char": dataset.idx_to_char,
                 "num_classes": num_classes,
+                # Volta a 1,0 de propósito: a temperatura da F1.9 é ajustada
+                # para UM modelo. Herdar a do modelo anterior aplicaria uma
+                # correção medida sobre outros pesos — pior que não calibrar.
+                # `python calibrar_modelo.py --gravar` reajusta.
+                "temperatura": 1.0,
             }
             # Encoding explícito: sem ele o Python usa o do sistema (cp1252
             # no Windows) e o metadado, que é cheio de símbolos Unicode,
@@ -541,18 +546,28 @@ class NeuralPredictor:
         self.idx_to_char = {}
         self.device = get_device()
         self.loaded = False
-        
+        # 1.0 = softmax cru. Modelo gravado antes da F1.9 não tem o campo, e
+        # neutro é o único padrão seguro: uma temperatura chutada mexeria em
+        # todo número que a UI mostra.
+        self.temperatura = 1.0
+
     def load(self):
         if not os.path.exists(self.model_path) or not os.path.exists(self.meta_path):
             return False
-            
+
         try:
             with open(self.meta_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
-            
+
             self.idx_to_char = {int(k): v for k, v in meta["idx_to_char"].items()}
             num_classes = meta["num_classes"]
-            
+
+            try:
+                t = float(meta.get("temperatura", 1.0))
+                self.temperatura = t if t > 0 else 1.0
+            except (TypeError, ValueError):
+                self.temperatura = 1.0
+
             self.model = SimpleCNN(num_classes).to(self.device)
             self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
             self.model.eval()
@@ -578,11 +593,14 @@ class NeuralPredictor:
         img = np.expand_dims(img, axis=0) # (1, 1, 32, 32)
         
         tensor = torch.tensor(img).to(self.device)
-        
+
         with torch.no_grad():
             outputs = self.model(tensor)
-            probs = F.softmax(outputs, dim=1)
-            
+            # Temperatura (F1.9): divide os logits antes do softmax. Não muda
+            # qual classe vence — só a confiança —, então nenhuma leitura muda
+            # de caractere por causa dela.
+            probs = F.softmax(outputs / self.temperatura, dim=1)
+
             conf, predicted = torch.max(probs, 1)
             
             idx = predicted.item()
