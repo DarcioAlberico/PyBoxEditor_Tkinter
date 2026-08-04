@@ -15,6 +15,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 import tkinter as tk
 from tkinter import messagebox
 from PIL import Image
@@ -47,8 +49,7 @@ class _App:
         messagebox.showinfo = lambda *a, **k: None
         messagebox.showerror = lambda *a, **k: None
         messagebox.askyesno = self._askyesno
-        self.root = tk.Tk()
-        self.root.withdraw()
+        self.root = raiz_tk()
         self.win = MainWindow(self.root)
         return self
 

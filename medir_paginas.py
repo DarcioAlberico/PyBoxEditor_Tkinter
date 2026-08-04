@@ -11,9 +11,12 @@ passar o defeito que a F1.7 encontrou.
 
 Os modos comparados:
 
-    off      separar_colados=False
-    global   escala do limiar pela mediana da PÁGINA (comportamento pré-correção)
-    local    escala pela mediana da LINHA, com piso na global (o de hoje)
+    off       separar_colados=False
+    global    escala do limiar pela mediana da PÁGINA (comportamento pré-correção)
+    local     escala pela mediana da LINHA, com piso na global (F1.7)
+    arbitrado o classificador confirma cada corte (F1.5b) — o de hoje
+
+O modo `arbitrado` precisa do modelo; com `--sem-modelo` ele não roda.
 """
 
 import argparse
@@ -52,9 +55,10 @@ def paginas_rotuladas():
     return achados
 
 
-def segmentar(imagem, modo):
+def segmentar(imagem, modo, arbitro=None, margem=None):
     """(boxes antes do corte, boxes depois) para o modo pedido."""
-    th = preprocess.binarize(np.array(imagem), "auto")
+    arr = np.array(imagem)
+    th = preprocess.binarize(arr, "auto")
     contornos, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     brutos = []
@@ -70,16 +74,21 @@ def segmentar(imagem, modo):
     if modo == "off":
         return pais, BoxService.sort_boxes_reading_order(list(pais))
 
-    if modo == "local":
-        referencia = BoxService._largura_de_referencia(pais)
-    else:
-        larguras = sorted(b.x2 - b.x1 for b in pais)
-        m = larguras[len(larguras) // 2] or 1
-        referencia = {id(b): m for b in pais}
+    if modo in ("local", "arbitrado"):
+        # O código de verdade, não uma cópia dele: foi uma cópia divergente
+        # que deixou a F1.5 medir uma coisa e a aplicação fazer outra.
+        filhos = BoxService.dividir_glifos_colados(
+            pais, th,
+            arbitro=(arbitro if modo == "arbitrado" else None),
+            imagem_cinza=arr, margem=margem)
+        return pais, BoxService.sort_boxes_reading_order(filhos)
+
+    # 'global': a escala pré-F1.7, mantida só como linha de base histórica.
+    larguras = sorted(b.x2 - b.x1 for b in pais)
+    m = larguras[len(larguras) // 2] or 1
 
     filhos = []
     for b in pais:
-        m = referencia[id(b)]
         if (b.x2 - b.x1) <= m * 1.6:
             filhos.append(b)
             continue
@@ -100,6 +109,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sem-modelo", action="store_true",
                     help="só conta cortes bons e falsos; não carrega a rede")
+    ap.add_argument("--margens", type=float, nargs="*", default=None,
+                    help="varre margens do árbitro (F1.5b) em vez dos modos")
     args = ap.parse_args()
 
     predizer = None
@@ -116,7 +127,20 @@ def main():
         print("nenhuma página rotulada encontrada")
         return 1
 
-    modos = ("off", "global", "local")
+    if args.margens is not None and predizer is None:
+        print("a varredura de margens precisa do modelo")
+        return 1
+
+    if args.margens is not None:
+        # Cada margem vira um "modo" próprio, para a tabela sair comparável.
+        execucoes = ([("off", None), ("local", None)]
+                     + [(f"arb {m:+.2f}", m) for m in args.margens])
+    else:
+        execucoes = [("off", None), ("global", None), ("local", None)]
+        if predizer is not None:
+            execucoes.append(("arbitrado", None))
+
+    modos = [nome for nome, _ in execucoes]
     total = {m: dict(certos=0, gerados=0, rotulados=0, espurios=0,
                      bons=0, falsos=0) for m in modos}
 
@@ -128,8 +152,9 @@ def main():
         arr = np.array(img)
         print(f"\n=== {os.path.basename(imagem)}  ({len(rotulados)} rotulados)")
 
-        for modo in modos:
-            pais, filhos = segmentar(img, modo)
+        for modo, margem in execucoes:
+            base = "arbitrado" if modo.startswith("arb ") else modo
+            pais, filhos = segmentar(img, base, arbitro=predizer, margem=margem)
             if predizer:
                 for b in filhos:
                     b.char, b.confidence = predizer(arr[b.y1:b.y2, b.x1:b.x2])
@@ -145,18 +170,18 @@ def main():
             t["falsos"] += c["cortes_falsos"]
 
             medida = str(r) if predizer else f"boxes {r.gerados:>5}"
-            print(f"  {modo:<7} {medida}  cortes bons {c['cortes_legitimos']:>3} "
+            print(f"  {modo:<10} {medida}  cortes bons {c['cortes_legitimos']:>3} "
                   f"falsos {c['cortes_falsos']:>3}")
 
     print("\n\n=========== TOTAL ===========")
-    cabecalho = f"{'modo':<8}"
+    cabecalho = f"{'modo':<10}"
     if predizer:
         cabecalho += f"{'recall':>8} {'precisão':>9} {'F1':>6}"
     print(cabecalho + f" {'espúrios':>9} {'cortes bons':>12} {'cortes falsos':>14}")
 
     for modo in modos:
         t = total[modo]
-        linha = f"{modo:<8}"
+        linha = f"{modo:<10}"
         if predizer and t["rotulados"]:
             rec = 100.0 * t["certos"] / t["rotulados"]
             pre = 100.0 * t["certos"] / t["gerados"]

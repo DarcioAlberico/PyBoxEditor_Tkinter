@@ -12,6 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 import tkinter as tk
 from tkinter import messagebox
 from PIL import Image
@@ -32,8 +34,7 @@ class _App:
         self._info, self._erro = messagebox.showinfo, messagebox.showerror
         messagebox.showinfo = lambda *a, **k: None
         messagebox.showerror = lambda *a, **k: None
-        self.root = tk.Tk()
-        self.root.withdraw()
+        self.root = raiz_tk()
         self.win = MainWindow(self.root)
         self.win.image = Image.new("L", (400, 100), color=255)
         # Janela retirada da tela não tem foco de verdade; o handler consulta

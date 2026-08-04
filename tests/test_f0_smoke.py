@@ -14,6 +14,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 import fitz
 import numpy as np
 from PIL import Image
@@ -60,8 +62,7 @@ def test_update_sidebar_com_boxes():
     import tkinter as tk
     from ui.main_window import MainWindow
 
-    root = tk.Tk()
-    root.withdraw()
+    root = raiz_tk()
     try:
         win = MainWindow(root)
         win.image = Image.new("L", (200, 100), color=255)
@@ -191,8 +192,7 @@ def test_undo_redo_no_fluxo_do_editor():
     import tkinter as tk
     from ui.main_window import MainWindow
 
-    root = tk.Tk()
-    root.withdraw()
+    root = raiz_tk()
     try:
         win = MainWindow(root)
         win.image = Image.new("L", (200, 100), color=255)

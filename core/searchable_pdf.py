@@ -139,7 +139,11 @@ def gerar_pdf_pesquisavel(
                 continue
 
             img = _pagina_para_numpy(page, dpi)
-            boxes = BoxService.generate_boxes_opencv(Image.fromarray(img))
+            # `reconhecer` já é o classificador desta execução — é ele que
+            # arbitra os cortes de glifo colado (F1.5b), sem custo de carregar
+            # nada a mais.
+            boxes = BoxService.generate_boxes_opencv(Image.fromarray(img),
+                                                     arbitro=reconhecer)
             if not boxes:
                 continue
 

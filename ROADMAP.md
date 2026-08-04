@@ -656,6 +656,60 @@ Cobertura: `tests/test_f15_preprocess.py`, 26 testes, incluindo a página 0108 n
 conjunto de validação. `core/avaliacao_pagina.py` mede página contra `.box`
 rotulado e é reusável pela F1.7.
 
+### F1.5b — O separador parte figurina em negrito — CONCLUÍDA
+
+**Concluída em 2026-08-04.** A segunda das duas saídas previstas acima — "o próprio
+classificador pontuando o corte" — foi a que funcionou. A primeira (componentes conexos)
+foi descartada sem escrever código: `findContours` roda com `RETR_EXTERNAL`, então cada
+box **já é** um componente conexo, e glifo colado é colado de verdade. Não havia o que
+separar por ali.
+
+O árbitro é o classificador comparando a pontuação do box inteiro com a **menor** das
+partes. A menor, e não a média: basta um pedaço sem sentido para o corte ter sido
+estrago. Nos 255 candidatos que a projeção propõe nas 9 páginas rotuladas, separados pelo
+que o rótulo à mão diz:
+
+| grupo (pelo rótulo) | inteiro | menor parte | partes > inteiro |
+|---|---:|---:|---:|
+| colagem de verdade (n=73) | 0,604 | 0,857 | 57,5% |
+| glifo inteiro (n=182) | 1,000 | 0,481 | 6,6% |
+
+**A F1.9 é o que tornou isto possível, e não era óbvio.** A F1.1 tinha registrado que o
+modelo erra com confiança 1,000, o que sugeria uma pontuação inútil para decidir qualquer
+coisa. A F1.9 mediu melhor: a AUROC entre certo e errado é 0,89 — a confiança **ordena**
+bem, o que ela não faz é ter escala honesta. Ordenar é tudo de que o árbitro precisa.
+
+| modo | recall | precisão | F1 | cortes bons | cortes falsos |
+|---|---:|---:|---:|---:|---:|
+| desligado | 94,1% | 93,0% | 93,5 | — | — |
+| escala global (pré-F1.7) | 93,8% | 87,5% | 90,5 | 80 | 257 |
+| sem árbitro (F1.7) | 94,0% | 88,5% | 91,2 | 73 | 182 |
+| **com árbitro** | 94,5% | 93,0% | **93,8** | 23 | **2** |
+
+**A margem exigida é 0,30, e quem decidiu foi o F1 da página, não a contagem de cortes.**
+As duas medidas discordam: a margem 0,00 rende mais cortes bons (42 contra 23) e parecia
+melhor, mas o que chega ao texto diz outra coisa — 93,7 contra 93,8. Varrendo a margem, o
+F1 tem máximo em 0,30 e desce para 93,5 em 1,00, que é exatamente o valor de "desligado".
+**Esse pico no meio é o que prova que o árbitro faz algo**: se fosse só uma maneira lenta
+de cortar menos, a curva seria monótona.
+
+**O tamanho do ganho, dito sem enfeite: +0,3 de F1 sobre não separar.** O que mudou de
+fato foi o *sinal* — manter o separador ligado custava 2,3 pontos e agora rende 0,3. A
+segmentação por projeção continua fraca para este material; o árbitro a torna inofensiva
+e levemente positiva, não a conserta. Os cortes falsos caíram de 182 para 2.
+
+**O padrão de `separar_colados` deixou de ser `True`.** Passou a ser `"auto"`: separa só
+se houver árbitro. Com `True` como padrão, qualquer chamador sem modelo carregado ficaria
+com a única configuração que a medição reprova — e nada na saída denunciaria, porque os
+boxes continuariam saindo, só que partidos no lugar errado. `True` segue disponível para
+reproduzir as medições da F1.5.
+
+O `medir_paginas.py` passou a chamar `dividir_glifos_colados` de verdade nos modos `local`
+e `arbitrado`, em vez da cópia que mantinha. Era uma cópia divergente que deixou a F1.5
+medir uma coisa e a aplicação fazer outra.
+
+Cobertura: `tests/test_f15b_arbitro.py`, 15 testes.
+
 ### F1.7 — Validar notação contra as regras do xadrez — CONCLUÍDA
 
 Ideia trazida do [DocuVision-AI](https://github.com/betulkizilkaya/DocuVision-AI)

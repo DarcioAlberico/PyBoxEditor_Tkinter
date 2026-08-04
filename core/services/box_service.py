@@ -15,13 +15,28 @@ class BoxService:
     @staticmethod
     def generate_boxes_opencv(image: Image.Image, threshold: int = 180,
                               method: str = "auto",
-                              separar_colados: bool = True,
-                              descartar_nao_texto: bool = True) -> List[BoxEntry]:
+                              separar_colados="auto",
+                              descartar_nao_texto: bool = True,
+                              arbitro=None) -> List[BoxEntry]:
         """
         Gera boxes automaticamente a partir de uma imagem PIL (grayscale).
 
         `method` é passado a `preprocess.binarize`; "fixed" com `threshold`
         reproduz o comportamento anterior à F1.5.
+
+        `arbitro` é o classificador que confirma cada corte de glifo colado
+        (F1.5b), na forma `(recorte_cinza) -> (char, confiança)`.
+
+        **`separar_colados` tem três valores, e o padrão não é `True` por um
+        motivo medido.** Sem árbitro, o separador tira 2,3 pontos de F1 da
+        página — corta 182 glifos bons para acertar 73 colagens. Com árbitro,
+        devolve 0,3 acima de não separar. Deixar `True` como padrão seria
+        deixar armada a única configuração que a medição reprova.
+
+            "auto"  (padrão) separa só se houver árbitro
+            True             separa mesmo sem árbitro (a configuração ruim,
+                             mantida para reproduzir as medições da F1.5)
+            False            nunca separa
         """
         img_cv = np.array(image)
         th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
@@ -43,10 +58,12 @@ class BoxService:
         # respingos sobram soltos — na página 0108, 11 boxes espúrios viram 29.
         if descartar_nao_texto:
             boxes = BoxService.descartar_blocos_nao_texto(boxes)
-        if separar_colados:
+        if separar_colados is True or (separar_colados == "auto"
+                                       and arbitro is not None):
             # Depois do merge vertical: fundir o pingo do 'i' primeiro evita
             # que ele seja tratado como peça solta na hora de cortar.
-            boxes = BoxService.dividir_glifos_colados(boxes, th)
+            boxes = BoxService.dividir_glifos_colados(
+                boxes, th, arbitro=arbitro, imagem_cinza=img_cv)
         boxes = BoxService.sort_boxes_reading_order(boxes)
         return boxes
 
@@ -136,10 +153,41 @@ class BoxService:
                 referencia[id(b)] = local
         return referencia
 
+    #: Quanto as partes precisam superar o inteiro para o corte valer (F1.5b).
+    #: Ver `dividir_glifos_colados` para as tabelas que fixaram o valor.
+    MARGEM_ARBITRO = 0.30
+
+    @staticmethod
+    def _cortes_endossados(imagem_cinza, box, cortes, arbitro, margem):
+        """
+        O classificador confirma o corte? Devolve os cortes, ou lista vazia.
+
+        Compara a pontuação do box inteiro com a **menor** pontuação entre as
+        partes. A menor, e não a média: basta um pedaço sem sentido para o
+        corte ter sido estrago, e a média deixaria um pedaço bom encobrir o
+        outro.
+        """
+        recorte = imagem_cinza[box.y1:box.y2, box.x1:box.x2]
+        if recorte.size == 0:
+            return []
+        _, p_inteiro = arbitro(recorte)
+
+        limites = [0] + list(cortes) + [box.x2 - box.x1]
+        menor = 1.0
+        for ini, fim in zip(limites, limites[1:]):
+            pedaco = imagem_cinza[box.y1:box.y2, box.x1 + ini:box.x1 + fim]
+            if pedaco.size == 0:
+                return []
+            menor = min(menor, float(arbitro(pedaco)[1]))
+
+        return list(cortes) if menor > float(p_inteiro) + margem else []
+
     @staticmethod
     def dividir_glifos_colados(boxes: List[BoxEntry], imagem_bin: np.ndarray,
                                fator_largo: float = 1.6,
-                               razao_vale: float = 0.30) -> List[BoxEntry]:
+                               razao_vale: float = 0.30,
+                               arbitro=None, imagem_cinza: np.ndarray = None,
+                               margem: float = None) -> List[BoxEntry]:
         """
         Separa boxes que contêm mais de um glifo encostado.
 
@@ -164,17 +212,69 @@ class BoxService:
         mediana da página, uma página que mistura tamanhos de fonte transforma
         os glifos da linha maior em candidatos a corte.
 
-        **Este critério tem alcance limitado, e está medido.** Nas páginas de
-        notação *figurina* ele paga: as figurinas coladas têm vale largo e os
-        vizinhos não. Nas páginas em que a figurina aparece isolada entre texto
-        normal, largura e profundidade do vale **não separam** as duas
-        populações — medido na página 0108, vale de colagem com largura mediana
-        de 7 colunas e fundo a 13% do pico, contra 7 colunas e 10% para vales
-        internos de glifo inteiro. Ali o separador corta mais glifo bom do que
-        colagem, e por isso ele é opcional (`separar_colados`) e não obrigatório.
+        **Sozinho, o perfil de tinta não separa as duas populações, e isso está
+        medido.** Nas páginas de notação *figurina* ele paga: as figurinas
+        coladas têm vale largo e os vizinhos não. Onde a figurina aparece
+        isolada entre texto normal, largura e profundidade do vale ficam
+        indistinguíveis — na página 0108, vale de colagem com largura mediana de
+        7 colunas e fundo a 13% do pico, contra 7 colunas e 10% para vales
+        *internos* de glifo inteiro. Nas 9 páginas rotuladas o perfil propõe 73
+        cortes bons contra 182 falsos: **precisão de 28,6%**.
+
+        **`arbitro` é o que inverte esse sinal (F1.5b).** É o classificador,
+        `(recorte_cinza) -> (char, confiança)`. A ideia: um `N` em negrito
+        partido ao meio vira dois fragmentos sem sentido e o modelo os pontua
+        baixo; um `♞e5` inteiro não é caractere nenhum, e as partes pontuam mais
+        que o todo. Medido nos mesmos 255 candidatos:
+
+            grupo (pelo rótulo)   inteiro   menor parte   partes > inteiro
+            colagem   (n=73)       0,604       0,857           57,5%
+            glifo inteiro (n=182)  1,000       0,481            6,6%
+
+        E, variando a margem exigida:
+
+            margem   colagens cortadas   glifos partidos   precisão do corte
+            (sem árbitro)   73/73            182/182          28,6%
+             0,00           42/73             12/182          77,8%
+             0,10           33/73              6/182          84,6%
+             0,30           23/73              2/182          92,0%
+
+        **A margem é 0,30, e quem decidiu foi o F1 da página, não a precisão do
+        corte.** As duas medidas discordariam: mais cortes bons (margem 0,0)
+        parecia melhor pela contagem, mas o que chega ao texto diz outra coisa.
+        Nas 9 páginas rotuladas, com o classificador lendo o resultado:
+
+            modo         recall   precisão    F1
+            desligado    94,1%     93,0%    93,5
+            sem árbitro  94,0%     88,5%    91,2
+            margem 0,00  94,7%     92,7%    93,7
+            margem 0,30  94,5%     93,0%   *93,8*
+            margem 0,50  94,3%     93,0%    93,6
+            margem 1,00  94,1%     93,0%    93,5
+
+        **O pico no meio é o que prova que o árbitro faz algo.** Se ele fosse
+        só uma maneira lenta de cortar menos, o F1 subiria monotonicamente até
+        o valor de "desligado" — e com margem 1,00 ele de fato converge para
+        93,5, que é o desligado. O máximo em 0,30 é ganho de verdade.
+
+        **O tamanho do ganho, dito sem enfeite: +0,3 de F1 sobre não separar.**
+        O que mudou de fato foi o sinal — antes, manter o separador ligado
+        custava 2,3 pontos. Continua sendo o caso que a segmentação por
+        projeção é fraca para este material; o árbitro a torna inofensiva e
+        levemente positiva, não a conserta.
+
+        **Sem `arbitro` o comportamento é o antigo**, cortes falsos e tudo. O
+        parâmetro é opcional porque `BoxService` não conhece o modelo, e quem
+        chama é que sabe se há um carregado — mas por isso mesmo o padrão de
+        `generate_boxes_opencv` é `separar_colados="auto"`, que não separa sem
+        árbitro. A configuração reprovada não fica armada por omissão.
         """
         if not boxes or imagem_bin is None:
             return boxes
+        if arbitro is not None and imagem_cinza is None:
+            raise ValueError("o árbitro precisa da imagem em tom de cinza: "
+                             "o modelo foi treinado nela, não no binarizado")
+        margem = BoxService.MARGEM_ARBITRO if margem is None else margem
 
         referencia = BoxService._largura_de_referencia(boxes)
 
@@ -188,6 +288,10 @@ class BoxService:
             cortes = BoxService._cortes_do_perfil(
                 imagem_bin[b.y1:b.y2, b.x1:b.x2], razao_vale,
                 max(3, int(mediana * 0.25)), max(3, int(mediana * 0.40)))
+
+            if cortes and arbitro is not None:
+                cortes = BoxService._cortes_endossados(
+                    imagem_cinza, b, cortes, arbitro, margem)
 
             if not cortes:
                 saida.append(b)

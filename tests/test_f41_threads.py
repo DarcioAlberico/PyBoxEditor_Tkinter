@@ -16,6 +16,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 import tkinter as tk
 
 from core.services.task_service import BackgroundTask, Cancelled
@@ -27,8 +29,7 @@ from core.services.task_service import BackgroundTask, Cancelled
 
 class _Raiz:
     def __enter__(self):
-        self.root = tk.Tk()
-        self.root.withdraw()
+        self.root = raiz_tk()
         self.task = BackgroundTask(self.root, poll_ms=10)
         return self
 
@@ -232,8 +233,7 @@ def test_is_running_so_cai_apos_entregar():
 def test_status_bar_mostra_e_esconde_progresso():
     from ui.status_bar import StatusBar
 
-    root = tk.Tk()
-    root.withdraw()
+    root = raiz_tk()
     try:
         sb = StatusBar(root)
         sb.pack()
@@ -265,8 +265,7 @@ def test_status_bar_mostra_e_esconde_progresso():
 def test_cancelar_pela_barra_de_status():
     from ui.status_bar import StatusBar
 
-    root = tk.Tk()
-    root.withdraw()
+    root = raiz_tk()
     try:
         chamou = {}
         sb = StatusBar(root, on_cancel=lambda: chamou.update(sim=True))

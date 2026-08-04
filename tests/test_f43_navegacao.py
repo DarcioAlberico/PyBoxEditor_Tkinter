@@ -26,13 +26,14 @@ import tkinter.ttk as ttk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 from core.box_model import BoxEntry
 
 
 def _tem_display():
     try:
-        raiz = tk.Tk()
-        raiz.withdraw()
+        raiz = raiz_tk()
         raiz.destroy()
         return True
     except Exception:
@@ -62,8 +63,7 @@ class ControladorFalso:
 def _canvas(boxes, largura=400, altura=300):
     from ui.canvas_view import CanvasView
 
-    raiz = tk.Tk()
-    raiz.withdraw()
+    raiz = raiz_tk()
     ctrl = ControladorFalso(boxes)
     cv = CanvasView(raiz, ctrl)
     cv.pack()

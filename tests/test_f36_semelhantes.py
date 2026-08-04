@@ -19,6 +19,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 import tkinter as tk
 from tkinter import messagebox
 
@@ -242,8 +244,7 @@ class _App:
         self._info, self._erro = messagebox.showinfo, messagebox.showerror
         messagebox.showinfo = lambda *a, **k: None
         messagebox.showerror = lambda *a, **k: None
-        self.root = tk.Tk()
-        self.root.withdraw()
+        self.root = raiz_tk()
         self.win = MainWindow(self.root)
         self.win.DIALOGO_SEMELHANTES = _DialogoFalso
         _DialogoFalso.devolver = None
@@ -505,8 +506,7 @@ class _Dialogo:
         self.img, self.boxes = pagina(formas)
         for b, c in zip(self.boxes, chars or []):
             b.char = c
-        self.root = tk.Tk()
-        self.root.withdraw()
+        self.root = raiz_tk()
         self.dlg = DialogoSemelhantes(self.root, self.img, self.boxes, 0,
                                       char_novo, leitura)
 

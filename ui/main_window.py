@@ -885,12 +885,26 @@ class MainWindow(tk.Frame):
     # OpenCV: gerar boxes automáticos
     # -------------------------------------------------------
 
+    def _arbitro_de_corte(self):
+        """
+        O classificador que confirma cada corte de glifo colado (F1.5b).
+
+        None quando não há modelo treinado. Não é degradação silenciosa: sem
+        árbitro o `generate_boxes_opencv` simplesmente não separa, porque
+        separar sem ele é a única configuração que a medição reprova (2,3
+        pontos de F1 abaixo de não separar).
+        """
+        if not self.learning_service.load_predictor():
+            return None
+        return self.learning_service.predict_neural
+
     def generate_boxes_opencv(self):
         if self.image is None:
             messagebox.showinfo("Aviso", "Carregue uma imagem primeiro.")
             return
 
-        self.boxes = self.box_service.generate_boxes_opencv(self.image)
+        self.boxes = self.box_service.generate_boxes_opencv(
+            self.image, arbitro=self._arbitro_de_corte())
         self._commit_change()
         self.update_canvas()
         self.update_sidebar()
