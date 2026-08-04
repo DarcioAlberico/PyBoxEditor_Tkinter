@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | parcial (F1.4 feita) |
+| **F1** | Qualidade de OCR | Acurácia medível; leitura em ordem correta | parcial (F1.1, F1.4 e F1.6 feitas) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -741,12 +741,12 @@ CONCLUÍDAS
   F5.1  remover código morto           F3.1  digitação contínua
   F2.1  PDF pesquisável                F3.4  autosave e recuperação
   F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
+  F1.6  ordem de leitura e colunas
 
 PRÓXIMAS — qualidade de reconhecimento
-  F1.5  pré-processamento (Otsu, deskew, DPI)  ─┐
-  F1.6  ordem de leitura e colunas              ├── são o limitador real hoje
-  F1.2  balanceamento (25.075:1)                │
-  F1.3  split de validação                     ─┘
+  F1.5  pré-processamento           ← Otsu, deskew, e separar glifos colados
+  F1.2  balanceamento (25.075:1)    ─┐
+  F1.3  split de validação          ─┘ antes de qualquer retreino
       ↓
   F1.7  validação por legalidade (python-chess)
   F1.8  mascarar diagramas antes de detectar

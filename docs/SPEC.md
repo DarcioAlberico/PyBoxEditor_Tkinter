@@ -753,7 +753,12 @@ def test_box_roundtrip():
 ### 8.2 Cobertura seguinte
 
 - `merge_vertical_boxes`: `i`, `j`, `:`, `;`, `?`, `!` fundem corretamente
-- `sort_boxes_reading_order`: coluna única, duas colunas, com diagrama no meio
+- [feito] `sort_boxes_reading_order`: coluna única, duas colunas, com diagrama no
+  meio. `detectar_colunas()` projeta a ocupação dos **boxes** no eixo X e acha as
+  calhas em qualquer posição e em qualquer número — a abordagem do DocuVision, que
+  mede a brancura de uma faixa fixa entre 42% e 58% da largura, só acha duas
+  colunas simétricas. Elementos que atravessam a calha viram separadores
+  horizontais. Medido numa página real: 9 → 1 saltos entre colunas
 - `binarize`: página limpa, escaneada, com iluminação irregular
 - `folder_to_char` ∘ `char_to_folder` = identidade para todas as 105 classes
   (**hoje falha em `sym_f7` e em `ligature_hex_*`**)

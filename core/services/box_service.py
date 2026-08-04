@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import List
+from typing import List, Tuple
 from PIL import Image
 
 from core.box_model import BoxEntry
@@ -33,10 +33,70 @@ class BoxService:
         return boxes
 
     @staticmethod
-    def sort_boxes_reading_order(boxes: List[BoxEntry]) -> List[BoxEntry]:
+    def detectar_colunas(boxes: List[BoxEntry],
+                         calha_minima: int = None) -> List[Tuple[int, int]]:
         """
-        Ordena boxes como um humano leria: agrupa em linhas por sobreposição vertical,
-        ordena linhas de cima para baixo, e itens dentro da linha da esquerda para direita.
+        Faixas horizontais de coluna, em ordem de leitura.
+
+        Projeta a ocupação dos boxes no eixo X e procura vãos verticais sem
+        conteúdo nenhum. Usa os boxes, não os pixels: o vão que interessa é
+        onde não há *caractere*, e assim funciona igual para página escaneada
+        e para imagem já limpa.
+
+        O limiar é relativo à largura mediana de caractere — uma calha de
+        verdade é muito mais larga que o espaço entre palavras. Fixar a busca
+        numa faixa central (como faz o DocuVision, 42%–58% da largura) só acha
+        duas colunas simétricas; aqui a calha pode estar em qualquer posição, e
+        podem ser mais de duas.
+        """
+        if not boxes:
+            return []
+
+        x_min = min(b.x1 for b in boxes)
+        x_max = max(b.x2 for b in boxes)
+        largura = x_max - x_min
+        if largura <= 1:
+            return [(x_min, x_max)]
+
+        ocupado = np.zeros(largura + 2, dtype=bool)
+        for b in boxes:
+            ocupado[max(0, b.x1 - x_min):max(0, b.x2 - x_min) + 1] = True
+
+        if calha_minima is None:
+            larguras = sorted(b.x2 - b.x1 for b in boxes)
+            mediana = larguras[len(larguras) // 2] or 1
+            calha_minima = max(int(mediana * 3), int(largura * 0.02), 4)
+
+        cortes = []
+        inicio = None
+        for i, cheio in enumerate(ocupado):
+            if not cheio:
+                if inicio is None:
+                    inicio = i
+            else:
+                if inicio is not None and i - inicio >= calha_minima:
+                    cortes.append((inicio, i))
+                inicio = None
+
+        if not cortes:
+            return [(x_min, x_max)]
+
+        faixas = []
+        anterior = 0
+        for ini, fim in cortes:
+            if ini > anterior:
+                faixas.append((x_min + anterior, x_min + ini - 1))
+            anterior = fim
+        if anterior <= largura:
+            faixas.append((x_min + anterior, x_max))
+
+        return [f for f in faixas if f[1] > f[0]] or [(x_min, x_max)]
+
+    @staticmethod
+    def _agrupar_em_linhas(boxes: List[BoxEntry]) -> List[BoxEntry]:
+        """
+        Ordena por linha de texto: agrupa por sobreposição vertical, linhas de
+        cima para baixo, itens da esquerda para a direita dentro da linha.
         """
         if not boxes:
             return []
@@ -64,10 +124,70 @@ class BoxService:
 
         final_boxes = []
         for line in lines:
-            line_sorted_x = sorted(line, key=lambda b: b.x1)
-            final_boxes.extend(line_sorted_x)
+            final_boxes.extend(sorted(line, key=lambda b: b.x1))
 
         return final_boxes
+
+    @staticmethod
+    def _por_colunas(boxes: List[BoxEntry],
+                     colunas: List[Tuple[int, int]]) -> List[BoxEntry]:
+        """Coluna a coluna; dentro de cada uma, linha a linha."""
+        saida = []
+        restantes = list(boxes)
+        for x1, x2 in colunas:
+            desta = [b for b in restantes if x1 <= (b.x1 + b.x2) / 2 <= x2]
+            if desta:
+                pegos = set(id(b) for b in desta)
+                restantes = [b for b in restantes if id(b) not in pegos]
+                saida.extend(BoxService._agrupar_em_linhas(desta))
+        # o que não caiu em coluna nenhuma vai no fim, em ordem de linha
+        saida.extend(BoxService._agrupar_em_linhas(restantes))
+        return saida
+
+    @staticmethod
+    def sort_boxes_reading_order(boxes: List[BoxEntry]) -> List[BoxEntry]:
+        """
+        Ordena boxes como um humano leria.
+
+        Antes, agrupava tudo por linha ignorando colunas: numa página de duas
+        colunas o resultado intercalava as duas (linha 1 da esquerda, linha 1
+        da direita, linha 2 da esquerda...), embaralhando o texto. Medido numa
+        página real do Kasparov: 9 saltos entre colunas onde o correto é 1.
+
+        Elementos que atravessam a calha — título, diagrama largo — não podem
+        ser jogados numa coluna. Servem de separador horizontal: o que está
+        acima deles é lido coluna a coluna, depois vem o elemento, depois o que
+        está abaixo.
+        """
+        if not boxes:
+            return []
+
+        colunas = BoxService.detectar_colunas(boxes)
+        if len(colunas) <= 1:
+            return BoxService._agrupar_em_linhas(boxes)
+
+        def bandas_cobertas(b):
+            return sum(1 for x1, x2 in colunas if b.x1 <= x2 and b.x2 >= x1)
+
+        transversais = sorted((b for b in boxes if bandas_cobertas(b) > 1),
+                              key=lambda b: b.y1)
+        ids_transversais = set(id(b) for b in transversais)
+        restantes = [b for b in boxes if id(b) not in ids_transversais]
+
+        if not transversais:
+            return BoxService._por_colunas(restantes, colunas)
+
+        saida = []
+        for t in transversais:
+            acima = [b for b in restantes if b.y2 <= t.y1]
+            if acima:
+                ids = set(id(b) for b in acima)
+                restantes = [b for b in restantes if id(b) not in ids]
+                saida.extend(BoxService._por_colunas(acima, colunas))
+            saida.append(t)
+
+        saida.extend(BoxService._por_colunas(restantes, colunas))
+        return saida
 
     @staticmethod
     def merge_vertical_boxes(boxes: List[BoxEntry]) -> List[BoxEntry]:
