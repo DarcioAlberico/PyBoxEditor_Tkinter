@@ -311,6 +311,47 @@ def test_metadado_e_lido_como_utf8():
 
 
 # ----------------------------------------------------------------------
+# F1.1 — o alfabeto de figurinas do domínio
+# ----------------------------------------------------------------------
+
+def test_alfabeto_de_figurinas_tem_cinco():
+    """
+    Trava um achado que custou investigação: a base NÃO está faltando 7 peças.
+
+    Peão não tem letra em notação algébrica ("e4", nunca uma figurina), e o
+    livro usa um único conjunto de figurinas para os dois lados — em
+    "17...(cavalo)e5 18.(dama)c2 (cavalo)a6 19.(cavalo)c4" o lance 17... é das
+    pretas e o 19. das brancas, com o mesmo glifo. Sobram K Q R B N.
+
+    Se alguém "consertar" isto de volta para 12, o filtro de substituição
+    volta a ter 7 entradas que nunca casam.
+    """
+    from core.searchable_pdf import PECAS
+    assert PECAS == set("♔♕♖♗♘")
+    assert len(PECAS) == 5
+
+    for inalcancavel in "♙♟":          # peões
+        assert inalcancavel not in PECAS
+    for inalcancavel in "♚♛♜♝♞":   # conjunto "preto"
+        assert inalcancavel not in PECAS
+
+
+def test_modelo_emite_exatamente_essas_figurinas():
+    """O filtro tem que bater com o que o modelo treinado realmente produz."""
+    from core.searchable_pdf import PECAS
+    meta_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "model_meta.json")
+    if not os.path.isfile(meta_path):
+        return
+    with open(meta_path, encoding="utf-8") as f:
+        emitiveis = set(json.load(f)["idx_to_char"].values())
+
+    figurinas = {c for c in emitiveis if "♔" <= c <= "♟"}
+    assert figurinas == PECAS, (
+        f"o modelo emite {sorted(figurinas)} mas o filtro espera {sorted(PECAS)}")
+
+
+# ----------------------------------------------------------------------
 # Execução direta
 # ----------------------------------------------------------------------
 

@@ -30,7 +30,23 @@ FONTE_OCR = "pyboxocr"
 FONTE_PECAS = "pyboxchess"
 
 # Peças que o modo "replace" desenha por cima do original.
-PECAS = set(CHESS_UNICODE)
+#
+# São 5, não 12. Duas razões, ambas do domínio e verificadas no material real:
+#
+#   1. Peão não tem letra em notação algébrica — um lance de peão escreve-se
+#      "e4", nunca com figurina. U+2659 e U+265F são inalcançáveis.
+#   2. O livro usa UM conjunto de figurinas para os dois lados. Na linha real
+#      "17...♞e5 18.♛c2 ♞a6 19.♞c4", o lance 17... é das pretas e o 19. das
+#      brancas, e os dois cavalos usam o mesmo glifo. Os codepoints "pretos"
+#      não existem como desenho próprio.
+#
+# Sobram exatamente K, Q, R, B, N — as únicas peças que ganham letra na
+# notação, e exatamente as classes que o modelo aprendeu.
+#
+# Decidir se um ♘ reconhecido é peça branca ou preta é **visualmente
+# impossível**: depende da paridade do número do lance. Isso é trabalho da
+# F1.7 (validação com python-chess), não do reconhecimento de imagem.
+PECAS = set(CHESS_UNICODE[:5])   # ♔♕♖♗♘
 
 
 def _pagina_tem_texto(page: fitz.Page, minimo: int = 12) -> bool:

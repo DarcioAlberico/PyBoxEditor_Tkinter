@@ -383,8 +383,14 @@ integridade de arquivo. No Windows eles falham em caminho não-ASCII e devolvem
 `None`/`False`, indistinguível de "arquivo corrompido". A primeira versão da
 migração caiu nisso e apagou PNGs válidos. Use `open()` + `cv2.imdecode`, e prefira
 mover para quarentena a apagar.
-5. **Peças pretas** — coletar amostras de ♙♚♛♜♝♞♟, **ausentes do modelo atual**.
-   Sem isso, retreinar não melhora o reconhecimento de notação.
+5. [investigado] **Peças pretas** — não existem neste domínio; não há o que coletar.
+   Peão não tem letra em notação algébrica, e o livro usa um único conjunto de
+   figurinas para os dois lados (verificado: em `17...♞e5 18.♛c2 ♞a6 19.♞c4`, o lance
+   das pretas e o das brancas usam o mesmo glifo). O alfabeto do domínio é K Q R B N,
+   que é exatamente o que o modelo tem.
+
+   A ambiguidade branca/preta é **insolúvel visualmente** — depende da paridade do
+   número do lance. É trabalho da F1.7, não do classificador.
 
 Adicionar validação que roda antes do treino e falha alto:
 

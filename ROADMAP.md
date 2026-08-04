@@ -118,26 +118,57 @@ Ou seja: `pip install -r requirements.txt` não reproduz o ambiente.
 
 ## F1 — Qualidade de OCR
 
-### F1.1 — O modelo cobre 5 das 12 peças
+### F1.1 — ~~O modelo cobre 5 das 12 peças~~ — PREMISSA ERRADA, corrigida
 
-`neural_pdf_processor.py:11` declara `CHESS_PIECES` com 12 símbolos. O
-`model_meta.json` treinado contém apenas 5:
+**Investigado em 2026-08-03. O item estava errado, e o erro foi da análise inicial
+(minha).** A base não está faltando 7 classes: ela está **completa para o domínio**.
 
-| Peça | Status | | Peça | Status |
-|------|--------|-|------|--------|
-| ♔ U+2654 | treinado | | ♙ U+2659 | **ausente** |
-| ♕ U+2655 | treinado | | ♚ U+265A | **ausente** |
-| ♖ U+2656 | treinado | | ♛ U+265B | **ausente** |
-| ♗ U+2657 | treinado | | ♜ U+265C | **ausente** |
-| ♘ U+2658 | treinado | | ♝ U+265D | **ausente** |
-| | | | ♞ U+265E | **ausente** |
-| | | | ♟ U+265F | **ausente** |
+Duas razões, verificadas no material real do usuário:
 
-As peças pretas — que aparecem em metade da notação de qualquer livro — nunca podem
-ser reconhecidas. O filtro `char in CHESS_PIECES` simplesmente nunca casa para elas.
+**1. Peão não tem letra em notação algébrica.** Um lance de peão escreve-se `e4`, nunca
+com figurina. Os codepoints ♙ (U+2659) e ♟ (U+265F) são inalcançáveis — 2 das 7.
 
-**Ação:** coletar amostras das 7 classes faltantes antes de qualquer novo treino.
-Sem isso, treinar de novo não melhora nada nesse eixo.
+**2. O livro usa um único conjunto de figurinas para os dois lados.** Ampliando uma
+linha real do Kasparov:
+
+```
+17...♞e5  18.♛c2  ♞a6  19.♞c4  ♞b4
+```
+
+`17...` é lance das **pretas** e `19.` é lance das **brancas** — e os dois cavalos usam
+o **mesmo glifo de contorno**. A dama aparece preenchida porque é assim que a fonte
+desenha dama, não por ser preta. Os 5 codepoints "pretos" não existem como desenho
+próprio — as outras 5 das 7.
+
+Sobram exatamente **K, Q, R, B, N**: as únicas peças que ganham letra na notação, e
+exatamente as classes que o modelo tem.
+
+Medições que sustentam isso:
+
+| Classe | Amostras | Tinta média | Desvio |
+|---|---:|---:|---:|
+| ♔ `sym_9812` | 2643 | 30,0% | 5,5% |
+| ♕ `sym_9813` | 1899 | 41,9% | 6,0% |
+| ♖ `sym_9814` | 845 | 48,7% | 7,9% |
+| ♗ `sym_9815` | 352 | 33,8% | 4,9% |
+| ♘ `sym_9816` | 1768 | 33,2% | 5,8% |
+
+Desvios de 5–8% e sem bimodalidade: cada classe tem **um** estilo visual, não duas
+variantes misturadas.
+
+**O que foi feito.** `searchable_pdf.PECAS` esperava os 12 símbolos; 7 nunca casavam.
+Passou a conter os 5 reais, com o porquê documentado, e há teste travando isso — se
+alguém "consertar" de volta para 12, o filtro volta a ter entradas mortas.
+
+**O que a investigação revelou de verdade.** Rodando o modelo sobre notação real, as
+figurinas isoladas saem com confiança **1,000**. Os únicos erros foram boxes em que a
+figurina ficou **fundida com a coordenada seguinte** (`♞e5` e `♞a6` num box só), e aí a
+classificação erra. Isso é **segmentação** — F1.5 e F1.6 —, não classe faltante.
+
+**E a lacuna que sobra é outra.** Decidir se um ♘ reconhecido é peça branca ou preta é
+**visualmente impossível**: o glifo é o mesmo. Depende da paridade do número do lance
+(`18.` é das brancas, `18...` das pretas) ou da legalidade da posição. Ou seja, é
+exatamente a **F1.7**, e não trabalho de reconhecimento de imagem.
 
 ### F1.2 — Desbalanceamento extremo, sem compensação
 
@@ -698,42 +729,48 @@ apostar.
 
 ---
 
-## Ordem de execução sugerida
+## Ordem de execução
 
 ```
-[FEITO] F0.1  BoxEntry (4 pontos)
-[FEITO] F0.2  fonte Unicode do PDF
-[FEITO] F0.4  requirements.txt
-[FEITO] F5.3  teste de fumaça mínimo   ← trava as correções acima
-[FEITO] F0.3  undo/redo
-[FEITO] F5.1  remover código morto     ← reduz superfície antes de refatorar
-[FEITO] F3.7  boxes por página + aviso ← evita perda de trabalho
-[FEITO] F4.1  threads                  ← precisa vir antes de F3
-[FEITO] F4.2  barra de status
-[FEITO] F3.2  cor por confiança        ← habilita F3.3 e F1.7
-[FEITO] F3.3  filtros e navegação
-[FEITO] F3.1  digitação contínua
-[FEITO] F3.4  autosave e recuperação
-[FEITO] F2.1  PDF pesquisável          ← maior lacuna funcional, fechada
-[FEITO] F1.4  limpar sym_f7            ← pré-requisito de qualquer retreino
+CONCLUÍDAS
+  F0.1  BoxEntry (4 pontos)            F3.7  boxes por página + aviso
+  F0.2  fonte Unicode do PDF           F4.1  threads
+  F0.3  undo/redo                      F4.2  barra de status
+  F0.4  requirements.txt               F3.2  cor por confiança
+  F5.3  teste de fumaça                F3.3  filtros e navegação
+  F5.1  remover código morto           F3.1  digitação contínua
+  F2.1  PDF pesquisável                F3.4  autosave e recuperação
+  F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
+
+PRÓXIMAS — qualidade de reconhecimento
+  F1.5  pré-processamento (Otsu, deskew, DPI)  ─┐
+  F1.6  ordem de leitura e colunas              ├── são o limitador real hoje
+  F1.2  balanceamento (25.075:1)                │
+  F1.3  split de validação                     ─┘
       ↓
-F1.4  limpar sym_f7              ─┐
-F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino
-F1.2  balanceamento               │
-F1.3  split de validação         ─┘
-      ↓
-F2.2  remover Poppler            ← searchable_pdf.py já usa só PyMuPDF
-      ↓
-F3.1–F3.6  produtividade         ← desbloqueado: a UI não trava mais
-F4.3–F4.6  polimento de UI
+  F1.7  validação por legalidade (python-chess)
+  F1.8  mascarar diagramas antes de detectar
+
+DEPOIS
+  F2.2  remover Poppler          ← searchable_pdf.py já usa só PyMuPDF
+  F2.3  relatório e dry-run
+  F2.4  perfis de mapeamento por fonte
+  F3.5  atalhos restantes        F3.6  aplicar a todos os semelhantes
+  F4.3–F4.6  polimento de UI     F5.2  formato .box    F5.4  limpeza de arquivos
 ```
 
-**Dependência que importa:** F1.1 (coletar peças pretas) precisa preceder qualquer
-retreino, senão o esforço de treino é desperdiçado. E F4.1 (threads) precisa preceder
-F3, porque adicionar recursos numa UI que congela só piora a experiência.
+**O que a F1.1 mudou nas prioridades.** A investigação mostrou que o classificador
+acerta figurinas isoladas com confiança 1,000; os erros vieram de boxes em que a
+figurina foi **fundida com a coordenada seguinte**. Ou seja, o limitador de qualidade
+hoje é **segmentação** (F1.5 e F1.6), não o modelo. Retreinar antes de arrumar a
+segmentação renderia pouco.
 
-Uma observação sobre priorização: F0.1 é meia hora de trabalho e devolve o programa ao
-usuário. Vale fazer isolado, hoje, antes de qualquer planejamento maior.
+**Dependência que continua valendo:** F1.2 e F1.3 precisam preceder qualquer retreino —
+sem balanceamento o modelo ignora classes raras, e sem split de validação a acurácia
+reportada não significa nada.
+
+**F1.7 depende de F3.2**, que já está feita: sem saber quais caracteres são duvidosos,
+não há o que desambiguar pela legalidade.
 
 ---
 
