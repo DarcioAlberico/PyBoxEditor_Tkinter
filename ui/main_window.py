@@ -19,6 +19,7 @@ from core.services.document_service import DocumentSession, _GravadorAssincrono
 from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
+from ui.dialogo_semelhantes import DialogoSemelhantes
 from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
 
@@ -56,6 +57,11 @@ class MainWindow(tk.Frame):
 
         # Modo digitação contínua: a tecla aplica e avança, sem Enter.
         self.modo_digitacao = False
+
+        # Última correção manual, para a F3.6. Guarda a leitura ANTERIOR: o box
+        # de referência já virou 'e', e é pelo 'c' que os outros 300 são
+        # achados. (índice, leitura_anterior, caractere_novo)
+        self._ultima_correcao = None
 
         # Rascunho automático: conta mutações desde a última gravação.
         self._gravador = _GravadorAssincrono()
@@ -486,6 +492,9 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
         m_tools.add_command(label="Importar Imagens de Caracteres", command=self.import_character_images)
         m_tools.add_separator()
+        m_tools.add_command(label="Aplicar a todos os semelhantes...",
+                            accelerator="Ctrl+E",
+                            command=self.aplicar_aos_semelhantes)
         m_tools.add_command(label="Dividir box selecionado", command=self.split_selected_box)
         m_tools.add_command(label="Excluir box selecionado", command=self.delete_selected_box)
         m_tools.add_separator()
@@ -498,6 +507,10 @@ class MainWindow(tk.Frame):
 
     def _build_context_menu(self):
         self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Aplicar a todos os semelhantes...",
+                                      accelerator="Ctrl+E",
+                                      command=self.aplicar_aos_semelhantes)
+        self.context_menu.add_separator()
         for nag_char, desc in NAGS:
             self.context_menu.add_command(
                 label=f"{nag_char} ({desc})",
@@ -535,6 +548,10 @@ class MainWindow(tk.Frame):
         root.bind("<Control-d>", self._on_key_split_safe)
         root.bind("<Control-D>", self._on_key_split_safe)
         root.bind("<Control-b>", lambda e: self.salvar_rascunho_agora())
+        root.bind("<Control-e>", lambda e: (self.aplicar_aos_semelhantes(),
+                                            "break")[1])
+        root.bind("<Control-E>", lambda e: (self.aplicar_aos_semelhantes(),
+                                            "break")[1])
         root.bind("<F2>", lambda e: self.alternar_modo_digitacao())
         root.bind("<Escape>", self._on_key_escape)
         root.bind("<Key>", self._on_tecla_digitacao)
@@ -640,9 +657,16 @@ class MainWindow(tk.Frame):
             return "break"
 
         b = self.boxes[self.selected_index]
+        anterior = b.char
         b.char = ch
         b.confidence = 1.0
         b.source = "manual"
+        # É por aqui que passa a maior parte das correções (a F3.1 fez desta a
+        # via principal), então é aqui que a F3.6 mais precisa da leitura
+        # anterior — sem isto, Ctrl+E depois do modo digitação casaria só pela
+        # imagem e perderia o filtro que segura a precisão.
+        if anterior != ch:
+            self._ultima_correcao = (self.selected_index, b, anterior, ch)
         self._commit_change()
         self._avancar_apos_edicao(self.selected_index)
         self._status_digitacao()
@@ -1343,11 +1367,14 @@ class MainWindow(tk.Frame):
             ch = ""
 
         b = self.boxes[self.selected_index]
+        anterior = b.char
         b.char = ch
         # O usuário é autoridade: corrigir um box tem que tirá-lo do vermelho,
         # senão a cor nunca converge e a revisão não tem fim visível.
         b.confidence = 1.0
         b.source = "manual" if ch else ""
+        if anterior != ch:
+            self._ultima_correcao = (self.selected_index, b, anterior, ch)
         self._commit_change()
         self.update_sidebar()
         self.update_canvas()
@@ -1384,6 +1411,111 @@ class MainWindow(tk.Frame):
             # consumir as teclas e o modo pararia de funcionar.
             self.char_entry.focus_set()
             self.char_entry.select_range(0, "end")
+
+    # -------------------------------------------------------
+    # F3.6 — aplicar a correção a todos os semelhantes
+    # -------------------------------------------------------
+
+    #: Origem própria para o que veio de um lote. Fica fora da fila de revisão
+    #: (confiança 1,0) mas continua achável pelo filtro de origem — o critério
+    #: erra ~1 em 145, e apagar o rastro de quais boxes vieram de lote tornaria
+    #: esse resto impossível de reencontrar.
+    ORIGEM_LOTE = "lote"
+
+    #: Costura de teste: o diálogo é trocável por um dublê.
+    DIALOGO_SEMELHANTES = DialogoSemelhantes
+
+    def referencia_do_lote(self):
+        """
+        Qual box serve de modelo, e por qual leitura procurar. `(i, char, leitura)`.
+
+        **A última correção tem preferência sobre a seleção, e isso não é
+        detalhe.** Tanto o Enter quanto o modo digitação avançam sozinhos
+        depois de gravar o caractere (F3.1), então quando o usuário pede o lote
+        a seleção já saiu de cima do box que ele acabou de corrigir. Usar a
+        seleção pegaria o box seguinte, que ele nem olhou.
+
+        `leitura` é o caractere que os candidatos ainda mostram: o modelo já
+        virou `e`, os outros 300 continuam em `c`. É o filtro que segura a
+        precisão em 99,3% quando se afrouxa o limiar (ver `core.semelhanca`).
+        Sem correção registrada, casa só pela imagem — não há "antes" que
+        sirva de filtro.
+
+        A identidade do objeto é o que valida a correção guardada, não o
+        índice: dividir ou excluir um box desloca os índices, e o desfazer
+        troca a lista inteira por cópias.
+        """
+        uc = self._ultima_correcao
+        if uc is not None:
+            _, box, anterior, novo = uc
+            for i, b in enumerate(self.boxes):
+                if b is box and b.char == novo and novo:
+                    return i, novo, anterior
+
+        if 0 <= self.selected_index < len(self.boxes):
+            b = self.boxes[self.selected_index]
+            return self.selected_index, b.char, None
+        return None
+
+    def aplicar_aos_semelhantes(self):
+        if self.image is None or not self.boxes:
+            return
+        if self._busy("A aplicação em lote"):
+            return
+
+        referencia = self.referencia_do_lote()
+        if referencia is None:
+            messagebox.showinfo("Aplicar aos semelhantes",
+                                "Selecione primeiro um box.")
+            return
+
+        indice, alvo, leitura = referencia
+        if not alvo:
+            messagebox.showinfo(
+                "Aplicar aos semelhantes",
+                "Escreva primeiro o caractere certo neste box; ele é o que "
+                "será aplicado aos semelhantes.")
+            return
+
+        escolhidos = self.DIALOGO_SEMELHANTES(
+            self.parent, self.image, self.boxes, indice, alvo, leitura).mostrar()
+        if escolhidos is None:
+            self.status.set("Lote cancelado.")
+            return
+        if not escolhidos:
+            self.status.set("Nenhum box semelhante marcado.")
+            return
+
+        n = self.aplicar_em_lote(escolhidos, alvo)
+        self.status.set(f"{n} box(es) marcados como “{alvo}” em lote. "
+                        f"Ctrl+Z desfaz o lote inteiro.")
+
+    def aplicar_em_lote(self, indices, char):
+        """
+        Grava `char` em todos os índices e devolve quantos mudaram.
+
+        Um `_commit_change` só no fim: são 300 boxes, mas **um** Ctrl+Z. Um
+        snapshot por box entupiria o histórico de 50 posições e deixaria o
+        usuário sem como voltar ao estado anterior ao lote — que é exatamente
+        o que ele vai querer quando o lote sair errado.
+        """
+        mudados = 0
+        for i in indices:
+            if not (0 <= i < len(self.boxes)):
+                continue
+            b = self.boxes[i]
+            if b.char == char:
+                continue
+            b.char = char
+            b.confidence = 1.0
+            b.source = self.ORIGEM_LOTE
+            mudados += 1
+
+        if mudados:
+            self._commit_change()
+            self.update_sidebar()
+            self.update_canvas()
+        return mudados
 
     def ocr_selected_box(self):
         if self.image is None or self.selected_index < 0 or self.selected_index >= len(self.boxes):

@@ -1180,7 +1180,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.3 | ~~Filtros na lista~~ — **CONCLUÍDA** | Revisar 80 boxes em vez de 2.000 |
 | F3.4 | ~~Autosave + recuperação de crash~~ — **CONCLUÍDA** | O `crash_log.txt` existe por um motivo |
 | F3.5 | **Atalhos** — Ctrl+S, Ctrl+O, PgUp/PgDn (páginas), Tab/Shift+Tab | Fluxo sem mouse |
-| F3.6 | **Aplicar a todos os semelhantes** — corrigiu um `e`, corrige os 300 iguais | Ganho de ordem de grandeza |
+| F3.6 | ~~Aplicar a todos os semelhantes~~ — **CONCLUÍDA** | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 
 **F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
@@ -1324,6 +1324,65 @@ gravá-los deixaria o usuário acumulando trabalho insalvável — pior que o co
 antigo, porque dá a impressão de estar seguro.
 
 Cobertura: `tests/test_f37_paginas.py`, 10 testes.
+
+**F3.6 — concluída em 2026-08-04.** Ctrl+E espalha a última correção para os boxes que
+são o mesmo glifo. `core/semelhanca.py` decide quais são; `ui/dialogo_semelhantes.py`
+mostra o que vai mudar antes de mudar.
+
+**O critério é a imagem, não o caractere lido.** Casar por caractere acharia os 300 `c`
+errados, mas junto viriam os `c` legítimos — e o lote os estragaria. Medido sobre todos
+os pares de boxes das 9 páginas rotuladas à mão, com o `?` do rotulador (que ali é "não
+sei", não o glifo) fora da conta:
+
+| critério | limiar | precisão | cobertura |
+|---|---:|---:|---:|
+| imagem | 0,20 | 98,91% | 64,6% |
+| imagem | 0,30 | 92,77% | 69,1% |
+| imagem + mesma leitura | 0,20 | **99,29%** | 64,5% |
+| imagem + mesma leitura | 0,30 | **99,30%** | 69,1% |
+
+O segundo filtro é o caractere que os candidatos **ainda** mostram: o box de referência
+já virou `e`, os outros 300 continuam em `c`. Ele não melhora o caso apertado — melhora o
+afrouxado: só com imagem, ir de 0,20 a 0,30 troca 4,5 pontos de cobertura por 6 de
+precisão; com a leitura junto, a precisão não se move e a cobertura sobe de graça. Dois
+glifos parecidos que o OCR já leu **diferente** deixam de ser candidatos.
+
+**A precisão não passa de ~99,3%, e não é ajuste de limiar que resolve.** O que sobra são
+homóglifos de verdade — `0`×`o`, `9`×`g`, `1`×`i`, `P`×`p`, `T`×`t`, `B`×`b`, `C`×`c` —
+em que as duas imagens *são* quase iguais e o OCR leu as duas igual. Quem os separa é o
+contexto, que é trabalho da F1.7.
+
+**Essa medida é que decidiu o desenho.** Um em cada ~145 boxes do lote sairia errado; num
+lote de 300 são dois boxes estragados em silêncio, num box que o usuário nunca olhou, e
+ainda marcados como revisados — pior que o erro do OCR que se queria corrigir. Aplicar
+sem pré-visualização estava fora de questão. Daí:
+
+- os recortes vão para a tela **ordenados por distância**, o duvidoso no fim;
+- botão direito num recorte desmarca dali até o fim da fila, que é o gesto certo dada a
+  ordenação: "conferir 300" vira "achar onde a fila começa a estranhar";
+- o lote grava `source="lote"`, não `"manual"`. Sai da fila de revisão (confiança 1,0),
+  mas continua achável pelo filtro de origem da F3.3 — apagar o rastro tornaria aquele
+  resto de ~0,7% impossível de reencontrar depois.
+
+**O modelo do lote é o box corrigido, não o selecionado.** Tanto o Enter quanto o modo
+digitação da F3.1 avançam sozinhos depois de gravar, então quando o usuário pede o lote a
+seleção já saiu de cima do box que ele acabou de corrigir — usar a seleção espalharia o
+caractere do box *seguinte*. A correção fica guardada com a **identidade do objeto**, não
+o índice: dividir ou excluir desloca índices, e o desfazer troca a lista por cópias. Nos
+dois casos a referência é descartada e o casamento cai para só-imagem, que é a
+degradação segura. O diálogo mostra o recorte do modelo no cabeçalho, para o caso de a
+escolha não ser a esperada.
+
+Os 300 boxes alterados são **um** `_commit_change`, logo um Ctrl+Z. Um snapshot por box
+entupiria o histórico de 50 posições e deixaria o usuário sem como voltar ao estado
+anterior ao lote — que é exatamente o que ele vai querer quando o lote sair errado.
+
+Limite conhecido: a tela mostra no máximo 400 recortes (acima disso a montagem do grid
+trava a janela por segundos) e **o lote aplica só o que está na tela**. A mensagem diz
+quantos ficaram de fora; cortar a exibição e aplicar no resto seria mudar o que o usuário
+não viu.
+
+Cobertura: `tests/test_f36_semelhantes.py`, 49 testes.
 
 ---
 
