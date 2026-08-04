@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
+from core import formato_box
 from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
@@ -1511,19 +1512,8 @@ class MainWindow(tk.Frame):
         Escreve o par .box/.png. Devolve None em caso de sucesso, ou a mensagem
         de erro. Sem diálogos — quem chama decide como reportar.
         """
-        H = image.height
-        lines = []
-        for b in boxes:
-            ch = b.char
-            save_ch = ch[0] if ch else "~"
-            x1, y1, x2, y2 = b.x1, b.y1, b.x2, b.y2
-            y1_t = H - y2
-            y2_t = H - y1
-            lines.append(f"{save_ch} {x1} {y1_t} {x2} {y2_t} 0")
-
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
+            formato_box.escrever(path, boxes, image.height)
             image.save(os.path.splitext(path)[0] + ".png", format="PNG")
             return None
         except Exception as e:
@@ -1559,24 +1549,8 @@ class MainWindow(tk.Frame):
         if self.image is None:
             return
 
-        H = self.image.height
-        boxes = []
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    parts = line.split()
-                    if len(parts) < 6:
-                        continue
-                    ch = parts[0]
-                    x1, y1_t, x2, y2_t = map(int, parts[1:5])
-                    y1 = H - y2_t
-                    y2 = H - y1_t
-                    if ch == "~":
-                        ch = ""
-                    boxes.append(BoxEntry(ch, x1, y1, x2, y2))
+            boxes = formato_box.ler(path, self.image.height)
         except Exception as e:
             messagebox.showerror("Erro", f"Não foi possível carregar o .box:\n{e}")
             return

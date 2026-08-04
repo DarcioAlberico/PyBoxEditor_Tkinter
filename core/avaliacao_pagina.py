@@ -28,6 +28,7 @@ partir da base** da imagem. `carregar_box` converte para o topo, que é o que o
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from core import formato_box
 from core.box_model import BoxEntry
 
 
@@ -48,21 +49,12 @@ def normalizar(char: str) -> str:
 
 def carregar_box(caminho: str, altura: int,
                  origem_inferior: bool = True) -> List[BoxEntry]:
-    """Lê um `.box` do Tesseract. `altura` é a da imagem, para inverter o y."""
-    saida: List[BoxEntry] = []
-    with open(caminho, encoding="utf-8") as f:
-        for linha in f:
-            partes = linha.rstrip("\n").split(" ")
-            if len(partes) < 5:
-                continue
-            try:
-                x1, y1, x2, y2 = (int(v) for v in partes[1:5])
-            except ValueError:
-                continue
-            if origem_inferior:
-                y1, y2 = altura - y2, altura - y1
-            saida.append(BoxEntry(partes[0], x1, y1, x2, y2))
-    return saida
+    """Lê um `.box` do Tesseract. `altura` é a da imagem, para inverter o y.
+
+    Reexportado de `core.formato_box` para não quebrar quem já importava daqui;
+    o formato mora lá desde a F5.2.
+    """
+    return formato_box.ler(caminho, altura, origem_inferior)
 
 
 def _centro_dentro(gerado: BoxEntry, rotulado: BoxEntry) -> bool:

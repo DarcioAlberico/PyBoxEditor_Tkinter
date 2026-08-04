@@ -1504,11 +1504,41 @@ vai querer, sai com `git show 6a4b7a1:core/opencv_autobox.py`.
 Fica pendente a consolidação do formato `.box` num módulo próprio (SPEC §2.3) — a F5.1
 removeu o leitor divergente, não unificou o que sobrou.
 
-### F5.2 — Formato `.box` perde dados
+### F5.2 — Formato `.box` perde dados — CONCLUÍDA
 
 `_save_box_to_path` (`main_window.py:709`) grava `ch[0]` — **trunca ligaduras
 silenciosamente**. Um box marcado como `fi` é salvo como `f`. E `~` é usado como
 marcador de vazio, então um `~` real vira vazio na volta.
+
+**Concluída em 2026-08-04.** O formato passou a morar em `core/formato_box.py`,
+com `ler`/`escrever` e as versões em memória (`ler_texto`/`escrever_texto`). Isso
+também fecha a consolidação que a F5.1 deixou pendente: havia dois leitores
+divergentes (`main_window._load_box_from_path` e `avaliacao_pagina.carregar_box`,
+que separava por `" "` em vez de espaço em branco), e agora os dois chamam o
+mesmo código. `carregar_box` ficou como reexportação para não quebrar quem já a
+importava.
+
+**Era um defeito a mais do que o item dizia.** Além da ligadura e do `~`, um box
+cujo caractere é **espaço** deixava a linha com 5 campos, e o leitor descartava a
+linha inteira (`if len(parts) < 6: continue`) — o box sumia sem aviso. É a
+mesma classe de perda, e escapava pelo mesmo motivo: o primeiro campo era gravado
+cru num formato separado por espaço.
+
+O escape resolve os três de uma vez. Na escrita, `\`, `~`, espaço e tabulação
+saem como `\\`, `\~`, `\s` e `\t`; o primeiro campo fica sem espaço em branco por
+construção, e a linha sempre tem 6 campos. A string inteira é gravada, sem
+`char[0]` — o Tesseract aceita mais de um caractere no primeiro campo (é assim
+que ele próprio representa ligadura), então gravar `fi` é *mais* compatível com o
+formato, não menos.
+
+**Arquivo antigo continua lendo igual**, e isso foi verificado, não suposto: os
+5.349 boxes de `Box/*.box` têm exatamente 6 campos, nenhum com barra invertida,
+nenhum com `~`. Um `~` sozinho segue significando vazio, que é o que os arquivos
+antigos queriam dizer. A ambiguidade do `~` real não tem como ser desfeita
+retroativamente — só deixa de ser criada daqui em diante.
+
+Cobertura: `tests/test_f52_formato_box.py`, 64 testes, quase todos na forma
+`ler(escrever(x)) == x`.
 
 ### F5.3 — Sem testes
 
