@@ -1,0 +1,24 @@
+{
+  "name": "Figurina única — um jogo de peças para os dois lados",
+  "_comentario": [
+    "Para os livros que usam UM conjunto de figurinas para brancas e pretas, que",
+    "é o caso do Kasparov - The Dynamic Benko Gambit (achado da F1.1): quem diz a",
+    "cor é a paridade do número do lance, não o glifo.",
+    "",
+    "Só as maiúsculas mapeiam. As minúsculas a-h são COLUNA do tabuleiro, e",
+    "traduzi-las como peça preta produz o defeito que a F2.3 mediu: 'Bb5' saindo",
+    "como '♗♝5' em vez de '♗b5'.",
+    "",
+    "Vem antes do 20_duas_caixas no nome do arquivo porque a ordem alfabética é a",
+    "precedência: numa fonte que case com os dois, este ganha."
+  ],
+  "mode": "unicode",
+  "font_patterns": ["merida", "figurine", "skak", "cburnett"],
+  "mapping": {
+    "K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘", "P": "♙"
+  },
+  "diagram_detection": {
+    "min_lines": 4,
+    "chess_span_ratio": 0.7
+  }
+}

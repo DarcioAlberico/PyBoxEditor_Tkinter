@@ -23,7 +23,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
-| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1–F2.3 feitas; falta F2.4) |
+| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
@@ -1116,11 +1116,55 @@ distinguir os dois usos sem olhar o contexto.
 
 Cobertura: `tests/test_f23_relatorio_dryrun.py`, 22 testes.
 
-### F2.4 — Perfis de mapeamento por fonte
+### F2.4 — Perfis de mapeamento por fonte — CONCLUÍDA
 
 A spec v1.0 §10 pede perfis por livro/editora. O código tem um único
 `DEFAULT_MAPPING_PROFILE` hardcoded (`chess_pdf_processor.py:12`). Fontes que mapeiam
 peças fora do padrão KQRBNP (comum em Chess Diagram TTF) ficam sem solução.
+
+**Concluída em 2026-08-04.** `core/perfis.py` e `config/profiles/*.json`, com seleção
+automática por `font_patterns` e override manual (`analisar_substituicao(perfil=...)`).
+Os limiares de detecção de diagrama, antes literais em `is_block_a_diagram`, vieram
+junto — também são por livro, porque fonte com subset e nome aleatório (`ABCD+F1`) muda
+a proporção de spans que aquela conta enxerga.
+
+#### O motivo concreto não era o do roadmap
+
+O roadmap justificava a fase com "fontes fora do padrão KQRBNP". O motivo que apareceu
+medindo foi outro, e mais grave: **a convenção erra dentro do próprio livro.** A
+simulação da F2.3 mostrou `Bb5` saindo como `♗♝5` — o `B` é o bispo, certo, mas o `b`,
+que ali é a **coluna b**, também estava no perfil (minúscula = peça preta) e virou bispo
+preto.
+
+E, pela F1.1, estes livros usam **um conjunto só de figurinas para os dois lados**: quem
+diz a cor é a paridade do lance, não o glifo. Para eles a convenção de minúsculas
+simplesmente não vale. Daí os dois perfis que acompanham o projeto:
+
+| perfil | mapeia | `Bb5` vira |
+|---|---|---|
+| `10_figurina_unica` | só maiúsculas | **`♗b5`** |
+| `20_duas_caixas` | as duas caixas (o antigo padrão) | `♗♝5` |
+
+**Não dá para escolher entre os dois por heurística**, e é por isso que vira perfil e não
+regra: nas fontes figurinas de verdade as minúsculas **são** peças pretas, e num livro
+que use as duas caixas o `figurina_unica` perderia todas as peças pretas. Dentro de um
+diagrama, `rnbqkbnr` é a fileira 8 inteira e não tem coluna nenhuma no meio. É decisão
+por livro.
+
+O número no nome do arquivo é a precedência — `10_` ganha de `20_` numa fonte que case
+com os dois —, o que evita inventar um campo de prioridade.
+
+**Perfil quebrado interrompe a carga, não é pulado.** Pular faria a conversão cair no
+padrão em silêncio, e o usuário veria o livro convertido com o mapeamento errado sem
+nenhum aviso — que é o mesmo tipo de falha silenciosa que a F2.3 veio combater. A
+validação recusa chave de mais de um caractere (a substituição é caractere a caractere,
+então uma chave de dois nunca casaria e o perfil ficaria inerte), modo desconhecido e
+limiar de diagrama fora de faixa.
+
+O relatório da F2.3 ganhou a coluna `perfil`: sem ela, dois livros convertidos com
+perfis diferentes produzem relatórios indistinguíveis.
+
+Cobertura: `tests/test_f24_perfis.py`, 20 testes.
 
 ---
 

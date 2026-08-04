@@ -1,0 +1,27 @@
+{
+  "name": "Duas caixas — maiúscula branca, minúscula preta",
+  "_comentario": [
+    "A convenção clássica das fontes de diagrama: maiúscula é peça branca,",
+    "minúscula é peça preta. Vale para o texto DENTRO de diagramas, onde uma",
+    "linha como 'rnbqkbnr' é a fileira 8 inteira e não tem coluna nenhuma no meio.",
+    "",
+    "Não use num livro cuja notação inline traz coluna em minúscula: aqui 'Bb5'",
+    "vira '♗♝5', porque o 'b' da coluna também é bispo preto. Para esses, o",
+    "10_figurina_unica. Não dá para decidir por heurística — nas fontes figurinas",
+    "de verdade as minúsculas SÃO peças pretas.",
+    "",
+    "É o antigo DEFAULT_MAPPING_PROFILE, preservado para não mudar o resultado de",
+    "quem já convertia com ele."
+  ],
+  "mode": "unicode",
+  "font_patterns": ["diagram", "alpha", "leipzig"],
+  "mapping": {
+    "K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘", "P": "♙",
+    "k": "♚", "q": "♛", "r": "♜", "b": "♝", "n": "♞", "p": "♟",
+    ".": "·", "-": " "
+  },
+  "diagram_detection": {
+    "min_lines": 4,
+    "chess_span_ratio": 0.7
+  }
+}

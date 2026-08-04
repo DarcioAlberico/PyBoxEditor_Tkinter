@@ -2,7 +2,17 @@ import fitz  # PyMuPDF
 import os
 from typing import Tuple
 
-from core import relatorio_pdf
+from core import perfis, relatorio_pdf
+
+
+def _primeira_fonte_de_xadrez(block: dict) -> str:
+    """Nome da primeira fonte de xadrez do bloco, ou '' se não houver."""
+    for line in block.get("lines", []):
+        for span in line.get("spans", []):
+            nome = span.get("font", "")
+            if is_chess_font(nome):
+                return nome
+    return ""
 
 # Keywords to detect chess fonts
 CHESS_FONT_KEYWORDS = [
@@ -102,30 +112,37 @@ def is_diagram_span(span: dict) -> bool:
     return False
 
 
-def is_block_a_diagram(block: dict) -> bool:
+def is_block_a_diagram(block: dict, perfil=None) -> bool:
     """
     Detect if a text block is likely a chess diagram (8x8 grid).
     Heuristic: A diagram is usually a block with multiple lines (often ~8 or more)
     where almost all text uses a chess font.
+
+    Os dois limiares vêm do perfil quando há um (F2.4). Eles precisam ser por
+    livro: fonte com subset e nome aleatório (`ABCD+F1`) muda a proporção de
+    spans que esta conta enxerga como de xadrez.
     """
+    min_linhas = getattr(perfil, "min_linhas_diagrama", 4)
+    razao_minima = getattr(perfil, "razao_span_xadrez", 0.7)
+
     if "lines" not in block:
         return False
-        
+
     line_count = len(block["lines"])
-    if line_count < 4:  # Too few lines to be a full diagram
+    if line_count < min_linhas:  # Too few lines to be a full diagram
         return False
-        
+
     chess_span_count = 0
     total_span_count = 0
-    
+
     for line in block["lines"]:
         for span in line["spans"]:
             total_span_count += 1
             if is_chess_font(span["font"]):
                 chess_span_count += 1
-                
+
     # If a high percentage of spans in this large block are chess fonts, it's a diagram.
-    return total_span_count > 0 and (chess_span_count / total_span_count) > 0.7
+    return total_span_count > 0 and (chess_span_count / total_span_count) > razao_minima
 
 
 # Caracteres que atravessam a substituição sem tradução e **assim mesmo estão
@@ -240,10 +257,24 @@ def process_span(page: fitz.Page, span: dict, mapping_profile: dict,
     return sub
 
 
+def _resolver_perfil(nome_da_fonte, perfil, perfis_disponiveis):
+    """
+    Perfil a usar num span: o forçado, o que casa com a fonte, ou nenhum.
+
+    `perfil` explícito ganha de tudo — é o override manual que a SPEC pede na UI.
+    """
+    if perfil is not None:
+        return perfil
+    if not perfis_disponiveis:
+        return None
+    return perfis.escolher(nome_da_fonte, perfis_disponiveis)
+
+
 def analisar_substituicao(input_pdf: str, output_pdf: str,
                           mapping_profile: dict = None, progress_callback=None,
                           dry_run: bool = False,
-                          gravar_relatorio: bool = True):
+                          gravar_relatorio: bool = True,
+                          perfil=None, usar_perfis: bool = True):
     """
     Percorre o PDF, substitui os glifos de xadrez e devolve o relatório (F2.3).
 
@@ -260,8 +291,15 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
     if not os.path.exists(input_pdf):
         raise FileNotFoundError(f"Arquivo não encontrado: {input_pdf}")
 
+    # `mapping_profile` explícito desliga a seleção por perfil: quem passou um
+    # dicionário quer aquele mapeamento, e não que o arquivo escolha outro.
+    mapeamento_forcado = mapping_profile is not None
     if mapping_profile is None:
         mapping_profile = DEFAULT_MAPPING_PROFILE
+
+    perfis_disponiveis = []
+    if usar_perfis and not mapeamento_forcado and perfil is None:
+        perfis_disponiveis = perfis.carregar_todos()
 
     try:
         doc = fitz.open(input_pdf)
@@ -303,8 +341,14 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
             if block.get("type", 0) != 0:
                 continue
 
+            # O perfil do bloco sai da primeira fonte de xadrez que ele contém —
+            # os limiares de diagrama são por livro, e um bloco não mistura
+            # livros.
+            perfil_do_bloco = _resolver_perfil(
+                _primeira_fonte_de_xadrez(block), perfil, perfis_disponiveis)
+
             # Nível 1: Filter out diagrams
-            if is_block_a_diagram(block):
+            if is_block_a_diagram(block, perfil_do_bloco):
                 # Registrado, não descartado em silêncio: é a heurística com
                 # mais chance de errar, e sem isto um diagrama tratado como
                 # texto (ou o contrário) não deixa rastro nenhum.
@@ -315,12 +359,18 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
             # Nível 2: Process inline text
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
-                    if is_chess_font(span["font"]):
-                        sub = process_span(page, span, mapping_profile,
-                                           FONT_ALIAS, font_obj,
-                                           pagina_num=page_num, dry_run=dry_run)
-                        if sub is not None:
-                            rel.substituicoes.append(sub)
+                    if not is_chess_font(span["font"]):
+                        continue
+                    escolhido = _resolver_perfil(span["font"], perfil,
+                                                 perfis_disponiveis)
+                    sub = process_span(
+                        page, span,
+                        escolhido.mapeamento if escolhido else mapping_profile,
+                        FONT_ALIAS, font_obj,
+                        pagina_num=page_num, dry_run=dry_run)
+                    if sub is not None:
+                        sub.perfil = escolhido.nome if escolhido else ""
+                        rel.substituicoes.append(sub)
 
     if not dry_run:
         try:

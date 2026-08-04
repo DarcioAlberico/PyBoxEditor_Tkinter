@@ -54,6 +54,10 @@ class Substituicao:
     corpo_original: float = 0.0
     corpo_final: float = 0.0
     aplicada: bool = True
+    # Qual perfil de mapeamento decidiu esta substituição (F2.4). Vazio = o
+    # padrão embutido. Sem isto, dois livros convertidos com perfis diferentes
+    # produzem relatórios indistinguíveis.
+    perfil: str = ""
     avisos: List[str] = field(default_factory=list)
 
     @property
@@ -125,7 +129,7 @@ COLUNAS_CSV = [
     "pagina", "bbox_x0", "bbox_y0", "bbox_x1", "bbox_y1",
     "fonte_original", "texto_original", "texto_substituto",
     "confianca", "corpo_original", "corpo_final", "encolhimento",
-    "aplicada", "avisos",
+    "aplicada", "perfil", "avisos",
 ]
 
 
@@ -143,6 +147,7 @@ def _linha_csv(s: Substituicao) -> dict:
         "corpo_final": round(s.corpo_final, 2),
         "encolhimento": round(s.encolhimento, 4),
         "aplicada": int(s.aplicada),
+        "perfil": s.perfil,
         "avisos": "|".join(s.avisos),
     }
 
