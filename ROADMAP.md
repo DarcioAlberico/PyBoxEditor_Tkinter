@@ -607,8 +607,13 @@ linha pura leva os cortes falsos de 221 para 182 mas *piora* a página 0020
 
 Revalidação nas **páginas rotuladas à mão** — 9 hoje (7 do Kasparov + 2 do
 Aagaard, 9.369 caracteres) — em vez do proxy de "boxes largos". Com o rótulo dá
-para separar corte bom de corte falso, que é o que faltava. `python
-medir_paginas.py` reproduz, e usa o conjunto que existir na hora:
+para separar corte bom de corte falso, que é o que faltava.
+
+> **As digitalizações não estão no repositório** — `ilovepdf_pages-to-jpg/` é
+> material com direitos autorais e fica ignorada, para treino local só. Num clone
+> limpo sobram 2 páginas com imagem (as do Aagaard), não 9, e os números abaixo
+> **não** serão reproduzidos. `medir_paginas.py` e `calibrar_modelo.py` usam o
+> conjunto que encontrarem, então rodam mesmo assim — só medem menos.
 
 | | recall | precisão | F1 | cortes bons | cortes falsos |
 |---|---:|---:|---:|---:|---:|
