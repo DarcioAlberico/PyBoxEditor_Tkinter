@@ -242,8 +242,25 @@ registrar aviso no relatório em vez de deformar).
 
 ### 4.3 PDF pesquisável (camada de texto invisível)
 
-Substitui `neural_pdf_processor.process_scanned_pdf`, que hoje rasteriza o documento
-inteiro e destrói todo o texto selecionável (ROADMAP F2.1).
+**Implementada na F2.1** — `core/searchable_pdf.py`. Substituiu
+`neural_pdf_processor.process_scanned_pdf`, que rasterizava o documento inteiro e
+destruía todo o texto selecionável; aquele módulo foi removido.
+
+Verificado numa página real: 0 caracteres extraíveis na entrada, 3025 na saída, imagem
+original preservada.
+
+Dois cuidados que a implementação mostrou serem necessários:
+
+- **Pular páginas que já têm texto.** É a heurística `is_scanned` de §4.1: escrever a
+  camada de OCR sobre uma página digital duplicaria o conteúdo, e a busca passaria a
+  devolver cada trecho duas vezes.
+- **`doc.subset_fonts()` antes de salvar.** A fonte de símbolos tem 2,3 MB e seria
+  embutida inteira em cada PDF gerado — 1342 KB contra 70 KB num teste de 200
+  inserções.
+
+Custo residual conhecido: ~200 bytes por caractere na camada de texto, porque cada
+`insert_text` emite um bloco gráfico completo. Agrupar caracteres por linha reduziria
+isso, e depende da ordem de leitura (§ROADMAP F1.6).
 
 **Regra:** a página original nunca é rasterizada. O OCR entra como camada de texto
 invisível por cima.

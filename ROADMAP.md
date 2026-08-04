@@ -23,7 +23,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
-| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
+| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
@@ -264,7 +264,7 @@ projeção vertical acha as calhas em qualquer posição e com qualquer número 
 
 ## F2 — Saída de PDF
 
-### F2.1 — O PDF de saída é rasterizado (maior lacuna de OCR do projeto)
+### F2.1 — O PDF de saída é rasterizado — CONCLUÍDA
 
 `neural_pdf_processor.py:104-118` converte cada página em imagem RGB, desenha os
 símbolos por cima e salva tudo como PDF de imagens.
@@ -278,8 +278,45 @@ Consequências:
 
 Para uma ferramenta cujo propósito é OCR, essa é a lacuna estrutural mais séria.
 
-**Ação:** camada de texto invisível (`render_mode=3`) sobre a página original
-preservada, via PyMuPDF. SPEC §4.3.
+**Concluída em 2026-08-03.** `core/searchable_pdf.py` escreve uma camada de texto
+invisível (`render_mode=3`) sobre a página original **preservada**.
+`core/neural_pdf_processor.py`, que rasterizava, foi removido.
+
+Verificado com uma página real do Kasparov (Benko Gambit, pág. 11) e o modelo neural
+de verdade:
+
+| | Entrada | Saída |
+|---|---:|---:|
+| Tamanho | 661 KB | 1153 KB |
+| Caracteres extraíveis | **0** | **3025** |
+| Imagem original | — | preservada |
+
+2379 boxes detectados, 2376 reconhecidos, 16 s de processamento.
+
+Três modos: `searchable` (só a camada, padrão), `replace` (desenha as peças
+reconhecidas por cima do original, sem rasterizar) e `both`.
+
+Decisões que vieram da implementação:
+
+- **Páginas que já têm texto são puladas.** Escrever OCR por cima duplicaria o
+  conteúdo e a busca devolveria cada trecho duas vezes. É a heurística `is_scanned`
+  que a SPEC §4.1 previa.
+- **Subset da fonte.** A `seguisym.ttf` tem 2,3 MB e era embutida inteira. Medido em
+  200 inserções: 1342 KB sem subset contra 70 KB com. Na página real, levou a saída de
+  2416 KB para 1153 KB.
+- **O PDF só é gravado no fim**, então cancelar não deixa arquivo pela metade.
+
+**Pendência honesta:** o crescimento de 661 KB para 1153 KB é inteiramente a camada de
+texto — verificado que abrir e salvar sem mexer mantém 661 KB. São ~200 bytes por
+caractere, porque cada `insert_text` gera um bloco gráfico completo. Agrupar caracteres
+em linhas cortaria isso bastante, mas depende da ordem de leitura da F1.6.
+
+Cobertura: `tests/test_f21_pdf_pesquisavel.py`, 14 testes.
+
+**O que esta fase não resolve:** a *qualidade* do reconhecimento. Na página real saiu
+"The D[]namic B[]do Gambit" em vez de "The Dynamic Benko Gambit" — é o problema da F1
+(desbalanceamento, sem split de validação), não da F2. A F2.1 garante que o texto
+existe e é pesquisável; a F1 é que o fará estar certo.
 
 ### F2.2 — Dependência do Poppler é desnecessária
 
@@ -632,14 +669,14 @@ apostar.
 [FEITO] F3.3  filtros e navegação
 [FEITO] F3.1  digitação contínua
 [FEITO] F3.4  autosave e recuperação
+[FEITO] F2.1  PDF pesquisável          ← maior lacuna funcional, fechada
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino
 F1.2  balanceamento               │
 F1.3  split de validação         ─┘
       ↓
-F2.1  PDF pesquisável            ← a maior lacuna funcional
-F2.2  remover Poppler
+F2.2  remover Poppler            ← searchable_pdf.py já usa só PyMuPDF
       ↓
 F3.1–F3.6  produtividade         ← desbloqueado: a UI não trava mais
 F4.3–F4.6  polimento de UI

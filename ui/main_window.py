@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 from core.chess_pdf_processor import substitute_chess_glyphs
-from core.neural_pdf_processor import process_scanned_pdf
+from core.searchable_pdf import gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService
 from core.services.ocr_service import OCRService
@@ -481,7 +481,10 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Excluir box selecionado", command=self.delete_selected_box)
         m_tools.add_separator()
         m_tools.add_command(label="Substituir Glifos de Xadrez em PDF (Texto)...", command=self.substitute_chess_glyphs_action)
-        m_tools.add_command(label="Substituir Glifos em PDF Escaneado (Neural)...", command=self.substitute_glyphs_neural_action)
+        m_tools.add_command(label="Gerar PDF Pesquisável (OCR)...",
+                            command=self.gerar_pdf_pesquisavel_action)
+        m_tools.add_command(label="Substituir Glifos em PDF Escaneado (Neural)...",
+                            command=self.substitute_glyphs_neural_action)
         menubar.add_cascade(label="Ferramentas", menu=m_tools)
 
     def _build_context_menu(self):
@@ -866,7 +869,23 @@ class MainWindow(tk.Frame):
 
         self._run_task("Substituir glifos", trabalho, concluir)
 
+    def gerar_pdf_pesquisavel_action(self):
+        """PDF pesquisável: mantém a página como está e só acrescenta o texto."""
+        self._acao_ocr_pdf(
+            modo="searchable",
+            titulo="PDF pesquisável",
+            titulo_saida="Salvar PDF pesquisável como...",
+        )
+
     def substitute_glyphs_neural_action(self):
+        """Substitui as peças reconhecidas E deixa o PDF pesquisável."""
+        self._acao_ocr_pdf(
+            modo="both",
+            titulo="Substituir glifos + OCR",
+            titulo_saida="Salvar PDF convertido como...",
+        )
+
+    def _acao_ocr_pdf(self, modo, titulo, titulo_saida):
         if self._busy("A conversão"):
             return
 
@@ -878,7 +897,7 @@ class MainWindow(tk.Frame):
             return
 
         output_pdf = filedialog.asksaveasfilename(
-            title="Salvar PDF Convertido Como...",
+            title=titulo_saida,
             defaultextension=".pdf",
             filetypes=[("Arquivos PDF", "*.pdf")]
         )
@@ -886,28 +905,49 @@ class MainWindow(tk.Frame):
             return
 
         def trabalho(h):
+            h.log("Carregando modelo neural...")
+            self.learning_service.load_predictor()
+            h.log("Carregando base de referência...")
+            learner = self.learning_service._get_learner()
+            predictor = self.learning_service._predictor
+
+            def reconhecer(recorte):
+                char, _fonte, conf = self.ocr_service.fallback_chain(
+                    recorte, predictor=predictor, learner=learner,
+                    neural_threshold=0.8, learner_threshold=0.9,
+                )
+                return char, conf
+
             def progresso(pagina, total):
                 h.raise_if_cancelled()
                 h.progress(pagina + 1, total, f"página {pagina + 1}/{total}")
 
-            return process_scanned_pdf(
-                input_pdf=input_pdf,
-                output_pdf=output_pdf,
-                model_path="custom_model.pth",
-                meta_path="model_meta.json",
+            return gerar_pdf_pesquisavel(
+                input_pdf, output_pdf,
+                reconhecer=reconhecer,
+                modo=modo,
                 progress_callback=progresso,
             )
 
-        def concluir(resultado):
-            total_pages, replaced = resultado
-            messagebox.showinfo(
-                "Concluído Neural",
-                f"Conversão finalizada!\nPáginas escaneadas: {total_pages}\n"
-                f"Peças reconhecidas/substituídas: {replaced}\n\n"
-                f"Arquivo salvo em:\n{output_pdf}"
-            )
+        def concluir(resumo):
+            linhas = [
+                f"Páginas: {resumo['paginas']}"
+                f"  (OCR em {resumo['paginas_ocr']}, "
+                f"{resumo['paginas_puladas']} já tinham texto)",
+                f"Caracteres reconhecidos: {resumo['reconhecidos']} de {resumo['boxes']}",
+            ]
+            if resumo["pecas_substituidas"]:
+                linhas.append(f"Peças substituídas: {resumo['pecas_substituidas']}")
+            if resumo["baixa_confianca"]:
+                linhas.append(f"Baixa confiança: {resumo['baixa_confianca']}")
+            if resumo["sem_glifo"]:
+                linhas.append(f"Sem glifo na fonte: {resumo['sem_glifo']}")
+            linhas.append("")
+            linhas.append("O texto original do PDF foi preservado.")
+            linhas.append(f"Arquivo salvo em:\n{output_pdf}")
+            messagebox.showinfo(titulo, "\n".join(linhas))
 
-        self._run_task("OCR neural do PDF", trabalho, concluir)
+        self._run_task(titulo, trabalho, concluir)
 
     # -------------------------------------------------------
     # OCR automático para todos os boxes
