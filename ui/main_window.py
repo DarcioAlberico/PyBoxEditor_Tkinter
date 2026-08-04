@@ -1911,15 +1911,11 @@ class MainWindow(tk.Frame):
                 h.progress(n + 1, len(filepaths), f"lendo {os.path.basename(fpath)}")
 
                 if ext == ".pdf":
-                    try:
-                        pages = self.pdf_service.convert_pdf_to_images(fpath, dpi=200)
-                    except Exception as e:
-                        if "poppler" in str(e).lower():
-                            raise RuntimeError(
-                                "Para ler PDF é preciso o POPPLER instalado e no PATH.\n"
-                                "Baixe em: https://github.com/oschwartz10612/poppler-windows/releases/"
-                            ) from e
-                        raise
+                    # Sem tratamento especial de Poppler desde a F2.2: o PDF é
+                    # renderizado pelo PyMuPDF, que não depende de binário
+                    # externo. O que sobrar aqui é erro no arquivo, e a mensagem
+                    # do próprio PyMuPDF diz mais que um texto genérico.
+                    pages = self.pdf_service.convert_pdf_to_images(fpath, dpi=200)
                     for i, page in enumerate(pages):
                         images.append((f"{os.path.basename(fpath)}_pg{i+1}", page))
                 else:

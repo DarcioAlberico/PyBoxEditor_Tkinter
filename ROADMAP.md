@@ -23,7 +23,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
-| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
+| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 e F2.2 feitas; faltam F2.3 e F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
@@ -1021,7 +1021,7 @@ Cobertura: `tests/test_f21_pdf_pesquisavel.py`, 14 testes.
 (desbalanceamento, sem split de validação), não da F2. A F2.1 garante que o texto
 existe e é pesquisável; a F1 é que o fará estar certo.
 
-### F2.2 — Dependência do Poppler é desnecessária
+### F2.2 — Dependência do Poppler é desnecessária — CONCLUÍDA
 
 `pdf_service.py` usa `pdf2image`, que exige o binário externo **Poppler** no PATH —
 fonte recorrente de erro no Windows (o próprio código tem tratamento especial para
@@ -1034,6 +1034,38 @@ pix = page.get_pixmap(dpi=300)
 ```
 
 Unificar em PyMuPDF elimina uma dependência nativa e simplifica a instalação.
+
+**Concluída em 2026-08-04.** `pdf2image` saiu do `requirements.txt` e do código; o
+`pdf_service.py` renderiza com `fitz`. A mensagem de erro específica de Poppler em
+`main_window.py` virou código morto e foi removida — o que sobrar ali agora é defeito
+no arquivo, e a mensagem do próprio PyMuPDF diz mais que um texto genérico.
+
+**A escala teve de ser preservada, e isso não era detalhe.** O
+`pdf2image.convert_from_bytes` usava 200 dpi por omissão, e os limiares da F1.5 são
+relativos à largura mediana de caractere medida nessa escala. Renderizar noutro dpi
+mudaria todos eles sem erro nenhum aparecer. Conferido contra o Poppler, na mesma página
+real convertida para PDF:
+
+| | tamanho | largura mediana de caractere | boxes |
+|---|---|---:|---:|
+| Poppler (antes) | 1167×1836 | 11 px | 1.359 |
+| PyMuPDF (agora) | 1167×1836 | **11 px** | 1.371 |
+
+Diferença média de 4,4 níveis de cinza por pixel, nas bordas dos glifos — dois
+rasterizadores não fazem anti-aliasing igual. Os 12 boxes de diferença (0,9%) saem daí.
+O número que a segmentação consome, a mediana, é o mesmo.
+
+**O documento é aberto a cada chamada, e isso é de propósito.** `load_page` roda dentro
+da thread de trabalho da F4.1 ao mesmo tempo que a UI pode pedir outra página; um
+`fitz.Document` guardado no serviço seria estado compartilhado entre as duas, e documento
+do PyMuPDF não é seguro para acesso concorrente. Abrir a partir dos bytes é barato — o
+PyMuPDF lê o xref sob demanda. Há teste com 12 threads simultâneas e outro que reprova se
+o serviço voltar a guardar um `Document`.
+
+De quebra, PDF protegido por senha agora diz o motivo: antes abria, devolvia 0 páginas e
+o erro saía como "o PDF não tem páginas".
+
+Cobertura: `tests/test_f22_pdf_nativo.py`, 17 testes.
 
 ### F2.3 — Faltam relatório e dry-run
 

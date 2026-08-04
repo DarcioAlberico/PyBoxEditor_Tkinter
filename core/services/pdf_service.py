@@ -1,6 +1,41 @@
+"""
+Carregamento e navegação de PDF, sobre PyMuPDF.
+
+Antes usava `pdf2image`, que é um invólucro do binário externo **Poppler**: cada
+página renderizada saía num subprocesso, e sem o Poppler no PATH o programa não
+abria PDF nenhum. Era a fonte recorrente de erro no Windows, a ponto de a UI ter
+uma mensagem só para esse caso. O PyMuPDF já era dependência do projeto — o
+`chess_pdf_processor.py` e o `searchable_pdf.py` usam — e renderiza nativamente,
+então a dependência nativa saiu sem nada em troca (F2.2).
+
+**O documento é aberto a cada chamada, de propósito.** `load_page` roda dentro da
+thread de trabalho da F4.1 (`main_window.py`, exportação de várias páginas) ao
+mesmo tempo que a UI pode pedir outra página. Um `fitz.Document` guardado no
+serviço seria estado compartilhado entre as duas, e documento do PyMuPDF não é
+seguro para acesso concorrente. Abrir a partir dos bytes é barato: o PyMuPDF lê o
+xref sob demanda e não decodifica página que ninguém pediu.
+"""
+
 import os
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
+
+import fitz  # PyMuPDF
 from PIL import Image
+
+
+# O `pdf2image.convert_from_bytes` usava 200 dpi por omissão, e a segmentação da
+# F1.5 foi calibrada em cima disso (largura mediana de caractere ~17 px). Mudar
+# aqui mudaria silenciosamente todos os limiares relativos.
+DPI_PADRAO = 200
+
+
+def _para_pil(pagina: "fitz.Page", dpi: int, cinza: bool) -> Image.Image:
+    """Renderiza uma página do PyMuPDF em PIL, sem passar por PNG."""
+    if cinza:
+        pix = pagina.get_pixmap(dpi=dpi, colorspace=fitz.csGRAY)
+        return Image.frombytes("L", (pix.width, pix.height), pix.samples)
+    pix = pagina.get_pixmap(dpi=dpi)
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
 class PDFService:
@@ -18,44 +53,44 @@ class PDFService:
         Carrega um PDF do disco.
         Retorna (num_pages, error_message). Se error_message for vazio, sucesso.
         """
-        import pdf2image
-
         if not os.path.exists(path):
             return 0, f"Arquivo não encontrado: {path}"
 
         try:
             with open(path, "rb") as f:
-                self.pdf_bytes = f.read()
+                dados = f.read()
 
-            info = pdf2image.pdfinfo_from_bytes(self.pdf_bytes)
-            self.num_pages = info["Pages"]
+            with fitz.open(stream=dados, filetype="pdf") as doc:
+                # PDF protegido abre e devolve 0 páginas, o que viraria "PDF
+                # vazio" mais adiante. Dizer o motivo aqui evita o diagnóstico
+                # errado.
+                if doc.needs_pass:
+                    return 0, "PDF protegido por senha."
+                paginas = doc.page_count
+                if paginas <= 0:
+                    return 0, "O PDF não tem páginas."
+
+            self.pdf_bytes = dados
             self.pdf_path = path
+            self.num_pages = paginas
             return self.num_pages, ""
         except Exception as e:
-            self.pdf_bytes = None
-            self.pdf_path = None
-            self.num_pages = 0
-            return 0, f"Erro ao abrir PDF:\n{e}\n\nVerifique se o Poppler está instalado."
+            self.close()
+            return 0, f"Erro ao abrir PDF:\n{e}"
 
     def load_page(self, page_index: int) -> Optional[Image.Image]:
         """
         Carrega uma página específica do PDF previamente carregado.
         Retorna PIL.Image em grayscale (mode 'L') ou None.
         """
-        import pdf2image
-
         if self.pdf_bytes is None:
+            return None
+        if not 0 <= page_index < self.num_pages:
             return None
 
         try:
-            pages = pdf2image.convert_from_bytes(
-                self.pdf_bytes,
-                first_page=page_index + 1,
-                last_page=page_index + 1,
-            )
-            if not pages:
-                return None
-            return pages[0].convert("L")
+            with fitz.open(stream=self.pdf_bytes, filetype="pdf") as doc:
+                return _para_pil(doc[page_index], DPI_PADRAO, cinza=True)
         except Exception:
             return None
 
@@ -68,13 +103,16 @@ class PDFService:
         self.num_pages = 0
 
     @staticmethod
-    def convert_pdf_to_images(path: str, dpi: int = 200) -> List[Image.Image]:
+    def convert_pdf_to_images(path: str, dpi: int = DPI_PADRAO) -> List[Image.Image]:
         """
         Converte todo um PDF em uma lista de imagens PIL.
         Útil para processamento em lote.
-        """
-        import pdf2image
 
+        Devolve RGB, como o `pdf2image` devolvia: quem chama converte para cinza
+        quando precisa, e há caminho de UI que mostra a página colorida.
+        """
         with open(path, "rb") as f:
-            pdf_bytes = f.read()
-        return pdf2image.convert_from_bytes(pdf_bytes, dpi=dpi)
+            dados = f.read()
+
+        with fitz.open(stream=dados, filetype="pdf") as doc:
+            return [_para_pil(pagina, dpi, cinza=False) for pagina in doc]
