@@ -1179,7 +1179,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.2 | ~~Cor por confiança~~ — **CONCLUÍDA** | O olho vai direto ao suspeito |
 | F3.3 | ~~Filtros na lista~~ — **CONCLUÍDA** | Revisar 80 boxes em vez de 2.000 |
 | F3.4 | ~~Autosave + recuperação de crash~~ — **CONCLUÍDA** | O `crash_log.txt` existe por um motivo |
-| F3.5 | **Atalhos** — Ctrl+S, Ctrl+O, PgUp/PgDn (páginas), Tab/Shift+Tab | Fluxo sem mouse |
+| F3.5 | ~~Atalhos~~ — **CONCLUÍDA** | Fluxo sem mouse |
 | F3.6 | ~~Aplicar a todos os semelhantes~~ — **CONCLUÍDA** | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 
@@ -1383,6 +1383,32 @@ quantos ficaram de fora; cortar a exibição e aplicar no resto seria mudar o qu
 não viu.
 
 Cobertura: `tests/test_f36_semelhantes.py`, 49 testes.
+
+**F3.5 — concluída em 2026-08-04.** Metade do item já tinha entrado junto com a F3.7:
+Ctrl+S, Ctrl+Shift+S e PgUp/PgDn nasceram lá, porque preservar boxes entre páginas sem
+oferecer como gravá-los seria pior que não preservar. Faltavam **Ctrl+O** e
+**Tab/Shift+Tab**.
+
+Ctrl+O abre um diálogo só, para PDF e imagem, e decide pela extensão. O menu mantém as
+duas entradas separadas — às vezes se quer filtrar a lista —, mas um atalho que exigisse
+escolher o tipo *antes* de ver o arquivo seria pior que não ter atalho.
+
+**Tab devolve `"break"`, e isso desliga a travessia de foco do Tk na janela principal.**
+É deliberado e é o custo real do item: sem o `"break"`, o Tk moveria o foco *além* de
+mover o box, e o foco sairia do editor no meio da revisão. A janela é um editor de canvas
+e lista, não um formulário, e o único campo que precisava de caminho próprio (a busca) já
+tem o Ctrl+F. Os diálogos não são afetados: binding de tecla sobe pelo *toplevel* do
+widget em foco, e o de um `Toplevel` não é a janela principal.
+
+O Tab também leva o foco ao campo do caractere, o que fecha o ciclo "Tab, digita, Tab".
+Sem isso, um Tab dado a partir da busca deixaria o usuário navegando boxes com as teclas
+caindo no filtro. No modo digitação o foco não se mexe — lá quem recebe as teclas é a
+janela, e roubá-lo desligaria o modo na prática.
+
+Os aceleradores foram para os rótulos do menu: atalho que não aparece no menu é atalho
+que ninguém descobre.
+
+Cobertura: `tests/test_f35_atalhos.py`, 31 testes.
 
 ---
 

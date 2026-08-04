@@ -456,6 +456,8 @@ class MainWindow(tk.Frame):
         self.parent.config(menu=menubar)
 
         m_file = tk.Menu(menubar, tearoff=0)
+        m_file.add_command(label="Abrir...", accelerator="Ctrl+O",
+                           command=self.abrir_documento)
         m_file.add_command(label="Abrir imagem...", command=self.open_image)
         m_file.add_command(label="Abrir PDF...", command=self.open_pdf)
         m_file.add_command(label="Salvar .box (página atual)", accelerator="Ctrl+S",
@@ -495,8 +497,10 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Aplicar a todos os semelhantes...",
                             accelerator="Ctrl+E",
                             command=self.aplicar_aos_semelhantes)
-        m_tools.add_command(label="Dividir box selecionado", command=self.split_selected_box)
-        m_tools.add_command(label="Excluir box selecionado", command=self.delete_selected_box)
+        m_tools.add_command(label="Dividir box selecionado", accelerator="Ctrl+D",
+                            command=self.split_selected_box)
+        m_tools.add_command(label="Excluir box selecionado", accelerator="Del",
+                            command=self.delete_selected_box)
         m_tools.add_separator()
         m_tools.add_command(label="Substituir Glifos de Xadrez em PDF (Texto)...", command=self.substitute_chess_glyphs_action)
         m_tools.add_command(label="Gerar PDF Pesquisável (OCR)...",
@@ -568,6 +572,12 @@ class MainWindow(tk.Frame):
         root.bind("<Control-z>", self._on_key_undo)
         root.bind("<Control-y>", self._on_key_redo)
         root.bind("<Control-Z>", self._on_key_redo)  # Shift+Ctrl+Z fallback
+        root.bind("<Control-o>", lambda e: (self.abrir_documento(), "break")[1])
+        root.bind("<Control-O>", lambda e: (self.abrir_documento(), "break")[1])
+        root.bind("<Tab>", lambda e: self._on_key_tab(1))
+        root.bind("<Shift-Tab>", lambda e: self._on_key_tab(-1))
+        # No X11 o Shift+Tab chega como ISO_Left_Tab, não como Shift-Tab.
+        root.bind("<ISO_Left_Tab>", lambda e: self._on_key_tab(-1))
 
     # -------------------------------------------------------
     # Modo digitação contínua
@@ -728,6 +738,32 @@ class MainWindow(tk.Frame):
             self.update_canvas()
 
         self._update_title()
+
+    #: Extensões que `abrir_documento` reconhece como imagem de página.
+    EXTENSOES_DE_IMAGEM = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+    def abrir_documento(self, path=None):
+        """
+        Ctrl+O: um diálogo só, para PDF e imagem, decidido pela extensão.
+
+        O menu tem duas entradas separadas porque o usuário às vezes quer
+        filtrar a lista, mas um atalho que exigisse escolher o tipo antes de
+        ver o arquivo seria pior que não ter atalho.
+        """
+        if path is None:
+            imagens = " ".join("*" + e for e in self.EXTENSOES_DE_IMAGEM)
+            path = filedialog.askopenfilename(
+                filetypes=[("PDF e imagens", "*.pdf " + imagens),
+                           ("Arquivos PDF", "*.pdf"),
+                           ("Imagens", imagens),
+                           ("Todos", "*.*")])
+        if not path:
+            return
+
+        if os.path.splitext(path)[1].lower() == ".pdf":
+            self.open_pdf(path)
+        else:
+            self.open_image(path)
 
     def open_pdf(self, path=None):
         # pdf_service é lido pela thread de trabalho; trocar o PDF por baixo
@@ -1789,6 +1825,30 @@ class MainWindow(tk.Frame):
 
     def _on_key_delete(self, event):
         self.delete_selected_box()
+
+    def _on_key_tab(self, passo):
+        """
+        Tab anda um box, Shift+Tab volta, e o foco fica pronto para digitar.
+
+        Devolve "break" sempre: sem isso o Tk faria a travessia de foco padrão
+        **além** de mover o box, e o foco sairia do editor no meio da revisão.
+        Perder a travessia não custa nada aqui — a janela é um editor de canvas
+        e lista, não um formulário, e o único campo que precisava de atalho
+        próprio (a busca) já tem o Ctrl+F.
+
+        Levar o foco ao campo do caractere é o que fecha o ciclo "Tab, digita,
+        Tab": sem isso o Tab a partir da busca deixaria o usuário navegando
+        boxes com as teclas caindo no filtro. No modo digitação o foco não se
+        mexe — lá quem recebe as teclas é a janela, e roubá-lo desligaria o
+        modo na prática.
+        """
+        if not self.boxes:
+            return "break"
+        self._mover_selecao(passo)
+        if not self.modo_digitacao:
+            self.char_entry.focus_set()
+            self.char_entry.select_range(0, "end")
+        return "break"
 
     # Widgets que consomem a tecla: enquanto um deles tem o foco, atalho de
     # janela não pode disparar. `ttk.Entry` e `ttk.Spinbox` herdam de `tk.Entry`
