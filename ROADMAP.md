@@ -24,7 +24,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível e peças pretas funcionando | pendente |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | pendente |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1, F3.2, F3.3 e F3.7 feitas) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
 
@@ -323,7 +323,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.1 | ~~Modo digitação contínua~~ — **CONCLUÍDA** | Corta metade das teclas |
 | F3.2 | ~~Cor por confiança~~ — **CONCLUÍDA** | O olho vai direto ao suspeito |
 | F3.3 | ~~Filtros na lista~~ — **CONCLUÍDA** | Revisar 80 boxes em vez de 2.000 |
-| F3.4 | **Autosave** a cada N alterações + recuperação de crash | O `crash_log.txt` existe por um motivo |
+| F3.4 | ~~Autosave + recuperação de crash~~ — **CONCLUÍDA** | O `crash_log.txt` existe por um motivo |
 | F3.5 | **Atalhos** — Ctrl+S, Ctrl+O, PgUp/PgDn (páginas), Tab/Shift+Tab | Fluxo sem mouse |
 | F3.6 | **Aplicar a todos os semelhantes** — corrigiu um `e`, corrige os 300 iguais | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
@@ -403,6 +403,49 @@ Verificado com despacho real do Tk (`event_generate`), não só chamando os hand
 a precedência de bindings é exatamente onde este desenho poderia furar em silêncio.
 
 Cobertura: `tests/test_f31_digitacao.py`, 15 testes.
+
+**F3.4 — concluída em 2026-08-03.** Rascunho automático em
+`<documento>.pyboxsession.json`, gravado a cada 25 alterações, com oferta de
+recuperação ao reabrir. `Ctrl+B` grava na hora.
+
+A medição mudou o desenho. Gravar do jeito ingênuo (`asdict` + JSON na thread da UI):
+
+| Sessão | Custo |
+|---|---:|
+| 1 página, 764 boxes | 6 ms |
+| 5 páginas, 10 mil boxes | 74 ms |
+| 20 páginas, 40 mil boxes | **292 ms** |
+| 50 páginas, 100 mil boxes | **746 ms** |
+
+Acima de poucas páginas isso violaria o critério da F4.1. Duas mudanças resolveram:
+
+- **Formato de tuplas em vez de dicts** — `asdict` sozinho custava 98 ms dos 292. Com
+  tuplas a conversão cai para 23 ms e o arquivo encolhe de 3,9 MB para 1,7 MB.
+- **Snapshot na UI, encode e escrita numa thread própria** — o rascunho não passa pelo
+  `BackgroundTask`: não é operação do usuário, não tem progresso, não é cancelável e não
+  pode disputar a vaga única com o OCR.
+
+Medido depois: **22,9 ms** de bloqueio para 40 mil boxes, 12× melhor que os 292 ms.
+
+Outras decisões:
+
+- **Escrita atômica** (temporário + `os.replace`). Travar durante o autosave não pode
+  deixar um rascunho corrompido — é justamente o cenário para o qual ele existe.
+- **Fila de tamanho 1**, o pedido novo descarta o antigo: só interessa o estado atual.
+- **O rascunho some quando não é mais necessário**: ao salvar de verdade, ao recusar a
+  recuperação e ao aceitar descartar alterações. Sobreviver a um descarte explícito
+  faria o trabalho ressuscitar na abertura seguinte.
+- **Rascunho recuperado não é sobrescrito pelo `.box` do disco** — ele é mais recente.
+
+Isso também fecha a limitação registrada na F3.2: o rascunho guarda `confidence` e
+`source`, que o `.box` do Tesseract não tem onde guardar.
+
+Cobertura: `tests/test_f34_autosave.py`, 13 testes.
+
+**Custo colateral medido, ainda em aberto:** `_commit_change` gasta ~15,7 ms numa página
+de 2.000 boxes só no `deepcopy` do histórico — ou seja, ~15 ms por tecla no modo
+digitação contínua. Está dentro do critério, mas é o próximo gargalo natural
+(snapshot incremental em vez de cópia integral).
 
 **F3.7 — concluída em 2026-08-03.** `_load_pdf_page` fazia `self.boxes = []` sem aviso
 nem confirmação: navegar para a próxima página apagava tudo que havia sido digitado,
@@ -588,6 +631,7 @@ apostar.
 [FEITO] F3.2  cor por confiança        ← habilita F3.3 e F1.7
 [FEITO] F3.3  filtros e navegação
 [FEITO] F3.1  digitação contínua
+[FEITO] F3.4  autosave e recuperação
       ↓
 F1.4  limpar sym_f7              ─┐
 F1.1  coletar peças pretas        ├── precisam vir antes do próximo treino

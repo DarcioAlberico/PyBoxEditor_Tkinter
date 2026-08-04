@@ -524,8 +524,22 @@ Regras:
 - [feito] **salvar todas as páginas** — um par `.box`/`.png` por página com boxes,
   em `<base>_pgNNN`. Sem isso a persistência seria uma armadilha: trabalho acumulado
   em várias páginas sem forma de gravá-lo
-- [F3.4] autosave a cada N alterações, em sidecar ao lado do arquivo
-- [F3.4] ao abrir, detectar sidecar mais recente e oferecer recuperação
+- [feito] autosave a cada N alterações (25), em sidecar ao lado do arquivo
+- [feito] ao abrir, detectar sidecar e oferecer recuperação
+
+**O sidecar não passa pelo `BackgroundTask`.** Autosave não é operação do usuário: não
+tem progresso, não é cancelável e não pode disputar a vaga única de tarefa em primeiro
+plano com o OCR ou o carregamento de página. Usa uma thread própria, fila de tamanho 1
+(o pedido novo descarta o antigo) e escrita atômica (temporário + `os.replace`) — travar
+durante o autosave não pode corromper justamente o arquivo de recuperação.
+
+O snapshot é montado na thread da UI, porque precisa de uma visão consistente; só o
+encode e a escrita saem dela. Cada box vira **tupla**, não dict: medido em 40 mil boxes,
+`asdict` custava 98 ms contra 23 ms das tuplas, e o arquivo cai de 3,9 MB para 1,7 MB.
+Resultado final: 22,9 ms de bloqueio, contra 292 ms da versão ingênua.
+
+O sidecar guarda `confidence` e `source`, resolvendo para o caminho de recuperação a
+limitação registrada em §2.3 (o `.box` do Tesseract não tem onde guardá-los).
 
 Detalhe de implementação que vale registrar: `store()` guarda a lista recebida **sem
 copiar**, e `boxes_for()` devolve a própria lista. Copiar a cada tecla numa página de

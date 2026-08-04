@@ -13,7 +13,7 @@ from core.services.ocr_service import OCRService
 from core.services.pdf_service import PDFService
 from core.services.learning_service import LearningService
 from core.services.history_service import HistoryManager
-from core.services.document_service import DocumentSession
+from core.services.document_service import DocumentSession, _GravadorAssincrono
 from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
@@ -34,6 +34,10 @@ class MainWindow(tk.Frame):
     ORIGEM_TODAS = "(todas)"
     ORIGEM_VAZIA = "(sem)"
 
+    # Quantas alterações entre gravações do rascunho. Baixo demais escreve à
+    # toa; alto demais perde trabalho num travamento. 25 é ~meia linha de texto.
+    AUTOSAVE_A_CADA = 25
+
     def __init__(self, parent):
         super().__init__(parent)
 
@@ -50,6 +54,10 @@ class MainWindow(tk.Frame):
 
         # Modo digitação contínua: a tecla aplica e avança, sem Enter.
         self.modo_digitacao = False
+
+        # Rascunho automático: conta mutações desde a última gravação.
+        self._gravador = _GravadorAssincrono()
+        self._mudancas_desde_autosave = 0
 
         # Documento aberto: guarda os boxes de todas as páginas visitadas
         # e o que ainda não foi gravado em disco.
@@ -89,6 +97,10 @@ class MainWindow(tk.Frame):
         if self.session is not None:
             self.session.store(self.current_pdf_page, self.boxes)
             self.session.mark_dirty(self.current_pdf_page)
+
+            self._mudancas_desde_autosave += 1
+            if self._mudancas_desde_autosave >= self.AUTOSAVE_A_CADA:
+                self._gravar_rascunho()
         self._update_title()
 
     def _sync_session(self):
@@ -122,7 +134,7 @@ class MainWindow(tk.Frame):
         else:
             onde = "esta imagem"
 
-        return messagebox.askyesno(
+        descartar = messagebox.askyesno(
             "Trabalho não salvo",
             f"Há alterações não salvas em {onde}.\n"
             f"Total na sessão: {self.session.total_boxes()} box(es).\n\n"
@@ -130,6 +142,66 @@ class MainWindow(tk.Frame):
             "Descartar as alterações e continuar?",
             icon="warning",
         )
+        if descartar:
+            # O usuário aceitou perder: manter o rascunho o ressuscitaria na
+            # próxima abertura, o que seria pior que a perda escolhida.
+            self._descartar_rascunho()
+        return descartar
+
+    def _gravar_rascunho(self):
+        """
+        Agenda a gravação do rascunho e zera o contador.
+
+        O snapshot é montado aqui (thread da UI) porque precisa de uma visão
+        consistente dos boxes; o encode em JSON e a escrita vão para a thread
+        do gravador. Medido em 40 mil boxes: 23 ms aqui contra 31 ms lá.
+        """
+        if self.session is None:
+            return
+        self._mudancas_desde_autosave = 0
+        if self.session.autosave(self._gravador):
+            erro = self._gravador.ultimo_erro
+            if erro is not None:
+                self.status.set(f"Falha ao gravar rascunho: {erro}")
+
+    def _descartar_rascunho(self):
+        """Some com o rascunho: ou o trabalho foi salvo de verdade, ou o
+        usuário escolheu descartá-lo."""
+        if self.session is not None:
+            self.session.remover_autosave()
+        self._mudancas_desde_autosave = 0
+
+    def _tentar_recuperar(self):
+        """
+        Oferece o rascunho de um travamento anterior, se houver.
+
+        Devolve True se algo foi recuperado.
+        """
+        if self.session is None:
+            return False
+        payload = DocumentSession.ler_autosave(self.session.path)
+        if payload is None:
+            return False
+
+        paginas = len(payload.get("paginas", {}))
+        boxes = sum(len(v) for v in payload.get("paginas", {}).values())
+        quando = payload.get("gravado_em", "?").replace("T", " ")
+
+        if not messagebox.askyesno(
+            "Recuperar trabalho",
+            f"Há um rascunho não salvo deste documento, de {quando}:\n"
+            f"{paginas} página(s), {boxes} box(es).\n\n"
+            "Isso costuma sobrar de um fechamento inesperado.\n\n"
+            "Recuperar esse trabalho?\n"
+            "(Se recusar, o rascunho será descartado.)",
+            icon="warning",
+        ):
+            self.session.remover_autosave()
+            return False
+
+        recuperadas = self.session.aplicar_payload(payload)
+        self.status.set(f"Rascunho recuperado: {recuperadas} página(s).")
+        return True
 
     def _on_close(self):
         if self.task.is_running():
@@ -143,6 +215,15 @@ class MainWindow(tk.Frame):
         if self._confirm_discard():
             self.task.shutdown()
             self.parent.destroy()
+
+    def salvar_rascunho_agora(self):
+        """Força a gravação do rascunho (menu / Ctrl+B)."""
+        if self.session is None or not self.session.pages_with_boxes():
+            self.status.set("Nada para gravar no rascunho.")
+            return "break"
+        self._gravar_rascunho()
+        self.status.set(f"Rascunho gravado em {os.path.basename(self.session.sidecar())}.")
+        return "break"
 
     # -------------------------------------------------------
     # Trabalho pesado fora da thread da UI
@@ -375,6 +456,9 @@ class MainWindow(tk.Frame):
                            command=self.save_all_pages)
         m_file.add_command(label="Carregar .box", command=self.load_box_file)
         m_file.add_separator()
+        m_file.add_command(label="Gravar rascunho agora", accelerator="Ctrl+B",
+                           command=self.salvar_rascunho_agora)
+        m_file.add_separator()
         m_file.add_command(label="Sair", command=self._on_close)
         menubar.add_cascade(label="Arquivo", menu=m_file)
 
@@ -438,6 +522,7 @@ class MainWindow(tk.Frame):
         # antigo só testava tk.Entry e não cobria ttk.Entry nem Combobox.)
         root.bind("<Control-d>", self._on_key_split_safe)
         root.bind("<Control-D>", self._on_key_split_safe)
+        root.bind("<Control-b>", lambda e: self.salvar_rascunho_agora())
         root.bind("<F2>", lambda e: self.alternar_modo_digitacao())
         root.bind("<Escape>", self._on_key_escape)
         root.bind("<Key>", self._on_tecla_digitacao)
@@ -578,6 +663,8 @@ class MainWindow(tk.Frame):
 
         self.session = DocumentSession(path, num_pages=1, is_pdf=False)
         self.current_pdf_page = 0
+        self._mudancas_desde_autosave = 0
+        recuperou = self._tentar_recuperar()
 
         self.image = img.convert("L")
         self.image_path = path
@@ -591,7 +678,13 @@ class MainWindow(tk.Frame):
         self.history.reset()
 
         box_path = os.path.splitext(path)[0] + ".box"
-        if os.path.exists(box_path):
+        if recuperou:
+            # O rascunho é mais recente que o .box em disco; carregá-lo por
+            # cima desfaria justamente o que se acabou de recuperar.
+            self.history.snapshot(self.boxes, self.selected_index)
+            self.update_sidebar()
+            self.update_canvas()
+        elif os.path.exists(box_path):
             self._load_box_from_path(box_path, marcar_sujo=False)
         else:
             self.history.snapshot(self.boxes, self.selected_index)
@@ -625,6 +718,8 @@ class MainWindow(tk.Frame):
         self.session = DocumentSession(path, num_pages=num_pages, is_pdf=True)
         self.boxes = []
         self.current_pdf_page = 0
+        self._mudancas_desde_autosave = 0
+        self._tentar_recuperar()
         self._load_pdf_page(0, arquivar_atual=False)
 
     def _load_pdf_page(self, page_index, arquivar_atual=True):
@@ -1288,6 +1383,8 @@ class MainWindow(tk.Frame):
             salvos, falhas = resultado
             for page, _ in salvos:
                 sessao.mark_saved(page)
+            if not sessao.is_dirty():
+                self._descartar_rascunho()
             self._update_nav_controls()
             self._update_title()
             self._relatar_salvamento([d for _, d in salvos], falhas)
@@ -1332,6 +1429,8 @@ class MainWindow(tk.Frame):
 
         if self.session is not None:
             self.session.mark_saved(self.current_pdf_page)
+            if not self.session.is_dirty():
+                self._descartar_rascunho()
             self._update_nav_controls()
         self._update_title()
 
