@@ -369,17 +369,23 @@ revelaria:
 | `✝` lido como `+` | e o inverso | 1x / 1x |
 | `f` lido como `f7` | a ligadura da F1.4 | 1x |
 
-#### Nesta rodada o critério novo escolheu a mesma epoch que o velho
+#### Com 15 epochs os dois critérios coincidiram; com 25 não
 
-Vale dizer alto, porque é o contrário do que o item sugeria. A perda de treino caiu
-monotonicamente (0,6047 → 0,0377) e a de validação também terminou no mínimo
-(0,0055 na epoch 15): **os dois critérios apontaram a epoch 15**. Em 15 epochs este
-modelo ainda não tinha começado a piorar na validação, então o "ponto de maior
-overfitting" ainda não havia chegado.
+Na primeira rodada a perda de treino caiu monotonicamente (0,6047 → 0,0377) e a de
+validação também terminou no mínimo: **os dois critérios apontaram a epoch 15**. Em
+15 epochs o modelo ainda não tinha começado a piorar, então o "ponto de maior
+overfitting" ainda não havia chegado — o defeito era real, mas não se manifestava.
 
-O que mudou, então, não foi o modelo desta rodada. Foi passar a existir um número
-que diz se ele generaliza, e um critério capaz de perceber quando ele deixar de
-generalizar — o que a perda de treino, que só cai, nunca poderia fazer.
+Deixando rodar até 25 epochs, ele se manifestou:
+
+| epoch | perda(treino) | perda(val) |
+|---:|---:|---:|
+| 17 | 0,0296 | **0,0049** ← gravada |
+| 22 | **0,0246** | 0,0058 |
+
+A perda de treino continuou caindo enquanto a de validação subia. O critério antigo
+teria gravado a epoch 22 — o modelo que decorou mais. O early stopping cortou na 22
+e o que ficou em disco é a 17.
 
 #### Uma armadilha de leitura que o relatório passou a avisar
 
@@ -420,12 +426,34 @@ amostras das classes raras.
 - **Base pequena demais para dividir continua treinando**, e avisa que voltou ao
   critério ruim. É o caso de quem começou a coletar hoje.
 
+#### O modelo em uso foi retreinado
+
+`custom_model.pth`, que era de março, foi refeito pelo caminho de produção
+(`LearningService.train_neural`, 25 epochs, paciência 5). Parou por early stopping na
+epoch 22 e gravou a 17: **99,85% de validação, 99,83% de teste, 97,54% de recall
+macro**. O modelo anterior está em `custom_model_2026-08-03_antes_f13.pth`.
+
+`model_meta.json` foi de 105 para **103 classes** — as duas pastas vazias que a F1.4
+removeu deixaram de ocupar índice, como a F1.2 previu.
+
+Conferido depois do retreino, com uma amostra real de cada classe:
+
+| Classe | Amostras na base | Predição | Confiança |
+|---|---:|---|---:|
+| `♔` | 2.643 | `♔` | 1,000 |
+| `♘` | 1.768 | `♘` | 1,000 |
+| `e` | 25.075 | `e` | 1,000 |
+| `K` | **6** | `K` | 1,000 |
+| `±` | **5** | `±` | 1,000 |
+
+As duas últimas são as classes que a SPEC §5.3 mandava excluir do treino.
+
 #### O que fica em aberto
 
 - O modelo é treinado com 80% dos dados e fica assim. Retreinar na base inteira
   depois de descobrir a melhor epoch recuperaria os 20%, ao custo de dobrar o tempo.
-- `custom_model.pth` **continua sendo o de março**: este treino foi para um diretório
-  de rascunho, para não sobrescrever o modelo em uso sem pedir.
+- `model_meta.json` está no git e `custom_model.pth` não (`*.pth` é ignorado). É
+  exatamente o descasamento que a SPEC §5.5 descreve, e continua em aberto lá.
 
 Cobertura: `tests/test_f13_validacao.py`, 25 testes.
 
@@ -1045,10 +1073,11 @@ figurina foi **fundida com a coordenada seguinte**. Ou seja, o limitador de qual
 hoje é **segmentação** (F1.5 e F1.6), não o modelo. Retreinar antes de arrumar a
 segmentação renderia pouco.
 
-**A dependência que travava o retreino saiu inteira.** F1.2 e F1.3 estão feitas: o
-sorteio compensa o desbalanceamento, o número exibido é medido em dados que o modelo
-não viu, e o checkpoint deixou de ser o ponto de maior overfitting. Falta apenas
-**retreinar de fato** — `custom_model.pth` ainda é o de março.
+**A dependência que travava o retreino saiu inteira, e o retreino foi feito.** F1.2 e
+F1.3 estão prontas — o sorteio compensa o desbalanceamento, o número exibido é medido
+em dados que o modelo não viu, e o checkpoint deixou de ser o ponto de maior
+overfitting. `custom_model.pth` foi refeito em 2026-08-04: 99,83% no conjunto de
+teste, contra nenhum número confiável antes.
 
 **F1.7 depende de F3.2**, que já está feita: sem saber quais caracteres são duvidosos,
 não há o que desambiguar pela legalidade.

@@ -20,6 +20,11 @@ training_data_2/
 *.pth
 *.onnx
 
+# Saída do treino (F1.3) — gerada a cada rodada, com caminhos absolutos dentro
+relatorio_treino.txt
+relatorio_treino.json
+relatorio_treino_erros/
+
 # Scans de livros — grandes e derivados de material com copyright
 ilovepdf_pages-to-jpg/
 
