@@ -282,9 +282,15 @@ def test_base_real_esta_sanada():
 
 def test_metadado_do_modelo_corrigido():
     """
-    O índice 79 foi treinado com 127 imagens de "f7" mas estava rotulado "?",
-    colidindo com o índice 63. Corrigir o rótulo conserta o modelo já treinado,
-    sem retreinar.
+    "f7" e "?" são classes distintas no modelo em uso.
+
+    O defeito era `sym_f7` treinar 127 imagens da casa "f7" com o rótulo "?",
+    colidindo com `sym_63`, que é o "?" de verdade.
+
+    A primeira versão deste teste fixava os índices 79 e 63, que eram os do
+    modelo de março. O retreino da F1.3 os moveu — as duas pastas vazias
+    deixaram de ocupar índice — e o teste quebrou sem que nada estivesse errado.
+    O invariante é a separação das duas classes, não onde elas caem.
     """
     meta_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "model_meta.json")
@@ -293,9 +299,16 @@ def test_metadado_do_modelo_corrigido():
     with open(meta_path, encoding="utf-8") as f:
         meta = json.load(f)
 
-    assert meta["idx_to_char"]["79"] == "f7"
-    assert meta["idx_to_char"]["63"] == "?"
+    idx_to_char = meta["idx_to_char"]
+    de_f7 = [k for k, v in idx_to_char.items() if v == "f7"]
+    de_interrogacao = [k for k, v in idx_to_char.items() if v == "?"]
+
+    assert len(de_f7) == 1, f"'f7' em {len(de_f7)} índices"
+    assert len(de_interrogacao) == 1, f"'?' em {len(de_interrogacao)} índices"
+    assert de_f7 != de_interrogacao
+
     assert "sym_f7" not in meta["label_map"]
+    assert meta["label_map"]["ligature_f7"] == int(de_f7[0])
 
 
 def test_metadado_e_lido_como_utf8():

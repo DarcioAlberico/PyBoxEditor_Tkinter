@@ -13,6 +13,10 @@ PyMuPDF>=1.23          # leitura/escrita de PDF, medição e embutimento de font
 torch>=2.0             # CNN customizada (core/neural_model.py, neural_trainer.py)
 easyocr>=1.7           # último elo da cadeia de fallback
 
+# --- Validação de notação ---
+chess>=1.10             # regras do jogo (core/notacao.py, ROADMAP F1.7)
+                        # Python puro, sem dependências; 1,3 MB instalado.
+
 # --- PDF rasterizado ---
 # Exige o binário externo Poppler no PATH. Previsto para remoção (ROADMAP F2.2):
 # o PyMuPDF já renderiza páginas nativamente via page.get_pixmap().

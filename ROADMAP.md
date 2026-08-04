@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1–F1.6 feitas; faltam F1.7 e F1.8) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1–F1.7 feitas; faltam F1.8 e F1.9) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -584,7 +584,7 @@ com segurança. Zero cortes falsos é a propriedade que importa.
 
 Cobertura: `tests/test_f15_preprocess.py`, 20 testes.
 
-### F1.7 — Validar notação contra as regras do xadrez
+### F1.7 — Validar notação contra as regras do xadrez — CONCLUÍDA
 
 Ideia trazida do [DocuVision-AI](https://github.com/betulkizilkaya/DocuVision-AI)
 (MIT, projeto acadêmico), avaliado em 2026-08-03. Era o único item realmente aplicável
@@ -594,15 +594,6 @@ Eles usam `python-chess` para pontuar qual bloco de texto da página é a notaç
 nós o uso mais forte é outro: **desambiguar caracteres de baixa confiança**. Se a rede
 hesita entre dois candidatos, o tabuleiro decide qual é possível.
 
-Verificado aqui:
-
-| Confusão típica de OCR | Candidatos | Legal na posição |
-|---|---|---|
-| `b` ↔ `h` (glifos parecidos) | `Bb4` / `Bh4` | só `Bb4` |
-| `3` ↔ `8` | `Nf3` / `Nf8` | só `Nf3` |
-| `N` ↔ `R` (altos e estreitos) | `Nf3` / `Rf3` | só `Nf3` |
-| linha inexistente | `Qh5` / `Qh9` | só `Qh5` |
-
 Numa posição típica (após 1.e4 e5 2.Nf3 Nc6) há **27 lances legais**, contra centenas de
 notações que o OCR poderia produzir. A legalidade descarta a maioria esmagadora das
 leituras erradas — de graça, sem treino.
@@ -610,21 +601,145 @@ leituras erradas — de graça, sem treino.
 Não resolve tudo: `Nbd2` e `Nfd2` podem ser ambos legais na mesma posição. A legalidade
 **estreita** o conjunto, nem sempre decide.
 
-Depende de: F3.2 (confiança gravada no `BoxEntry`) — sem saber quais caracteres são
-duvidosos, não há o que desambiguar.
-
-Custo: `python-chess` (5,9 MB, Python puro, sem dependências).
-
 **Não copiar o código deles.** O `fix_chess_moves` do DocuVision é o oposto do que
 queremos:
 
 ```python
-text = re.sub(r"2d3", "Bd3", text)
-text = re.sub(r"2e7", "Ne7", text)
+text = re.sub(r"2d3", "Bd3", text)
+text = re.sub(r"2e7", "Ne7", text)
 ```
 
 São remendos decorados para os erros de um corpus específico — frágeis e intransferíveis.
 A versão principiada é justamente o teste de legalidade.
+
+**Concluída em 2026-08-04.** `core/notacao.py`, com item de menu
+**Ferramentas → Validar notação de xadrez**. A dependência custa 1,3 MB instalados, e
+não os 5,9 MB que este item estimava.
+
+#### Duas afirmações deste item não sobreviveram à medição
+
+**1. A tabela de exemplos estava errada.** Ela dizia "verificado aqui", mas não tinha
+sido rodada: na posição citada (`1.e4 e5 2.Nf3 Nc6`) os **dois** lados de todos os
+quatro pares são ilegais — `Nf3` porque o cavalo já está em f3, `Bb4` porque nenhum
+bispo alcança b4. O princípio vale; os exemplos é que não. Nas posições certas:
+
+| Posição | Par | Resultado |
+|---|---|---|
+| `1.e4 e5` | `Nf3` / `Nf8` | só `Nf3` |
+| `1.e4 e5` | `Nf3` / `Rf3` | só `Nf3` |
+| `1.e4 e5` | `Qh5` / `Qh9` | só `Qh5` |
+| `1.d4 Nf6 2.c4 e6 3.Nc3` | `Bb4` / `Bh4` | só `Bb4` |
+
+**2. A dependência da F3.2 não existe na prática.** O item dizia "sem saber quais
+caracteres são duvidosos, não há o que desambiguar". Medindo a confiança na página
+real, contra o `.box` rotulado à mão:
+
+| | Amostras | Confiança mediana |
+|---|---:|---:|
+| Caracteres **certos** | 1.219 | 1,000 |
+| Caracteres **errados** | 163 | **1,000** |
+
+O modelo é superconfiante: só **19%** dos erros ficam abaixo de 0,9, e um corte em 0,9
+já leva junto 3% dos acertos. A ponderação por confiança ficou no código — é o desenho
+certo quando a confiança significa alguma coisa — mas hoje é praticamente inerte.
+**Quem faz o trabalho é a legalidade, sozinha.** Calibrar o modelo é o que destravaria
+essa parte, e virou item novo (F1.9).
+
+#### O que a página real exigiu, e não estava previsto
+
+**Espaço não dá para inferir só pela lacuna.** Os algarismos desta fonte têm avanço
+tabular: a lacuna mediana depois de `'1'` é **10 px**, contra 1–2 px depois de letras.
+Medido nos 1.404 boxes da página:
+
+| Limiar | Dígitos partidos ("15" vira "1 5") | Palavras coladas |
+|---|---:|---|
+| 0,5× largura mediana | 71 | nenhuma |
+| 0,8× | 38 | várias (`2.c4c53.d5`) |
+| 1,2× | 23 | muitas |
+
+As distribuições se sobrepõem, então nenhum limiar único resolve. A saída foi um limiar
+normal mais uma segunda passada que **só junta palavras inteiramente numéricas** —
+"20 1 0" vira "2010" e "Game 85" continua com o espaço.
+
+**Reconhecer o lance por expressão regular quebra no primeiro caractere errado.** A
+primeira versão casava a forma exata do SAN. Com o `□` que o classificador insere em
+`N□f6` o padrão não casa nada, o lance some, e a análise da página real terminava com
+**1 lance lido**. Como todo lance vai ser confrontado com os lances legais de qualquer
+jeito, o pedaço passou a ir inteiro e é a legalidade que decide — com uma peneira
+barata (tamanho ≤ 8, inicial plausível, contém uma casa) para não confundir prosa com
+lance.
+
+**Metade do texto destes livros são variantes.** "12.Re1 Qa5 12...Ra6; 12...Ra7;
+12...Nb6 13.Qc2" — lidas em sequência, todas menos a primeira são ilegais. Cada lance
+jogado guarda a posição de antes, e um número que já passou rebobina para lá.
+
+Mas depois da variante o texto volta à principal **sem marcar**: de fora, "13." tanto
+continua a variante quanto retoma a linha principal. Em vez de adivinhar, o analisador
+carrega todas as posições plausíveis e deixa o lance seguinte desempatar. Quando mais
+de uma sobrevive, ele se declara incerto e **não corrige nada** — só reporta. Foi isso
+que eliminou a única correção falsa que a primeira versão produzia (`e6` virando `e5`).
+
+#### Quanto rende
+
+Sobre 25 páginas do livro, com o modelo retreinado na F1.3:
+
+| | Com o divisor de glifos | Sem ele |
+|---|---:|---:|
+| Lances lidos | 491 | 524 |
+| Já legais | 77,8% | **93,5%** |
+| **Corrigidos pela legalidade** | **15,7%** | 0,8% |
+| Ambíguos (reportados, não corrigidos) | 5,5% | 5,2% |
+| Sem solução | 1,0% | 0,6% |
+
+A coluna da esquerda é o pipeline com o separador de glifos **como estava em
+2026-08-04**, antes do conserto; a da direita, com ele desligado. A leitura honesta é
+que **quase todo o ganho medido da F1.7 era conserto de estrago da F1.5**: com a
+entrada limpa, 93,5% dos lances já são legais e sobra pouco para corrigir.
+
+Sinal de que as correções estão certas, sem gabarito: se uma estivesse errada, o
+tabuleiro divergiria e o lance seguinte falharia. Depois de cada correção vêm **3 lances
+legais (mediana)**, e só 15 das 77 são seguidas de zero.
+
+Isolando o mecanismo da qualidade atual do OCR — três partidas reais, caracteres
+corrompidos de propósito com as confusões que o modelo comete, 12 sementes:
+
+| Corrupção | Recuperados | Corrigiu errado | Não decidiu | Invisível |
+|---|---:|---:|---:|---:|
+| 5% | 34,3% | 6,0% | 43% | 16% |
+| 20% | 36,8% | 3,4% | 45% | 15% |
+| 50% | 31,8% | 4,7% | 48% | 15% |
+
+Ou seja: a legalidade recupera **cerca de um terço** do estrago, erra em ~5% e se
+declara indecisa no resto. Entre as correções que ela decide fazer, **87% estão certas**.
+"Invisível" são as corrupções que por acaso produzem outro lance legal — aí não há o que
+perceber.
+
+#### Um defeito da F1.5 apareceu no caminho
+
+`BoxService.dividir_glifos_colados` compara a largura do box com a mediana da **página
+inteira**. Quando a página mistura tamanhos — e nestes livros a linha principal é maior e
+em negrito —, os caracteres em negrito passam do limite e viram candidatos a corte. O `N`
+em negrito tem um vale interno largo e é partido em dois; o segundo pedaço vira `□`.
+Medido nesta página, contra o gabarito:
+
+| | Acerto do OCR | Boxes |
+|---|---:|---:|
+| `separar_colados=True` | 83,3% | 1.487 (102 espúrios) |
+| `separar_colados=False` | **88,2%** | 1.385 |
+
+A validação da F1.5 não pegou porque a propriedade verificada era "zero pedaços estreitos
+novos", e as duas metades de um `N` em negrito são largas o bastante. Está registrado como
+item próprio, fora desta fase.
+
+#### O que fica em aberto
+
+- Distinguir linha principal de variante resolveria os 5,2% ambíguos. O sinal existe:
+  medida a densidade de tinta por palavra, a principal fica em 0,52–0,64 e as variantes
+  em 0,34–0,52 — separa, mas com sobreposição, e depende da imagem da página.
+- Caractere **faltando** vira sugestão, não edição: não há box para apontar. Só o caso
+  inverso (box sobrando) vira edição automática, esvaziando o caractere.
+
+Cobertura: `tests/test_f17_notacao.py`, 28 testes.
 
 ### F1.8 — Mascarar diagramas antes de detectar boxes
 
@@ -636,6 +751,18 @@ o que não pega as casas individuais.
 Detectar a região do tabuleiro e mascará-la antes da detecção de contornos evita o
 problema na origem. Não é preciso YOLO (que o DocuVision usa): análise de contornos e
 detecção de linhas com Hough bastam para uma grade 8×8.
+
+### F1.9 — Calibrar a confiança do modelo
+
+Saiu da medição da F1.7: a confiança mediana de um caractere **errado** é 1,000, igual à
+de um certo. O `softmax` de uma CNN treinada com augmentation pesada é conhecidamente
+superconfiante, e aqui isso custa em três lugares — a cor por confiança da F3.2 pinta de
+verde o que está errado, o filtro "só pendentes" da F3.3 não mostra os erros, e a
+ponderação por confiança da F1.7 fica inerte.
+
+*Temperature scaling* sobre o conjunto de validação que a F1.3 já monta resolve com um
+único parâmetro e sem retreinar. Medida a usar: erro de calibração esperado antes e
+depois, e a fração de erros que um corte em 0,9 passa a pegar.
 
 ### F1.6 — Ordenação de leitura ignora colunas
 
@@ -1054,9 +1181,11 @@ CONCLUÍDAS
   F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
   F1.6  ordem de leitura e colunas     F1.5  pré-processamento e glifos colados
   F1.2  balanceamento (25.075:1)       F1.3  split de validação
+  F1.7  validação por legalidade
 
 PRÓXIMAS — qualidade de reconhecimento
-  F1.7  validação por legalidade (python-chess)
+  F1.5b divisor de glifos parte 'N' em negrito   ← custa 4,9pp de acerto
+  F1.9  calibrar a confiança (o erro sai com 1,000 de confiança)
   F1.8  mascarar diagramas antes de detectar
 
 DEPOIS
@@ -1079,8 +1208,15 @@ em dados que o modelo não viu, e o checkpoint deixou de ser o ponto de maior
 overfitting. `custom_model.pth` foi refeito em 2026-08-04: 99,83% no conjunto de
 teste, contra nenhum número confiável antes.
 
-**F1.7 depende de F3.2**, que já está feita: sem saber quais caracteres são duvidosos,
-não há o que desambiguar pela legalidade.
+**O que a F1.7 mudou nas prioridades.** Medindo a página real, o limitador voltou a ser
+segmentação: o separador de glifos da F1.5 parte o `N` em negrito e custa 4,9 pontos de
+acerto, sozinho. E a confiança do modelo não distingue acerto de erro (mediana 1,000 nos
+dois casos), o que deixa inerte tanto a ponderação da F1.7 quanto a cor da F3.2 e o
+filtro da F3.3 — daí a F1.9. Os dois valem mais que a F1.8.
+
+**~~F1.7 depende de F3.2~~** — **não dependia.** A F3.2 gravou a confiança, mas a
+confiança gravada não distingue certo de errado, então a legalidade acabou fazendo o
+trabalho sozinha. Medição no item.
 
 ---
 

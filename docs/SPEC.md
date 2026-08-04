@@ -529,6 +529,36 @@ carregar modelo cujo hash não bata com o dataset.
   "idx_to_char": { … } }
 ```
 
+### 5.6 Validação por legalidade — [feito]
+
+`core/notacao.py` reconstrói o texto a partir dos boxes, lê a notação e confronta cada
+lance com as regras (`python-chess`). Menu **Ferramentas → Validar notação de xadrez**;
+37 ms para 1.487 boxes, então roda na thread da UI.
+
+```python
+analise = notacao.analisar(boxes)      # -> Analise(lances, correcoes, ...)
+notacao.aplicar(boxes, analise.correcoes)
+```
+
+Contratos que a implementação estabeleceu, todos vindos de medição na página real:
+
+1. **Espaço é inferido pela lacuna, com uma segunda passada só para números.** Os
+   algarismos desta fonte têm avanço tabular (lacuna mediana de 10 px depois de `'1'`,
+   contra 1–2 px depois de letras), e nenhum limiar único separa "15" de "c4 c5".
+2. **Box sem caractere ocupa espaço.** A lacuna entre dois vizinhos é a **maior** do
+   caminho, não a distância direta — senão esvaziar um box abriria um espaço no meio
+   da palavra.
+3. **O lance não é reconhecido por expressão regular**, e sim entregue inteiro à
+   legalidade. Casar a forma exata do SAN quebra no primeiro caractere errado, que é
+   justamente o caso a corrigir.
+4. **Uma posição só, ou nada.** Depois de uma variante o texto volta à linha principal
+   sem marcar; quando mais de uma posição explica o mesmo número de lance, o
+   analisador se declara incerto e reporta em vez de corrigir.
+5. **Só box sobrando vira edição.** Caractere faltando não tem box para apontar.
+
+O peso da confiança (F3.2) está em `custo_da_troca` e hoje é inerte: medido, o modelo
+erra com confiança mediana 1,000. Ver F1.9 no ROADMAP.
+
 ---
 
 ## 6. Aplicação
