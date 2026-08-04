@@ -13,20 +13,34 @@ Spec anterior (módulo de glifos): [`Substituição de Glifos de Xadrez.md`](Sub
 
 O projeto tem uma arquitetura boa (services desacoplados da UI, dataclass de domínio,
 pipeline de fallback neural → k-NN → EasyOCR) e uma base de treino relevante
-(127.264 amostras, 105 classes). Mas hoje **ele não roda**: cinco defeitos de
-runtime bloqueiam o caminho principal, e a funcionalidade-carro-chefe
-(substituição de glifos de xadrez) **corrompe o PDF em silêncio**.
+(127.264 amostras, 105 classes). Mas ~~hoje **ele não roda**~~ — na abertura deste
+documento não rodava: cinco defeitos de runtime bloqueavam o caminho principal, e a
+funcionalidade-carro-chefe (substituição de glifos de xadrez) **corrompia o PDF em
+silêncio**.
 
 Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos por leitura.
 
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
-| **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
+| **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (F0.1–F0.4) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9, F1.5b) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.7) |
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
-| **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
+| **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
+
+**Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
+à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
+**93,8 de F1** — 94,5% de recall e 93,0% de precisão. O classificador sozinho, medido
+em recorte já segmentado, dá **99,83%** no conjunto de teste. A distância entre os dois
+números é o trabalho que sobra, e ele é de **segmentação**, não de modelo.
+
+Cobertura: **513 testes**, `pytest` na raiz.
+
+> As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
+> direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
+> números acima **não** serão reproduzidos. `medir_paginas.py` e `calibrar_modelo.py`
+> rodam com o conjunto que encontrarem — só medem menos.
 
 ---
 
@@ -1688,68 +1702,119 @@ correta" e não testa nada — a função de teste está comentada. `test_draw.p
 Os quatro bugs de F0.1 seriam pegos por um único teste que constrói um `BoxEntry` e
 chama `update_sidebar`.
 
-### F5.4 — Arquivos de desenvolvimento no repositório
+### F5.4 — Arquivos de desenvolvimento no repositório — CONCLUÍDA
 
 `debug_imports.py`, `debug_runner.py`, `debug_simulation.py`, `debug_tk.py`,
 `crash_log.txt`, `full_log.txt`, `test_image.png`, `test_emj.png`, `test_sym.png`,
 `Novo Documento de Texto.txt`, `training_data_2/` (138 PNGs soltos, fora do padrão
 de pastas por classe).
 
-O projeto também **não é um repositório git**. Sem controle de versão, refatorar é
-apostar.
+O projeto também ~~**não é um repositório git**~~ — passou a ser, no começo da F0.
+Sem controle de versão, refatorar era apostar.
+
+**Concluída em 2026-08-04.** Saíram 10 arquivos: os quatro `debug_*.py`,
+`detect_fonts.py` (uma sondagem de PDF com a página 10 fixa no código),
+`migrate_training_data.py`, os três `test_*.py` da raiz e o `Novo Documento de
+Texto.txt`. Os logs, os PNGs de teste e o `training_data_2/` já estavam cobertos
+pelo `.gitignore` desde a F0.4 — não estavam no repositório, estão só no disco de
+quem desenvolveu.
+
+Conferido antes de apagar, e não era formalidade: `appy.py` **é o ponto de
+entrada da aplicação** e por pouco não entrou na lista pelo nome. O único
+importador de qualquer um dos removidos era o `debug_runner.py`, que importava o
+`appy` e saiu junto. `calibrar_modelo.py` e `medir_paginas.py` ficam: são as
+ferramentas que produzem os números deste documento.
+
+Dois eram pior que inúteis:
+
+- **`migrate_training_data.py` tinha a própria cópia de `char_to_folder`**, do
+  formato antigo, divergente da de `core/learner.py`. É a mesma classe de defeito
+  que a F5.1 e a F5.2 removeram, e o estrago que essa função faz quando erra está
+  registrado na F1.4: 127 amostras de `f7` treinando a classe `?` por meses.
+
+- **`test_draw.py` quebrava o `pytest`.** Chamado da raiz, o pytest coletava
+  `test_draw.py::test_font` — um script manual — e lia `font_name` e
+  `output_name` como fixtures inexistentes. A coleta da raiz também custava 67
+  segundos, contra 25 de execução em `tests/`. Entrou um `pytest.ini` com
+  `testpaths = tests`, para a próxima raiz chamada `test_*.py` não refazer o
+  estrago.
+
+O que sobrou na raiz: `.gitignore`, `ROADMAP.md`, `requirements.txt`,
+`pytest.ini`, o doc de substituição de glifos, `appy.py`, `calibrar_modelo.py`,
+`medir_paginas.py` e `model_meta.json`.
 
 ---
 
 ## Ordem de execução
 
+**Todos os itens do roadmap estão concluídos** (o último, a F5.4, em 2026-08-04).
+
 ```
-CONCLUÍDAS
-  F0.1  BoxEntry (4 pontos)            F3.7  boxes por página + aviso
-  F0.2  fonte Unicode do PDF           F4.1  threads
-  F0.3  undo/redo                      F4.2  barra de status
-  F0.4  requirements.txt               F3.2  cor por confiança
-  F5.3  teste de fumaça                F3.3  filtros e navegação
-  F5.1  remover código morto           F3.1  digitação contínua
-  F2.1  PDF pesquisável                F3.4  autosave e recuperação
-  F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
-  F1.6  ordem de leitura e colunas     F1.5  pré-processamento e glifos colados
-  F1.2  balanceamento (25.075:1)       F1.3  split de validação
-  F1.7  validação por legalidade
+F0  desbloqueio      F0.1 BoxEntry   F0.2 fonte Unicode   F0.3 undo/redo
+                     F0.4 requirements.txt
 
-PRÓXIMAS — qualidade de reconhecimento
-  F1.5b divisor de glifos parte 'N' em negrito   ← custa 4,9pp de acerto
-  F1.9  calibrar a confiança (o erro sai com 1,000 de confiança)
-  F1.8  mascarar diagramas antes de detectar
+F1  reconhecimento   F1.1 cobertura de peças (a premissa do item estava errada)
+                     F1.2 balanceamento (25.075:1)   F1.3 split de validação
+                     F1.4 saneamento do dataset      F1.5 pré-processamento
+                     F1.5b árbitro do corte          F1.6 ordem de leitura
+                     F1.7 validação por legalidade   F1.8 mascarar diagramas
+                     F1.9 calibrar a confiança
 
-DEPOIS
-  F2.2  remover Poppler          ← searchable_pdf.py já usa só PyMuPDF
-  F2.3  relatório e dry-run
-  F2.4  perfis de mapeamento por fonte
-  F3.5  atalhos restantes        F3.6  aplicar a todos os semelhantes
-  F4.3–F4.6  polimento de UI     F5.2  formato .box    F5.4  limpeza de arquivos
+F2  saída de PDF     F2.1 PDF pesquisável   F2.2 remover Poppler
+                     F2.3 relatório e dry-run   F2.4 perfis por fonte
+
+F3  produtividade    F3.1 digitação contínua   F3.2 cor por confiança
+                     F3.3 filtros e navegação  F3.4 autosave e recuperação
+                     F3.5 atalhos              F3.6 aplicar aos semelhantes
+                     F3.7 boxes por página
+
+F4  interface        F4.1 threads       F4.2 barra de status
+                     F4.3 rolagem       F4.4 lista incremental
+                     F4.5 aviso de não salvo (já estava feita)
+                     F4.6 colisão de tecla
+
+F5  higiene          F5.1 código morto  F5.2 formato .box
+                     F5.3 testes        F5.4 limpeza de arquivos
 ```
 
-**O que a F1.1 mudou nas prioridades.** A investigação mostrou que o classificador
-acerta figurinas isoladas com confiança 1,000; os erros vieram de boxes em que a
-figurina foi **fundida com a coordenada seguinte**. Ou seja, o limitador de qualidade
-hoje é **segmentação** (F1.5 e F1.6), não o modelo. Retreinar antes de arrumar a
-segmentação renderia pouco.
+**Onde a ordem mudou, e por quê.** A fila original punha F1.8 antes de F1.9, e a
+F1.5b não existia. Três medições reordenaram tudo:
+
+1. A **F1.1** mostrou que o limitador era segmentação, não o modelo: o
+   classificador acerta figurina isolada com confiança 1,000, e os erros vinham de
+   figurina fundida com a coordenada seguinte. Retreinar antes de arrumar a
+   segmentação renderia pouco.
+2. A **F1.7**, medindo a página real, mostrou que o separador da F1.5 partia o `N`
+   em negrito e custava 4,9 pontos sozinho — daí a F1.5b, que não estava prevista.
+3. A **F1.8** desceu na fila e encolheu: o item supunha que o tabuleiro viraria
+   milhares de boxes de lixo, e medindo deu **um** box por diagrama.
+
+**~~F1.7 depende de F3.2~~** — não dependia. A F3.2 gravou a confiança, mas a
+confiança gravada não distinguia certo de errado, e a legalidade acabou fazendo o
+trabalho sozinha.
+
+**A ordem entre F1.9 e F1.5b acabou sendo a que importava, e por acaso.** A F1.9
+mediu que a confiança do modelo **ordena** certo e errado bem (AUROC 0,89), mesmo
+sem ter escala honesta. Sem esse número, a F1.5b não teria sido tentada: a leitura
+que se tinha, vinda da F1.1, era "o modelo erra com confiança 1,000", o que fazia
+a pontuação parecer imprestável para arbitrar qualquer coisa.
+
+**O que continua valendo depois de tudo isto.** O gargalo de qualidade segue sendo
+a segmentação, não o classificador. Nas 9 páginas rotuladas o pipeline dá 93,8 de
+F1; o modelo, medido em recorte já segmentado, dá 99,8%. A distância entre os dois
+números é o trabalho que sobrou, e ele é de detecção de caixa — nenhum retreino o
+alcança.
+
+**Custo colateral ainda em aberto** (registrado na F3.4): `_commit_change` gasta
+~15,7 ms numa página de 2.000 boxes só no `deepcopy` do histórico, ou seja ~15 ms
+por tecla no modo digitação contínua. Está dentro do critério, mas é o próximo
+gargalo natural — snapshot incremental em vez de cópia integral.
 
 **A dependência que travava o retreino saiu inteira, e o retreino foi feito.** F1.2 e
 F1.3 estão prontas — o sorteio compensa o desbalanceamento, o número exibido é medido
 em dados que o modelo não viu, e o checkpoint deixou de ser o ponto de maior
 overfitting. `custom_model.pth` foi refeito em 2026-08-04: 99,83% no conjunto de
 teste, contra nenhum número confiável antes.
-
-**O que a F1.7 mudou nas prioridades.** Medindo a página real, o limitador voltou a ser
-segmentação: o separador de glifos da F1.5 parte o `N` em negrito e custa 4,9 pontos de
-acerto, sozinho. E a confiança do modelo não distingue acerto de erro (mediana 1,000 nos
-dois casos), o que deixa inerte tanto a ponderação da F1.7 quanto a cor da F3.2 e o
-filtro da F3.3 — daí a F1.9. Os dois valem mais que a F1.8.
-
-**~~F1.7 depende de F3.2~~** — **não dependia.** A F3.2 gravou a confiança, mas a
-confiança gravada não distingue certo de errado, então a legalidade acabou fazendo o
-trabalho sozinha. Medição no item.
 
 ---
 
