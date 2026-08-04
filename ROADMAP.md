@@ -23,7 +23,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9) |
-| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 e F2.2 feitas; faltam F2.3 e F2.4) |
+| **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1–F2.3 feitas; falta F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | parcial (F5.1 e F5.3 feitas) |
@@ -1067,7 +1067,7 @@ o erro saía como "o PDF não tem páginas".
 
 Cobertura: `tests/test_f22_pdf_nativo.py`, 17 testes.
 
-### F2.3 — Faltam relatório e dry-run
+### F2.3 — Faltam relatório e dry-run — CONCLUÍDA
 
 A spec v1.0 pede (RF-06 e RNF-04) e não foram implementados:
 
@@ -1076,6 +1076,45 @@ A spec v1.0 pede (RF-06 e RNF-04) e não foram implementados:
 
 Num conversor que reescreve PDFs, dry-run não é conforto — é a única forma de conferir
 antes de destruir.
+
+**Concluída em 2026-08-04.** `core/relatorio_pdf.py` e `analisar_substituicao`, que
+devolve o relatório; `substitute_chess_glyphs` continua com a assinatura antiga por cima
+dela. A UI pergunta "simular antes?" antes de escolher o arquivo de saída.
+
+**Dry-run e conversão são a mesma travessia.** É isso que dá sentido à conferência: mesma
+detecção de diagrama, mesmos avisos, mesmo cálculo de encolhimento de corpo — a simulação
+só não escreve. Se as duas divergissem, conferir a simulação não diria nada sobre a
+conversão, e `test_simular_e_converter_veem_a_mesma_coisa` reprova se isso acontecer. Em
+dry-run nem o `insert_font` roda, porque ele já altera o documento.
+
+Os relatórios saem ao lado do PDF, e a simulação usa `_simulacao` em vez de `_relatorio`
+no nome para os dois poderem conviver e serem comparados. O CSV vai com BOM: sem ele o
+Excel no Windows lê UTF-8 como cp1252 e transforma os símbolos de peça em lixo.
+
+Além dos avisos que a SPEC pede, o relatório registra os **blocos que a heurística de
+diagrama ignorou**. É a heurística com mais chance de errar, e descartar o bloco em
+silêncio não deixava rastro nenhum de que ele existiu.
+
+#### A primeira simulação de verdade achou dois defeitos
+
+Era exatamente para isso que a fase existia.
+
+**1. O aviso de confiança disparava em toda notação normal.** A primeira versão contava
+como "desconhecido" todo caractere fora do perfil de mapeamento, e `Nf3` tem só o `N` no
+perfil — saía com confiança 0,33 e aviso, sendo um lance perfeitamente comum. Um aviso
+que dispara sempre é o mesmo que não avisar. A conta passou a considerar também a
+`NOTACAO_ESPERADA` (coluna, fila, captura, xeque, promoção, roque, anotação), que
+atravessa sem tradução e **assim mesmo está certa**. `Nf3` agora dá 1,00; `wyz` dá 0,00.
+
+**2. A letra de coluna vira peça.** Medido: `Bb5` sai como `♗♝5`. O `B` maiúsculo é o
+bispo, certo — mas o `b` minúsculo, que ali é a **coluna b**, também está no
+`DEFAULT_MAPPING_PROFILE` (minúsculas = peças pretas) e virou bispo preto. Não é defeito
+do relatório, é do perfil, e é anterior a esta fase: passava despercebido porque ninguém
+via o antes e o depois. Fica como motivação concreta da F2.4 — nas fontes figurinas as
+minúsculas realmente codificam peças pretas, então o perfil sozinho não tem como
+distinguir os dois usos sem olhar o contexto.
+
+Cobertura: `tests/test_f23_relatorio_dryrun.py`, 22 testes.
 
 ### F2.4 — Perfis de mapeamento por fonte
 

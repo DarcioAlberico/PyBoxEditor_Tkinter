@@ -5,7 +5,8 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core.chess_pdf_processor import substitute_chess_glyphs
+from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
+from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService
@@ -848,8 +849,24 @@ class MainWindow(tk.Frame):
         if not input_pdf:
             return
 
+        # Simular primeiro é a pergunta certa a fazer antes de reescrever um PDF:
+        # a conversão apaga o texto original com um retângulo branco e desenha
+        # outro por cima, e depois de gravada não há como comparar com o que
+        # havia. O padrão é 'sim' de propósito (F2.3).
+        simular = messagebox.askyesnocancel(
+            "Simular antes?",
+            "Gerar apenas o relatório, sem gravar o PDF?\n\n"
+            "Sim — simula e mostra o que seria substituído (nada é alterado).\n"
+            "Não — converte de verdade e grava o PDF.\n\n"
+            "A conversão reescreve o documento e não tem como ser desfeita."
+        )
+        if simular is None:
+            return
+
+        titulo_saida = ("Onde salvar o relatório da simulação..." if simular
+                        else "Salvar PDF Convertido Como...")
         output_pdf = filedialog.asksaveasfilename(
-            title="Salvar PDF Convertido Como...",
+            title=titulo_saida,
             defaultextension=".pdf",
             filetypes=[("Arquivos PDF", "*.pdf")]
         )
@@ -863,18 +880,22 @@ class MainWindow(tk.Frame):
                 h.raise_if_cancelled()
                 h.progress(pagina + 1, total, f"página {pagina + 1}/{total}")
 
-            return substitute_chess_glyphs(input_pdf, output_pdf,
-                                           progress_callback=progresso)
+            return analisar_substituicao(input_pdf, output_pdf,
+                                         progress_callback=progresso,
+                                         dry_run=simular)
 
-        def concluir(resultado):
-            total_pages, replaced = resultado
+        def concluir(rel):
+            cj, cc = caminhos_do_relatorio(output_pdf, rel.dry_run)
+            destino = ("Nenhum PDF foi gravado." if rel.dry_run
+                       else f"Arquivo salvo em:\n{output_pdf}")
             messagebox.showinfo(
-                "Concluído",
-                f"Conversão finalizada!\nPáginas processadas: {total_pages}\n"
-                f"Substituições realizadas: {replaced}\n\nArquivo salvo em:\n{output_pdf}"
+                "Simulação concluída" if rel.dry_run else "Concluído",
+                f"{rel.resumo()}\n\n{destino}\n\n"
+                f"Relatório:\n{cj}\n{cc}"
             )
 
-        self._run_task("Substituir glifos", trabalho, concluir)
+        self._run_task("Simular substituição" if simular else "Substituir glifos",
+                       trabalho, concluir)
 
     def gerar_pdf_pesquisavel_action(self):
         """PDF pesquisável: mantém a página como está e só acrescenta o texto."""

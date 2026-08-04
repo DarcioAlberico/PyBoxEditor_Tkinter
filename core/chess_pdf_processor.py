@@ -2,6 +2,8 @@ import fitz  # PyMuPDF
 import os
 from typing import Tuple
 
+from core import relatorio_pdf
+
 # Keywords to detect chess fonts
 CHESS_FONT_KEYWORDS = [
     "chess", "merida", "diagram", "figurine", "skak", "cburnett", "alpha", "leipzig"
@@ -126,44 +128,104 @@ def is_block_a_diagram(block: dict) -> bool:
     return total_span_count > 0 and (chess_span_count / total_span_count) > 0.7
 
 
+# Caracteres que atravessam a substituição sem tradução e **assim mesmo estão
+# certos**: coluna, fila, captura, xeque, promoção, roque, anotação. Sem esta
+# lista a confiança de "Nf3" daria 0,33 — só o 'N' está no perfil — e o aviso
+# dispararia em toda notação normal, que é o mesmo que não avisar.
+NOTACAO_ESPERADA = set("abcdefgh12345678xX+#=O0o-–—!?()[]{}.,;:/ ")
+
+
+def _confianca_do_mapeamento(texto: str, mapping_profile: dict) -> float:
+    """
+    Fração dos caracteres do span que a conversão soube o que fazer.
+
+    Não há OCR neste caminho — o texto vem do próprio PDF —, então "confiança"
+    aqui é sobre o **mapeamento**, não sobre leitura. Conta como conhecido tanto
+    o que o perfil traduz quanto o que é notação legítima de passagem; o que
+    sobra é caractere que a conversão copiou sem saber o que era, e um span
+    cheio deles é sinal de perfil errado para este livro.
+    """
+    if not texto:
+        return 1.0
+    conhecidos = sum(1 for c in texto
+                     if c in mapping_profile or c in NOTACAO_ESPERADA)
+    return conhecidos / len(texto)
+
+
 def process_span(page: fitz.Page, span: dict, mapping_profile: dict,
-                 fontname: str, font: fitz.Font) -> bool:
+                 fontname: str, font: fitz.Font,
+                 pagina_num: int = 0, dry_run: bool = False):
     """
     Substitui os glifos de xadrez de um span por texto Unicode.
 
     'fontname' é o alias já registrado na página via page.insert_font(), e 'font'
     o objeto fitz.Font correspondente (usado para medir a largura do texto).
-    Retorna True se algo foi escrito.
+
+    Devolve a `Substituicao` correspondente, ou None se o span não era de fonte
+    de xadrez. Com `dry_run=True` mede tudo e **não escreve nada** na página: é a
+    mesma travessia, os mesmos avisos, o mesmo cálculo de encolhimento — o que
+    permite conferir o relatório antes de deixar o conversor tocar no arquivo.
     """
     font_name = span.get("font", "")
     if not is_chess_font(font_name):
-        return False  # Not a chess font, do nothing
+        return None  # Not a chess font, do nothing
 
     original_text = span.get("text", "")
     if not original_text:
-        return False
+        return None
 
     bbox = fitz.Rect(span["bbox"])
 
     # Map the text
     new_text = "".join(mapping_profile.get(char, char) for char in original_text)
 
-    # 1. Erase the original text by drawing a white rectangle over the bounding box
-    # We use white assuming white background. Ideally, we should detect background color,
-    # but for most PDFs white is safe.
-    page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
+    avisos = []
+    # A fonte de saída foi validada em resolve_chess_font() para as 12 peças, mas
+    # o span pode trazer caractere fora desse conjunto (dígito, sinal de xeque),
+    # e aí o PyMuPDF desenha um vazio sem reclamar.
+    if any(not font.has_glyph(ord(c)) for c in new_text):
+        avisos.append("fonte_sem_glifo")
 
-    # 2. Ajustar o corpo da fonte para caber na largura original.
-    #    Os símbolos Unicode costumam ser mais largos que os glifos da fonte de
-    #    xadrez, e estourar o bbox empurraria a notação por cima do texto vizinho.
-    size = span["size"]
+    confianca = _confianca_do_mapeamento(original_text, mapping_profile)
+    if confianca < relatorio_pdf.LIMIAR_CONFIANCA:
+        avisos.append("confianca_baixa")
+
+    # Ajustar o corpo da fonte para caber na largura original.
+    # Os símbolos Unicode costumam ser mais largos que os glifos da fonte de
+    # xadrez, e estourar o bbox empurraria a notação por cima do texto vizinho.
+    corpo_original = span["size"]
+    size = corpo_original
     largura_alvo = bbox.width
     if largura_alvo > 0:
         limite = size * 0.6  # abaixo disso a leitura sofre; melhor deixar estourar
         while size > limite and font.text_length(new_text, fontsize=size) > largura_alvo:
             size -= 0.5
 
-    # 3. Escrever na baseline do span original.
+    if corpo_original > 0 and size / corpo_original < relatorio_pdf.LIMIAR_ENCOLHIMENTO:
+        avisos.append("fonte_reduzida")
+
+    sub = relatorio_pdf.Substituicao(
+        pagina=pagina_num,
+        bbox=(bbox.x0, bbox.y0, bbox.x1, bbox.y1),
+        fonte_original=font_name,
+        texto_original=original_text,
+        texto_substituto=new_text,
+        confianca=confianca,
+        corpo_original=corpo_original,
+        corpo_final=size,
+        aplicada=not dry_run,
+        avisos=avisos,
+    )
+
+    if dry_run:
+        return sub
+
+    # 1. Erase the original text by drawing a white rectangle over the bounding box
+    # We use white assuming white background. Ideally, we should detect background color,
+    # but for most PDFs white is safe.
+    page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
+
+    # 2. Escrever na baseline do span original.
     #    insert_text (e não insert_textbox): o textbox reflui o conteúdo dentro do
     #    retângulo e desloca a notação inline; para um trecho curto como "♘f3" o
     #    que importa é manter o alinhamento com a linha de texto.
@@ -175,16 +237,25 @@ def process_span(page: fitz.Page, span: dict, mapping_profile: dict,
         fontname=fontname,
         fontsize=size,
     )
-    return True
+    return sub
 
 
-def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: dict = None, progress_callback=None) -> Tuple[int, int]:
+def analisar_substituicao(input_pdf: str, output_pdf: str,
+                          mapping_profile: dict = None, progress_callback=None,
+                          dry_run: bool = False,
+                          gravar_relatorio: bool = True):
     """
-    Reads a PDF, finds inline chess glyphs, replaces them with Unicode, and saves the new PDF.
-    Ignores 8x8 chess diagrams.
-    
-    Returns:
-        tuple: (total_pages, replaced_spans_count)
+    Percorre o PDF, substitui os glifos de xadrez e devolve o relatório (F2.3).
+
+    Com `dry_run=True` faz exatamente a mesma travessia — mesma detecção de
+    diagrama, mesmos avisos, mesmo cálculo de encolhimento de corpo — e **não
+    grava o PDF**. É a única forma de conferir antes: o conversor apaga o texto
+    original com um retângulo branco e desenha outro por cima, e depois de
+    gravado não há como comparar com o que havia.
+
+    O relatório vai em JSON e CSV ao lado do arquivo de saída. Em dry-run os
+    nomes levam `_simulacao` em vez de `_relatorio`, para os dois poderem
+    conviver e serem comparados.
     """
     if not os.path.exists(input_pdf):
         raise FileNotFoundError(f"Arquivo não encontrado: {input_pdf}")
@@ -197,9 +268,6 @@ def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: di
     except Exception as e:
         raise Exception(f"Erro ao abrir PDF: {e}")
 
-    total_pages = len(doc)
-    replaced_spans_count = 0
-
     # Resolver a fonte ANTES de tocar no documento: se nenhuma fonte do sistema
     # desenhar as peças, é melhor abortar do que gerar um PDF com '·' no lugar
     # de cada símbolo. resolve_chess_font() levanta ChessFontError nesse caso.
@@ -207,42 +275,79 @@ def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: di
     font_obj = fitz.Font(fontfile=font_path)
     FONT_ALIAS = "chessuni"
 
+    rel = relatorio_pdf.RelatorioSubstituicao(
+        arquivo_entrada=input_pdf,
+        arquivo_saida="" if dry_run else output_pdf,
+        dry_run=dry_run,
+        total_paginas=len(doc),
+        fonte_saida=font_path,
+    )
+
     for page_num, page in enumerate(doc):
-        # O alias precisa ser registrado em cada página que for usá-lo.
-        page.insert_font(fontname=FONT_ALIAS, fontfile=font_path)
+        # Em dry-run nem o alias é registrado: insert_font já altera o documento,
+        # e o combinado é não encostar nele.
+        if not dry_run:
+            page.insert_font(fontname=FONT_ALIAS, fontfile=font_path)
 
         # Notify progress
         if progress_callback:
-            progress_callback(page_num, total_pages)
+            progress_callback(page_num, rel.total_paginas)
 
         # Extract text blocks with detailed layout info
         text_page = page.get_text("dict")
         if "blocks" not in text_page:
             continue
 
-        blocks = text_page["blocks"]
-
-        for block in blocks:
+        for block in text_page["blocks"]:
             # Skip image blocks
             if block.get("type", 0) != 0:
                 continue
-                
+
             # Nível 1: Filter out diagrams
             if is_block_a_diagram(block):
+                # Registrado, não descartado em silêncio: é a heurística com
+                # mais chance de errar, e sem isto um diagrama tratado como
+                # texto (ou o contrário) não deixa rastro nenhum.
+                spans = sum(len(l.get("spans", [])) for l in block.get("lines", []))
+                rel.diagramas_ignorados.append((page_num, spans))
                 continue
-                
+
             # Nível 2: Process inline text
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
                     if is_chess_font(span["font"]):
-                        if process_span(page, span, mapping_profile,
-                                        FONT_ALIAS, font_obj):
-                            replaced_spans_count += 1
+                        sub = process_span(page, span, mapping_profile,
+                                           FONT_ALIAS, font_obj,
+                                           pagina_num=page_num, dry_run=dry_run)
+                        if sub is not None:
+                            rel.substituicoes.append(sub)
 
-    try:
-        doc.save(output_pdf)
-        doc.close()
-    except Exception as e:
-        raise Exception(f"Erro ao salvar PDF: {e}")
+    if not dry_run:
+        try:
+            doc.save(output_pdf)
+        except Exception as e:
+            doc.close()
+            raise Exception(f"Erro ao salvar PDF: {e}")
+    doc.close()
 
-    return total_pages, replaced_spans_count
+    if gravar_relatorio and output_pdf:
+        relatorio_pdf.gravar(output_pdf, rel)
+
+    return rel
+
+
+def substitute_chess_glyphs(input_pdf: str, output_pdf: str, mapping_profile: dict = None,
+                            progress_callback=None) -> Tuple[int, int]:
+    """
+    Reads a PDF, finds inline chess glyphs, replaces them with Unicode, and saves the new PDF.
+    Ignores 8x8 chess diagrams.
+
+    Mantida com a assinatura antiga — devolve (total_pages, replaced_spans_count).
+    Quem precisa do detalhe usa `analisar_substituicao`, que devolve o relatório.
+
+    Returns:
+        tuple: (total_pages, replaced_spans_count)
+    """
+    rel = analisar_substituicao(input_pdf, output_pdf, mapping_profile,
+                                progress_callback)
+    return rel.total_paginas, rel.total_substituicoes
