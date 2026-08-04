@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 import cv2
 import numpy as np
 from core.neural_model import SimpleCNN, get_device
@@ -104,66 +104,178 @@ def apply_random_augmentation(img):
 
 
 # -------------------------------------------------------
+# Balanceamento
+# -------------------------------------------------------
+
+# Abaixo deste número a classe não é excluída — é apenas reportada. Excluir era
+# a proposta original da SPEC §5.3, e conferindo quais classes cairiam ficou
+# claro que não servia: nesta base as 33 classes com menos de 10 amostras
+# incluem 'K' (6), 'Q' (5) e os símbolos de anotação de xadrez ± ∓ ∞ □ ■ △ ▼.
+# São raras porque aparecem pouco no texto, não porque sejam lixo — e são
+# justamente vocabulário do domínio.
+MIN_AMOSTRAS_POR_CLASSE = 10
+
+# Teto de repetição por amostra num epoch. É uma trava, não o mecanismo
+# principal: no modo padrão ("sqrt") a amostra mais repetida da base real chega
+# a 63 sorteios e o teto mal encosta nela. Ele existe para o modo "inverso", em
+# que a única imagem de 'X' seria sorteada ~1.235 vezes por epoch — o modelo
+# decoraria um PNG —, e para bases degeneradas de qualquer modo.
+TETO_DE_REPETICAO = 50.0
+
+
+def contar_por_classe(labels, num_classes: int) -> np.ndarray:
+    return np.bincount(np.asarray(labels, dtype=np.int64), minlength=num_classes)
+
+
+def pesos_de_amostragem(contagens, labels, modo: str = "sqrt",
+                        teto: float = TETO_DE_REPETICAO) -> np.ndarray:
+    """
+    Peso de cada amostra para o `WeightedRandomSampler`.
+
+    `modo`:
+      - "inverso": 1/n — todas as classes com a mesma chance por epoch.
+      - "sqrt":    1/sqrt(n) — compensa parcialmente. Padrão.
+      - "nenhum":  peso igual, equivalente a `shuffle=True`.
+
+    O teto limita quantas vezes, em média, uma amostra pode ser sorteada num
+    epoch. É o que impede uma classe de 1 amostra de virar 1/103 do treino.
+    """
+    contagens = np.asarray(contagens, dtype=np.float64)
+    labels = np.asarray(labels, dtype=np.int64)
+    n = np.maximum(contagens, 1.0)
+
+    if modo == "nenhum":
+        por_classe = np.ones_like(n)
+    elif modo == "inverso":
+        por_classe = 1.0 / n
+    elif modo == "sqrt":
+        por_classe = 1.0 / np.sqrt(n)
+    else:
+        raise ValueError(f"modo de balanceamento desconhecido: {modo!r}")
+
+    pesos = por_classe[labels]
+
+    if teto and teto > 0 and len(pesos):
+        # Repetições esperadas de uma amostra num epoch de len(labels) sorteios.
+        # Baixar os pesos que estouram o teto reduz a soma, o que empurra todos
+        # os outros para cima — inclusive os que acabaram de ser cortados. Por
+        # isso o corte é iterado até estabilizar; uma passada só deixa o teto
+        # efetivo bem acima do pedido (medido: 72 repetições para um teto de 50).
+        for _ in range(50):
+            excesso = (pesos / pesos.sum() * len(pesos)) / teto
+            if excesso.max() <= 1.0 + 1e-9:
+                break
+            pesos = np.where(excesso > 1.0, pesos / excesso, pesos)
+
+    return pesos
+
+
+# -------------------------------------------------------
 # Dataset with Augmentation
 # -------------------------------------------------------
 
 class CharDataset(Dataset):
-    def __init__(self, data_dir="training_data", augment=True, augment_factor=8):
-        self.data = []
+    """
+    Amostras originais em uint8 32x32; a augmentation é aplicada sob demanda.
+
+    Antes o construtor gerava 8 variantes de cada amostra e guardava tudo em
+    float32. Na base real isso são 127.263 originais virando 1.145.367 arrays de
+    4 KB: **4,7 GB de RAM** e ~9,5 min por epoch, numa máquina de 16 GB. Só o
+    original em uint8 custa 124 MB, e augmentar na hora sai por 53 µs/amostra
+    (7 s por epoch de 127 mil).
+
+    A mudança não é só de memória, e é o que faz o balanceamento funcionar: com
+    a augmentation congelada no construtor, o `WeightedRandomSampler` sorteia
+    sempre as **mesmas 9 imagens** de uma classe rara, centenas de vezes. Sob
+    demanda, cada sorteio produz uma variante nova.
+    """
+
+    def __init__(self, data_dir="training_data", augment=True):
+        # `augment_factor` saiu junto com as cópias congeladas: quantas
+        # variantes existem por amostra passou a ser função de quantas vezes o
+        # sampler a sorteia, não de um número fixo no construtor.
+        self.data = np.zeros((0, 32, 32), dtype=np.uint8)
         self.labels = []
-        self.label_map = {}  # char -> int
-        self.idx_to_char = {}  # int -> char
+        self.label_map = {}    # nome da pasta -> int
+        self.idx_to_char = {}  # int -> caractere
         self.augment = augment
-        self.augment_factor = augment_factor
-        
+        self.contagens = np.zeros(0, dtype=np.int64)
+        self.classes_raras = []    # [(pasta, caractere, n)] — reportadas, não excluídas
+        self.classes_vazias = []   # pastas sem nenhuma amostra legível
+
         self.load_data(data_dir)
-        
+
     def load_data(self, data_dir):
         if not os.path.exists(data_dir):
             return
 
-        classes = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))])
-        
-        for idx, char_name in enumerate(classes):
-            # Decodificar nome da pasta para o caractere real
+        # Pastas com '_' na frente não são classes. A `_quarentena` do
+        # dataset_check (F1.4) entrava como classe de índice 0 — antes de todas
+        # as outras, na ordenação — e deslocava o mapa inteiro. Como ela só
+        # nasce quando um PNG é posto em quarentena, o modelo seguinte sairia
+        # errado sem nada aparecer.
+        classes = sorted([d for d in os.listdir(data_dir)
+                          if os.path.isdir(os.path.join(data_dir, d))
+                          and not d.startswith("_")])
+
+        amostras = []
+        for char_name in classes:
+            folder_path = os.path.join(data_dir, char_name)
+            do_grupo = []
+            for img_path in glob.glob(os.path.join(folder_path, "*.png")):
+                try:
+                    # open() + imdecode em vez de cv2.imread: no Windows o
+                    # imread falha em caminho não-ASCII e devolve None, o mesmo
+                    # que devolveria para um PNG corrompido (ver dataset_check).
+                    with open(img_path, "rb") as f:
+                        dados = f.read()
+                    img = cv2.imdecode(np.frombuffer(dados, dtype=np.uint8),
+                                       cv2.IMREAD_GRAYSCALE)
+                    if img is None:
+                        continue
+                    do_grupo.append(cv2.resize(img, (32, 32)))
+                except Exception as e:
+                    print(f"Skipping {img_path}: {e}")
+
+            # Pasta vazia não ganha índice. A `lower_ä` da base real ficou vazia
+            # (o cv2.imwrite descartava as amostras em silêncio, F1.4) e mesmo
+            # assim ocupava uma saída da rede: um neurônio que nunca podia estar
+            # certo, competindo com os outros em toda predição.
+            if not do_grupo:
+                self.classes_vazias.append(char_name)
+                continue
+
+            idx = len(self.label_map)
             real_char = folder_to_char(char_name)
             self.label_map[char_name] = idx
             self.idx_to_char[idx] = real_char
-            
-            folder_path = os.path.join(data_dir, char_name)
-            for img_path in glob.glob(os.path.join(folder_path, "*.png")):
-                try:
-                    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-                    if img is None:
-                        continue
-                    
-                    img = cv2.resize(img, (32, 32))
-                    
-                    # Original sample
-                    normalized = img.astype(np.float32) / 255.0
-                    self.data.append(np.expand_dims(normalized, axis=0))
-                    self.labels.append(idx)
-                    
-                    # Augmented samples
-                    if self.augment:
-                        for _ in range(self.augment_factor):
-                            aug_img = apply_random_augmentation(img)
-                            aug_img = cv2.resize(aug_img, (32, 32))
-                            normalized_aug = aug_img.astype(np.float32) / 255.0
-                            self.data.append(np.expand_dims(normalized_aug, axis=0))
-                            self.labels.append(idx)
 
-                except Exception as e:
-                    print(f"Skipping {img_path}: {e}")
-        
-        if self.augment:
-            print(f"Data Augmentation: {len(self.data)} amostras totais (x{self.augment_factor + 1})")
-                    
+            amostras.extend(do_grupo)
+            self.labels.extend([idx] * len(do_grupo))
+
+            if len(do_grupo) < MIN_AMOSTRAS_POR_CLASSE:
+                self.classes_raras.append((char_name, real_char, len(do_grupo)))
+
+        if amostras:
+            self.data = np.stack(amostras)
+        self.contagens = contar_por_classe(self.labels, len(self.label_map))
+
     def __len__(self):
         return len(self.data)
-    
+
+    # Fração dos sorteios que devolve a amostra intacta. O desenho antigo
+    # guardava 1 original para cada 8 cópias aumentadas, então 1/9 do treino era
+    # imagem limpa — e é imagem limpa que chega na hora de predizer. Augmentar
+    # 100% dos sorteios trocaria um problema por outro: `apply_random_augmentation`
+    # deixa passar intacto só 0,9% das vezes (é o produto das seis probabilidades).
+    FRACAO_SEM_AUGMENTATION = 1.0 / 9.0
+
     def __getitem__(self, idx):
-        return torch.tensor(self.data[idx]), torch.tensor(self.labels[idx])
+        img = self.data[idx]
+        if self.augment and random.random() >= self.FRACAO_SEM_AUGMENTATION:
+            img = apply_random_augmentation(img)
+        tensor = torch.from_numpy(np.ascontiguousarray(img)).float().div_(255.0)
+        return tensor.unsqueeze(0), self.labels[idx]
 
 
 # -------------------------------------------------------
@@ -177,35 +289,72 @@ class NeuralTrainer:
         self.meta_path = meta_path
         self.device = get_device()
         
-    def train(self, epochs=20, callback=None, should_stop=None):
+    def train(self, epochs=20, callback=None, should_stop=None,
+              balanceamento="sqrt"):
         """
         should_stop: callable sem argumentos consultado a cada época. Se devolver
         True, o treino para e o melhor modelo até ali fica salvo. Necessário para
         que a UI consiga cancelar (o treino chega a durar minutos).
+
+        balanceamento: "sqrt" (padrão), "inverso" ou "nenhum". Ver
+        `pesos_de_amostragem`. A base é 25.075:1 entre a classe mais comum e a
+        mais rara. Medido com holdout de 20% por classe (8 epochs, mesma
+        semente), o sorteio uniforme deixa o recall macro em 88,7% contra 96,6%
+        de acurácia global, com 5 classes zeradas; com "sqrt" os dois números
+        sobem, para 96,7% e 98,6%, e sobra uma classe zerada.
         """
-        dataset = CharDataset(self.data_dir, augment=True, augment_factor=8)
+        dataset = CharDataset(self.data_dir, augment=True)
         if len(dataset) == 0:
             if callback: callback("Nenhum dado encontrado para treinamento.")
             return False
-            
-        dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
-        
+
         num_classes = len(dataset.label_map)
+
+        # Um epoch = uma passada de len(dataset) sorteios. Com o sampler as
+        # classes raras aparecem muitas vezes e as comuns poucas, mas o total
+        # sorteado continua sendo o tamanho da base.
+        if balanceamento == "nenhum":
+            dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+        else:
+            pesos = pesos_de_amostragem(dataset.contagens, dataset.labels,
+                                        modo=balanceamento)
+            sampler = WeightedRandomSampler(torch.DoubleTensor(pesos),
+                                            len(dataset), replacement=True)
+            # shuffle é incompatível com sampler — o sorteio já é aleatório.
+            dataloader = DataLoader(dataset, batch_size=64, sampler=sampler)
+
         model = SimpleCNN(num_classes).to(self.device)
-        
+
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
-        
+
         # Learning Rate Scheduler: reduz o LR ao longo do treinamento
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.5)
-        
+
         model.train()
-        
-        original_count = len(dataset) // (dataset.augment_factor + 1)
-        if callback: callback(f"Treinando: {original_count} originais -> {len(dataset)} com augmentation ({num_classes} classes)")
-        
+
+        if callback:
+            n = dataset.contagens
+            maior, menor = int(n.max()), int(n[n > 0].min())
+            callback(f"Treinando: {len(dataset)} amostras, {num_classes} classes "
+                     f"(augmentation sob demanda, balanceamento={balanceamento})")
+            callback(f"Desbalanceamento da base: {maior}:{menor}")
+            if dataset.classes_vazias:
+                callback(f"Ignoradas {len(dataset.classes_vazias)} pasta(s) sem "
+                         f"amostra: {', '.join(dataset.classes_vazias[:8])}")
+            if dataset.classes_raras:
+                # Reportar, não excluir: nesta base as classes minúsculas são
+                # 'K', 'Q' e os símbolos de anotação — vocabulário do domínio.
+                lista = ", ".join(f"{c!r}({q})" for _, c, q in
+                                  sorted(dataset.classes_raras, key=lambda t: t[2])[:12])
+                callback(f"{len(dataset.classes_raras)} classes com menos de "
+                         f"{MIN_AMOSTRAS_POR_CLASSE} amostras: {lista}"
+                         f"{' ...' if len(dataset.classes_raras) > 12 else ''}")
+                callback("Elas entram no treino com repetição, mas colete mais "
+                         "amostras: uma classe assim generaliza pouco.")
+
         best_loss = float('inf')
-        
+
         accuracy = 0.0
         for epoch in range(epochs):
             if should_stop is not None and should_stop():
@@ -258,9 +407,13 @@ class NeuralTrainer:
                 with open(self.meta_path, "w", encoding="utf-8") as f:
                     json.dump(meta, f, ensure_ascii=False)
             
-            if callback: callback(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc: {accuracy:.1f}% - LR: {lr:.6f}")
-            
-        if callback: callback(f"Treinamento concluido! Acc final: {accuracy:.1f}% | Modelo salvo.")
+            # "Acc(treino)" e não "Acc": é medida sobre as próprias amostras de
+            # treino, aumentadas. Com o sampler ela ainda cai, porque as classes
+            # raras deixaram de ser arredondamento — o número menor é o número
+            # honesto. Acurácia de validação é a F1.3.
+            if callback: callback(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc(treino): {accuracy:.1f}% - LR: {lr:.6f}")
+
+        if callback: callback(f"Treinamento concluido! Acc(treino) final: {accuracy:.1f}% | Modelo salvo.")
         return True
 
 class NeuralPredictor:

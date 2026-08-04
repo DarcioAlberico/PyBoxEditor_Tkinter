@@ -1744,9 +1744,14 @@ class MainWindow(tk.Frame):
             return
 
         from tkinter import simpledialog
+        # "1 epoch = uma passada": antes o dataset materializava 8 cópias
+        # aumentadas de cada amostra, então um epoch valia 9 passadas. Com a
+        # augmentation sob demanda (F1.2) o epoch voltou ao significado usual —
+        # e ficou ~9x mais rápido, o que muda o número que faz sentido pedir.
         epochs = simpledialog.askinteger(
             "Epochs",
-            "Quantas epochs deseja treinar?\n(Mais epochs = mais preciso, porém mais lento)\n\nRecomendado: 15-30",
+            "Quantas epochs deseja treinar?\n(1 epoch = uma passada pela base)\n"
+            "(Mais epochs = mais preciso, porém mais lento)\n\nRecomendado: 15-30",
             initialvalue=15,
             minvalue=1,
             maxvalue=200

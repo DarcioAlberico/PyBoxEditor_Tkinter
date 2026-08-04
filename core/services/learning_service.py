@@ -107,8 +107,15 @@ class LearningService:
     def train_neural(self, epochs: int = 20,
                      callback: Optional[Callable[[str], None]] = None,
                      should_stop: Optional[Callable[[], bool]] = None,
-                     validar: bool = True) -> bool:
-        """Treina a rede neural com os dados atuais."""
+                     validar: bool = True,
+                     balanceamento: str = "sqrt") -> bool:
+        """
+        Treina a rede neural com os dados atuais.
+
+        `balanceamento` controla o sorteio das amostras (ver
+        `core.neural_trainer.pesos_de_amostragem`). O padrão compensa o
+        desbalanceamento de 25.075:1 da base.
+        """
         if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             if callback:
                 callback("Nenhum dado de treinamento encontrado.")
@@ -123,7 +130,9 @@ class LearningService:
                 raise DatasetInvalido(graves)
 
         trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
-        return trainer.train(epochs=epochs, callback=callback, should_stop=should_stop)
+        return trainer.train(epochs=epochs, callback=callback,
+                             should_stop=should_stop,
+                             balanceamento=balanceamento)
 
     # ------------------------------------------------------------------
     # Batch processing (extract + classify)

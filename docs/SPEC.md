@@ -408,30 +408,67 @@ def validate_dataset(data_dir: str) -> list[str]:
     """Erros: pasta vazia, nome irreversível, classe abaixo do mínimo, PNG ilegível."""
 ```
 
-### 5.3 Balanceamento
+### 5.3 Balanceamento — [feito]
 
 Proporção atual: 25.075 (`lower_e`) para 1 (`upper_Z`). Com `CrossEntropyLoss` sem
-pesos, classes raras nunca são previstas.
+pesos e sorteio uniforme, as classes raras não somem do modelo — o que se mede é
+mais sutil: elas acertam 77,2% contra 99,9% das classes grandes, e 5 delas ficam em
+zero. É a diferença entre acurácia global e recall macro.
 
 ```python
 from torch.utils.data import WeightedRandomSampler
 
-counts  = np.bincount(labels)
-weights = 1.0 / counts[labels]
-sampler = WeightedRandomSampler(weights, num_samples=len(labels), replacement=True)
-loader  = DataLoader(dataset, batch_size=64, sampler=sampler)   # sem shuffle com sampler
+pesos   = pesos_de_amostragem(dataset.contagens, dataset.labels, modo="sqrt")
+sampler = WeightedRandomSampler(torch.DoubleTensor(pesos), len(dataset),
+                                replacement=True)
+loader  = DataLoader(dataset, batch_size=64, sampler=sampler)  # sem shuffle com sampler
 ```
 
-Complementar com `MIN_SAMPLES_PER_CLASS = 10`: classes abaixo do piso são excluídas do
-treino e **reportadas**, em vez de entrarem como ruído.
+Medido com holdout de 20% por classe (121.020 de treino, 5.768 de avaliação,
+8 epochs, mesma semente), recall macro: **88,66% → 96,71%**, e a acurácia global
+sobe junto (96,58% → 98,63%).
 
-Augmentation permanece só no treino — hoje é aplicada ao dataset inteiro
-(`neural_trainer.py:181`), o que contamina qualquer avaliação futura.
+Três correções ao que este parágrafo dizia antes:
+
+1. **`class_weight` na loss não é alternativa equivalente ao sampler.** Medido,
+   dá 88,60% — igual ao baseline. Reescalar o gradiente não resolve quando a
+   classe rara aparece em 1 de cada mil lotes. O sampler muda o que o modelo vê.
+2. **O peso é 1/√n, não 1/n.** O inverso puro dá 0,5pp a mais de macro e 0,7pp a
+   menos de acurácia global, e derruba as classes grandes de 99,9% para 99,6% —
+   e as 10 maiores sozinhas são 79,6% da base. Há um teto de repetição por amostra
+   (`TETO_DE_REPETICAO`) que quase não encosta no modo padrão; ele existe para o
+   modo `inverso` e para bases degeneradas.
+3. **O piso (`MIN_AMOSTRAS_POR_CLASSE = 10`) reporta, não exclui.** Das 33 classes abaixo do
+   piso nesta base, fazem parte `'K'` (6), `'Q'` (5) e `±` `∓` `∞` `□` `■` `△` `▼`:
+   vocabulário do domínio, raro no texto e não lixo. Com balanceamento, a faixa
+   abaixo de 20 amostras vai a 92,1% e nenhuma classe fica zerada. Excluir
+   significaria o modelo nunca poder produzir esses caracteres — e ele não cai no
+   fallback quando erra com confiança, grava o caractere errado.
+
+**Augmentation passou a ser gerada sob demanda em `__getitem__`.** Materializá-la
+no construtor custava 4,89 GB de RAM na base real (1.145.367 arrays float32 de
+4 KB) contra 133 MB, e ~9,5 min por epoch contra ~70 s. Além do custo, congelar as
+variantes anula o sampler: sortear a mesma amostra 50 vezes devolvia as **mesmas
+9 imagens**. Sob demanda, cada sorteio é uma variante nova, por 53 µs.
+
+Consequências a manter em vista:
+
+- Um epoch voltou a valer **uma** passada pela base (valia nove). O diálogo de
+  treino diz isso, porque muda o número de epochs que faz sentido pedir.
+- `CharDataset(augment=False)` é o que a F1.3 deve usar para validação — a
+  contaminação que este parágrafo alertava deixou de ser estrutural.
+- 1 sorteio em 9 devolve a amostra intacta (`FRACAO_SEM_AUGMENTATION`): é a
+  proporção do desenho antigo, e é imagem limpa que chega na predição.
+
+Pastas que não são classe deixaram de virar classe: as que começam com `_`
+(a `_quarentena` do §5.2 pegava o **índice 0** e deslocava o mapa inteiro) e as
+que não têm nenhuma amostra legível (`lower_ä` ocupava uma saída da rede que
+nunca poderia estar certa).
 
 ### 5.4 Avaliação
 
 Hoje: acurácia calculada sobre o treino aumentado, e "melhor modelo" escolhido por
-*training loss* (`neural_trainer.py:231-234`) — critério que seleciona exatamente o
+*training loss* (`neural_trainer.py:389-395`) — critério que seleciona exatamente o
 ponto de maior overfitting.
 
 ```
@@ -450,7 +487,7 @@ Relatório ao final do treino:
 ### 5.5 Compatibilidade de modelo
 
 `model_meta.json` mapeia índice → caractere. Os índices vêm de
-`sorted(os.listdir(data_dir))` (`neural_trainer.py:125`). **Adicionar ou remover
+`sorted(os.listdir(data_dir))` (`neural_trainer.py:215`). **Adicionar ou remover
 qualquer pasta desloca todos os índices seguintes** — e um `custom_model.pth` antigo
 passa a devolver caracteres errados, sem nenhum erro.
 

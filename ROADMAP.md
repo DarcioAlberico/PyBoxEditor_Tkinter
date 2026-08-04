@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1, F1.4, F1.5 e F1.6 feitas) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1, F1.2, F1.4, F1.5 e F1.6 feitas) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -170,7 +170,7 @@ classificação erra. Isso é **segmentação** — F1.5 e F1.6 —, não classe
 (`18.` é das brancas, `18...` das pretas) ou da legalidade da posição. Ou seja, é
 exatamente a **F1.7**, e não trabalho de reconhecimento de imagem.
 
-### F1.2 — Desbalanceamento extremo, sem compensação
+### F1.2 — Desbalanceamento extremo, sem compensação — CONCLUÍDA
 
 | Classe | Amostras |
 |--------|---------:|
@@ -185,17 +185,158 @@ Proporção de 25.075:1. Com `CrossEntropyLoss` sem pesos e `shuffle=True` puro
 (`neural_trainer.py:186,191`), o modelo aprende a nunca arriscar classes raras —
 o custo de errar um `e` domina o gradiente.
 
-**Ação:** `WeightedRandomSampler` ou `class_weight` na loss, e piso mínimo de
-amostras por classe (ver SPEC §5.3).
+**Concluída em 2026-08-03.** `WeightedRandomSampler` no treino, augmentation
+gerada sob demanda e piso de amostras que **reporta em vez de excluir**.
+
+#### Medir exigiu construir o holdout antes
+
+O item afirmava que o modelo nunca arrisca classes raras. Rodando o
+`custom_model.pth` atual sobre a base, o recall dá ~100% em **todas** as 103
+classes, inclusive nas de 1 amostra — mas isso é medido sobre o próprio treino e
+não prova nem refuta nada. É exatamente o que a F1.3 diz.
+
+Então foi preciso separar um holdout: 20% de cada classe com 5 amostras ou mais
+(teto de 200 por classe), semente fixa, 121.020 amostras de treino contra 5.768
+de avaliação, 8 epochs, as quatro configurações no mesmo split.
+
+Com holdout, o item se confirma **no sentido, não na magnitude**: o modelo não
+ignora as classes raras em bloco — ele acerta 77,2% das que têm menos de 20
+amostras —, mas 5 classes ficam em zero e o recall macro fica quase 8 pontos
+abaixo da acurácia global.
+
+| Configuração | Acurácia (micro) | Recall macro | Classes zeradas |
+|---|---:|---:|---:|
+| como estava (sorteio uniforme) | 96,58% | 88,66% | 5 |
+| `class_weight` na loss | 96,20% | 88,60% | 4 |
+| `WeightedRandomSampler` 1/n | 97,90% | **97,22%** | **0** |
+| `WeightedRandomSampler` 1/√n ← adotado | **98,63%** | 96,71% | 1 |
+
+Recall macro por tamanho da classe, do estado anterior para o adotado:
+
+| Amostras de treino | Classes | Antes | Depois |
+|---|---:|---:|---:|
+| ≥ 1.000 | 17 | 99,9% | 99,9% |
+| 100–999 | 24 | 98,0% | 99,3% |
+| 20–99 | 12 | 78,8% | **97,1%** |
+| < 20 | 26 | 77,2% | **92,1%** |
+
+Não há troca: o micro **sobe** junto com o macro, e as classes grandes ficam onde
+estavam. Por isso o 1/√n foi preferido ao 1/n, que ganha 0,5pp de macro e devolve
+0,7pp de micro — e as 10 classes mais comuns, que sozinhas são 79,6% da base, caem
+de 99,9% para 99,6%.
+
+Essa tabela veio de um laço de treino escrito à parte, para variar as quatro
+configurações. Rodando de novo pelo `NeuralTrainer` de verdade, com o split sem as
+classes truncadas do estudo do piso: **99,50% de acurácia global e 97,89% de recall
+macro**, uma classe zerada — o `✝`, que tem 1 amostra no holdout, ou seja 0 de 1.
+Os números saem mais altos que os da tabela porque lá seis classes foram
+deliberadamente reduzidas a 1–20 amostras, e elas puxam as duas médias para baixo em
+todas as quatro linhas igualmente. A tabela serve para **comparar**; esta rodada
+serve para confirmar que o caminho de produção é o que foi medido.
+
+#### A SPEC oferecia duas saídas e uma delas não funciona
+
+§5.3 dizia "`WeightedRandomSampler` **ou** `class_weight` na loss", como se
+fossem equivalentes. Pesar a loss não mudou nada (88,60% contra 88,66% do
+baseline). Reescalar o gradiente não resolve quando a classe rara aparece em 1 de
+cada mil lotes: o pico raro é em boa parte absorvido pela normalização do Adam. O
+sampler muda **o que o modelo vê**, e é isso que conta.
+
+#### O bloqueio maior era memória, e não estava no item
+
+`CharDataset` materializava 8 variantes de cada amostra em float32 dentro do
+construtor. Na base real: 127.263 originais viram 1.145.367 arrays de 4 KB.
+
+| | Antes | Depois |
+|---|---:|---:|
+| RAM do dataset | **4,89 GB** | **133 MB** |
+| Tempo de carga | 2,2 min | 24,7 s |
+| Amostras por epoch | 1.145.367 | 127.263 |
+
+(O "antes" foi medido com 1/8 da base — 628 MB para 15.958 originais — e
+extrapolado; a máquina tem 16 GB, com 3,8 GB livres na hora da medição. Ou seja,
+o treino da base inteira provavelmente nunca rodou.)
+
+E isso não é só otimização: **é o que faz o balanceamento funcionar**. Com as
+cópias congeladas no construtor, o sampler sorteia sempre as **mesmas 9 imagens**
+de uma classe rara, dezenas de vezes por epoch. Sob demanda, cada sorteio dá uma
+variante nova — e sai por 53 µs, 7 s por epoch de 127 mil.
+
+Como um epoch deixou de valer 9 passadas, ele voltou ao significado usual e ficou
+~9× mais rápido. O diálogo de treino passou a dizer isso.
+
+Um detalhe que precisou de cuidado: 1 sorteio em cada 9 devolve a amostra
+**intacta**. Era a proporção do desenho antigo (1 original para 8 cópias), e é
+imagem limpa que chega na hora de predizer — `apply_random_augmentation` deixa
+passar sem tocar só 0,9% das vezes.
+
+#### O piso de 10 amostras reporta, não exclui
+
+A SPEC §5.3 pedia excluir do treino as classes abaixo do piso. Conferindo quais
+cairiam, a proposta não se sustenta: das 33 classes com menos de 10 amostras,
+estão lá `'K'` (6), `'Q'` (5) e os símbolos de anotação de xadrez
+`±` `∓` `∞` `□` `■` `△` `▼`. São raras porque aparecem pouco no texto, não porque
+sejam lixo — e são vocabulário do domínio. Excluir significaria o modelo nunca
+poder produzi-las, e o pipeline não cai no fallback quando a rede erra com
+confiança: ele grava o caractere errado.
+
+A medição confirma que dá para aprendê-las: com balanceamento, a faixa de menos
+de 20 amostras (26 classes reais) vai a 92,1% e nenhuma fica zerada.
+
+Para ver quanto é pouco demais, seis classes de 100+ amostras foram truncadas no
+treino, mantendo 50 no holdout:
+
+| Amostras de treino | Antes | Depois |
+|---:|---:|---:|
+| 1 | 0% | 74% |
+| 2 | 12% | 60% |
+| 3 | 92% | 98% |
+| 5 | 56% | 62% |
+| 10 | 98% | 100% |
+| 20 | 94% | 98% |
+
+**Isto é ilustração, não curva.** É uma rodada por configuração e uma classe por
+tamanho: 3 amostras dando 98% e 5 dando 62% é variância, não é o efeito do
+tamanho. O que se sustenta é o extremo (1–2 amostras é pouco em qualquer
+configuração) e o agregado das 26 classes reais da faixa.
+
+A explicação de por que tão pouco basta é o domínio: é uma fonte só. O modelo não
+precisa generalizar entre estilos de letra, precisa tolerar ruído de digitalização
+— que é o que a augmentation dá.
+
+#### Dois defeitos achados no caminho
+
+1. **A pasta `_quarentena` virava classe.** O `dataset_check` da F1.4 põe PNG
+   suspeito em `training_data/_quarentena`, e o `CharDataset` a lia como classe.
+   Pior: ordenada, `_` vem antes das letras, então ela ficava com o **índice 0** e
+   deslocava o mapa inteiro. Reproduzido contra o código do commit anterior — o
+   primeiro arquivo em quarentena corromperia o modelo seguinte em silêncio.
+2. **Pasta vazia ocupava uma saída da rede.** É o caso `lower_ä` citado no item.
+   Um neurônio que nunca pode estar certo continua competindo em toda predição.
+   Pastas sem amostra legível deixaram de receber índice.
+
+#### O que esta fase não resolve
+
+A acurácia continua sendo medida sobre o treino, e o "melhor modelo" continua
+sendo escolhido por *training loss* — é a F1.3, e o holdout usado aqui foi
+montado à mão para medir, não faz parte do produto. O rótulo na barra de status
+passou a dizer `Acc(treino)`, porque com o sampler esse número **cai** (as
+classes raras deixaram de ser arredondamento) e chamá-lo de "Acc" faria parecer
+piora.
+
+E o modelo em uso (`custom_model.pth`, de março) **não foi retreinado** — os
+ganhos acima aparecem no próximo treino.
+
+Cobertura: `tests/test_f12_balanceamento.py`, 24 testes.
 
 ### F1.3 — A acurácia reportada não significa nada
 
-`neural_trainer.py:228` calcula acurácia sobre o **próprio conjunto de treino, já
+`neural_trainer.py:389` calcula acurácia sobre o **próprio conjunto de treino, já
 aumentado**. Não existe split de validação. O "Acc: 98%" exibido ao usuário não diz
 se o modelo generaliza — e com o desbalanceamento acima, prever sempre as 10 classes
 mais comuns já daria número alto.
 
-Pior: `torch.save` em `neural_trainer.py:234` usa *training loss* como critério de
+Pior: `torch.save` em `neural_trainer.py:395` usa *training loss* como critério de
 "melhor modelo". Isso seleciona o ponto de maior overfitting.
 
 **Ação:** split estratificado 80/15/5, early stopping por *validation* loss,
@@ -797,11 +938,11 @@ CONCLUÍDAS
   F2.1  PDF pesquisável                F3.4  autosave e recuperação
   F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
   F1.6  ordem de leitura e colunas     F1.5  pré-processamento e glifos colados
+  F1.2  balanceamento (25.075:1)
 
 PRÓXIMAS — qualidade de reconhecimento
-  F1.2  balanceamento (25.075:1)    ─┐ agora são o limitador: a segmentação
-  F1.3  split de validação          ─┘ está resolvida, o classificador não
-      ↓
+  F1.3  split de validação          ← o holdout da F1.2 foi montado à mão
+      ↓                               para medir; falta virar produto
   F1.7  validação por legalidade (python-chess)
   F1.8  mascarar diagramas antes de detectar
 
@@ -819,9 +960,11 @@ figurina foi **fundida com a coordenada seguinte**. Ou seja, o limitador de qual
 hoje é **segmentação** (F1.5 e F1.6), não o modelo. Retreinar antes de arrumar a
 segmentação renderia pouco.
 
-**Dependência que continua valendo:** F1.2 e F1.3 precisam preceder qualquer retreino —
-sem balanceamento o modelo ignora classes raras, e sem split de validação a acurácia
-reportada não significa nada.
+**Dependência que continua valendo, agora só a metade dela:** a F1.2 saiu, então o
+retreino já não ignora classes raras. Falta a F1.3 — sem split de validação no
+produto, a acurácia que o usuário vê continua sendo medida sobre o próprio treino,
+e o "melhor modelo" continua sendo escolhido pelo critério que seleciona o ponto de
+maior overfitting.
 
 **F1.7 depende de F3.2**, que já está feita: sem saber quais caracteres são duvidosos,
 não há o que desambiguar pela legalidade.
