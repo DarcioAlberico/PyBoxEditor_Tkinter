@@ -22,7 +22,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (branch `fix/f0-desbloqueio`) |
-| **F1** | Qualidade de OCR | Acurácia medível; leitura em ordem correta | parcial (F1.1, F1.4 e F1.6 feitas) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | parcial (F1.1, F1.4, F1.5 e F1.6 feitas) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | parcial (F2.1 feita) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | parcial (F3.1–F3.4 e F3.7 feitas) |
 | **F4** | UI | Interface responsiva, sem congelar | parcial (F4.1 e F4.2 feitas) |
@@ -261,7 +261,7 @@ Resultado na base real: 105 → 103 classes, 0 problemas graves, 127.263 amostra
 
 Cobertura: `tests/test_f14_dataset.py`, 24 testes.
 
-### F1.5 — Pré-processamento fraco para material escaneado
+### F1.5 — Pré-processamento fraco para material escaneado — CONCLUÍDA
 
 Threshold fixo em **180**, replicado em três lugares
 (`box_service.py:20`, `learning_service.py:127`, `neural_pdf_processor.py:17`).
@@ -272,6 +272,61 @@ isso perde caracteres inteiros nas bordas.
 
 Detalhe irônico: `core/opencv_autobox.py:17` **já implementa Otsu** com filtros de
 tamanho melhores. O arquivo nunca é importado. Está morto.
+
+**Concluída em 2026-08-03.** `core/preprocess.py` com `binarize` (auto/otsu/
+adaptive/fixed), `deskew`, `denoise` e `normalize_dpi`. O Otsu veio do
+`opencv_autobox.py` arquivado na F5.1, como previsto.
+
+**Minha primeira heurística de "auto" estava errada.** Ela testava bimodalidade do
+histograma para escolher entre Otsu e adaptativo. Numa página com sombra de
+encadernação o histograma **é** bimodal — metade escura contra metade clara — e o
+Otsu devolve quase metade da página como tinta. Medido nesse cenário:
+
+| Método | Tinta resultante |
+|---|---:|
+| limiar fixo 180 | 61,3% |
+| Otsu | 47,6% |
+| adaptativo | **3,1%** |
+
+O critério passou a avaliar o **resultado**, não o histograma: se a fração de tinta
+não é plausível para texto (0,05%–35%), cai no adaptativo.
+
+#### Separação de glifos colados — o que a F1.1 apontou
+
+Em notação figurina o espaçamento é apertado e os contornos se tocam:
+`findContours` devolvia `♞e5` como **um** box, e o classificador lia um caractere
+errado. Era a origem de todos os erros de figurina na página real.
+
+**O critério é a largura do vale, não a profundidade.** Medido (mediana de
+caractere = 19 px), contando colunas com tinta abaixo de 30% do pico:
+
+| Caso | Largura do vale | Fundo (% do pico) |
+|---|---:|---:|
+| `♞e5` (3 glifos) | **10** | 8% |
+| `♞a6` (3 glifos) | **10** | 10% |
+| `W` (1 glifo) | 2 | 25% |
+| `♛` (1 glifo) | **0** | 41% |
+
+Cortar por profundidade partiria a coroa da dama, que tem vales fundos entre as
+pontas. A largura separa os casos com folga.
+
+Validação em 8 páginas reais:
+
+| | |
+|---|---:|
+| Boxes | 8.501 → 9.059 |
+| Boxes largos (suspeitos de colados) | 660 → 427 (**35% resolvidos**) |
+| Pedaços estreitos novos (corte falso) | **0** |
+
+O efeito no texto: `17...♞e5` saía como um único `♕` errado; agora sai `♘k5` — a
+figurina certa e dois dos três caracteres. O que resta (`e`→`k`) é confusão do
+classificador, não de segmentação: é F1.2 e F1.3.
+
+35% é honesto — nem todo box largo é glifo colado (`W`, `♛`, travessões são
+legitimamente largos), e alguns colados não têm vale largo o bastante para cortar
+com segurança. Zero cortes falsos é a propriedade que importa.
+
+Cobertura: `tests/test_f15_preprocess.py`, 20 testes.
 
 ### F1.7 — Validar notação contra as regras do xadrez
 
@@ -741,12 +796,11 @@ CONCLUÍDAS
   F5.1  remover código morto           F3.1  digitação contínua
   F2.1  PDF pesquisável                F3.4  autosave e recuperação
   F1.4  saneamento do dataset          F1.1  cobertura de peças (premissa era errada)
-  F1.6  ordem de leitura e colunas
+  F1.6  ordem de leitura e colunas     F1.5  pré-processamento e glifos colados
 
 PRÓXIMAS — qualidade de reconhecimento
-  F1.5  pré-processamento           ← Otsu, deskew, e separar glifos colados
-  F1.2  balanceamento (25.075:1)    ─┐
-  F1.3  split de validação          ─┘ antes de qualquer retreino
+  F1.2  balanceamento (25.075:1)    ─┐ agora são o limitador: a segmentação
+  F1.3  split de validação          ─┘ está resolvida, o classificador não
       ↓
   F1.7  validação por legalidade (python-chess)
   F1.8  mascarar diagramas antes de detectar

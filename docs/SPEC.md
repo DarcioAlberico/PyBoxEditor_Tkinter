@@ -147,10 +147,19 @@ def normalize_dpi(img: np.ndarray, source_dpi: int, target_dpi: int = 300) -> np
 
 Ordem do pipeline: `normalize_dpi → deskew → denoise → binarize`.
 
-O antigo `core/opencv_autobox.py` já tinha uma binarização Otsu melhor que a em uso,
-com filtros de tamanho relativos à página. O arquivo foi removido na F5.1 (estava morto
-desde sempre), mas **essa lógica é o ponto de partida deste módulo** — recuperar com
-`git show 6a4b7a1:core/opencv_autobox.py`.
+**Implementado na F1.5** — `core/preprocess.py`. O Otsu veio do `opencv_autobox.py`
+arquivado na F5.1, como previsto aqui.
+
+**Correção desta spec:** o modo `auto` não decide por bimodalidade do histograma. Foi
+o que tentei primeiro, e erra no caso que importa — com sombra de encadernação o
+histograma É bimodal (metade escura contra metade clara) e o Otsu devolve 47,6% da
+página como tinta. O critério avalia o **resultado**: se a fração de tinta não é
+plausível para texto (0,05%–35%), cai no adaptativo.
+
+Entrou também `BoxService.dividir_glifos_colados()`, que não constava da spec e é o
+que a F1.1 apontou como limitador real: `findContours` devolvia `♞e5` como um box
+só. O corte usa a **largura** do vale de tinta, não a profundidade — cortar por
+profundidade partiria a coroa da dama, que tem vales fundos entre as pontas.
 
 Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
 literal deve sobrar no código.

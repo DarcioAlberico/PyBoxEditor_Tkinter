@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Tuple
 from PIL import Image
 
+from core import preprocess
 from core.box_model import BoxEntry
 
 
@@ -12,12 +13,18 @@ class BoxService:
     """
 
     @staticmethod
-    def generate_boxes_opencv(image: Image.Image, threshold: int = 180) -> List[BoxEntry]:
+    def generate_boxes_opencv(image: Image.Image, threshold: int = 180,
+                              method: str = "auto",
+                              separar_colados: bool = True) -> List[BoxEntry]:
         """
         Gera boxes automaticamente a partir de uma imagem PIL (grayscale).
+
+        `method` é passado a `preprocess.binarize`; "fixed" com `threshold`
+        reproduz o comportamento anterior à F1.5.
         """
         img_cv = np.array(image)
-        _, th = cv2.threshold(img_cv, threshold, 255, cv2.THRESH_BINARY_INV)
+        th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
+
         contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         boxes = []
@@ -29,8 +36,101 @@ class BoxService:
 
         boxes.sort(key=lambda b: (b.y1, b.x1))
         boxes = BoxService.merge_vertical_boxes(boxes)
+        if separar_colados:
+            # Depois do merge vertical: fundir o pingo do 'i' primeiro evita
+            # que ele seja tratado como peça solta na hora de cortar.
+            boxes = BoxService.dividir_glifos_colados(boxes, th)
         boxes = BoxService.sort_boxes_reading_order(boxes)
         return boxes
+
+    @staticmethod
+    def dividir_glifos_colados(boxes: List[BoxEntry], imagem_bin: np.ndarray,
+                               fator_largo: float = 1.6,
+                               razao_vale: float = 0.30) -> List[BoxEntry]:
+        """
+        Separa boxes que contêm mais de um glifo encostado.
+
+        Em notação figurina o espaçamento é apertado e os contornos se tocam:
+        `findContours` com RETR_EXTERNAL devolve "♞e5" como um box só, que o
+        classificador então lê como um caractere errado. Era a origem de todos
+        os erros de figurina observados na página real.
+
+        **O critério é a largura do vale, não a profundidade.** Medido nesta
+        página (largura mediana de caractere = 19 px), contando colunas cuja
+        tinta fica abaixo de 30% do pico:
+
+            ♞e5  (3 glifos)  vale de 10 colunas, fundo a  8% do pico
+            ♞a6  (3 glifos)  vale de 10 colunas, fundo a 10% do pico
+            W    (1 glifo)   vale de  2 colunas, fundo a 25% do pico
+            ♛    (1 glifo)   vale de  0 colunas, fundo a 41% do pico
+
+        Cortar por profundidade partiria a coroa da dama, que tem vales
+        internos fundos entre as pontas. A largura separa os casos com folga.
+        """
+        if not boxes or imagem_bin is None:
+            return boxes
+
+        larguras = sorted(b.x2 - b.x1 for b in boxes)
+        mediana = larguras[len(larguras) // 2] or 1
+        largura_min_peca = max(3, int(mediana * 0.40))
+        largura_min_vale = max(3, int(mediana * 0.25))
+        limite_largo = mediana * fator_largo
+
+        saida = []
+        for b in boxes:
+            if (b.x2 - b.x1) <= limite_largo:
+                saida.append(b)
+                continue
+
+            cortes = BoxService._cortes_do_perfil(
+                imagem_bin[b.y1:b.y2, b.x1:b.x2],
+                razao_vale, largura_min_vale, largura_min_peca)
+
+            if not cortes:
+                saida.append(b)
+                continue
+
+            limites = [0] + cortes + [b.x2 - b.x1]
+            for ini, fim in zip(limites, limites[1:]):
+                saida.append(BoxEntry(b.char, b.x1 + ini, b.y1, b.x1 + fim, b.y2))
+
+        return saida
+
+    @staticmethod
+    def _cortes_do_perfil(recorte_bin: np.ndarray, razao_vale: float,
+                          largura_min_vale: int, largura_min_peca: int) -> List[int]:
+        """Posições de corte dentro de um box, a partir do perfil de tinta."""
+        if recorte_bin.size == 0:
+            return []
+
+        perfil = (recorte_bin > 0).sum(axis=0)
+        pico = int(perfil.max())
+        if pico <= 0:
+            return []
+
+        limiar = max(1.0, pico * razao_vale)
+        baixo = perfil <= limiar
+
+        cortes = []
+        inicio = None
+        for i, e_baixo in enumerate(list(baixo) + [False]):
+            if e_baixo:
+                if inicio is None:
+                    inicio = i
+                continue
+            if inicio is None:
+                continue
+
+            largura = i - inicio
+            centro = (inicio + i) // 2
+            # o vale precisa ser largo, interno, e deixar pedaços utilizáveis
+            if (largura >= largura_min_vale
+                    and centro - (cortes[-1] if cortes else 0) >= largura_min_peca
+                    and len(perfil) - centro >= largura_min_peca):
+                cortes.append(centro)
+            inicio = None
+
+        return cortes
 
     @staticmethod
     def detectar_colunas(boxes: List[BoxEntry],
