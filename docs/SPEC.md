@@ -886,6 +886,7 @@ de produtividade do roadmap.
 | `↑` `↓` | Box anterior / próximo |
 | `Tab` / `Shift+Tab` | Box próximo / anterior, com o foco pronto para digitar |
 | `PgUp` `PgDn` | Página anterior / próxima |
+| `Ctrl+G` | Ir para uma página do PDF (F3.9) |
 | `Del` | Excluir box |
 | `Ctrl+D` | Dividir box |
 | `Ctrl+B` | Gravar rascunho agora |

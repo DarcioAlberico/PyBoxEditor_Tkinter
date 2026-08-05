@@ -432,6 +432,17 @@ class MainWindow(tk.Frame):
         self.btn_next_page = tk.Button(self.nav_frame, text="Próxima Página >>", command=self.next_page, state="disabled")
         self.btn_next_page.pack(side="left", padx=10)
 
+        # Ir direto para uma página. Num livro de 300 páginas, chegar à 108 de
+        # "próxima" em "próxima" são 107 renderizações e 107 esperas — o
+        # caminho existia, mas não servia.
+        tk.Label(self.nav_frame, text="Ir para:").pack(side="left", padx=(14, 2))
+        self.entry_pagina = tk.Entry(self.nav_frame, width=6, state="disabled")
+        self.entry_pagina.pack(side="left")
+        self.entry_pagina.bind("<Return>", lambda e: self.ir_para_pagina())
+        self.btn_ir = tk.Button(self.nav_frame, text="Ir", state="disabled",
+                                command=self.ir_para_pagina)
+        self.btn_ir.pack(side="left", padx=(3, 10))
+
         # Legenda da escala de confiança — sem ela as cores são adivinhação.
         legenda = tk.Frame(self.nav_frame)
         legenda.pack(side="left", padx=20)
@@ -568,6 +579,8 @@ class MainWindow(tk.Frame):
         root.bind("<Control-S>", lambda e: (self.save_all_pages(), "break")[1])
         root.bind("<Prior>", lambda e: (self.prev_page(), "break")[1])
         root.bind("<Next>", lambda e: (self.next_page(), "break")[1])
+        root.bind("<Control-g>", self._on_key_ir_para_pagina)
+        root.bind("<Control-G>", self._on_key_ir_para_pagina)
         root.bind("<F4>", self._on_key_zoom)
         root.bind("<F3>", lambda e: self.proximo_pendente(1))
         root.bind("<Shift-F3>", lambda e: self.proximo_pendente(-1))
@@ -807,7 +820,12 @@ class MainWindow(tk.Frame):
         na thread da UI travava a janela a cada clique.
         """
         if self.task.is_running():
-            return  # navegação não abre diálogo; os botões já ficam desativados
+            # Antes isto devolvia em silêncio, contando com os botões
+            # desativados para explicar. Não explicam: pelo teclado (PgUp/PgDn)
+            # ou pelo campo "ir para", o usuário aperta e **nada acontece** —
+            # e a leitura natural é que virar a página está quebrado.
+            self.status.set("Aguarde a operação em andamento para virar a página.")
+            return
 
         # Arquivar o trabalho da página que sai é rápido e acontece já, antes de
         # qualquer coisa poder dar errado.
@@ -859,6 +877,43 @@ class MainWindow(tk.Frame):
         if self.current_pdf_page < self.pdf_service.num_pages - 1:
             self._load_pdf_page(self.current_pdf_page + 1)
 
+    def ir_para_pagina(self, numero=None):
+        """
+        Vai direto para a página `numero` (1 é a primeira).
+
+        Sem argumento, lê o campo da barra de navegação. O número é o que o
+        usuário vê no rótulo — 1 a N —, não o índice interno; trocar um pelo
+        outro aqui levaria a página errada sem erro nenhum.
+        """
+        if not self.pdf_service.is_loaded():
+            messagebox.showinfo("Ir para a página", "Nenhum PDF aberto.")
+            return
+
+        if numero is None:
+            texto = self.entry_pagina.get().strip()
+            if not texto:
+                return
+            try:
+                numero = int(texto)
+            except ValueError:
+                messagebox.showinfo(
+                    "Ir para a página",
+                    f"{texto!r} não é um número de página.")
+                return
+
+        total = self.pdf_service.num_pages
+        if not 1 <= numero <= total:
+            messagebox.showinfo(
+                "Ir para a página",
+                f"Este PDF tem {total} página(s); {numero} está fora.")
+            return
+
+        if numero - 1 == self.current_pdf_page:
+            self.status.set(f"Já está na página {numero}.")
+            return
+
+        self._load_pdf_page(numero - 1)
+
     def _update_nav_controls(self):
         if not self.pdf_service.is_loaded():
             if self.session is not None and self.session.has_boxes(0):
@@ -867,6 +922,8 @@ class MainWindow(tk.Frame):
                 self.lbl_page_info.config(text="Página: -/-")
             self.btn_prev_page.config(state="disabled")
             self.btn_next_page.config(state="disabled")
+            self.entry_pagina.config(state="disabled")
+            self.btn_ir.config(state="disabled")
             return
 
         info = f"Página: {self.current_pdf_page + 1}/{self.pdf_service.num_pages}"
@@ -885,6 +942,8 @@ class MainWindow(tk.Frame):
         self.btn_next_page.config(
             state="normal" if self.current_pdf_page < self.pdf_service.num_pages - 1 else "disabled"
         )
+        self.entry_pagina.config(state="normal")
+        self.btn_ir.config(state="normal")
 
     # -------------------------------------------------------
     # OpenCV: gerar boxes automáticos
@@ -1844,6 +1903,14 @@ class MainWindow(tk.Frame):
 
     def _on_key_delete(self, event):
         self.delete_selected_box()
+
+    def _on_key_ir_para_pagina(self, event):
+        """Ctrl+G põe o cursor no campo de página, pronto para digitar."""
+        if str(self.entry_pagina.cget("state")) == "disabled":
+            return "break"
+        self.entry_pagina.focus_set()
+        self.entry_pagina.select_range(0, "end")
+        return "break"
 
     def _on_key_tab(self, passo):
         """

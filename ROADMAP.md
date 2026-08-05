@@ -25,7 +25,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (F0.1–F0.4) |
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9, F1.5b) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
-| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.8) |
+| **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.9) |
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
@@ -41,7 +41,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **651 testes**, `pytest` na raiz.
+Cobertura: **662 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1257,6 +1257,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.6 | ~~Aplicar a todos os semelhantes~~ — **CONCLUÍDA** | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 | F3.8 | ~~Snapshot do histórico a cada tecla~~ — **CONCLUÍDA** | 15,8 ms por tecla viram 0,24 |
+| F3.9 | ~~Ir direto para uma página do PDF~~ — **CONCLUÍDA** | Chegar à página 108 deixa de custar 107 cliques |
 
 **F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
 `fallback_chain` e a descartava (`char, source, _`). Agora `BoxEntry` guarda
@@ -1530,6 +1531,31 @@ até o box reaparecer sem cor — daí a maior parte dos testes ser igualdade ex
 estado, e não de caractere.
 
 Cobertura: `tests/test_f38_historico.py`, 20 testes.
+
+**F3.9 — concluída em 2026-08-05.** Relatada pelo usuário: *"tem a opção de abrir o PDF
+mas não consigo avançar as páginas; gostaria de treinar a página que eu escolher"*.
+
+A navegação **não estava quebrada** — reproduzida num PDF de 5 páginas, os botões
+habilitam e viram a página. O que não existia era chegar a uma página **escolhida**: só
+havia "anterior" e "próxima", e num livro de 300 páginas alcançar a 108 são 107
+renderizações e 107 esperas. O caminho existia e não servia, que na prática é a mesma
+coisa que não existir.
+
+Entrou um campo "Ir para:" na barra de navegação, com Enter, botão e **Ctrl+G**. O número
+é o que o rótulo mostra (1 a N), não o índice interno — trocar um pelo outro levaria à
+página errada sem erro nenhum, e há teste para isso.
+
+**E um segundo defeito, este de verdade, apareceu no caminho.** `_load_pdf_page` desistia
+**em silêncio** quando havia tarefa rodando, contando com os botões desativados para
+explicar. Eles não explicam: pelo teclado (PgUp/PgDn) ou pelo campo novo, o usuário
+aperta e nada acontece — e a leitura natural é que virar a página quebrou. É um candidato
+plausível para o relato original, já que abrir um PDF grande pela primeira vez pode deixar
+uma tarefa rodando por bastante tempo. Agora a barra de status diz o motivo.
+
+Treinar a página escolhida já funcionava assim que se chegasse nela: "Aprender com Página
+Atual" opera sobre a página carregada, seja imagem ou PDF.
+
+Cobertura: `tests/test_f37_paginas.py`, 21 testes (11 novos).
 
 ---
 

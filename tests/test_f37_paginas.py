@@ -322,6 +322,158 @@ def test_salvar_pagina_atual_nao_limpa_as_outras():
 # Execução direta
 # ----------------------------------------------------------------------
 
+# ----------------------------------------------------------------------
+# Ir direto para uma página (F3.9)
+# ----------------------------------------------------------------------
+
+def test_ir_para_pagina_escolhida():
+    """Num livro de 300 páginas, 'próxima' 107 vezes não é um caminho."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=12)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+
+            app.win.ir_para_pagina(9)
+            app.aguardar()
+            assert app.win.current_pdf_page == 8, "devia estar na 9a página"
+            assert "9/12" in app.win.lbl_page_info.cget("text")
+
+
+def test_o_numero_digitado_e_o_que_o_usuario_ve():
+    """1 é a primeira página. Trocar por índice levaria à página errada calado."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=5)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+
+            app.win.entry_pagina.delete(0, "end")
+            app.win.entry_pagina.insert(0, "3")
+            app.win.ir_para_pagina()
+            app.aguardar()
+            assert app.win.current_pdf_page == 2
+
+
+def test_pagina_fora_da_faixa_avisa_e_nao_navega():
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=4)
+        avisos = []
+        with _App() as app:
+            messagebox.showinfo = lambda t, m, **k: avisos.append(m)
+            app.win.open_pdf(pdf)
+            app.aguardar()
+
+            for entrada in (0, 5, -1):
+                app.win.ir_para_pagina(entrada)
+                app.aguardar()
+                assert app.win.current_pdf_page == 0
+            assert len(avisos) == 3
+            assert "4 página" in avisos[0]
+
+
+def test_texto_que_nao_e_numero_avisa():
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=3)
+        avisos = []
+        with _App() as app:
+            messagebox.showinfo = lambda t, m, **k: avisos.append(m)
+            app.win.open_pdf(pdf)
+            app.aguardar()
+
+            app.win.entry_pagina.delete(0, "end")
+            app.win.entry_pagina.insert(0, "cento e oito")
+            app.win.ir_para_pagina()
+            assert avisos and "não é um número" in avisos[0]
+            assert app.win.current_pdf_page == 0
+
+
+def test_campo_vazio_nao_faz_nada():
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=3)
+        avisos = []
+        with _App() as app:
+            messagebox.showinfo = lambda t, m, **k: avisos.append(m)
+            app.win.open_pdf(pdf)
+            app.aguardar()
+            app.win.entry_pagina.delete(0, "end")
+            app.win.ir_para_pagina()
+            assert avisos == []
+
+
+def test_sem_pdf_o_campo_fica_desligado():
+    with _App() as app:
+        assert str(app.win.entry_pagina.cget("state")) == "disabled"
+        assert str(app.win.btn_ir.cget("state")) == "disabled"
+
+
+def test_o_campo_liga_ao_abrir_o_pdf():
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=3)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+            assert str(app.win.entry_pagina.cget("state")) == "normal"
+            assert str(app.win.btn_ir.cget("state")) == "normal"
+
+
+def test_ir_para_a_pagina_em_que_ja_esta_nao_recarrega():
+    """Recarregar custa uma renderização e descartaria o histórico da página."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=3)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+            app.win.boxes = [BoxEntry("z", 1, 1, 9, 9)]
+            app.win.ir_para_pagina(1)
+            app.aguardar()
+            assert [b.char for b in app.win.boxes] == ["z"]
+
+
+def test_o_trabalho_da_pagina_sobrevive_ao_salto():
+    """Mesma garantia da F3.7, agora pelo caminho novo."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=6)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+            app.win.boxes = [BoxEntry("Q", 5, 5, 15, 15)]
+            app.win._commit_change()
+
+            app.win.ir_para_pagina(5)
+            app.aguardar()
+            assert app.win.boxes == []
+
+            app.win.ir_para_pagina(1)
+            app.aguardar()
+            assert [b.char for b in app.win.boxes] == ["Q"]
+
+
+def test_atalho_ctrl_g_esta_ligado():
+    with _App() as app:
+        assert "<Control-Key-g>" in app.win.parent.bind()
+
+
+def test_virar_pagina_com_tarefa_rodando_explica_em_vez_de_ignorar():
+    """
+    Antes devolvia em silêncio: pelo teclado ou pelo campo, o usuário apertava
+    e nada acontecia — e a leitura natural é que virar a página quebrou.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=3)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+
+            app.win.task.is_running = lambda: True
+            try:
+                app.win.ir_para_pagina(3)
+                assert "Aguarde" in app.win.status.lbl.cget("text")
+                assert app.win.current_pdf_page == 0
+            finally:
+                del app.win.task.is_running
+
+
 def _main():
     testes = [(n, o) for n, o in sorted(globals().items())
               if n.startswith("test_") and callable(o)]
