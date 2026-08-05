@@ -15,6 +15,7 @@ __pycache__/
 # Dados de treino — 127k+ imagens, distribuir fora do git
 training_data/
 training_data_2/
+training_data_2_organizado/
 
 # Modelos treinados — binários grandes, distribuir por release
 *.pth
