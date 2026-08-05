@@ -490,6 +490,8 @@ class MainWindow(tk.Frame):
         m_tools.add_separator()
         m_tools.add_command(label="Validar notação de xadrez...",
                             command=self.validar_notacao)
+        m_tools.add_command(label="Exportar partidas em PGN...",
+                            command=self.exportar_pgn)
         m_tools.add_separator()
         m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
         m_tools.add_command(label="Importar Imagens de Caracteres", command=self.import_character_images)
@@ -2067,6 +2069,64 @@ class MainWindow(tk.Frame):
                 )
 
         self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)
+
+    def exportar_pgn(self):
+        """
+        Grava a notação reconhecida como `.pgn`.
+
+        Roda na thread da UI pelo mesmo motivo de `validar_notacao`: o custo é a
+        análise, que são dezenas de milissegundos numa página cheia.
+        """
+        from core import pgn
+
+        if not self.boxes:
+            messagebox.showinfo("Exportar PGN", "Nenhum box na página.")
+            return
+
+        texto, relatorio = pgn.exportar(
+            self.boxes,
+            pgn.cabecalhos_do_documento(
+                self.session.path if self.session else self.image_path,
+                self.current_pdf_page if self.session
+                and self.session.is_pdf else None))
+
+        if not texto.strip():
+            messagebox.showinfo(
+                "Exportar PGN",
+                "Nenhuma partida completa foi reconhecida nesta página.\n\n"
+                + relatorio.resumo()
+                + "\n\nA leitura começa num '1.' — sem o começo da partida não "
+                  "há posição de onde partir.")
+            return
+
+        if self.session is not None:
+            padrao = os.path.splitext(os.path.basename(self.session.path))[0]
+            if self.session.is_pdf:
+                padrao += f"_pg{self.current_pdf_page + 1}"
+        else:
+            padrao = "partida"
+
+        caminho = filedialog.asksaveasfilename(
+            defaultextension=".pgn", initialfile=padrao + ".pgn",
+            filetypes=[("Arquivos PGN", "*.pgn"), ("Todos", "*.*")])
+        if not caminho:
+            return
+
+        try:
+            # O PGN é ASCII por especificação, mas comentário e cabeçalho aqui
+            # podem trazer acento do nome do arquivo. UTF-8 é o que os programas
+            # de xadrez atuais leem.
+            with open(caminho, "w", encoding="utf-8") as f:
+                f.write(texto)
+        except OSError as e:
+            messagebox.showerror("Erro", f"Não foi possível gravar o PGN:\n{e}")
+            return
+
+        messagebox.showinfo(
+            "Exportar PGN",
+            f"Gravado em {os.path.basename(caminho)}.\n\n{relatorio.resumo()}")
+        self.status.set(f"PGN exportado: {relatorio.lances} lances em "
+                        f"{len(relatorio.partidas)} partida(s).")
 
     def validar_notacao(self):
         """

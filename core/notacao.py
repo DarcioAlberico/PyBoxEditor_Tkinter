@@ -110,6 +110,21 @@ class LanceLido:
     correto: Optional[str] = None
     candidatos: List[str] = field(default_factory=list)
 
+    # Preenchidos para a exportação PGN (`core.pgn`). `san` é o lance
+    # efetivamente empurrado no tabuleiro — igual ao lido quando já era legal,
+    # igual à correção quando a legalidade decidiu, e None quando nada foi
+    # jogado. `numero` e `brancas` dizem de que jogada ele é, que é como o
+    # `core.pgn` distingue a linha principal de uma variante: numa variante o
+    # livro repete um número que já passou.
+    #
+    # `fen_antes` é a posição de onde este lance saiu. O número sozinho não
+    # basta: depois de uma variante o analisador às vezes segue de dentro dela,
+    # e os lances seguintes trazem número de linha principal tendo saído de
+    # outro ramo. A posição denuncia isso; o número não.
+    san: Optional[str] = None
+    partida: int = 0
+    fen_antes: Optional[str] = None
+
 
 @dataclass
 class Analise:
@@ -488,10 +503,13 @@ def analisar(boxes: Sequence[BoxEntry]) -> Analise:
                     if len(base) > 1:
                         # Só volta a ser certo se uma única candidata explicou.
                         certo = len(viaveis) == 1
+                    numero, brancas = _numero_da_vez(board)
                     analise.lances.append(
-                        LanceLido(lido, pedaco.simbolos, None,
-                                  board.turn == chess.WHITE, "legal"))
-                    historico.append((*_numero_da_vez(board), board.copy()))
+                        LanceLido(lido, pedaco.simbolos, numero, brancas,
+                                  "legal", san=board.san(movimento),
+                                  partida=max(0, analise.partidas - 1),
+                                  fen_antes=board.fen()))
+                    historico.append((numero, brancas, board.copy()))
                     board.push(movimento)
                     continue
 
@@ -517,20 +535,25 @@ def analisar(boxes: Sequence[BoxEntry]) -> Analise:
                            and custo <= CUSTO_MAXIMO
                            and segundo - custo >= FOLGA_MINIMA)
 
+                numero, _ = _numero_da_vez(board)
                 if decidiu:
                     analise.lances.append(
-                        LanceLido(lido, pedaco.simbolos, None, brancas,
-                                  "corrigido", melhor, empatados))
+                        LanceLido(lido, pedaco.simbolos, numero, brancas,
+                                  "corrigido", melhor, empatados,
+                                  san=melhor,
+                                  partida=max(0, analise.partidas - 1),
+                                  fen_antes=board.fen()))
                     analise.correcoes.extend(
                         _diferencas(pedaco.simbolos, lido, melhor.rstrip("+#")))
-                    historico.append((*_numero_da_vez(board), board.copy()))
+                    historico.append((numero, brancas, board.copy()))
                     board.push_san(melhor)
                 else:
                     situacao = ("ambiguo" if len(empatados) > 1 or not certo
                                 else "perdido")
                     analise.lances.append(
-                        LanceLido(lido, pedaco.simbolos, None, brancas,
-                                  situacao, melhor, empatados[:4]))
+                        LanceLido(lido, pedaco.simbolos, numero, brancas,
+                                  situacao, melhor, empatados[:4],
+                                  partida=max(0, analise.partidas - 1)))
                     analise.dessincronizou += 1
                     board, certo = None, False
 

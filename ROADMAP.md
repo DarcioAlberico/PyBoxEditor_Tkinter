@@ -28,6 +28,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.8) |
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
+| **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -35,7 +36,11 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 em recorte já segmentado, dá **99,83%** no conjunto de teste. A distância entre os dois
 números é o trabalho que sobra, e ele é de **segmentação**, não de modelo.
 
-Cobertura: **533 testes**, `pytest` na raiz.
+Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem partidas de
+**32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
+todas.
+
+Cobertura: **569 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1887,10 +1892,61 @@ teste, contra nenhum número confiável antes.
 
 ---
 
+## F6 — Saída de partidas
+
+### F6.1 — Exportar PGN — CONCLUÍDA
+
+**Concluída em 2026-08-04.** Estava em "fora de escopo"; subiu porque a F1.7 já tinha
+construído quase tudo de que precisava. `core/pgn.py`, menu Ferramentas → "Exportar
+partidas em PGN...".
+
+O `analisar` já percorria o texto com um tabuleiro na mão, corrigia pela legalidade e
+sabia onde uma partida começa. Faltava **guardar o que ele descobria**: `LanceLido`
+declarava um campo `numero` que nunca era preenchido nem lido. Agora cada lance carrega
+`numero`, `san` (o lance efetivamente empurrado), `partida` e `fen_antes`.
+
+Medido nas 9 páginas rotuladas: partidas de **32, 27, 24, 20 e 12 lances**, com a
+abertura do livro (`d4 Nf6 c4 c5 d5 b5 cxb5 a6`, o Benko) saindo certa em todas.
+
+**O que sai é só a linha principal, e a regra que a define é o número da jogada.** Numa
+variante o livro repete um número que já passou — "12.Re1 Qa5 12...Ra6; 12...Ra7;
+12...Nb6 13.Qc2" traz o `12...` quatro vezes. Um lance entra se a jogada dele vier
+depois da última aceita. É a mesma informação que o tipógrafo usou para o leitor humano
+entender que aquilo era um desvio.
+
+**O número sozinho não bastou, e o teste que mostrou isso vale registrar.** Em
+`3.Bb5 a6 3...Nf6 4.Ba4 Nf6`, o `3...Nf6` era corretamente descartado — mas o
+analisador seguia *de dentro* da variante, e o `4.Ba4` chegava com número de linha
+principal tendo saído do outro ramo. `Ba4` é legal nos dois, então a validação por
+legalidade não pegava: o PGN saía com sete lances, abria sem erro e estava errado.
+
+**Um PGN errado que carrega é pior que um PGN curto.** Uma partida que abre no programa
+de xadrez ninguém confere; ela vira fato. Por isso cada lance guarda a posição de onde
+saiu (`fen_antes`), e a montagem só o aceita se essa posição for a que a repetição da
+partida alcançou. Onde não for, a partida é cortada ali e o relatório diz por quê. No
+exemplo, saem seis lances certos em vez de sete com um errado.
+
+Não tentei reconstruir as variantes aninhadas dentro do PGN, embora o formato suporte. O
+`analisar` navega variante rebobinando o tabuleiro para uma posição guardada, e essa
+estrutura não sobrevive na lista de lances — remontá-la seria adivinhação, e uma variante
+posta no ramo errado é pior que uma variante ausente, pela mesma razão de sempre: parece
+certa.
+
+Os cabeçalhos que a página não tem como saber ficam em `"?"`. **O nome dos jogadores
+está na página**, mas lê-lo é reconhecer prosa, não notação — e um `White` errado é pior
+que um `White` ausente, porque o programa o exibe como fato. O `Event` recebe o arquivo e
+a página, que é verificável.
+
+Cobertura: `tests/test_f61_pgn.py`, 36 testes. A maioria é sobre o que a exportação
+**recusa** fazer, e todo PGN gerado é relido com o `python-chess` — um arquivo malformado
+só aparece quando outro programa tenta abri-lo.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - Extração de FEN dos diagramas (a spec v1.0 §3 já marca como fase posterior)
-- Exportação PGN da notação reconhecida
+- ~~Exportação PGN da notação reconhecida~~ — **promovida para F6.1** (feita)
 - ~~Modelo de linguagem sobre notação de xadrez~~ — **promovido para F1.7** depois de
   avaliar o DocuVision-AI (ver abaixo)
 - Substituição do k-NN linear de `CharacterLearner` (varre 127k referências por
