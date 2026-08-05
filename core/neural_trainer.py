@@ -1,3 +1,5 @@
+import datetime
+import hashlib
 import os
 import glob
 import json
@@ -11,6 +13,55 @@ import cv2
 import numpy as np
 from core.neural_model import SimpleCNN, get_device
 from core.learner import folder_to_char
+
+
+#: Versão do `model_meta.json`. Sobe quando o formato ganha campo obrigatório.
+#:   1 — label_map, idx_to_char, num_classes (+ temperatura, da F1.9)
+#:   2 — schema_version, modelo_sha256, classes_sha256, treinado_em
+SCHEMA_META = 2
+
+
+def impressao_do_modelo(caminho: str) -> str:
+    """
+    SHA-256 dos pesos, para o metadado ficar amarrado a **este** arquivo.
+
+    **O `model_meta.json` está no git e o `custom_model.pth` não** (`*.pth` é
+    ignorado, são 2,5 MB de binário). Quem clona o repositório recebe, portanto,
+    um metadado sem o modelo que ele descreve — e basta aparecer um `.pth` de
+    outra rodada, com o mesmo número de classes, para o par ficar trocado.
+
+    O estrago desse par trocado é calado: `idx_to_char` mapeia índice para
+    caractere, e índices de outro treino apontam para as letras erradas. Nada
+    levanta, nada avisa; o OCR só passa a ler outra coisa. É a mesma família do
+    defeito da F1.4, em que 127 amostras treinaram a classe errada por meses.
+
+    Contagem de classes diferente já falhava alto — `SimpleCNN(num_classes)`
+    recusa pesos de outro formato. O que faltava era o caso de mesma contagem e
+    ordem diferente, que é justamente o que acontece ao acrescentar e remover
+    uma pasta na mesma rodada.
+    """
+    h = hashlib.sha256()
+    try:
+        with open(caminho, "rb") as f:
+            for pedaco in iter(lambda: f.read(1 << 20), b""):
+                h.update(pedaco)
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+def impressao_das_classes(idx_to_char) -> str:
+    """
+    SHA-256 do mapa índice->caractere.
+
+    Serve para dizer se o modelo ainda corresponde à base: mudou a lista de
+    classes, este número muda. Não impede nada — um modelo antigo continua
+    utilizável, porque leva o próprio `idx_to_char` junto —, mas permite avisar
+    que ele foi treinado noutra base.
+    """
+    itens = sorted((int(k), v) for k, v in idx_to_char.items())
+    texto = "\n".join(f"{i}\t{c}" for i, c in itens)
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 from core.avaliacao import (SEMENTE_PADRAO, avaliar, dividir_estratificado,
                             gravar_relatorio, salvar_amostras_erradas,
                             texto_do_relatorio)
@@ -392,6 +443,7 @@ class NeuralTrainer:
         def gravar_modelo(estado):
             torch.save(estado, self.model_path)
             meta = {
+                "schema_version": SCHEMA_META,
                 "label_map": dataset.label_map,
                 "idx_to_char": dataset.idx_to_char,
                 "num_classes": num_classes,
@@ -400,6 +452,11 @@ class NeuralTrainer:
                 # correção medida sobre outros pesos — pior que não calibrar.
                 # `python calibrar_modelo.py --gravar` reajusta.
                 "temperatura": 1.0,
+                # Amarra este metadado a ESTE arquivo de pesos. Ver
+                # `impressao_do_modelo` para o defeito que isto fecha.
+                "modelo_sha256": impressao_do_modelo(self.model_path),
+                "classes_sha256": impressao_das_classes(dataset.idx_to_char),
+                "treinado_em": datetime.datetime.now().isoformat(timespec="seconds"),
             }
             # Encoding explícito: sem ele o Python usa o do sistema (cp1252
             # no Windows) e o metadado, que é cheio de símbolos Unicode,
@@ -550,8 +607,12 @@ class NeuralPredictor:
         # neutro é o único padrão seguro: uma temperatura chutada mexeria em
         # todo número que a UI mostra.
         self.temperatura = 1.0
+        # Por que a carga recusou, e o que dá para dizer a quem carregou.
+        self.erro = ""
+        self.aviso = ""
 
     def load(self):
+        self.erro = self.aviso = ""
         if not os.path.exists(self.model_path) or not os.path.exists(self.meta_path):
             return False
 
@@ -561,6 +622,33 @@ class NeuralPredictor:
 
             self.idx_to_char = {int(k): v for k, v in meta["idx_to_char"].items()}
             num_classes = meta["num_classes"]
+
+            esperado = meta.get("modelo_sha256")
+            if esperado:
+                encontrado = impressao_do_modelo(self.model_path)
+                if encontrado != esperado:
+                    # Recusar, e não seguir avisando: um par trocado devolve
+                    # caracteres errados sem nenhum sintoma, e "continuar com
+                    # aviso" na prática é continuar.
+                    self.erro = (
+                        f"{os.path.basename(self.model_path)} não é o modelo "
+                        f"descrito por {os.path.basename(self.meta_path)}.\n\n"
+                        "Os dois precisam vir da mesma rodada de treino — o "
+                        "metadado traduz índice em caractere, e índices de "
+                        "outro treino apontam para as letras erradas, sem "
+                        "erro nenhum.\n\n"
+                        "Treine de novo (Ferramentas → Treinar Rede Neural) ou "
+                        "reponha o par completo.")
+                    print(f"Erro ao carregar modelo: {self.erro}")
+                    return False
+            else:
+                # Modelo anterior à F7.3 não tem a impressão. Segue carregando:
+                # ele funcionava antes e recusá-lo agora quebraria quem já tem
+                # um treinado.
+                self.aviso = (
+                    f"{os.path.basename(self.meta_path)} é de um formato "
+                    "anterior e não permite conferir se o modelo é o descrito. "
+                    "Um novo treino grava a conferência.")
 
             try:
                 t = float(meta.get("temperatura", 1.0))

@@ -2352,10 +2352,10 @@ class MainWindow(tk.Frame):
             return
 
         if not self.learning_service.load_predictor():
-            messagebox.showerror(
-                "Erro",
-                "Modelo neural não encontrado.\nTreine a rede primeiro ou verifique 'custom_model.pth'."
-            )
+            # O motivo, e não "não encontrado": um par .pth/.json trocado
+            # mandaria o usuário procurar um arquivo que está lá (F7.3).
+            messagebox.showerror("Modelo neural",
+                                 self.learning_service.motivo_do_modelo())
             return
 
         filepaths = filedialog.askopenfilenames(

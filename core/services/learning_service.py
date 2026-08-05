@@ -100,6 +100,26 @@ class LearningService:
             return True
         return self._predictor.load()
 
+    def motivo_do_modelo(self) -> str:
+        """
+        Por que a carga do modelo falhou, na linguagem de quem vai ler.
+
+        Sem isto, um par `.pth`/`.json` trocado é reportado como "modelo não
+        encontrado" — que manda o usuário procurar um arquivo que está lá.
+        """
+        motivo = getattr(self._predictor, "erro", "") if self._predictor else ""
+        if motivo:
+            return motivo
+        if not os.path.exists(self.model_path):
+            return (f"{os.path.basename(self.model_path)} não existe.\n"
+                    "Treine a rede primeiro (Ferramentas → Treinar Rede Neural).")
+        if not os.path.exists(self.meta_path):
+            return (f"{os.path.basename(self.meta_path)} não existe — é ele que "
+                    "traduz a saída do modelo em caracteres.\nTreine a rede "
+                    "novamente para regravá-lo.")
+        return ("Não foi possível carregar o modelo neural. Veja o console para "
+                "o erro exato.")
+
     def predict_neural(self, crop_np: np.ndarray) -> Tuple[str, float]:
         """Predição via CNN. Retorna ('?', 0.0) se modelo não carregado."""
         if not self.load_predictor():

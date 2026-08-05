@@ -29,7 +29,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
-| **F7** | Diagramas e desempenho | Posição impressa vira FEN; o k-NN sai do caminho | **concluída** (F7.1–F7.2) |
+| **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -41,7 +41,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **668 testes**, `pytest` na raiz.
+Cobertura: **684 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -472,8 +472,9 @@ As duas últimas são as classes que a SPEC §5.3 mandava excluir do treino.
 
 - O modelo é treinado com 80% dos dados e fica assim. Retreinar na base inteira
   depois de descobrir a melhor epoch recuperaria os 20%, ao custo de dobrar o tempo.
-- `model_meta.json` está no git e `custom_model.pth` não (`*.pth` é ignorado). É
-  exatamente o descasamento que a SPEC §5.5 descreve, e continua em aberto lá.
+- ~~`model_meta.json` está no git e `custom_model.pth` não. É exatamente o
+  descasamento que a SPEC §5.5 descreve~~ — **fechado pela F7.3**: o metadado passou a
+  levar o SHA-256 dos pesos, e um par trocado é recusado em vez de ler letra errada.
 
 Cobertura: `tests/test_f13_validacao.py`, 25 testes.
 
@@ -2136,6 +2137,64 @@ erro**: nenhum treino melhora removendo um dos lados, porque os dois rótulos es
 para alguma ocorrência daquele desenho. Quem escolhe é o contexto, e isso é a F1.7.
 
 Cobertura: `tests/test_f72_knn.py`, 35 testes.
+
+### F7.3 — O metadado amarrado ao modelo que ele descreve — CONCLUÍDA
+
+**Concluída em 2026-08-05.** Fecha o que a F1.3 deixou em aberto e a SPEC §5.5 descreve.
+
+`model_meta.json` está no git e `custom_model.pth` não (`*.pth` é ignorado, são 2,5 MB
+de binário). Quem clona recebe o metadado **sem** o modelo que ele descreve — e basta
+aparecer um `.pth` de outra rodada, com o mesmo número de classes, para o par ficar
+trocado.
+
+**O estrago de um par trocado é calado.** `idx_to_char` traduz índice em caractere;
+índices de outro treino apontam para as letras erradas. Nada levanta, nada avisa — o OCR
+só passa a ler outra coisa. É a família do defeito da F1.4, em que 127 amostras treinaram
+a classe errada por meses.
+
+Contagem de classes diferente **já** falhava alto: `SimpleCNN(num_classes)` recusa pesos
+de outro formato. O que faltava era **mesma contagem e ordem diferente** — exatamente o
+que acontece ao acrescentar e remover uma pasta na mesma rodada, que é o cenário de quem
+está mexendo na base agora.
+
+O `model_meta.json` ganhou `schema_version`, `modelo_sha256` (SHA-256 dos pesos),
+`classes_sha256` e `treinado_em`. Na carga, a impressão dos pesos é conferida.
+
+**Recusar, e não avisar.** Um par trocado devolve caracteres errados sem sintoma; "seguir
+com aviso" na prática é seguir. Já um metadado **anterior** a esta fase carrega
+normalmente, com aviso: ele funcionava antes, e recusá-lo agora quebraria quem já tem um
+modelo treinado sem ter feito nada de errado.
+
+A mensagem passou a dizer o motivo. Antes qualquer falha virava *"Modelo neural não
+encontrado"* — que, num par trocado, manda o usuário procurar um arquivo que está lá.
+
+Cobertura: `tests/test_f73_modelo.py`, 16 testes.
+
+#### Uma hipótese do roadmap que a medição derrubou
+
+Antes desta fase, medi o sinal que a F1.7 registrou para **distinguir linha principal de
+variante** — o que resolveria os 5,2% de lances ambíguos e destravaria a F6.1, que hoje
+corta a partida quando a leitura entra numa variante. O roadmap dizia: *"medida a
+densidade de tinta por palavra, a principal fica em 0,52–0,64 e as variantes em
+0,34–0,52"*.
+
+Medido nas páginas rotuladas, usando a regra de número de jogada como rótulo (um número
+que retrocede **é** variante), com 133 lances de linha principal contra 31 de variante:
+
+| medida (normalizada pela página) | principal | variante | AUROC |
+|---|---:|---:|---:|
+| densidade de tinta | 1,006 | 0,965 | 0,570 |
+| altura do caractere | 1,000 | 0,983 | 0,548 |
+| largura do caractere | 1,000 | 1,000 | 0,577 |
+| altura × densidade | 1,019 | 0,948 | **0,669** |
+
+**Nenhuma separa** (0,5 é o acaso). Por página a densidade chega a 0,467 — abaixo do
+acaso. O sinal existia na fatia em que foi medido originalmente e não generaliza.
+
+Terceira vez que uma hipótese plausível deste projeto cai na medição, depois do separador
+de glifos por projeção (F1.5b) e do canal de sinal para a cor da peça (F7.1). Fica
+registrado para ninguém tentar de novo pelo mesmo caminho: **quem separa linha de
+variante não é a tipografia.**
 
 ---
 

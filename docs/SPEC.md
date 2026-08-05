@@ -590,7 +590,7 @@ checkpoint pela perda de treino. É o caso de uma base recém-começada.
 Pendente: retreinar depois de encontrar a melhor epoch, usando 100% dos dados.
 Recuperaria os 20% separados, ao custo de dobrar o tempo de treino.
 
-### 5.5 Compatibilidade de modelo
+### 5.5 Compatibilidade de modelo — [feito, F7.3]
 
 `model_meta.json` mapeia índice → caractere. Os índices vêm de
 `sorted(os.listdir(data_dir))` (`neural_trainer.py:220`). **Adicionar ou remover
@@ -607,6 +607,16 @@ carregar modelo cujo hash não bata com o dataset.
   "num_classes": 105,
   "idx_to_char": { … } }
 ```
+
+> **Como ficou, e por que o campo principal é outro.** Os nomes saíram em português
+> (`classes_sha256`, `treinado_em`) e entrou um campo que a spec não previa:
+> **`modelo_sha256`**, a impressão dos próprios pesos. É ele que fecha o buraco real.
+>
+> A spec supunha que o perigo era o `idx_to_char` ficar defasado em relação à base. Não
+> é: o metadado **leva o `idx_to_char` junto**, então a predição é auto-consistente
+> mesmo com a base mudada. O perigo é o `.pth` estar pareado com o metadado **de outra
+> rodada** — cenário que o próprio `.gitignore` cria, já que o metadado é versionado e os
+> pesos não. `classes_sha256` ficou, mas como informação, não como trava.
 
 ### 5.6 Validação por legalidade — [feito]
 
