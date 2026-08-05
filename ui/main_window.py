@@ -19,6 +19,7 @@ from core.services.document_service import DocumentSession, _GravadorAssincrono
 from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
+from ui.dialogo_diagrama import DialogoDiagrama
 from ui.dialogo_semelhantes import DialogoSemelhantes
 from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
@@ -492,6 +493,8 @@ class MainWindow(tk.Frame):
                             command=self.validar_notacao)
         m_tools.add_command(label="Exportar partidas em PGN...",
                             command=self.exportar_pgn)
+        m_tools.add_command(label="Ler posição dos diagramas...",
+                            command=self.extrair_diagramas)
         m_tools.add_separator()
         m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
         m_tools.add_command(label="Importar Imagens de Caracteres", command=self.import_character_images)
@@ -2069,6 +2072,51 @@ class MainWindow(tk.Frame):
                 )
 
         self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)
+
+    #: Costura de teste, como a da F3.6.
+    DIALOGO_DIAGRAMA = DialogoDiagrama
+
+    def extrair_diagramas(self):
+        """
+        Lê a posição dos diagramas da página (F7.1).
+
+        Precisa dos boxes: é a lista de contornos que diz onde o tabuleiro está
+        (ele é o contorno grande e quadrado que a F1.8 descarta). Sem boxes
+        gerados, não há o que localizar.
+        """
+        from core import diagrama as diag
+
+        if self.image is None:
+            messagebox.showinfo("Diagramas", "Abra uma imagem ou PDF primeiro.")
+            return
+        if not self.boxes:
+            messagebox.showinfo(
+                "Diagramas",
+                "Gere os boxes da página primeiro (Ferramentas → Gerar boxes).\n\n"
+                "O tabuleiro é localizado entre os contornos da página.")
+            return
+
+        try:
+            leituras = diag.ler_pagina(self.image, self.boxes)
+        except diag.ModeloAusente as e:
+            messagebox.showerror("Diagramas", str(e))
+            return
+
+        if not leituras:
+            messagebox.showinfo(
+                "Diagramas",
+                "Nenhum diagrama encontrado nesta página.\n\n"
+                "O tabuleiro é reconhecido por ser um contorno grande e "
+                "quadrado; um diagrama cortado na borda da página não casa.")
+            return
+
+        fen = self.DIALOGO_DIAGRAMA(self.parent, self.image, leituras).mostrar()
+        if fen:
+            self.parent.clipboard_clear()
+            self.parent.clipboard_append(fen)
+            self.status.set(f"FEN copiado: {fen}")
+        else:
+            self.status.set(f"{len(leituras)} diagrama(s) lidos.")
 
     def exportar_pgn(self):
         """

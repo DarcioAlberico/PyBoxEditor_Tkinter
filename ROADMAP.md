@@ -29,6 +29,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
+| **F7** | Diagramas | A posição impressa vira FEN, com o que é incerto à vista | **concluída** (F7.1) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -40,7 +41,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **569 testes**, `pytest` na raiz.
+Cobertura: **616 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1943,9 +1944,104 @@ só aparece quando outro programa tenta abri-lo.
 
 ---
 
+## F7 — Diagramas
+
+### F7.1 — Ler a posição dos diagramas — CONCLUÍDA
+
+**Concluída em 2026-08-04.** `core/diagrama.py`, menu Ferramentas → "Ler posição dos
+diagramas...". Estava em "fora de escopo" desde a spec v1.0.
+
+**Os diagramas já estavam localizados, e ninguém tinha notado.** A F1.8 descarta
+contornos grandes demais para serem caractere, e o tabuleiro sai como **um** contorno —
+ele tem moldura fechada e `findContours` roda com `RETR_EXTERNAL`, então casas e peças
+são contornos filhos e não são devolvidos. `localizar` só recolhe o que a F1.8 jogava
+fora, filtrando por "quase quadrado" (um travessão também é descartado por tamanho, e
+não é tabuleiro). Nas 9 páginas rotuladas: 25 diagramas.
+
+**A grade é o recorte dividido por 8, e isso foi verificado, não suposto.** O padrão de
+cores do tabuleiro é conhecido de antemão — casa (linha+coluna) par é clara — e serve de
+prova: uma grade deslocada quebraria o xadrez das cores imediatamente.
+
+#### O fundo, e a surpresa que ele deu
+
+Medir tom absoluto não serve, e a razão só apareceu ao olhar os 25: **casa escura tem
+dois desenhos diferentes** nestes livros. Cinza chapado no Kasparov, **hachura diagonal**
+no Aagaard. A moda de uma casa hachurada é branca, e os quatro diagramas hachurados
+saíam com "zero casas escuras" — 87,7% de acerto no padrão do tabuleiro, com a falha
+concentrada neles.
+
+O que resolve: para cada diagrama e cada cor de casa, o fundo é a **mediana pixel a
+pixel** das 32 casas daquela cor. As vazias são maioria, então a mediana *é* a casa
+vazia — chapada ou hachurada, tanto faz. Tudo mais trabalha sobre o resíduo
+(`casa - fundo`). O limiar entre vazia e ocupada é de Otsu **por diagrama e por cor**:
+com limiar global, casa hachurada vazia (resíduo até 60) passava à frente de peça em
+diagrama chapado. Com o limiar local, a contagem ficou entre 12 e 28 peças nos 25 —
+nenhuma impossível.
+
+#### Duas correções óbvias que pioraram
+
+Medido contra **128 casas transcritas à mão** (dois diagramas, com a grade de
+coordenadas desenhada por cima para não errar de casa):
+
+| variante | acerto por casa |
+|---|---:|
+| resíduo + HOG + legalidade (o de hoje) | **94,5%** |
+| \+ canal de sinal para a cor da peça | 90,6% |
+| detecção por energia de borda | 93,0% |
+
+A primeira parecia certa: o HOG usa orientação módulo 180 e magnitude absoluta, logo
+descarta o sinal, e torre branca virava torre preta. Dar-lhe o sinal por fora **subiu** os
+erros de cor de 3 para 5. A segunda também: peça branca em casa clara quase some no
+resíduo — é branca por dentro, traço fino em volta — e a borda a acha; mas troca 3
+omissões por 4 falsos positivos.
+
+**A métrica óbvia apontava para o lado errado.** A concordância com meus próprios rótulos
+de agrupamento dava 98,1% para a variante com sinal, contra 94,7% para a que ficou. Ela
+premia reproduzir o agrupamento, não acertar. Quem decidiu foi a legalidade da posição.
+
+#### A legalidade arbitra, como na F1.7
+
+Uma posição real tem exatamente um rei de cada cor, no máximo oito peões por lado,
+nenhum peão na 1a ou 8a fila, no máximo dezesseis peças por cor. São restrições sobre a
+posição **inteira** — mais fortes que as da F1.7, que valiam para um lance de cada vez.
+`_arbitrar` troca a casa mais barata: a de menor diferença entre a pontuação da leitura
+atual e a da que resolve. Leva de 17 para **24 dos 25** os diagramas cuja posição é
+possível.
+
+**A primeira versão desfazia a própria correção**, e um teste de três casas pegou: sem
+rei branco, ela promovia a casa mais barata a `K`; na volta seguinte faltava o rei preto,
+e a mesma casa era outra vez a mais barata — agora para virar `k`, porque acabara de
+perder a pontuação original. Oscilava até o teto de voltas e devolvia a leitura inicial.
+Cada casa resolvida passou a ficar travada.
+
+#### O que isto não entrega, e a interface diz
+
+**94,5% por casa são ~3,5 casas erradas em 64.** Uma posição com três casas erradas é
+uma posição errada. E **passar nas provas de legalidade não é prova de estar certo**:
+elas contam peças, não reconhecem bispo lido como peão — por isso o número que vale é o
+das 128 casas transcritas, não os 24/25.
+
+Daí o diálogo pôr o recorte impresso e a leitura **lado a lado, na mesma escala**,
+marcando de vermelho o que a legalidade trocou e de laranja o que ficou duvidoso. Mesma
+decisão da F3.6, mesmo motivo: o que o programa não tem como garantir, ele mostra.
+
+Lado a jogar, roque e en passant não estão desenhados no tabuleiro. O FEN assume brancas
+a jogar sem roque, e **avisa que assumiu** — a convenção não pode passar por leitura.
+
+O modelo são 361 amostras rotuladas (`training_data_diagrama/`, gravadas como imagem
+para poderem ser olhadas), HOG reduzido a 32 dimensões por PCA, voto de 3 vizinhos.
+Banco completo e PCA-32 dão o mesmo acerto (94,5%) e o segundo ocupa 260 KB contra
+2,55 MB. Rede neural não: são 361 amostras de dois livros, ela decoraria. As classes
+magras são `B`, `Q` e `b`, com 7 a 11 amostras — são as que mais erram, e mais diagramas
+ajudam essas primeiro. `treinar_diagrama.py` refaz o modelo.
+
+Cobertura: `tests/test_f71_diagrama.py`, 47 testes.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
-- Extração de FEN dos diagramas (a spec v1.0 §3 já marca como fase posterior)
+- ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
 - ~~Exportação PGN da notação reconhecida~~ — **promovida para F6.1** (feita)
 - ~~Modelo de linguagem sobre notação de xadrez~~ — **promovido para F1.7** depois de
   avaliar o DocuVision-AI (ver abaixo)

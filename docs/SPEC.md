@@ -51,10 +51,15 @@ Ferramenta desktop para OCR de livros de xadrez em PDF, com três capacidades:
 Não incluído nesta versão: extração de FEN, exportação PGN, correção por modelo de
 linguagem.
 
-> Dois dos três saíram de "não incluído" depois: a **correção por modelo de linguagem**
+> **Os três saíram de "não incluído" depois.** A **correção por modelo de linguagem**
 > virou a F1.7 (validação por legalidade, que resolve o mesmo problema com regras em vez
-> de estatística) e a **exportação PGN** virou a F6.1, porque a F1.7 já tinha construído
-> quase tudo de que ela precisava. A extração de FEN segue fora.
+> de estatística); a **exportação PGN** virou a F6.1, porque a F1.7 já tinha construído
+> quase tudo de que ela precisava; e a **extração de FEN** virou a F7.1, porque a F1.8 já
+> localizava os diagramas sem que ninguém tivesse notado — ela os *descartava* como
+> "grande demais para ser caractere", e bastou recolher o que ela jogava fora.
+>
+> As três seguiram o mesmo caminho: o que parecia trabalho novo era, em boa parte,
+> trabalho já feito por outro motivo.
 
 ---
 
