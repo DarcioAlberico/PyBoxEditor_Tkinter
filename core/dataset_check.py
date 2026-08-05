@@ -158,7 +158,57 @@ def validar_dataset(data_dir: str, min_amostras: int = MIN_AMOSTRAS_POR_CLASSE,
                 "colisao", ", ".join(pastas),
                 f"{len(pastas)} pastas para o mesmo caractere {char!r}"))
 
+    if checar_pngs:
+        # Junto do `checar_pngs` porque tem o mesmo custo: ler a base inteira.
+        # Em 151 mil amostras são ~18 s, e `LearningService.validar_dados`
+        # desliga essa varredura de propósito para o caminho rápido.
+        problemas.extend(rotulos_contraditorios(data_dir))
     return problemas
+
+
+def rotulos_contraditorios(data_dir: str, limite: int = 12) -> List[Problema]:
+    """
+    A **mesma imagem**, byte a byte, rotulada de duas formas.
+
+    Achado ao montar a matriz do k-NN (F7.2): na base real são 16 casos, e não
+    são aleatórios — `0`/`o`, `1`/`l`, `4`/`d`. São os homóglifos que a medição
+    da F3.6 já tinha isolado, aqui em sua forma mais dura: depois do recorte na
+    moldura do glifo e do redimensionamento para 32x32, o que distinguia os dois
+    caracteres não existe mais, e alguém rotulou o mesmo pixel de dois jeitos.
+
+    **Não é grave, e o motivo importa.** Nenhum treino melhora removendo um dos
+    lados: os dois rótulos estão certos para *alguma* ocorrência daquele
+    desenho. O que o classificador não tem é como escolher — quem escolhe é o
+    contexto, que é trabalho da F1.7. Reportar serve para o número parar de
+    surpreender, não para virar tarefa.
+    """
+    porimagem = {}
+    for pasta in _classes(data_dir):
+        char = folder_to_char(pasta)
+        for arq in _pngs(os.path.join(data_dir, pasta)):
+            img = cv2.imread(arq, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            if img.shape != (32, 32):
+                img = cv2.resize(img, (32, 32))
+            porimagem.setdefault(img.tobytes(), set()).add(char)
+
+    pares = {}
+    for rotulos in porimagem.values():
+        if len(rotulos) > 1:
+            pares[tuple(sorted(rotulos))] = pares.get(tuple(sorted(rotulos)), 0) + 1
+
+    if not pares:
+        return []
+
+    maiores = sorted(pares.items(), key=lambda kv: -kv[1])[:limite]
+    detalhe = ", ".join(f"{'/'.join(p)} ({n})" for p, n in maiores)
+    if len(pares) > limite:
+        detalhe += f" e mais {len(pares) - limite}"
+    return [Problema(
+        "rotulo_contraditorio", "(base inteira)",
+        f"{sum(pares.values())} imagem(ns) idêntica(s) com rótulos diferentes: "
+        f"{detalhe}", grave=False)]
 
 
 def planejar_migracao(data_dir: str) -> List[Acao]:

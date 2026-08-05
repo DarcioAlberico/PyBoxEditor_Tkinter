@@ -33,11 +33,15 @@ def _base(tmp, conteudo):
     testes precisam justamente de pastas como 'lower_ä'.
     """
     from PIL import Image
-    for pasta, n in conteudo.items():
+    for k, (pasta, n) in enumerate(conteudo.items()):
         d = os.path.join(tmp, pasta)
         os.makedirs(d, exist_ok=True)
         img = np.full((32, 32), 255, dtype=np.uint8)
+        # Um desenho por classe, e não o mesmo quadrado para todas: uma base em
+        # que classes diferentes têm a MESMA imagem é contraditória, e a
+        # verificação de rótulo contraditório (F7.2) a denuncia com razão.
         img[8:24, 8:24] = 0
+        img[2:6, 2 + (k % 6) * 4:6 + (k % 6) * 4] = 0
         for i in range(n):
             Image.fromarray(img).save(os.path.join(d, f"{i:03d}.png"))
     return tmp

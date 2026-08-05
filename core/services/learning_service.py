@@ -75,6 +75,13 @@ class LearningService:
             learner.learn(crop_np, b.char)
             count += 1
 
+        # Uma gravação por lote, não por amostra: refazer a impressão digital
+        # custa 0,2 s, e por amostra isso somaria minutos numa página cheia.
+        # Sem isto o cache ficaria velho e a sessão seguinte releria 151 mil
+        # PNGs — os 141 s que a otimização existe para eliminar.
+        if count:
+            learner.salvar_cache()
+
         return count
 
     def predict_learner(self, crop_np: np.ndarray) -> Tuple[str, float]:

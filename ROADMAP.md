@@ -29,7 +29,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
-| **F7** | Diagramas | A posição impressa vira FEN, com o que é incerto à vista | **concluída** (F7.1) |
+| **F7** | Diagramas e desempenho | Posição impressa vira FEN; o k-NN sai do caminho | **concluída** (F7.1–F7.2) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -41,7 +41,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **616 testes**, `pytest` na raiz.
+Cobertura: **651 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1944,7 +1944,7 @@ só aparece quando outro programa tenta abri-lo.
 
 ---
 
-## F7 — Diagramas
+## F7 — Diagramas e desempenho
 
 ### F7.1 — Ler a posição dos diagramas — CONCLUÍDA
 
@@ -2037,6 +2037,61 @@ ajudam essas primeiro. `treinar_diagrama.py` refaz o modelo.
 
 Cobertura: `tests/test_f71_diagrama.py`, 47 testes.
 
+### F7.2 — O k-NN deixa de custar 21 s por página — CONCLUÍDA
+
+**Concluída em 2026-08-05.** Estava em "fora de escopo" como *"substituir o k-NN linear
+por índice FAISS/KD-tree"*. **A primeira pergunta não era como acelerar, e sim se o elo
+se paga** — a F1.5b ensinou a perguntar isso antes.
+
+**Ele se paga.** Medido nas 9 páginas rotuladas: a rede fica abaixo de 0,8 (o gatilho do
+k-NN) em 3,5% dos caracteres; nesses 366 casos difíceis, a cadeia com o k-NN acerta
+88,5% contra 72,4% da rede sozinha — **59 caracteres a mais**. Ao contrário do separador
+de glifos, este elo fica.
+
+O que custava caro era a implementação:
+
+| | antes | agora |
+|---|---:|---:|
+| carregar as referências | 141 s (a frio) | **0,26 s** |
+| uma predição | 415 ms | **3,7 ms** |
+| numa página de 2.000 caracteres | ~21 s | **0,25 s** |
+| memória | 155 MB | 89 MB |
+
+Três mudanças, e **nenhuma altera a resposta** — verificado contra a implementação
+anterior em 200 consultas reais: mesmo caractere, diferença de confiança 0,000000.
+
+- **86% das referências eram duplicata byte a byte** — 151.114 imagens, 21.823
+  distintas. Terceira vez que este projeto encontra o número: o rascunho da F3.8, a
+  `training_data_2` e agora a base principal. Texto impresso na mesma fonte e no mesmo
+  corpo cai no mesmo PNG de 32×32.
+- **A busca virou conta de matriz**, com `||a-b||² = ||a||² + ||b||² - 2a·b` e as normas
+  pré-calculadas. O laço com `cv2.norm` por referência era o grosso dos 415 ms.
+- **A matriz ficou em cache** ao lado da base, com impressão digital pela contagem de
+  arquivos por pasta. Contar custa 0,2 s; olhar a data de cada arquivo custaria 5,2 s e
+  só pegaria a mais um arquivo *substituído* sem mudar a contagem — que nada aqui faz.
+
+**FAISS ou KD-tree não são precisos, e isso foi medido.** Reduzir para 32 dimensões por
+PCA desce de 3,7 ms para 0,1 ms — mas muda a resposta em 4 de 200 consultas. A 3,7 ms
+uma página gasta 0,25 s; não há o que comprar com uma dependência nova e uma
+aproximação.
+
+#### Dois defeitos calados que apareceram no caminho
+
+**Ligadura nunca era aprendida.** A guarda do `learn` era `len(char) != 1`, então um box
+marcado `fi` era descartado em silêncio — apesar de o `char_to_folder` ter um ramo
+`ligature_*` para exatamente isso. Mesma família da F5.2, achada pelo mesmo motivo: ao
+mexer no código, perguntar o que ele joga fora.
+
+**Dezesseis imagens idênticas com rótulos diferentes.** `1`/`l` (4), `V`/`v` (3),
+`W`/`w` (3), `'`/`,` (2), `0`/`o`, `4`/`d`, `P`/`p`, `N`/`♘`. É a medição da F3.6 na sua
+forma mais dura: depois do recorte na moldura do glifo e do redimensionamento, o que
+distinguia os dois caracteres **não existe mais**, e alguém rotulou o mesmo pixel de dois
+jeitos. `dataset_check.rotulos_contraditorios` passou a reportar, como **aviso e não
+erro**: nenhum treino melhora removendo um dos lados, porque os dois rótulos estão certos
+para alguma ocorrência daquele desenho. Quem escolhe é o contexto, e isso é a F1.7.
+
+Cobertura: `tests/test_f72_knn.py`, 35 testes.
+
 ---
 
 ## Fora de escopo (registrado para depois)
@@ -2045,6 +2100,7 @@ Cobertura: `tests/test_f71_diagrama.py`, 47 testes.
 - ~~Exportação PGN da notação reconhecida~~ — **promovida para F6.1** (feita)
 - ~~Modelo de linguagem sobre notação de xadrez~~ — **promovido para F1.7** depois de
   avaliar o DocuVision-AI (ver abaixo)
-- Substituição do k-NN linear de `CharacterLearner` (varre 127k referências por
-  predição — O(n) por caractere) por índice FAISS/KD-tree
+- ~~Substituição do k-NN linear de `CharacterLearner` por índice FAISS/KD-tree~~ —
+  **promovida para F7.2**, e o índice não foi preciso: dedup mais busca vetorizada
+  deram 112x sem aproximar nada
 - Empacotamento com PyInstaller
