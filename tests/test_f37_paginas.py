@@ -474,6 +474,77 @@ def test_virar_pagina_com_tarefa_rodando_explica_em_vez_de_ignorar():
                 del app.win.task.is_running
 
 
+# ----------------------------------------------------------------------
+# O botão que sumia (F3.9)
+# ----------------------------------------------------------------------
+
+def test_a_janela_cabe_na_tela():
+    """
+    `geometry("1600x900")` fixo numa tela de 1360x768 punha o lado direito da
+    janela fora do monitor — e é lá que ficava o botão de avançar página.
+    """
+    import appy
+
+    with _App() as app:
+        raiz = app.root
+        largura, resto = appy._geometria_que_cabe(raiz).split("x")
+        altura = resto.split("+")[0]
+        assert int(largura) <= raiz.winfo_screenwidth()
+        assert int(altura) <= raiz.winfo_screenheight()
+
+
+def test_a_janela_nao_encolhe_a_ponto_de_sumir_controle():
+    import appy
+
+    assert appy.LARGURA_MINIMA >= 1024
+    assert appy.ALTURA_MINIMA >= 640
+
+
+def test_os_controles_de_pagina_ficam_juntos_e_primeiro():
+    """
+    A ordem de empacotamento é a ordem de sobrevivência: o Tk corta quem entrou
+    por último. Os botões precisam estar no primeiro grupo.
+    """
+    with _App() as app:
+        w = app.win
+        grupo = w.btn_prev_page.master
+        assert w.btn_next_page.master is grupo, "os dois botões no mesmo grupo"
+        assert w.entry_pagina.master is grupo, "o campo 'ir para' junto deles"
+        assert w.nav_frame.pack_slaves()[0] is grupo, "o grupo tem de vir primeiro"
+
+
+def test_o_grupo_de_controles_cabe_numa_barra_estreita():
+    with _App() as app:
+        app.root.update()
+        exigido = app.win.btn_prev_page.master.winfo_reqwidth()
+        assert exigido < 500, f"os controles exigem {exigido} px, largo demais"
+
+
+def test_o_rotulo_de_pagina_nao_cresce_com_o_uso():
+    """
+    Ele ficava entre os dois botões e chegava a 381 px — era o que empurrava o
+    'Próxima' para fora. O detalhe da sessão foi para um rótulo próprio.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=8)
+        with _App() as app:
+            app.win.open_pdf(pdf)
+            app.aguardar()
+
+            curto = app.win.lbl_page_info.cget("text")
+            for p in range(6):
+                app.win.session.store(p, [BoxEntry("a", 0, 0, 5, 5)] * 200)
+            app.win._update_nav_controls()
+
+            assert app.win.lbl_page_info.cget("text") == curto
+            assert "pág. com boxes" in app.win.lbl_sessao.cget("text")
+
+
+def test_o_detalhe_da_sessao_e_o_ultimo_a_ser_cortado():
+    with _App() as app:
+        assert app.win.nav_frame.pack_slaves()[-1] is app.win.lbl_sessao
+
+
 def _main():
     testes = [(n, o) for n, o in sorted(globals().items())
               if n.startswith("test_") and callable(o)]

@@ -423,35 +423,57 @@ class MainWindow(tk.Frame):
         self.nav_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
         self.nav_frame.columnconfigure(1, weight=1)
 
-        self.btn_prev_page = tk.Button(self.nav_frame, text="<< Página Anterior", command=self.prev_page, state="disabled")
-        self.btn_prev_page.pack(side="left", padx=10)
+        # **A ordem de empacotamento é a ordem de sobrevivência.** Quando a
+        # barra não cabe na janela, o Tk corta quem foi empacotado por último.
+        # Antes, o rótulo de página ficava ENTRE os dois botões e crescia com o
+        # uso — "Página: 108/120 | 14 pág. com boxes, 4200 no total | 14 não
+        # salva(s)" mede 381 px — e empurrava o "Próxima Página >>" para fora.
+        # O usuário via o botão de voltar e não via o de avançar.
+        #
+        # Agora os controles ficam juntos num grupo próprio, empacotado
+        # primeiro: exigem ~330 px e nada que venha depois os espreme.
+        controles = tk.Frame(self.nav_frame)
+        controles.pack(side="left")
 
-        self.lbl_page_info = tk.Label(self.nav_frame, text="Página: -/-")
-        self.lbl_page_info.pack(side="left", padx=10)
+        self.btn_prev_page = tk.Button(controles, text="<< Anterior",
+                                       command=self.prev_page, state="disabled")
+        self.btn_prev_page.pack(side="left", padx=(10, 4))
 
-        self.btn_next_page = tk.Button(self.nav_frame, text="Próxima Página >>", command=self.next_page, state="disabled")
-        self.btn_next_page.pack(side="left", padx=10)
+        self.btn_next_page = tk.Button(controles, text="Próxima >>",
+                                       command=self.next_page, state="disabled")
+        self.btn_next_page.pack(side="left", padx=4)
 
         # Ir direto para uma página. Num livro de 300 páginas, chegar à 108 de
         # "próxima" em "próxima" são 107 renderizações e 107 esperas — o
         # caminho existia, mas não servia.
-        tk.Label(self.nav_frame, text="Ir para:").pack(side="left", padx=(14, 2))
-        self.entry_pagina = tk.Entry(self.nav_frame, width=6, state="disabled")
+        tk.Label(controles, text="Ir para:").pack(side="left", padx=(12, 2))
+        self.entry_pagina = tk.Entry(controles, width=5, state="disabled")
         self.entry_pagina.pack(side="left")
         self.entry_pagina.bind("<Return>", lambda e: self.ir_para_pagina())
-        self.btn_ir = tk.Button(self.nav_frame, text="Ir", state="disabled",
+        self.btn_ir = tk.Button(controles, text="Ir", state="disabled",
                                 command=self.ir_para_pagina)
         self.btn_ir.pack(side="left", padx=(3, 10))
 
+        # Curto de propósito: só "Página: 108/120". O detalhe da sessão foi para
+        # um rótulo próprio, que pode ser cortado sem levar botão nenhum junto.
+        self.lbl_page_info = tk.Label(self.nav_frame, text="Página: -/-")
+        self.lbl_page_info.pack(side="left", padx=(6, 10))
+
         # Legenda da escala de confiança — sem ela as cores são adivinhação.
         legenda = tk.Frame(self.nav_frame)
-        legenda.pack(side="left", padx=20)
+        legenda.pack(side="left", padx=12)
         for cor, texto in conf_ui.LEGENDA:
             tk.Label(legenda, text="\u25a0", fg=cor).pack(side="left")
             tk.Label(legenda, text=texto, fg="gray20").pack(side="left", padx=(0, 8))
 
         self.lbl_revisao = tk.Label(self.nav_frame, text="", fg="gray20")
         self.lbl_revisao.pack(side="left", padx=10)
+
+        # Último a ser empacotado é o primeiro a ser cortado — e é o que menos
+        # falta faz: quantas páginas têm boxes e quantas estão por salvar já
+        # aparece no título da janela.
+        self.lbl_sessao = tk.Label(self.nav_frame, text="", fg="gray30")
+        self.lbl_sessao.pack(side="left", padx=6)
 
         # Barra de status: mensagem + progresso + cancelar
         self.status = StatusBar(self, on_cancel=self.task.cancel)
@@ -926,16 +948,19 @@ class MainWindow(tk.Frame):
             self.btn_ir.config(state="disabled")
             return
 
-        info = f"Página: {self.current_pdf_page + 1}/{self.pdf_service.num_pages}"
+        self.lbl_page_info.config(
+            text=f"Página: {self.current_pdf_page + 1}/{self.pdf_service.num_pages}")
+
+        detalhe = []
         if self.session is not None:
             com_boxes = self.session.pages_with_boxes()
             if com_boxes:
-                info += (f"   |   {len(com_boxes)} pág. com boxes"
-                         f", {self.session.total_boxes()} no total")
+                detalhe.append(f"{len(com_boxes)} pág. com boxes, "
+                               f"{self.session.total_boxes()} no total")
             sujas = self.session.dirty_pages()
             if sujas:
-                info += f"   |   {len(sujas)} não salva(s)"
-        self.lbl_page_info.config(text=info)
+                detalhe.append(f"{len(sujas)} não salva(s)")
+        self.lbl_sessao.config(text="   |   ".join(detalhe))
         self.btn_prev_page.config(
             state="normal" if self.current_pdf_page > 0 else "disabled"
         )

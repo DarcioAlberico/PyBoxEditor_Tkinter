@@ -41,7 +41,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **662 testes**, `pytest` na raiz.
+Cobertura: **668 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1257,7 +1257,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.6 | ~~Aplicar a todos os semelhantes~~ — **CONCLUÍDA** | Ganho de ordem de grandeza |
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 | F3.8 | ~~Snapshot do histórico a cada tecla~~ — **CONCLUÍDA** | 15,8 ms por tecla viram 0,24 |
-| F3.9 | ~~Ir direto para uma página do PDF~~ — **CONCLUÍDA** | Chegar à página 108 deixa de custar 107 cliques |
+| F3.9 | ~~Ir direto para uma página; o botão que sumia~~ — **CONCLUÍDA** | A janela cabe na tela e os botões param de ser empurrados para fora |
 
 **F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
 `fallback_chain` e a descartava (`char, source, _`). Agora `BoxEntry` guarda
@@ -1535,27 +1535,46 @@ Cobertura: `tests/test_f38_historico.py`, 20 testes.
 **F3.9 — concluída em 2026-08-05.** Relatada pelo usuário: *"tem a opção de abrir o PDF
 mas não consigo avançar as páginas; gostaria de treinar a página que eu escolher"*.
 
-A navegação **não estava quebrada** — reproduzida num PDF de 5 páginas, os botões
-habilitam e viram a página. O que não existia era chegar a uma página **escolhida**: só
-havia "anterior" e "próxima", e num livro de 300 páginas alcançar a 108 são 107
-renderizações e 107 esperas. O caminho existia e não servia, que na prática é a mesma
-coisa que não existir.
+**O botão não estava quebrado: ele estava fora da tela.** Perguntado o sintoma exato, o
+usuário respondeu *"não aparecia o botão de próxima página"* — e aí o defeito ficou
+medível. Duas causas somadas:
+
+1. **`appy.py` abria a janela com `geometry("1600x900")` fixo.** A tela da máquina tem
+   **1360×768**. A janela nascia 240 px mais larga e 132 px mais alta que o monitor, e o
+   lado direito ficava fora — inalcançável, sem barra de rolagem que o trouxesse de
+   volta. Agora a geometria é calculada a partir da tela (1280×648 ali), centralizada, com
+   `minsize` para o usuário não conseguir encolher até sumir controle.
+2. **O rótulo de página ficava entre os dois botões, e crescia com o uso.** *"Página:
+   108/120 | 14 pág. com boxes, 4200 no total | 14 não salva(s)"* mede **381 px**. Como a
+   barra empilha da esquerda para a direita, esse rótulo empurrava o "Próxima Página >>"
+   para fora — o usuário via o botão de voltar e não o de avançar. **A ordem de
+   empacotamento é a ordem de sobrevivência**: os controles foram para um grupo próprio,
+   empacotado primeiro (290 px, sempre visível), o rótulo ficou curto
+   (`Página: 108/120`), e o detalhe da sessão virou um rótulo próprio, empacotado por
+   último — é o primeiro a ser cortado, e é o que menos falta faz, porque o mesmo dado
+   está no título da janela. A barra inteira caiu de 1160 para 1033 px.
+
+O segundo problema **não existia** até esta fase criar o campo "Ir para": ele agravou
+uma barra que já estava no limite. Achá-lo foi consequência de medir em vez de supor.
+
+E o que o usuário pediu também não existia: chegar a uma página **escolhida**. Só havia
+"anterior" e "próxima", e num livro de 300 páginas alcançar a 108 são 107 renderizações e
+107 esperas. O caminho existia e não servia, que na prática é o mesmo que não existir.
 
 Entrou um campo "Ir para:" na barra de navegação, com Enter, botão e **Ctrl+G**. O número
 é o que o rótulo mostra (1 a N), não o índice interno — trocar um pelo outro levaria à
 página errada sem erro nenhum, e há teste para isso.
 
-**E um segundo defeito, este de verdade, apareceu no caminho.** `_load_pdf_page` desistia
+**E um terceiro defeito apareceu no caminho.** `_load_pdf_page` desistia
 **em silêncio** quando havia tarefa rodando, contando com os botões desativados para
 explicar. Eles não explicam: pelo teclado (PgUp/PgDn) ou pelo campo novo, o usuário
-aperta e nada acontece — e a leitura natural é que virar a página quebrou. É um candidato
-plausível para o relato original, já que abrir um PDF grande pela primeira vez pode deixar
-uma tarefa rodando por bastante tempo. Agora a barra de status diz o motivo.
+aperta e nada acontece — e a leitura natural é que virar a página quebrou. Agora a barra de status diz o motivo.
 
 Treinar a página escolhida já funcionava assim que se chegasse nela: "Aprender com Página
 Atual" opera sobre a página carregada, seja imagem ou PDF.
 
-Cobertura: `tests/test_f37_paginas.py`, 21 testes (11 novos).
+Cobertura: `tests/test_f37_paginas.py`, 27 testes (17 novos), incluindo regressão
+para a janela caber na tela e para os controles de página serem o primeiro grupo da barra.
 
 ---
 
