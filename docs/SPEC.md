@@ -2,7 +2,7 @@
 
 Versão: 2.0
 Data: 2026-08-03
-Status: implementável
+Status: **implementado** (ver ressalvas abaixo) — atualizado em 2026-08-04
 Substitui parcialmente: [`Substituição de Glifos de Xadrez.md`](../Substituição%20de%20Glifos%20de%20Xadrez.md) (v1.0)
 Companheiro: [`ROADMAP.md`](../ROADMAP.md)
 
@@ -10,6 +10,33 @@ Companheiro: [`ROADMAP.md`](../ROADMAP.md)
 e continua válida como referência de requisitos (RF-01…RF-06). Esta v2.0 cobre o sistema
 inteiro, corrige decisões da v1.0 que a implementação provou erradas (§4.2) e adiciona
 os contratos que faltavam. Onde houver conflito, **v2.0 prevalece**.
+
+---
+
+## 0. Como ler este documento hoje
+
+Este texto foi escrito **antes** da implementação e está no futuro do imperativo
+("reescrever", "a criar", "passa a"). Tudo o que ele especifica foi feito, e o registro
+do que **de fato aconteceu**, com as medições, está no [`ROADMAP.md`](../ROADMAP.md).
+Onde os dois discordarem, o ROADMAP é o que vale.
+
+**Onde a implementação divergiu de propósito.** Estas são as diferenças que confundiriam
+quem lesse a spec como manual:
+
+| § | A spec dizia | Ficou | Por quê |
+|---|---|---|---|
+| 2.3 | recriar `core/box_io.py` | `core/formato_box.py` | o nome antigo carregava o formato de 5 campos, incompatível; reusá-lo convidaria à confusão |
+| 7.5 | `Ctrl+Shift+A` | **`Ctrl+E`** | acorde de três teclas para a operação mais repetida do fluxo |
+| 7.6 | `Z` para zoom | **`F4`** | com o modo digitação (§7.3) uma letra solta vira o caractere do box (F4.6) |
+| 7.6 | — | **`Tab` / `Shift+Tab`** | não estavam previstos; entraram na F3.5 |
+| 6.1 | `HistoryManager.is_dirty()` | `DocumentSession.is_dirty()` | quem sabe o que está salvo é o documento, não o histórico |
+| 3 | separador de glifos sempre ligado | `separar_colados="auto"` | medido: sem árbitro, separar é **pior** que não separar (F1.5b) |
+
+**O que a medição desmentiu depois de escrito**, e está corrigido no ROADMAP, não aqui:
+a spec supunha que o tabuleiro viraria milhares de contornos de lixo (dá **um** box), que
+o separador de glifos por projeção se pagaria (só se paga com o classificador
+arbitrando), e que o custo do histórico exigiria snapshot incremental (exigia só parar de
+usar `deepcopy`).
 
 ---
 
@@ -94,7 +121,7 @@ Só três lugares convertem `BoxEntry` ↔ outra representação:
 
 Qualquer outro lugar que converta é bug.
 
-### 2.3 Formato `.box`
+### 2.3 Formato `.box` — [feito, F5.2, em `core/formato_box.py`]
 
 Havia **dois formatos incompatíveis**: 5 campos em `box_io.py` e 6 em `main_window.py`.
 A F5.1 removeu o `box_io.py`, então hoje sobra só o de 6 campos, inline no
@@ -117,6 +144,14 @@ Regras:
   (`main_window.py:709` trunca hoje, perdendo dados em silêncio)
 - ler tolerando 5 ou 6 campos; escrever sempre 6
 - UTF-8 sem BOM
+
+> **Como ficou.** O módulo é `core/formato_box.py`, não `box_io.py` — o nome antigo
+> carregava o formato de 5 campos e reusá-lo convidaria à confusão. O escape saiu como a
+> spec pedia e cresceu: além de `\~`, também `\\`, `\s` (espaço) e `\t`. Foi por causa de
+> um **terceiro** defeito que a spec não previa — um box cujo caractere é espaço deixava
+> a linha com 5 campos e o leitor a descartava, perdendo o box calado. A tolerância a 5
+> campos, que a spec pedia por compatibilidade, passou a significar exatamente isso: o
+> primeiro campo era um espaço literal, como o Tesseract o grava.
 
 ---
 
@@ -160,6 +195,17 @@ Entrou também `BoxService.dividir_glifos_colados()`, que não constava da spec 
 que a F1.1 apontou como limitador real: `findContours` devolvia `♞e5` como um box
 só. O corte usa a **largura** do vale de tinta, não a profundidade — cortar por
 profundidade partiria a coroa da dama, que tem vales fundos entre as pontas.
+
+> **A largura do vale sozinha não decide, e isso levou duas medições para aparecer.**
+> Onde a figurina está isolada entre texto normal, vale de colagem e vale interno de
+> glifo ficam indistinguíveis, e o separador partia mais glifo bom do que colagem:
+> 182 cortes falsos contra 73 bons, custando 2,3 pontos de F1 em relação a não separar.
+> Quem passou a decidir é o **classificador** (F1.5b), comparando a pontuação do box
+> inteiro com a menor das partes — cortes falsos caem para 2 e o separador enfim rende.
+>
+> Por isso `separar_colados` **não é mais um booleano com padrão `True`**: é `"auto"`,
+> e só separa se houver árbitro. Sem modelo carregado, não separar é a decisão medida
+> como melhor.
 
 Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
 literal deve sobrar no código.
@@ -380,8 +426,31 @@ Executar **antes** de qualquer novo treino:
 2. [feito] **`lower_ä`** — estava vazia porque `cv2.imwrite` falha em caminho
    não-ASCII no Windows e devolve `False` sem levantar erro. É a razão de ser da
    regra de nomes só-ASCII do `char_to_folder`.
-3. **`training_data_2/`** — 138 PNGs soltos fora do padrão de pastas por classe.
-   Classificar ou descartar.
+3. ~~**`training_data_2/`** — 138 PNGs soltos fora do padrão de pastas por classe.
+   Classificar ou descartar.~~ — **a descrição estava errada; ver abaixo.**
+
+   > **Medido em 2026-08-04: não são 138 PNGs soltos.** São **70** soltos mais
+   > **68 pastas de classe com 192.600 imagens** — no formato certo, e uma base
+   > *maior* que a `training_data/` (103 classes, 128.850). "Classificar ou
+   > descartar" descreve um serviço de meia hora; o que está ali é outra coisa.
+   >
+   > **E há motivo para suspeitar que os rótulos são do modelo, não de humano.**
+   > O formato é exatamente o que `LearningService.batch_extract_and_classify`
+   > grava (`output_dir/<classe>/<uuid>.png`, 32×32). A distribuição reforça: a
+   > classe maior é `digit_1` (16.962), acima de `lower_e` (16.090) — em texto de
+   > livro o `e` domina com folga, e é o que se vê na `training_data`
+   > (`lower_e` 25.218 contra `digit_1` bem abaixo). Um excesso de `1` é a
+   > assinatura do classificador confundindo `l`, `i` e `I`, que é a confusão
+   > medida na F3.6.
+   >
+   > **Nada no código lê essa pasta**, então ela é inerte hoje. O risco é de
+   > alguém a mesclar na `training_data/` por parecer serviço pendente: seriam
+   > 192 mil rótulos do próprio modelo realimentando o treino, com os erros
+   > junto. A F1.4 mostra o estrago de 127 amostras mal rotuladas.
+   >
+   > **Decisão pendente, e é do dono dos dados**, não deste documento: só quem
+   > gerou a pasta sabe se aqueles rótulos foram conferidos. Até lá, fica de fora
+   > do treino e fora do repositório (`.gitignore`).
 4. [feito] **`folder_to_char`** — decodificação de `ligature_hex_*` implementada,
    com hex de largura fixa (a variável era ambígua). Ganhou `strict=True`, que
    levanta em vez de devolver `"?"`: devolver `"?"` em silêncio foi o que deixou o
@@ -563,7 +632,7 @@ erra com confiança mediana 1,000. Ver F1.9 no ROADMAP.
 
 ## 6. Aplicação
 
-### 6.1 Estado e histórico
+### 6.1 Estado e histórico — [feito, F0.3 e F3.8]
 
 Padrão único: **snapshot após a mutação**.
 
@@ -578,6 +647,13 @@ Remover `on_mutation_start` e todas as chamadas de snapshot pré-mutação. Hoje
 padrões coexistem e o redo perde estado permanentemente (verificado — ROADMAP F0.3).
 
 `HistoryManager` passa a expor `is_dirty()`, consumido por §6.4 e pelo autosave.
+
+> **Duas correções.** O `is_dirty()` ficou no `DocumentSession`, não no
+> `HistoryManager`: quem sabe o que está gravado em disco é o documento, e o histórico
+> não tem como saber onde ficou o último salvamento. E o snapshot guarda **tuplas**, não
+> `BoxEntry` — `copy.deepcopy` de uma lista de dataclasses custava 15,8 ms numa página
+> de 2.000 boxes, isto é, por tecla no modo digitação da §7.3. Ver ROADMAP F3.8, que
+> inclui o motivo de o "snapshot incremental" previsto na F3.4 **não** ter sido feito.
 
 ### 6.2 Concorrência
 
@@ -775,34 +851,54 @@ num editor onde cada box tem um caractere só, "aeiou" achar qualquer vogal é m
 que casar substrings. Diferencia maiúscula de minúscula porque o OCR diferencia
 (`upper_A` e `lower_a` são classes distintas).
 
-### 7.5 Aplicar a todos os semelhantes
+### 7.5 Aplicar a todos os semelhantes — [feito, F3.6]
 
-Com um box selecionado e corrigido: **"Aplicar a todos os semelhantes"** (`Ctrl+Shift+A`)
+Com um box selecionado e corrigido: **"Aplicar a todos os semelhantes"** (`Ctrl+E`)
 encontra boxes com imagem parecida (distância L2 abaixo de um limiar ajustável), mostra
 uma prévia em grade com seleção individual, e aplica em lote.
 
 Corrigir um `e` mal reconhecido pode corrigir 300 de uma vez. É o maior ganho isolado
 de produtividade do roadmap.
 
-### 7.6 Atalhos
+> **O que a medição acrescentou ao contrato.** O critério não é só a imagem: é imagem
+> **mais** o caractere que os candidatos ainda mostram, e essa segunda metade é o que
+> segura a precisão em 99,3% quando se afrouxa o limiar. E a prévia deixou de ser
+> conveniência para ser obrigatória: ~1 em 145 boxes do lote sai errado, por homóglifo
+> (`0`×`o`, `1`×`i`), e nenhum limiar resolve. A grade sai **ordenada por distância**,
+> com o duvidoso no fim. Números no ROADMAP F3.6.
+
+### 7.6 Atalhos — [feito, F3.5]
 
 | Tecla | Ação |
 |-------|------|
-| `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | Abrir / Salvar / Salvar como |
+| `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | Abrir / Salvar página / Salvar todas |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
 | `↑` `↓` | Box anterior / próximo |
+| `Tab` / `Shift+Tab` | Box próximo / anterior, com o foco pronto para digitar |
 | `PgUp` `PgDn` | Página anterior / próxima |
 | `Del` | Excluir box |
 | `Ctrl+D` | Dividir box |
+| `Ctrl+B` | Gravar rascunho agora |
+| `Ctrl+F` | Focar a busca |
 | `F2` | Modo digitação contínua |
 | `F3` / `Shift+F3` | Próximo / anterior no filtro |
-| `Ctrl+Shift+A` | Aplicar a semelhantes |
-| `Z` | Zoom no box selecionado |
-| `Esc` | Cancelar operação em andamento |
+| `Ctrl+E` | Aplicar a semelhantes |
+| `F4` | Zoom no box selecionado |
+| `Esc` | Sair do modo digitação / cancelar |
 
 `d` sozinho deixa de dividir box — passa a `Ctrl+D`. O guard atual
 (`_on_key_split_safe`) só testa `tk.Entry` e não cobre `ttk.Entry`, `Text` ou
 `Spinbox`, então digitar "d" no widget errado divide um box.
+
+> **Duas teclas mudaram em relação ao que está escrito acima**, e pelo mesmo motivo: com
+> o modo digitação da §7.3, **tecla nua não pode ser comando** — ela precisa poder virar
+> o caractere do box. Por isso o zoom é `F4` e não `Z` (F4.6). E `Ctrl+Shift+A` virou
+> `Ctrl+E`: acorde de três teclas não serve para a operação mais repetida do fluxo.
+>
+> `Tab`/`Shift+Tab` não estavam previstos. O custo deles é real e vale saber: eles
+> devolvem `"break"` e com isso **desligam a travessia de foco do Tk** na janela
+> principal. Os diálogos não são afetados — binding de tecla sobe pelo *toplevel* do
+> widget em foco.
 
 ### 7.7 Comportamento do zoom
 
@@ -823,10 +919,21 @@ Migrar para `ttk.Treeview` e atualizar **só as linhas alteradas**.
 
 ---
 
-## 8. Testes
+## 8. Testes — [feito]
 
 Não existe nenhum teste hoje. `test_chess_pdf.py` é um stub cuja única função está
 comentada — imprime "a sintaxe está correta" e não verifica nada.
+
+> **Hoje são 533**, um arquivo por item do roadmap, em `tests/`. O `test_chess_pdf.py`
+> e os outros scripts manuais da raiz saíram na F5.4 — um deles, `test_draw.py`, chegava
+> a quebrar a coleta do `pytest` chamado da raiz. Há um `pytest.ini` com
+> `testpaths = tests` para isso não voltar.
+>
+> Duas convenções que valem para quem for escrever mais: os testes de UI usam Tk de
+> verdade, com uma **raiz compartilhada** por `tests/conftest.py` (uma raiz por teste
+> fazia o Tcl reler os temas do ttk milhares de vezes e a suíte falhava
+> intermitentemente); e o que não dá para observar numa janela retirada da tela — o foco,
+> tipicamente — é verificado espiando a chamada, não consultando o Tk.
 
 ### 8.1 Mínimo para desbloquear (fazer junto com F0)
 
@@ -876,7 +983,7 @@ acurácia que não pode regredir entre commits.
 
 ## 9. Empacotamento
 
-### 9.1 `requirements.txt`
+### 9.1 `requirements.txt` — [feito, F0.4]
 
 Reescrever — o arquivo atual está em UTF-16 na última linha (o pip lê
 `PyMuPDF>=1.23.0` como `P y M u P D F`), omite `torch` e `easyocr` que o código usa,
@@ -897,23 +1004,48 @@ Gravar em **UTF-8 sem BOM**. Fixar versões em `requirements.lock.txt`.
 Removidos: `pdf2image` (§4.1), `imutils`, `pydantic`, `python-Levenshtein`, `rich`,
 `PyYAML`, `platformdirs` — nenhum é importado pelo código de produção.
 
-### 9.2 Estrutura
+> **O que faltava:** a spec não previu dependência de desenvolvimento, e o `pytest`
+> ficou fora de qualquer arquivo — quem clonasse o repositório não tinha como saber o
+> que instalar para rodar a suíte. Entrou `requirements-dev.txt`, que puxa o de produção
+> e acrescenta o `pytest`. O `requirements.lock.txt` continua não existindo.
+
+### 9.2 Estrutura — [feito]
+
+Como ficou:
 
 ```
 PyBoxEditor_Tkinter/
-├── assets/fonts/DejaVuSans.ttf      ← novo, empacotado (§4.2)
-├── config/{settings.py,profiles/}
+├── appy.py                    ← ponto de entrada (o nome é histórico)
+├── calibrar_modelo.py         ← ferramentas de medição; produzem os
+├── medir_paginas.py             números do ROADMAP
+├── pytest.ini  requirements.txt  requirements-dev.txt
+├── config/{settings.py, profiles/}
 ├── core/
-│   ├── box_model.py                             ← existe
-│   ├── box_io.py  preprocess.py                 ← a criar (§2.3, §3)
-│   └── services/{box,ocr,pdf,learning,history}_service.py      ← existem
-│       └── document_service.py                  ← a criar (§6.4)
+│   ├── box_model.py  formato_box.py  preprocess.py  semelhanca.py
+│   ├── notacao.py  calibracao.py  perfis.py
+│   ├── avaliacao.py  avaliacao_pagina.py  dataset_check.py
+│   ├── neural_model.py  neural_trainer.py  learner.py
+│   ├── chess_pdf_processor.py  searchable_pdf.py  relatorio_pdf.py
+│   └── services/{box,ocr,pdf,learning,history,document,task}_service.py
 ├── ui/
-│   ├── {main_window,canvas_view}.py             ← existem
-│   └── {status_bar,toolbar}.py                  ← a criar (§7.1, F4.2)
-├── tests/
-└── docs/{SPEC.md,ROADMAP.md}
+│   ├── main_window.py  canvas_view.py  status_bar.py
+│   └── confidence.py  dialogo_semelhantes.py
+├── tests/                     ← conftest.py + um arquivo por item do roadmap
+├── Box/                       ← páginas rotuladas à mão (verdade de campo)
+└── docs/SPEC.md
 ```
+
+Diferenças em relação ao previsto: `box_io.py` virou `formato_box.py` (§2.3) e
+`toolbar.py` não foi criado — a barra de status da F4.2 cobriu a necessidade.
+
+`assets/fonts/DejaVuSans.ttf` **continua sendo o primeiro caminho** que
+`resolve_chess_font` procura (`chess_pdf_processor.py:32`), e é o que um empacotamento
+deveria incluir; ele só não está no repositório, e por isso hoje a busca cai numa fonte
+do sistema. Não é o mesmo que a spec ter sido abandonada nesse ponto — é ela ainda não
+ter sido cumprida.
+
+Fora do repositório, por tamanho ou direito autoral (ver `.gitignore`):
+`training_data/`, `ilovepdf_pages-to-jpg/`, `*.pth`, relatórios de treino.
 
 **Removidos na F5.1** (7 módulos, 211 linhas): `ui/sidebar.py`, `ui/menu_bar.py`,
 `ui/status_bar.py`, `core/opencv_autobox.py`, `core/box_io.py`, `core/image_loader.py`,

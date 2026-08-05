@@ -1787,8 +1787,29 @@ Dois eram pior que inúteis:
   estrago.
 
 O que sobrou na raiz: `.gitignore`, `ROADMAP.md`, `requirements.txt`,
-`pytest.ini`, o doc de substituição de glifos, `appy.py`, `calibrar_modelo.py`,
-`medir_paginas.py` e `model_meta.json`.
+`requirements-dev.txt`, `pytest.ini`, o doc de substituição de glifos, `appy.py`,
+`calibrar_modelo.py`, `medir_paginas.py` e `model_meta.json`.
+
+O `requirements-dev.txt` é novo e fecha um buraco que ninguém tinha registrado: o
+`pytest` não estava em arquivo nenhum. Quem clonasse o repositório não tinha como
+saber o que instalar para rodar a suíte — e o `requirements.txt` é declaradamente
+só de produção.
+
+**Uma correção de fato, achada ao conferir a lista.** Este item descrevia o
+`training_data_2/` como "138 PNGs soltos, fora do padrão de pastas por classe".
+**Não é isso.** São 70 soltos mais **68 pastas de classe com 192.600 imagens**, no
+formato certo — uma base *maior* que a `training_data/` (103 classes, 128.850). E
+há indício de que os rótulos vieram do modelo, não de humano: o formato é o que o
+`batch_extract_and_classify` grava, e a classe maior é `digit_1` (16.962) acima de
+`lower_e` (16.090), quando em texto de livro o `e` domina com folga — excesso de
+`1` é a assinatura do classificador confundindo `l`, `i` e `I`, a mesma confusão
+medida na F3.6.
+
+Nada no código lê a pasta, então ela é inerte. O risco é ela **parecer** serviço
+pendente e alguém mesclá-la na base de treino: seriam 192 mil rótulos do próprio
+modelo realimentando o treino, com os erros junto — a F1.4 mostra o estrago que
+127 amostras mal rotuladas fazem. A decisão é de quem gerou os dados; até lá, fora
+do treino e fora do repositório. Detalhes na SPEC §5.2.
 
 ---
 

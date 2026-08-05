@@ -1,0 +1,11 @@
+# PyBoxEditor — dependências de desenvolvimento
+# Codificação: UTF-8 sem BOM (ver a nota no requirements.txt).
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# Separado porque o requirements.txt é declaradamente só de produção, e quem
+# instala o aplicativo não precisa rodar a suíte.
+
+-r requirements.txt
+
+pytest>=8.0            # a suíte inteira; `pytest` na raiz, ver pytest.ini
