@@ -39,6 +39,12 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 em recorte já segmentado, dá **99,83%** no conjunto de teste. A distância entre os dois
 números é o trabalho que sobra, e ele é de **segmentação**, não de modelo.
 
+> Estes dois números são de **2026-08-04**, com o modelo de 103 classes. Re-medido em
+> **2026-08-06**, com o modelo de 119 classes e 10 páginas rotuladas, o pipeline dá
+> **94,2 de F1** (94,6% de recall, 93,7% de precisão). As duas re-medidas estão na F1.5b
+> (segmentação e F1) e na F1.9 (calibração e triagem), e a conclusão estrutural não mudou:
+> a distância que sobra é de segmentação.
+
 Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem partidas de
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
@@ -731,6 +737,38 @@ O `medir_paginas.py` passou a chamar `dividir_glifos_colados` de verdade nos mod
 e `arbitrado`, em vez da cópia que mantinha. Era uma cópia divergente que deixou a F1.5
 medir uma coisa e a aplicação fazer outra.
 
+#### Re-medida em 2026-08-06: o árbitro quase não se paga mais
+
+`medir_paginas.py` sobre o modelo de 119 classes e as 10 páginas rotuladas — a tabela
+acima foi medida com 103 classes e 9 páginas:
+
+| modo | recall | precisão | F1 | cortes bons | cortes falsos |
+|---|---:|---:|---:|---:|---:|
+| desligado | 94,4% | 93,7% | 94,1 | — | — |
+| escala global | 94,3% | 88,8% | 91,5 | 86 | 263 |
+| escala local, sem árbitro | 94,4% | 89,8% | 92,1 | 78 | 184 |
+| **com árbitro** (o de hoje) | 94,6% | 93,7% | **94,2** | 13 | 4 |
+
+O pipeline foi de 93,8 para **94,2 de F1**. Como o conjunto rotulado mudou de 9 para 10
+páginas, a comparação é indicativa e não controlada — mas as duas colunas do meio, que não
+dependem do classificador para decidir o corte, ficaram praticamente onde estavam (91,5 e
+92,1 contra 90,5 e 91,2), o que sugere que o ganho é do modelo e não da página nova.
+
+**O que encolheu foi a vantagem do árbitro: de +0,3 para +0,1 sobre não separar.** Os
+cortes bons caíram de 23 para 13 e os falsos subiram de 2 para 4. Por página ele ganha em
+6, perde em 3 e empata em 1, sempre por margens de ±0,4. O separador está hoje
+praticamente inerte: a conclusão da F1.5b — inofensivo e levemente positivo — continua
+certa, com o "levemente" mais fino ainda.
+
+**A explicação provável são as 16 classes novas, e é hipótese, não medição.** Seis delas
+são casa de xadrez (`ligature_e4`, `ligature_f6`, …): um box de dois caracteres colados
+passou a ter classe própria, então o classificador pontua alto o box **inteiro** e o
+árbitro recusa o corte. Se for isso, as classes novas estão fazendo o trabalho que o
+separador fazia — o que seria bom, mas nada aqui isola as duas coisas. É a pendência da
+SPEC §5.2, item 6.
+
+A pior página continua sendo a 0020 (88,1 de F1 contra 94,2 do conjunto), como na F1.5.
+
 Cobertura: `tests/test_f15b_arbitro.py`, 15 testes.
 
 ### F1.7 — Validar notação contra as regras do xadrez — CONCLUÍDA
@@ -1027,6 +1065,62 @@ número exibido.
 Retreinar **zera** a temperatura no metadado, de propósito: ela é ajustada para um
 conjunto de pesos, e herdá-la aplicaria uma correção medida sobre outra rede.
 `python calibrar_modelo.py --gravar` reajusta.
+
+#### Re-medida em 2026-08-06, e a curva de triagem se moveu
+
+O modelo foi retreinado naquele dia e passou de 103 para **119 classes** — entraram 16
+pastas de ligadura, várias delas casa de xadrez (`ligature_e4`, `ligature_f2`,
+`ligature_f6`), que é a forma do `sym_f7` da F1.4. Se foram criadas de propósito ou
+nasceram de um lote está registrado como pendência na SPEC §5.2. O conjunto rotulado
+também cresceu: **10 páginas, 10.435 caracteres** (8 do Kasparov + 2 do Aagaard).
+
+`calibrar_modelo.py --gravar` sobre o par novo:
+
+| | acima (103 classes, 9 páginas) | 2026-08-06 (119 classes, 10 páginas) |
+|---|---:|---:|
+| acurácia na página real | 95,32% | **96,04%** |
+| T ajustado (critério ECE) | 1,968 | **2,122** |
+| ECE: T=1 → calibrado | 0,0315 → 0,0222 | 0,0311 → **0,0140** |
+| NLL: T=1 → calibrado | 0,8879 → 0,4837 | 0,9537 → 0,4776 |
+| AUROC (T=1) | 0,8620 | 0,8589 |
+| Leave-one-page-out | 0,0349 → 0,0307 (6 de 9 melhoram) | 0,0327 → **0,0223** (10 de 10) |
+
+A calibração rende bem mais do que rendia: a melhora de ECE fora da amostra triplicou e
+nenhuma página piorou. As duas conclusões estruturais da fase continuam de pé — a
+temperatura não mexe na ordenação (AUROC de 0,853 a 0,875 entre T=0,5 e T=8) e o que ela
+entrega é o número exibido, não a leitura, que não muda em nenhum caractere.
+
+**Uma ressalva de leitura que o número anterior não tinha:** o T de cada dobra saiu
+idêntico (2,122) nas dez. Cada dobra retém ~90% dos caracteres e o ótimo não se move, o
+que faz do leave-one-page-out aqui um teste fraco — mede estabilidade da temperatura, não
+generalização para página nova.
+
+**O que se moveu foi a triagem, e ela desmente o parágrafo do `LIMIAR_ALTO` acima.**
+
+| corte | da página revisada | dos erros achados | erros que escapam |
+|---:|---:|---:|---:|
+| 0,70 | 1,1% | 22,3% | 321 |
+| **0,90** (o de `ui/confidence.py`) | **2,4%** | **39,7%** | 249 |
+| 0,99 | 5,4% | 54,7% | 187 |
+| 0,999 | 16,4% | 70,9% | 120 |
+
+O ponto registrado acima era 4,0% da página achando 52,5% dos erros. Neste modelo o mesmo
+0,90 revisa 2,4% e acha **39,7%** — para achar metade dos erros o corte tem de ser 0,99.
+O `LIMIAR_ALTO` **não foi mexido**: a escolha é de quem revisa, e trocá-lo sem medir o
+custo real de revisão seria substituir um número medido por um palpite. Mas quem decidir
+agora decide sobre esta tabela, não sobre a de cima.
+
+**O F1 do pipeline foi re-medido junto, e está na F1.5b:** 93,8 → **94,2**. Vale ler os
+dois lados — a acurácia de caractere subiu 0,7 ponto e o F1 da página subiu 0,4, mas a
+vantagem do árbitro do corte caiu de +0,3 para +0,1, o que a acurácia sozinha não
+mostraria.
+
+**Dois detalhes operacionais que custaram confusão ao medir.** O `appy.py` aberto
+reescreveu o par duas vezes em sete minutos (01:47:30 e 01:54:13), então um par conferido
+como casado deixou de estar casado sem ninguém tocar em nada — a trava da F7.3 protege da
+leitura errada, não da surpresa. E a temperatura gravada só passa a valer quando a
+aplicação **recarrega** o modelo: a janela que estava aberta seguiu com o predictor em
+memória de antes.
 
 Cobertura: `tests/test_f19_calibracao.py`, 21 testes.
 
@@ -2617,10 +2711,11 @@ item — mas desqualifica a expectativa de que dicionário conserte OCR em geral
 
 #### Onde está o ganho provável, e é triagem antes de correção
 
-A F1.9 mediu o teto da triagem por confiança: revisando 4% da página o revisor acha
-**52,5%** dos erros, e subir o corte para 0,999 troca +10 pontos de esforço por +18 de
-erros achados. O limitador é que a confiança **ordena** razoavelmente (AUROC 0,86–0,87)
-e nada mais — não existe corte que ache os erros restantes por um preço aceitável.
+A F1.9 mediu o teto da triagem por confiança, e a re-medida de 2026-08-06 o baixou: no
+corte 0,90 de `ui/confidence.py`, revisando 2,4% da página o revisor acha **39,7%** dos
+erros, e para achar metade é preciso ir a 0,99 (5,4% da página). O limitador é que a
+confiança **ordena** razoavelmente (AUROC 0,86–0,87) e nada mais — não existe corte que
+ache os erros restantes por um preço aceitável.
 
 "Palavra fora do dicionário" é um sinal **independente da confiança**, e é isso que o
 torna interessante: um erro lido com confiança 1,000 dentro de uma palavra impossível
@@ -2719,9 +2814,10 @@ Duas escolhas de desenho:
 ### O que a F9 não promete
 
 Não melhora a notação (é a F1.7 que faz isso, e ela já está feita). Não alcança a
-pontuação, que é metade das confusões medidas. E não ataca o gargalo: nas 9 páginas
-rotuladas a distância entre o pipeline (93,8 de F1) e o classificador em recorte já
-segmentado (99,83%) continua sendo **segmentação**, e nenhum dicionário a conserta.
+pontuação, que é metade das confusões medidas. E não ataca o gargalo: na última medição do
+pipeline (2026-08-04, 9 páginas rotuladas) a distância entre os 93,8 de F1 e os 99,83% do
+classificador em recorte já segmentado continua sendo **segmentação**, e nenhum dicionário
+a conserta.
 
 ---
 

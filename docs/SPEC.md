@@ -501,6 +501,24 @@ mover para quarentena a apagar.
 
    A ambiguidade branca/preta é **insolúvel visualmente** — depende da paridade do
    número do lance. É trabalho da F1.7, não do classificador.
+6. [pendente, e a decisão é do dono dos dados] **As 16 classes de ligadura de
+   2026-08-06.** O retreino daquele dia levou a base de 103 para **119 classes**, com
+   pastas novas: `ligature_Th`, `ligature_an`, `ligature_ffi`, `ligature_fi`,
+   `ligature_ft` — e `ligature_e4`, `ligature_f2`, `ligature_f3`, `ligature_f6`,
+   `ligature_f7`, `ligature_f8`, que **são casa de xadrez**, não ligadura tipográfica.
+
+   O ganho é plausível: um box de dois caracteres que `findContours` devolve colado passa
+   a ter onde ser classificado, em vez de virar leitura errada — é a mesma lógica que fez
+   o `ligature_f7` do item 1 valer a pena depois de rotulado certo. A acurácia de
+   caractere na página real ficou em 96,04% contra 95,32% antes (ROADMAP F1.9, re-medida),
+   mas em conjuntos rotulados **diferentes** (10 páginas contra 9): a comparação é
+   indicativa, não controlada.
+
+   O que precisa de decisão é se as pastas foram criadas de propósito ou nasceram de um
+   lote, porque a forma é a do defeito do item 1 — 127 amostras de "f7" tratadas como
+   classe por meses. Uma classe de casa de xadrez concorre com a leitura dos dois
+   caracteres separados, e nada no pipeline diz qual das duas ganhou. Vale o mesmo que o
+   item 3: até haver decisão, o registro é para que ninguém a tome por acidente.
 
 Adicionar validação que roda antes do treino e falha alto:
 
@@ -718,10 +736,11 @@ Os contratos, e nenhum deles é preferência de estilo — todos saem de defeito
 4. **Só box sobrando vira edição** — item 5 da §5.6, pelo mesmo motivo. Caractere
    faltando não tem box para apontar, e vira sugestão.
 5. **O produto principal é triagem, não correção.** A F1.9 mediu que a confiança só
-   ordena (AUROC 0,86–0,87): revisando 4% da página o revisor acha 52,5% dos erros, e
-   não há corte que ache o resto por preço aceitável. "Fora do dicionário" é um sinal
-   **independente da confiança** — pega o erro lido com confiança 1,000 — e entra como
-   filtro na §7.4.
+   ordena (AUROC 0,86–0,87): no corte 0,90 da §7.2, revisando 2,4% da página o revisor
+   acha 39,7% dos erros, e para achar metade é preciso ir a 0,99 (re-medida de
+   2026-08-06). Não há corte que ache o resto por preço aceitável. "Fora do dicionário" é
+   um sinal **independente da confiança** — pega o erro lido com confiança 1,000 — e
+   entra como filtro na §7.4.
 6. **Nada acontece sem dicionário carregado.** Padrão é não agir, como
    `separar_colados="auto"`.
 7. **O idioma é escolha do perfil (§4.5), não adivinhação.** Estes livros são em inglês;
