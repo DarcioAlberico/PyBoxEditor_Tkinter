@@ -1,95 +1,61 @@
 """
-Constrói o modelo que lê as peças dos diagramas (F7.1).
+Constrói o modelo que lê as peças dos diagramas (F7.1, F8.3).
 
     python treinar_diagrama.py
+    python treinar_diagrama.py --conferir      # só a conferência da base
+    python treinar_diagrama.py --rapido        # sem o leave-one-out
 
 Lê as amostras rotuladas de `training_data_diagrama/` e grava
 `core/dados/diagrama_modelo.npz`. As amostras são **resíduos** — a casa menos o
 fundo estimado daquele diagrama —, gravadas deslocadas de 128 para poderem ser
 olhadas como imagem. Ver `core/diagrama.py` para o porquê do resíduo.
 
-O modelo é um banco de vizinhos, não uma rede: são 361 amostras de um livro só,
-e uma rede treinada nisso decoraria. O HOG descreve a silhueta, o PCA corta a
-dimensão de 1.764 para 32 sem perder acerto (medido: 94,5% nas duas), e a
-classificação é o voto dos 3 vizinhos mais próximos.
+O modelo é um banco de vizinhos, não uma rede: são poucas centenas de amostras
+de dois livros, e uma rede treinada nisso decoraria. O HOG descreve a silhueta,
+o PCA corta a dimensão de 1.764 para 32 sem perder acerto (medido: 94,5% nas
+duas), e a classificação é o voto dos 3 vizinhos mais próximos.
+
+**A implementação mora em `core/treino_diagrama.py`**, e não aqui: desde a F8.3
+o programa também treina de dentro (Ferramentas → "Treinar modelo de
+diagramas..."), e duas implementações do mesmo treino é a família de defeito
+que a F5.2 documenta.
 """
 
-import os
+import argparse
 import sys
 
-import cv2
-import numpy as np
-
-DADOS = "training_data_diagrama"
-DESTINO = os.path.join("core", "dados", "diagrama_modelo.npz")
-
-LADO = 48
-#: HOG de célula 6 e 9 orientações. Medido contra célula 8 e 12 e contra 12
-#: orientações: 94,5% nas melhores de cada, então ficou a mais barata.
-HOG = cv2.HOGDescriptor((LADO, LADO), (12, 12), (6, 6), (6, 6), 9)
-#: 32 componentes. Com 64 e 128 o acerto é o mesmo e o arquivo cresce.
-COMPONENTES = 32
+from core import treino_diagrama
 
 
-def descritor(residuo: np.ndarray) -> np.ndarray:
-    """Resíduo da casa -> vetor HOG normalizado."""
-    if residuo.shape != (LADO, LADO):
-        residuo = cv2.resize(residuo, (LADO, LADO), interpolation=cv2.INTER_AREA)
-    normal = cv2.normalize(residuo, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    v = HOG.compute(normal).ravel()
-    return v / (np.linalg.norm(v) + 1e-6)
+def main(argv=None):
+    p = argparse.ArgumentParser(description="Treina o modelo de diagramas.")
+    p.add_argument("--pasta", default=treino_diagrama.PASTA_PADRAO)
+    p.add_argument("--conferir", action="store_true",
+                   help="só confere a base, sem treinar")
+    p.add_argument("--rapido", action="store_true",
+                   help="pula o leave-one-out")
+    args = p.parse_args(argv)
 
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
-def carregar_amostras(pasta=DADOS):
-    """[(simbolo, residuo)] a partir de `<pasta>/<cor>/<LETRA>/*.png`."""
-    saida = []
-    for cor in ("branca", "preta"):
-        base = os.path.join(pasta, cor)
-        if not os.path.isdir(base):
-            continue
-        for letra in sorted(os.listdir(base)):
-            simbolo = letra.upper() if cor == "branca" else letra.lower()
-            for nome in sorted(os.listdir(os.path.join(base, letra))):
-                if not nome.endswith(".png"):
-                    continue
-                img = cv2.imread(os.path.join(base, letra, nome),
-                                 cv2.IMREAD_GRAYSCALE)
-                if img is not None:
-                    saida.append((simbolo, img.astype(np.float32) - 128.0))
-    return saida
+    if args.conferir:
+        problemas = treino_diagrama.conferir(args.pasta)
+        for problema in problemas:
+            print(problema)
+        if not problemas:
+            print("base sem problemas")
+        return 1 if any(p.grave for p in problemas) else 0
 
-
-def main():
-    amostras = carregar_amostras()
-    if not amostras:
-        print(f"nenhuma amostra em {DADOS}/")
+    relatorio = treino_diagrama.treinar(args.pasta,
+                                        avaliar_loo=not args.rapido)
+    if not relatorio.total:
+        print(f"nenhuma amostra em {args.pasta}/")
         return 1
 
-    simbolos = np.array([s for s, _ in amostras])
-    X = np.stack([descritor(r) for _, r in amostras]).astype(np.float32)
-
-    media = X.mean(axis=0)
-    # SVD e não uma lib de PCA: numpy já está aqui e são 361 x 1764.
-    _, _, Vt = np.linalg.svd(X - media, full_matrices=False)
-    base = Vt[:COMPONENTES].astype(np.float32)
-
-    reduzido = (X - media) @ base.T
-    reduzido /= np.linalg.norm(reduzido, axis=1, keepdims=True) + 1e-6
-
-    os.makedirs(os.path.dirname(DESTINO), exist_ok=True)
-    np.savez_compressed(DESTINO, media=media, base=base,
-                        amostras=reduzido.astype(np.float32), simbolos=simbolos)
-
-    import collections
-    conta = collections.Counter(simbolos.tolist())
-    print(f"{len(amostras)} amostras, {X.shape[1]} dimensões -> {COMPONENTES}")
-    print("  " + "  ".join(f"{s}:{conta[s]}" for s in "PNBRQKpnbrqk"))
-    print(f"gravado em {DESTINO} ({os.path.getsize(DESTINO)/1e3:.0f} KB)")
-
-    magras = [s for s in "PNBRQKpnbrqk" if conta[s] < 12]
-    if magras:
-        print(f"\nclasses com menos de 12 amostras: {' '.join(magras)}")
-        print("são as que mais erram; colher mais diagramas ajuda essas primeiro.")
+    print(relatorio.texto())
     return 0
 
 

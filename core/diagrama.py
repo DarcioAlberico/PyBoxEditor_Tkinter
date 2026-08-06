@@ -271,6 +271,27 @@ def _residuos(quadros: dict) -> Tuple[dict, dict]:
     return residuo, ocupada
 
 
+def residuos(imagem, caixa: Optional[Tuple[int, int, int, int]] = None
+             ) -> Tuple[dict, dict]:
+    """
+    (resíduo por casa, ocupada?) de um diagrama — o que o modelo lê (F8.3).
+
+    É a mesma conta que `ler` faz, exposta porque a amostra de treino tem de
+    ser **o resíduo**, e não o recorte cru: guardar a casa como ela sai da
+    página traria o fundo do livro junto, e o modelo aprenderia o papel.
+    """
+    arr = np.asarray(imagem)
+    if arr.ndim == 3:
+        arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    if caixa is None:
+        caixa = (0, 0, arr.shape[1], arr.shape[0])
+    x1, y1, x2, y2 = caixa
+    recorte = arr[max(0, y1):y2, max(0, x1):x2]
+    if recorte.size == 0 or min(recorte.shape[:2]) < 16:
+        return {}, {}
+    return _residuos(_casas_do_recorte(recorte))
+
+
 def _carregar_modelo():
     global _modelo
     if _modelo is None:
@@ -283,10 +304,45 @@ def _carregar_modelo():
     return _modelo
 
 
-def _descritor(residuo: np.ndarray) -> np.ndarray:
+def esquecer_modelo() -> None:
+    """
+    Larga o modelo em memória, para a próxima leitura reler o arquivo (F8.3).
+
+    Existe porque agora dá para treinar sem fechar o programa: sem isto, o
+    treino gravaria um `.npz` novo e as leituras seguintes continuariam usando
+    o banco velho, em silêncio, até alguém reiniciar.
+    """
+    global _modelo
+    _modelo = None
+
+
+def impressao_do_modelo() -> str:
+    """A impressão da base com que o `.npz` foi treinado, ou '' se ele não a traz."""
+    try:
+        d = np.load(CAMINHO_MODELO, allow_pickle=False)
+        return str(d["impressao"]) if "impressao" in d.files else ""
+    except (OSError, ValueError):
+        return ""
+
+
+def descritor(residuo: np.ndarray) -> np.ndarray:
+    """
+    Resíduo da casa -> vetor HOG normalizado.
+
+    **Um lugar só, e isso importa** (F8.3). O treino tinha uma cópia desta
+    função; duas implementações do mesmo descritor é a família de defeito da
+    F5.2 — o dia em que uma muda, o modelo passa a ser treinado num espaço e
+    consultado noutro, sem erro nenhum aparecendo.
+    """
+    if residuo.shape[:2] != (LADO, LADO):
+        residuo = cv2.resize(residuo, (LADO, LADO), interpolation=cv2.INTER_AREA)
     normal = cv2.normalize(residuo, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     v = _HOG.compute(normal).ravel()
     return v / (np.linalg.norm(v) + 1e-6)
+
+
+#: Nome antigo, mantido para quem já importava.
+_descritor = descritor
 
 
 SIMBOLOS = tuple("BKNPQRbknpqr")
@@ -423,8 +479,7 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None) -> Leitura:
         "Lado a jogar, roque e en passant não estão no diagrama; o FEN assume "
         "brancas a jogar, sem roque.")
 
-    quadros = _casas_do_recorte(recorte)
-    residuo, ocupada = _residuos(quadros)
+    residuo, ocupada = _residuos(_casas_do_recorte(recorte))
     chaves = [k for k in sorted(residuo) if ocupada[k]]
 
     if not chaves:

@@ -407,8 +407,9 @@ class _App:
         app = self
 
         class _DialogoFalso:
-            def __init__(self, parent, imagem, leituras):
+            def __init__(self, parent, imagem, leituras, origem=""):
                 app.mostrados.append(leituras)
+                app.origem = origem
 
             def mostrar(self):
                 return app.devolver
@@ -433,19 +434,72 @@ def _boxes_com_tabuleiro(lado=320):
     return boxes
 
 
+def _pagina_com_diagrama(lado=240, pecas=((0, 4), (7, 4), (3, 3))):
+    """
+    Uma página como a que a interface vê: texto miúdo e um tabuleiro com
+    moldura fechada.
+
+    **Estes três testes usavam `win.boxes = _boxes_com_tabuleiro()`, e era por
+    isso que passavam com o comando quebrado** (corrigido na F8.3). Aquela
+    lista tinha o box do tabuleiro dentro; a lista que a interface realmente
+    produz, não — `generate_boxes_opencv` descarta o contorno grande antes de
+    devolver. O teste montava uma entrada que o caminho de produção nunca
+    produz, e o comando respondia "nenhum diagrama encontrado" em toda página
+    real sem que nada acusasse.
+    """
+    import cv2
+
+    img = np.full((900, 700), 255, np.uint8)
+    for i in range(80):
+        x, y = 20 + (i % 20) * 30, 30 + (i // 20) * 26
+        cv2.rectangle(img, (x, y), (x + 12, y + 17), 0, -1)
+
+    x0, y0, passo = 120, 200, lado // 8
+    for r in range(8):
+        for c in range(8):
+            if (r + c) % 2:
+                img[y0 + r * passo:y0 + (r + 1) * passo,
+                    x0 + c * passo:x0 + (c + 1) * passo] = 170
+    cv2.rectangle(img, (x0, y0), (x0 + lado, y0 + lado), 0, 3)
+    for r, c in pecas:
+        cv2.circle(img, (x0 + c * passo + passo // 2,
+                         y0 + r * passo + passo // 2), passo // 3, 0, -1)
+    return img
+
+
 def test_comando_abre_o_dialogo_com_as_leituras():
+    from PIL import Image
+
     with _App() as app:
-        app.win.boxes = _boxes_com_tabuleiro()
+        app.win.image = Image.fromarray(_pagina_com_diagrama())
         app.win.extrair_diagramas()
         assert len(app.mostrados) == 1
         assert len(app.mostrados[0]) == 1
 
 
-def test_comando_sem_boxes_manda_gerar_os_boxes():
+def test_o_comando_nao_depende_dos_boxes_da_pagina():
+    """
+    O diagrama é procurado na imagem, e não na lista de caracteres.
+
+    Era o defeito: a lista de caracteres é justamente de onde o tabuleiro foi
+    tirado.
+    """
+    from PIL import Image
+
     with _App() as app:
+        app.win.image = Image.fromarray(_pagina_com_diagrama())
         app.win.boxes = []
         app.win.extrair_diagramas()
-        assert any("Gere os boxes" in a for a in app.avisos)
+        assert len(app.mostrados) == 1
+
+
+def test_pagina_sem_diagrama_avisa():
+    from PIL import Image
+
+    with _App() as app:
+        app.win.image = Image.fromarray(np.full((400, 400), 255, np.uint8))
+        app.win.extrair_diagramas()
+        assert any("Nenhum diagrama" in a for a in app.avisos)
         assert app.mostrados == []
 
 
@@ -465,8 +519,10 @@ def test_pagina_sem_diagrama_explica_o_criterio():
 
 
 def test_fen_escolhido_vai_para_a_area_de_transferencia():
+    from PIL import Image
+
     with _App() as app:
-        app.win.boxes = _boxes_com_tabuleiro()
+        app.win.image = Image.fromarray(_pagina_com_diagrama())
         app.devolver = "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
         app.win.extrair_diagramas()
         assert app.win.parent.clipboard_get() == app.devolver

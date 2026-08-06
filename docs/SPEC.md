@@ -998,6 +998,29 @@ O contrato:
 6. **O desfazer guarda o estado inteiro** (64 casas, lado e roque), pelo que a F3.8
    mediu: estado incremental teria estado próprio para errar.
 
+### 7.10 Base e treino dos diagramas — [feito, F8.3, em `core/treino_diagrama.py`]
+
+O ciclo que faltava: corrijo, guardo, treino, melhora.
+
+1. **A amostra é o resíduo** (`casa - fundo`), no formato que a F7.1 já usava —
+   deslocado de 128 para poder ser olhado como imagem. O recorte cru traria o papel
+   do livro junto.
+2. **Silêncio não é confirmação.** Só a casa corrigida vira amostra; as demais entram
+   por um "conferi o diagrama inteiro" explícito. Casa esvaziada não vira amostra:
+   não há classe de casa vazia.
+3. **O nome carrega a procedência e é determinístico.** Regravar substitui, e gravar
+   numa classe apaga a mesma procedência das outras — senão a mesma imagem ficaria
+   rotulada duas vezes (F1.4).
+4. **O progresso é leave-one-out**, com o mesmo voto de 3 vizinhos da leitura, e o
+   relatório diz que o número é otimista (PCA com todas as amostras; amostras quase
+   idênticas se ajudam).
+5. **Uma correção é um voto em três.** Medido: a amostra nova é o vizinho mais
+   próximo e ainda assim perde para dois antigos; duas correções viram a leitura. O
+   relatório avisa, porque é aí que a expectativa se forma.
+6. **O `.npz` guarda a impressão da base** que o gerou (F7.3 aplicada aqui), e treinar
+   faz o leitor esquecer o modelo em memória — senão o treino não valeria até
+   reiniciar o programa.
+
 ---
 
 ## 8. Testes — [feito]

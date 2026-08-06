@@ -535,6 +535,8 @@ class MainWindow(tk.Frame):
                             command=self.exportar_pgn)
         m_tools.add_command(label="Ler posição dos diagramas...",
                             command=self.extrair_diagramas)
+        m_tools.add_command(label="Treinar modelo de diagramas...",
+                            command=self.treinar_modelo_diagramas)
         m_tools.add_separator()
         m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
         m_tools.add_command(label="Importar Imagens de Caracteres", command=self.import_character_images)
@@ -2185,26 +2187,33 @@ class MainWindow(tk.Frame):
 
     def extrair_diagramas(self):
         """
-        Lê a posição dos diagramas da página (F7.1).
+        Lê a posição dos diagramas da página (F7.1, corrigida na F8.3).
 
-        Precisa dos boxes: é a lista de contornos que diz onde o tabuleiro está
-        (ele é o contorno grande e quadrado que a F1.8 descarta). Sem boxes
-        gerados, não há o que localizar.
+        **Os boxes da página não servem para achar o diagrama, e isso era um
+        defeito calado.** O tabuleiro é o contorno grande e quadrado que a F1.8
+        descarta — e `generate_boxes_opencv` descarta antes de devolver. Passar
+        `self.boxes` para `localizar` é pedir que ela ache entre os contornos
+        justamente aquele que já não está lá: medido em 6 páginas reais com
+        diagrama, 0 encontrados contra 2 ou 3 por página. O comando respondia
+        sempre "nenhum diagrama encontrado", e o texto ainda culpava a borda da
+        página.
+
+        A geração aqui é própria e sem descarte. Custa uma passada de contornos
+        (0,36 s numa página de 1.605 boxes) e não mexe em `self.boxes`, que
+        continua sendo a lista de caracteres da página.
         """
         from core import diagrama as diag
 
         if self.image is None:
             messagebox.showinfo("Diagramas", "Abra uma imagem ou PDF primeiro.")
             return
-        if not self.boxes:
-            messagebox.showinfo(
-                "Diagramas",
-                "Gere os boxes da página primeiro (Ferramentas → Gerar boxes).\n\n"
-                "O tabuleiro é localizado entre os contornos da página.")
-            return
 
         try:
-            leituras = diag.ler_pagina(self.image, self.boxes)
+            # `separar_colados=False`: cortar glifo colado não muda onde o
+            # tabuleiro está, e aqui só se procura o tabuleiro.
+            contornos = self.box_service.generate_boxes_opencv(
+                self.image, descartar_nao_texto=False, separar_colados=False)
+            leituras = diag.ler_pagina(self.image, contornos)
         except diag.ModeloAusente as e:
             messagebox.showerror("Diagramas", str(e))
             return
@@ -2217,13 +2226,61 @@ class MainWindow(tk.Frame):
                 "quadrado; um diagrama cortado na borda da página não casa.")
             return
 
-        fen = self.DIALOGO_DIAGRAMA(self.parent, self.image, leituras).mostrar()
+        fen = self.DIALOGO_DIAGRAMA(self.parent, self.image, leituras,
+                                    origem=self._origem_da_pagina()).mostrar()
         if fen:
             self.parent.clipboard_clear()
             self.parent.clipboard_append(fen)
             self.status.set(f"FEN copiado: {fen}")
         else:
             self.status.set(f"{len(leituras)} diagrama(s) lidos.")
+
+    def _origem_da_pagina(self) -> str:
+        """
+        Nome que identifica a página atual, para a procedência da amostra (F8.3).
+
+        Sai do mesmo lugar que o `.box` da página usa, quando há sessão; senão,
+        do nome do arquivo aberto.
+        """
+        if self.session is not None:
+            return os.path.basename(self.session.page_stem(self.current_pdf_page))
+        if self.image_path:
+            return os.path.splitext(os.path.basename(self.image_path))[0]
+        return ""
+
+    def treinar_modelo_diagramas(self):
+        """
+        Refaz o banco de peças dos diagramas com as amostras de hoje (F8.3).
+
+        Roda em thread porque lê e descreve a base inteira; é rápido (0,3 s
+        para 357 amostras), mas o custo cresce com o que o usuário for
+        conferindo, e travar a UI por isso seria um defeito plantado.
+        """
+        from core import treino_diagrama
+
+        def trabalho(h):
+            h.log("Lendo as amostras...")
+            return treino_diagrama.treinar()
+
+        def concluir(relatorio):
+            if not relatorio.total:
+                messagebox.showinfo(
+                    "Treinar modelo de diagramas",
+                    "Nenhuma amostra em training_data_diagrama/.\n\n"
+                    "As amostras saem da janela de diagramas: corrija as casas "
+                    "erradas e use 'Guardar amostras'.")
+                return
+            graves = [p for p in relatorio.problemas if p.grave]
+            messagebox.showinfo(
+                "Treinar modelo de diagramas",
+                relatorio.texto()
+                + ("\n\nCorrija os erros acima: eles vão para o modelo."
+                   if graves else ""))
+            self.status.set(f"Modelo de diagramas: {relatorio.total} amostras, "
+                            f"{relatorio.acerto:.1%} em leave-one-out.")
+
+        self._run_task("Treinar modelo de diagramas", trabalho, concluir,
+                       indeterminado=True)
 
     def exportar_pgn(self):
         """

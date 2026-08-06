@@ -58,10 +58,14 @@ AJUDA = ("Clique numa casa e digite a letra (maiúscula = branca, minúscula = "
 class DialogoDiagrama:
     """Mostra e edita as leituras de uma página. Devolve o FEN escolhido."""
 
-    def __init__(self, parent, imagem, leituras: List[diag.Leitura]):
+    def __init__(self, parent, imagem, leituras: List[diag.Leitura],
+                 origem: str = ""):
         self.parent = parent
         self.imagem = imagem
         self.leituras = leituras
+        # De onde vieram estes diagramas, para a amostra guardada saber voltar
+        # à origem (F8.3). Vazio quando quem abriu não soube dizer.
+        self.origem = origem
         self.atual = 0
         self.resultado: Optional[str] = None
         self._fotos = []
@@ -71,6 +75,7 @@ class DialogoDiagrama:
         self.selecionada = None      # (linha, coluna) em edição
         self.pincel = None           # peça da paleta, ou None (modo seguro)
         self._arrasto = None
+        self.guardadas = {}          # diagrama -> amostras gravadas
 
     # ------------------------------------------------------------------
 
@@ -197,6 +202,21 @@ class DialogoDiagrama:
             self.vars_roque[letra] = var
             self.checks_roque[letra] = c
 
+        # Treino (F8.3). Silêncio não é confirmação: sem marcar "conferi", o
+        # que vai para a base é só o que a mão mexeu.
+        treino = ttk.LabelFrame(painel, text="treino", padding=4)
+        treino.pack(fill="x", pady=(8, 0))
+        self.var_conferido = tk.BooleanVar(value=False)
+        ttk.Checkbutton(treino, text="conferi o diagrama\ninteiro",
+                        variable=self.var_conferido,
+                        command=self._desenhar).pack(anchor="w")
+        self.btn_amostras = ttk.Button(treino, text="Guardar amostras",
+                                       command=self._guardar_amostras)
+        self.btn_amostras.pack(fill="x", pady=(4, 0))
+        self.lbl_amostras = ttk.Label(treino, text="", foreground="gray30",
+                                      wraplength=140, justify="left")
+        self.lbl_amostras.pack(anchor="w", pady=(2, 0))
+
     def mostrar(self) -> Optional[str]:
         self.construir()
         self.top.grab_set()
@@ -272,6 +292,40 @@ class DialogoDiagrama:
         self.tabuleiro().alternar_roque(letra)
         self._desenhar()
 
+    def procedencia(self) -> str:
+        """
+        De onde esta amostra veio, com detalhe suficiente para voltar lá.
+
+        Leva a caixa do diagrama na página, e não só o número dele: o número
+        depende da ordem de leitura da página, que muda se a segmentação mudar.
+        A caixa é onde o tabuleiro está.
+        """
+        caixa = "-".join(str(v) for v in self._leitura().caixa)
+        return f"{self.origem or 'pagina'}_d{self.atual + 1}_{caixa}"
+
+    def _guardar_amostras(self):
+        """Grava as amostras deste diagrama na base de treino (F8.3)."""
+        from core import treino_diagrama
+
+        tudo = bool(self.var_conferido.get())
+        try:
+            caminhos = treino_diagrama.colher(
+                self.imagem, self._leitura(), self.tabuleiro(),
+                self.procedencia(), tudo)
+        except Exception as e:                      # disco cheio, pasta sem permissão
+            self.lbl_amostras.config(text=f"não deu para guardar: {e}")
+            return
+
+        self.guardadas[self.atual] = len(caminhos)
+        if caminhos:
+            texto = (f"{len(caminhos)} amostra(s) guardadas. Treine o modelo "
+                     f"para elas valerem.")
+        else:
+            texto = ("nada a guardar: corrija alguma casa ou marque "
+                     "\"conferi o diagrama inteiro\".")
+        self.lbl_amostras.config(text=texto)
+        self._desenhar()
+
     def _desfazer(self):
         if self.tabuleiro().desfazer():
             self._desenhar()
@@ -288,6 +342,12 @@ class DialogoDiagrama:
         if len(self.leituras) > 1:
             self.atual = (self.atual + passo) % len(self.leituras)
             self.selecionada = None
+            # "Conferi" vale para o diagrama que estava na tela, e não para o
+            # próximo: levá-lo junto faria o gesto explícito virar automático.
+            self.var_conferido.set(False)
+            guardadas = self.guardadas.get(self.atual)
+            self.lbl_amostras.config(
+                text=f"{guardadas} amostra(s) guardadas." if guardadas else "")
             self._desenhar()
 
     def _leitura(self) -> diag.Leitura:
@@ -378,6 +438,13 @@ class DialogoDiagrama:
             state="normal" if tabuleiro.pode_desfazer else "disabled")
         self.btn_refazer.config(
             state="normal" if tabuleiro.pode_refazer else "disabled")
+
+        # Só há o que guardar se a mão mexeu em alguma casa ou se o diagrama
+        # inteiro foi conferido — o botão diz isso ficando cinza.
+        tem_o_que_guardar = (bool(self.var_conferido.get())
+                             or tabuleiro.corrigidas > 0)
+        self.btn_amostras.config(
+            state="normal" if tem_o_que_guardar else "disabled")
 
     # ------------------------------------------------------------------
 
