@@ -760,12 +760,26 @@ cortes bons caíram de 23 para 13 e os falsos subiram de 2 para 4. Por página e
 praticamente inerte: a conclusão da F1.5b — inofensivo e levemente positivo — continua
 certa, com o "levemente" mais fino ainda.
 
-**A explicação provável são as 16 classes novas, e é hipótese, não medição.** Seis delas
-são casa de xadrez (`ligature_e4`, `ligature_f6`, …): um box de dois caracteres colados
-passou a ter classe própria, então o classificador pontua alto o box **inteiro** e o
-árbitro recusa o corte. Se for isso, as classes novas estão fazendo o trabalho que o
-separador fazia — o que seria bom, mas nada aqui isola as duas coisas. É a pendência da
-SPEC §5.2, item 6.
+**A explicação são as 16 classes novas, e elas foram intencionais** — confirmado pelo dono
+dos dados em 2026-08-06 e registrado na SPEC §5.2, item 6. Seis são casa de xadrez
+(`ligature_e4`, `ligature_f6`, …): um box de dois caracteres colados passou a ter classe
+própria, então o classificador pontua alto o box **inteiro** e o árbitro recusa o corte.
+Ou seja, o separador não regrediu — ele foi **substituído**, e por algo que resolve o caso
+que ele nunca resolveu (a colagem sem vale largo o bastante para cortar com segurança, que
+a F1.5 mediu como indistinguível do vale interno de glifo).
+
+Isso torna **desligar `separar_colados` uma decisão defensável**, e é a primeira vez que
+ela é: o modo `off` desta mesma tabela dá 94,1 contra 94,2, então o separador cobra uma
+passada de projeção de tinta e uma segunda classificação por candidato para render 0,1
+ponto. Não desliguei — o padrão `"auto"` da F1.5b não está errado, está caro, e a troca é
+de quem paga o processamento.
+
+**A atribuição, essa não dá mais para medir.** Separar o efeito das classes novas do
+efeito da página rotulada nova exigiria rodar o modelo de 103 classes nas mesmas 10
+páginas, e os pesos dele foram sobrescritos pelos dois retreinos da madrugada, sem cópia.
+A F1.3 guardou `custom_model_2026-08-03_antes_f13.pth` antes de trocar de modelo; estes
+retreinos não guardaram nada. Vale como regra para o próximo: **copiar o `.pth` antes de
+retreinar**, senão o número que o ROADMAP cita deixa de ter modelo que o produza.
 
 A pior página continua sendo a 0020 (88,1 de F1 contra 94,2 do conjunto), como na F1.5.
 
@@ -1070,9 +1084,8 @@ conjunto de pesos, e herdá-la aplicaria uma correção medida sobre outra rede.
 
 O modelo foi retreinado naquele dia e passou de 103 para **119 classes** — entraram 16
 pastas de ligadura, várias delas casa de xadrez (`ligature_e4`, `ligature_f2`,
-`ligature_f6`), que é a forma do `sym_f7` da F1.4. Se foram criadas de propósito ou
-nasceram de um lote está registrado como pendência na SPEC §5.2. O conjunto rotulado
-também cresceu: **10 páginas, 10.435 caracteres** (8 do Kasparov + 2 do Aagaard).
+`ligature_f6`) — **intencionais**, e o porquê está na SPEC §5.2, item 6. O conjunto
+rotulado também cresceu: **10 páginas, 10.435 caracteres** (8 do Kasparov + 2 do Aagaard).
 
 `calibrar_modelo.py --gravar` sobre o par novo:
 

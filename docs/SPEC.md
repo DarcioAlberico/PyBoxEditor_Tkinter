@@ -238,6 +238,14 @@ profundidade partiria a coroa da dama, que tem vales fundos entre as pontas.
 > Por isso `separar_colados` **não é mais um booleano com padrão `True`**: é `"auto"`,
 > e só separa se houver árbitro. Sem modelo carregado, não separar é a decisão medida
 > como melhor.
+>
+> **Re-medido em 2026-08-06, e a decisão volta à mesa.** Com as classes de ligadura da
+> §5.2 item 6, o par colado passou a ter classe própria e o árbitro recusa o corte: o
+> separador rende hoje **+0,1 de F1** (94,2 contra 94,1 desligado), contra +0,3 antes.
+> Ele cobra uma passada de projeção de tinta e uma classificação extra por candidato para
+> isso. `"auto"` continua sendo o padrão porque não está errado — mas desligar deixou de
+> ser regressão e passou a ser troca de 0,1 ponto por processamento. Números na
+> ROADMAP F1.5b.
 
 Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
 literal deve sobrar no código.
@@ -501,24 +509,35 @@ mover para quarentena a apagar.
 
    A ambiguidade branca/preta é **insolúvel visualmente** — depende da paridade do
    número do lance. É trabalho da F1.7, não do classificador.
-6. [pendente, e a decisão é do dono dos dados] **As 16 classes de ligadura de
-   2026-08-06.** O retreino daquele dia levou a base de 103 para **119 classes**, com
-   pastas novas: `ligature_Th`, `ligature_an`, `ligature_ffi`, `ligature_fi`,
-   `ligature_ft` — e `ligature_e4`, `ligature_f2`, `ligature_f3`, `ligature_f6`,
-   `ligature_f7`, `ligature_f8`, que **são casa de xadrez**, não ligadura tipográfica.
+6. [decidido — **foram intencionais**, confirmado pelo dono dos dados em 2026-08-06]
+   **As 16 classes de ligadura.** O retreino daquele dia levou a base de 103 para
+   **119 classes**, com pastas novas: `ligature_Th`, `ligature_an`, `ligature_ffi`,
+   `ligature_fi`, `ligature_ft` — e `ligature_e4`, `ligature_f2`, `ligature_f3`,
+   `ligature_f6`, `ligature_f7`, `ligature_f8`, que são **casa de xadrez**, não ligadura
+   tipográfica.
 
-   O ganho é plausível: um box de dois caracteres que `findContours` devolve colado passa
-   a ter onde ser classificado, em vez de virar leitura errada — é a mesma lógica que fez
-   o `ligature_f7` do item 1 valer a pena depois de rotulado certo. A acurácia de
-   caractere na página real ficou em 96,04% contra 95,32% antes (ROADMAP F1.9, re-medida),
-   mas em conjuntos rotulados **diferentes** (10 páginas contra 9): a comparação é
-   indicativa, não controlada.
+   São duas famílias diferentes em espécie, e a decisão cobre as duas. `fi` e `ffi` são um
+   glifo só na fonte e não existe segmentação que as separe. `e4` e `f6` são dois
+   caracteres que `findContours` devolve colados. Nos dois casos, dar classe ao par é
+   melhor que deixar o classificador escolher um caractere errado — que era o que
+   acontecia, e é o mesmo raciocínio que fez o `ligature_f7` do item 1 valer a pena
+   depois de rotulado certo. O que o item 1 mostrou não foi que classe de par é ruim: foi
+   que **classe mal rotulada** é ruim.
 
-   O que precisa de decisão é se as pastas foram criadas de propósito ou nasceram de um
-   lote, porque a forma é a do defeito do item 1 — 127 amostras de "f7" tratadas como
-   classe por meses. Uma classe de casa de xadrez concorre com a leitura dos dois
-   caracteres separados, e nada no pipeline diz qual das duas ganhou. Vale o mesmo que o
-   item 3: até haver decisão, o registro é para que ninguém a tome por acidente.
+   **O que a decisão rendeu**, com a ressalva de que os conjuntos rotulados são diferentes
+   (10 páginas contra 9), o que faz a comparação indicativa e não controlada: acurácia de
+   caractere na página real de 95,32% para 96,04%, e F1 do pipeline de 93,8 para 94,2
+   (ROADMAP F1.9 e F1.5b, re-medidas).
+
+   **A consequência a acompanhar** é que uma classe de par concorre com o separador de
+   glifos colados, e o efeito está medido: a vantagem do árbitro do corte caiu de +0,3
+   para +0,1 de F1, com cortes bons de 23 para 13. Como o separador rende hoje 0,1 ponto,
+   `separar_colados="auto"` passou a ser candidato legítimo a desligar — decisão da §3,
+   não desta seção. O que **não** dá mais para medir é a atribuição: os pesos de 103
+   classes foram sobrescritos pelos dois retreinos da madrugada, sem cópia, então não há
+   como rodar o modelo antigo nas mesmas 10 páginas para separar o efeito das classes do
+   efeito da página nova. A F1.3 guardou `custom_model_2026-08-03_antes_f13.pth` antes de
+   trocar de modelo; estes retreinos não guardaram nada.
 
 Adicionar validação que roda antes do treino e falha alto:
 
