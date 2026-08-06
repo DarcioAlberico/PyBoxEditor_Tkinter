@@ -32,9 +32,14 @@ from PIL import Image, ImageTk
 
 from core import diagrama as diag
 from core.tabuleiro_edicao import SIMBOLOS, TabuleiroEdicao
+from ui import pecas
 
 
 LADO_CASA = 44
+
+#: Margem da figura dentro da casa, e o lado do botão da paleta.
+FOLGA_DA_CASA = 4
+LADO_PALETA = 30
 COR_CLARA = "#F0D9B5"
 COR_ESCURA = "#B58863"
 COR_ARBITRADA = "#E53935"       # a legalidade mexeu nesta casa
@@ -52,7 +57,11 @@ CONFIANCA_BAIXA = 0.55
 
 AJUDA = ("Clique numa casa e digite a letra (maiúscula = branca, minúscula = "
          "preta); Delete esvazia. Ou escolha uma peça na paleta e clique para "
-         "pintar. Arrastar move a peça. Ctrl+Z desfaz.")
+         "pintar — clicando de novo na mesma casa ela alterna entre a peça e "
+         "vazia. Arrastar move a peça. Ctrl+Z desfaz.")
+
+SEM_FIGURAS = ("as figuras não foram encontradas em pieces/ — o tabuleiro está "
+               "usando os símbolos da fonte")
 
 
 class DialogoDiagrama:
@@ -76,6 +85,10 @@ class DialogoDiagrama:
         self.pincel = None           # peça da paleta, ou None (modo seguro)
         self._arrasto = None
         self.guardadas = {}          # diagrama -> amostras gravadas
+        # As figuras do tabuleiro e as da paleta, em tamanhos diferentes.
+        # Ficam no diálogo, e não num cache de módulo: ver `ui/pecas.py`.
+        self.figuras = {}
+        self.figuras_paleta = {}
 
     # ------------------------------------------------------------------
 
@@ -89,6 +102,10 @@ class DialogoDiagrama:
         self.top = tk.Toplevel(self.parent)
         self.top.title("Posição lida do diagrama")
         self.top.transient(self.parent)
+
+        # Depois do Toplevel: `PhotoImage` precisa de uma janela viva.
+        self.figuras = pecas.carregar(LADO_CASA - FOLGA_DA_CASA)
+        self.figuras_paleta = pecas.carregar(LADO_PALETA)
 
         cabecalho = ttk.Frame(self.top, padding=(10, 8))
         cabecalho.pack(fill="x")
@@ -172,9 +189,15 @@ class DialogoDiagrama:
         paleta.pack(fill="x")
         self.botoes_paleta = {}
         for i, simbolo in enumerate(SIMBOLOS):
-            b = tk.Button(paleta, text=GLIFOS.get(simbolo, simbolo), width=2,
-                          font=("Segoe UI Symbol", 14), relief="raised",
-                          command=lambda s=simbolo: self._escolher(s))
+            figura = self.figuras_paleta.get(simbolo)
+            if figura is not None:
+                b = tk.Button(paleta, image=figura, relief="raised",
+                              command=lambda s=simbolo: self._escolher(s))
+            else:
+                b = tk.Button(paleta, text=GLIFOS.get(simbolo, simbolo),
+                              width=2, font=("Segoe UI Symbol", 14),
+                              relief="raised",
+                              command=lambda s=simbolo: self._escolher(s))
             b.grid(row=i % 6, column=i // 6, padx=1, pady=1)
             self.botoes_paleta[simbolo] = b
         self.btn_borracha = tk.Button(paleta, text="vazia", width=6,
@@ -235,12 +258,27 @@ class DialogoDiagrama:
         return None
 
     def _no_clique(self, evento):
+        """
+        Com pincel escolhido, o clique pinta — e o clique seguinte alterna.
+
+        Clicar de novo numa casa que já tem a peça escolhida esvazia; clicar
+        outra vez põe de volta. É o que torna a paleta suficiente para os dois
+        movimentos da conferência (trocar a peça errada e apagar a que não
+        existe) sem trocar de ferramenta no meio.
+
+        A borracha não alterna: ela só apaga. Fazê-la alternar significaria
+        escolher uma peça para pôr de volta, e a borracha não tem peça.
+        """
         alvo = self._casa_do_ponto(evento.x, evento.y)
         if alvo is None:
             return
         self._arrasto = alvo
-        if self.pincel is not None:
-            self.tabuleiro().colocar(*alvo, self.pincel or None)
+        if self.pincel:
+            atual = self.tabuleiro().casa(*alvo)
+            novo = None if atual and atual.simbolo == self.pincel else self.pincel
+            self.tabuleiro().colocar(*alvo, novo)
+        elif self.pincel == "":
+            self.tabuleiro().limpar(*alvo)
         self.selecionada = alvo
         self._desenhar()
 
@@ -403,13 +441,21 @@ class DialogoDiagrama:
                                              y + LADO_CASA - 1,
                                              outline=COR_SELECAO, width=2)
             if casa.simbolo:
-                self.canvas.create_text(
-                    x + LADO_CASA // 2, y + LADO_CASA // 2,
-                    text=GLIFOS.get(casa.simbolo, casa.simbolo),
-                    font=("Segoe UI Symbol", int(LADO_CASA * 0.62)),
-                    fill="black")
+                figura = self.figuras.get(casa.simbolo)
+                if figura is not None:
+                    self.canvas.create_image(x + LADO_CASA // 2,
+                                             y + LADO_CASA // 2,
+                                             image=figura)
+                else:
+                    self.canvas.create_text(
+                        x + LADO_CASA // 2, y + LADO_CASA // 2,
+                        text=GLIFOS.get(casa.simbolo, casa.simbolo),
+                        font=("Segoe UI Symbol", int(LADO_CASA * 0.62)),
+                        fill="black")
 
         legenda = []
+        if not self.figuras:
+            legenda.append(SEM_FIGURAS)
         if any(c.corrigida for c in tabuleiro.casas):
             legenda.append("verde: corrigida por você")
         if any(c.arbitrada for c in tabuleiro.casas):

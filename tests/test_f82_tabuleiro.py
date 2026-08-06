@@ -473,6 +473,126 @@ def test_escolher_a_mesma_peca_volta_ao_modo_seguro():
         raiz.destroy()
 
 
+def test_clicar_de_novo_com_o_pincel_alterna_a_casa():
+    """
+    Pedido: com a peça escolhida, clicar na mesma casa alterna peça/vazia.
+
+    É o que faz a paleta bastar para os dois movimentos da conferência —
+    trocar a peça errada e apagar a que não existe — sem trocar de ferramenta
+    no meio.
+    """
+    dlg, raiz = _dialogo()
+    try:
+        dlg._escolher("n")
+        dlg._no_clique(_Evento(*_ponto(2, 2)))
+        assert dlg.tabuleiro().casa(2, 2).simbolo == "n"
+        dlg._no_clique(_Evento(*_ponto(2, 2)))
+        assert dlg.tabuleiro().casa(2, 2).simbolo is None
+        dlg._no_clique(_Evento(*_ponto(2, 2)))
+        assert dlg.tabuleiro().casa(2, 2).simbolo == "n"
+    finally:
+        raiz.destroy()
+
+
+def test_alternar_so_vale_para_a_peca_escolhida():
+    """Casa com OUTRA peça é substituída, e não esvaziada."""
+    dlg, raiz = _dialogo()
+    try:
+        dlg._escolher("n")
+        dlg._no_clique(_Evento(*_ponto(7, 4)))          # tinha o rei branco
+        assert dlg.tabuleiro().casa(7, 4).simbolo == "n"
+    finally:
+        raiz.destroy()
+
+
+def test_a_borracha_nao_alterna():
+    """Alternar exigiria uma peça para pôr de volta, e a borracha não tem."""
+    dlg, raiz = _dialogo()
+    try:
+        dlg._escolher("")
+        dlg._no_clique(_Evento(*_ponto(7, 4)))
+        dlg._no_clique(_Evento(*_ponto(7, 4)))
+        assert dlg.tabuleiro().casa(7, 4).simbolo is None
+    finally:
+        raiz.destroy()
+
+
+def test_alternar_entra_no_desfazer_como_dois_passos():
+    dlg, raiz = _dialogo()
+    try:
+        dlg._escolher("q")
+        dlg._no_clique(_Evento(*_ponto(2, 2)))
+        dlg._no_clique(_Evento(*_ponto(2, 2)))
+        dlg._desfazer()
+        assert dlg.tabuleiro().casa(2, 2).simbolo == "q"
+    finally:
+        raiz.destroy()
+
+
+# ----------------------------------------------------------------------
+# As figuras do livro, no lugar dos glifos da fonte
+# ----------------------------------------------------------------------
+
+def test_a_pasta_de_pecas_esta_completa():
+    """Doze arquivos, um por peça — o tabuleiro é tudo ou nada."""
+    from ui import pecas
+
+    assert pecas.faltando() == []
+
+
+def test_o_tabuleiro_desenha_as_figuras():
+    dlg, raiz = _dialogo()
+    try:
+        tipos = [dlg.canvas.type(i) for i in dlg.canvas.find_all()]
+        assert tipos.count("image") == 2      # os dois reis da posição
+        assert "text" not in tipos            # nenhum glifo sobrou
+    finally:
+        raiz.destroy()
+
+
+def test_a_paleta_usa_as_figuras():
+    dlg, raiz = _dialogo()
+    try:
+        assert str(dlg.botoes_paleta["K"].cget("image"))
+    finally:
+        raiz.destroy()
+
+
+def test_sem_a_pasta_o_tabuleiro_volta_aos_glifos_e_avisa(tmp_path, monkeypatch):
+    """
+    Uma janela que some com as peças porque um arquivo mudou de lugar é pior
+    que uma janela feia — e o aviso na legenda custa menos que um modal.
+    """
+    from ui import pecas
+    from ui.dialogo_diagrama import SEM_FIGURAS
+
+    monkeypatch.setattr(pecas, "PASTA", str(tmp_path / "vazio"))
+    dlg, raiz = _dialogo()
+    try:
+        assert dlg.figuras == {}
+        tipos = [dlg.canvas.type(i) for i in dlg.canvas.find_all()]
+        assert tipos.count("text") == 2
+        assert SEM_FIGURAS in dlg.lbl_avisos.cget("text")
+    finally:
+        raiz.destroy()
+
+
+def test_arquivo_de_peca_ilegivel_derruba_o_conjunto_inteiro(tmp_path, monkeypatch):
+    """Dez figuras e dois glifos no meio confunde mais que doze glifos."""
+    from ui import pecas
+
+    pasta = tmp_path / "pieces"
+    pasta.mkdir()
+    for nome in pecas.ARQUIVOS.values():
+        (pasta / nome).write_bytes(b"isto nao e um png")
+    monkeypatch.setattr(pecas, "PASTA", str(pasta))
+    dlg, raiz = _dialogo()
+    try:
+        assert dlg.figuras == {}
+    finally:
+        raiz.destroy()
+
+
 def test_a_borracha_da_paleta_esvazia():
     dlg, raiz = _dialogo()
     try:
