@@ -5,6 +5,9 @@ from PIL import ImageTk, Image
 from core.box_model import BoxEntry
 from ui.confidence import cor_do_box, COR_SELECAO
 
+#: Marca do lado que é o topo do glifo num box de texto girado (F8.1).
+COR_GIRADO = "#8E24AA"
+
 
 class CanvasView(tk.Canvas):
     """
@@ -496,6 +499,16 @@ class CanvasView(tk.Canvas):
                 x1, y1, x2, y2, outline=color, width=width,
                 dash=(3, 3) if not b.char else None,
             )
+
+            # Texto girado (F8.1): um traço no lado que é o TOPO do glifo. Sem
+            # isto o box de um rótulo vertical é indistinguível de um box
+            # normal, e a leitura dele — que sai de baixo para cima — pareceria
+            # embaralhada sem motivo.
+            angulo = getattr(b, "angulo", 0) % 360
+            if angulo in (90, 270):
+                lado = x1 if angulo == 90 else x2
+                self.create_line(lado, y1, lado, y2,
+                                 fill=COR_GIRADO, width=3)
 
             # --- FEATURES EXTRAS DE SELECAO ---
             if i == sel:

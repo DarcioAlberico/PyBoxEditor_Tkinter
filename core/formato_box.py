@@ -28,6 +28,13 @@ sem espaço em branco — a linha sempre tem 6 campos.
 porque nada nunca o escreveu; um `~` sozinho segue significando vazio, que é o
 que os arquivos antigos queriam dizer. A ambiguidade do `~` real não tem como
 ser desfeita retroativamente — só deixa de ser criada daqui em diante.
+
+## O sétimo campo, do texto girado (F8.1)
+
+Um box de texto vertical guarda o ângulo num **sétimo campo**, depois do número
+da página. Ele só é escrito quando o ângulo não é zero: uma página sem texto
+girado continua gravando o arquivo byte a byte igual ao de antes, e quem lê só
+os seis campos do Tesseract não vê diferença nenhuma.
 """
 
 from typing import List, Optional, Sequence
@@ -76,8 +83,10 @@ def decodificar_char(campo: str) -> str:
 
 def formatar_linha(box: BoxEntry, altura: int, pagina: int = 0) -> str:
     """Uma linha do `.box`, com o y já invertido para a base da imagem."""
-    return (f"{codificar_char(box.char)} {box.x1} {altura - box.y2} "
-            f"{box.x2} {altura - box.y1} {pagina}")
+    linha = (f"{codificar_char(box.char)} {box.x1} {altura - box.y2} "
+             f"{box.x2} {altura - box.y1} {pagina}")
+    angulo = getattr(box, "angulo", 0) % 360
+    return f"{linha} {angulo}" if angulo else linha
 
 
 def analisar_linha(linha: str, altura: int,
@@ -88,13 +97,25 @@ def analisar_linha(linha: str, altura: int,
     Cinco campos numéricos significam que o primeiro campo era um espaço
     literal — é como o Tesseract grava o caractere espaço. Antes a linha era
     descartada e o box sumia.
+
+    O sétimo campo, quando existe, é o ângulo do texto girado (F8.1). Um valor
+    que não seja 0, 90, 180 ou 270 é ignorado em vez de rejeitar a linha: o
+    campo é uma extensão nossa, e um arquivo de terceiro pode usá-lo para
+    outra coisa — perder o ângulo custa menos do que perder o box.
     """
     campos = linha.strip().split()
     if not campos:
         return None
 
+    angulo = 0
     if len(campos) >= 6:
         char, coords = decodificar_char(campos[0]), campos[1:5]
+        if len(campos) >= 7:
+            try:
+                candidato = int(campos[6]) % 360
+            except ValueError:
+                candidato = 0
+            angulo = candidato if candidato in (0, 90, 180, 270) else 0
     elif len(campos) == 5:
         char, coords = " ", campos[0:4]
     else:
@@ -107,7 +128,7 @@ def analisar_linha(linha: str, altura: int,
 
     if origem_inferior:
         y1, y2 = altura - y2, altura - y1
-    return BoxEntry(char, x1, y1, x2, y2)
+    return BoxEntry(char, x1, y1, x2, y2, angulo=angulo)
 
 
 def ler(caminho: str, altura: int,

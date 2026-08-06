@@ -6,6 +6,7 @@ import glob
 from typing import List, Tuple, Optional, Callable
 from PIL import Image
 
+from core import vertical
 from core.box_model import BoxEntry
 from core.learner import CharacterLearner, char_to_folder
 from core.neural_trainer import NeuralTrainer, NeuralPredictor
@@ -60,17 +61,20 @@ class LearningService:
         """
         Adiciona todos os boxes que têm caractere definido à base de conhecimento.
         Retorna quantidade de amostras adicionadas.
+
+        Box de texto girado entra **de pé** (F8.1). A base de referência é de
+        glifo em pé, e guardar um 'A' deitado sob o rótulo 'A' envenenaria a
+        vizinhança do k-NN para todo mundo.
         """
         learner = self._get_learner()
         count = 0
-        img = image
+        pagina = np.asarray(image)
 
         for b in boxes:
             if not b.char:
                 continue
 
-            crop = img.crop((b.x1, b.y1, b.x2, b.y2))
-            crop_np = np.array(crop)
+            crop_np = vertical.recorte_de_pe(pagina, b)
 
             learner.learn(crop_np, b.char)
             count += 1

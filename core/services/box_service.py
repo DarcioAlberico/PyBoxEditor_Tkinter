@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
-from typing import List, Tuple
+from typing import List, Optional, Set, Tuple
 from PIL import Image
 
-from core import preprocess
+from core import preprocess, vertical
 from core.box_model import BoxEntry
 
 
@@ -51,6 +51,11 @@ class BoxService:
             boxes.append(BoxEntry("", x, y, x + w, y + h))
 
         boxes.sort(key=lambda b: (b.y1, b.x1))
+        # Antes do merge, e não depois: o merge vertical cola exatamente o que
+        # numa pilha girada são letras vizinhas — medido, uma linha real de 17
+        # caracteres saía como 7 caixas (F8.1). Quem sai daqui marcado fica
+        # fora dele.
+        boxes, _pilhas = vertical.aplicar(img_cv, boxes, arbitro)
         boxes = BoxService.merge_vertical_boxes(boxes)
         # Depois do merge, não antes: medido, o box do diagrama absorve os
         # respingos em volta dele (borda serrilhada, legenda encostada), e
@@ -280,6 +285,13 @@ class BoxService:
 
         saida = []
         for b in boxes:
+            # Box girado não se corta aqui: o corte é por coluna de tinta, e
+            # num glifo deitado a coluna atravessa o caractere no eixo errado
+            # — cortaria um 'M' girado ao meio por parecer largo demais (F8.1).
+            if getattr(b, "angulo", 0):
+                saida.append(b)
+                continue
+
             mediana = referencia[id(b)]
             if (b.x2 - b.x1) <= mediana * fator_largo:
                 saida.append(b)
@@ -473,9 +485,19 @@ class BoxService:
         ser jogados numa coluna. Servem de separador horizontal: o que está
         acima deles é lido coluna a coluna, depois vem o elemento, depois o que
         está abaixo.
+
+        **Uma pilha de texto girado é um elemento só** (F8.1). Cada letra dela
+        cai numa linha de texto diferente, e sem isto o rótulo ao lado do
+        diagrama entra letra a letra no meio de seis linhas do parágrafo
+        vizinho — foi o que a medição mostrou. A pilha entra na ordem pelo
+        lugar da sua caixa, e por dentro segue o sentido do ângulo.
         """
         if not boxes:
             return []
+
+        pilhas = vertical.runs(boxes)
+        if pilhas:
+            return BoxService._ordenar_com_pilhas(boxes, pilhas)
 
         colunas = BoxService.detectar_colunas(boxes)
         if len(colunas) <= 1:
@@ -505,12 +527,53 @@ class BoxService:
         return saida
 
     @staticmethod
+    def _ordenar_com_pilhas(boxes: List[BoxEntry],
+                            pilhas: List[List[BoxEntry]]) -> List[BoxEntry]:
+        """
+        Ordena a página com cada pilha girada valendo por um elemento só.
+
+        Troca a pilha por uma caixa que a representa, ordena a página com o
+        algoritmo de sempre e depois desfaz a troca. Assim a pilha entra na
+        ordem pelo lugar que ocupa na página — inclusive como elemento
+        transversal, se ela cruzar a calha entre colunas — sem que a ordem
+        precise saber que ela existe.
+        """
+        substitutos = {}
+        restantes = list(boxes)
+        for pilha in pilhas:
+            ids = set(id(b) for b in pilha)
+            restantes = [b for b in restantes if id(b) not in ids]
+            marca = BoxEntry("", min(b.x1 for b in pilha),
+                             min(b.y1 for b in pilha),
+                             max(b.x2 for b in pilha),
+                             max(b.y2 for b in pilha))
+            substitutos[id(marca)] = pilha
+            restantes.append(marca)
+
+        saida = []
+        for b in BoxService.sort_boxes_reading_order(restantes):
+            saida.extend(substitutos.get(id(b), [b]))
+        return saida
+
+    @staticmethod
     def merge_vertical_boxes(boxes: List[BoxEntry]) -> List[BoxEntry]:
         """
         Mescla boxes verticalmente alinhados e próximos (ex: pingo do 'i', ':', ';').
+
+        **Box de texto girado não entra** (F8.1). Numa pilha vertical as letras
+        vizinhas são exatamente o que esta regra procura — alinhadas em x e
+        encostadas em y —, e o merge as fundiria numa caixa só: medido, uma
+        linha real de 17 caracteres colada girada saía como 7 boxes. O
+        diacrítico de um glifo girado fica ao lado, não em cima, e quem o funde
+        é `vertical.fundir_pingos`, no eixo certo.
         """
         if not boxes:
             return []
+
+        girados = [b for b in boxes if getattr(b, "angulo", 0)]
+        if girados:
+            de_pe = [b for b in boxes if not getattr(b, "angulo", 0)]
+            return BoxService.merge_vertical_boxes(de_pe) + girados
 
         heights = [b.y2 - b.y1 for b in boxes]
         if not heights:
@@ -597,20 +660,24 @@ class BoxService:
         """
         Divide um box ao meio. Se for mais largo que alto, divide em X.
         Caso contrário, divide em Y. Retorna 2 boxes com char vazio.
+
+        As metades herdam o ângulo (F8.1): quem parte um box de rótulo vertical
+        em dois quer dois pedaços do mesmo rótulo, não dois boxes normais.
         """
         x1, y1, x2, y2 = box.x1, box.y1, box.x2, box.y2
+        angulo = getattr(box, "angulo", 0)
 
         if (x2 - x1) > (y2 - y1):
             mx = (x1 + x2) // 2
             return [
-                BoxEntry("", x1, y1, mx, y2),
-                BoxEntry("", mx, y1, x2, y2),
+                BoxEntry("", x1, y1, mx, y2, angulo=angulo),
+                BoxEntry("", mx, y1, x2, y2, angulo=angulo),
             ]
         else:
             my = (y1 + y2) // 2
             return [
-                BoxEntry("", x1, y1, x2, my),
-                BoxEntry("", x1, my, x2, y2),
+                BoxEntry("", x1, y1, x2, my, angulo=angulo),
+                BoxEntry("", x1, my, x2, y2, angulo=angulo),
             ]
 
     @staticmethod
@@ -622,4 +689,7 @@ class BoxService:
             y1=max(0, box.y1),
             x2=min(max_w, box.x2),
             y2=min(max_h, box.y2),
+            confidence=box.confidence,
+            source=box.source,
+            angulo=getattr(box, "angulo", 0),
         )

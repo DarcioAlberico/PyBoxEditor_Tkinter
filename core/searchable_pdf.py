@@ -20,6 +20,7 @@ import fitz
 import numpy as np
 from PIL import Image
 
+from core import vertical
 from core.chess_pdf_processor import CHESS_UNICODE, resolve_chess_font
 from core.services.box_service import BoxService
 
@@ -66,6 +67,24 @@ def _pagina_para_numpy(page: fitz.Page, dpi: int) -> np.ndarray:
     """Renderiza a página em escala de cinza, sem tocar no conteúdo dela."""
     pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csGRAY)
     return np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+
+
+def _origem_do_texto(angulo: int, x1: float, y1: float,
+                     x2: float, y2: float) -> fitz.Point:
+    """
+    Onde a linha de base começa, para cada ângulo (F8.1).
+
+    O `rotate` do PyMuPDF usa a mesma convenção que o `angulo` do box, e isso
+    foi conferido e não suposto: com `rotate=90` o texto extraído volta com
+    direção (0,-1) — sobe na página —, e com 270 volta com (0,1). O que muda é
+    o ponto de partida, porque o texto cresce a partir dele: a 90° ele sobe da
+    base e o corpo da letra fica à esquerda; a 270° desce do topo, à direita.
+    """
+    if angulo % 360 == 90:
+        return fitz.Point(x2, y2)
+    if angulo % 360 == 270:
+        return fitz.Point(x1, y1)
+    return fitz.Point(x1, y2)
 
 
 def _corpo_que_preenche(font: fitz.Font, texto: str,
@@ -155,7 +174,9 @@ def gerar_pdf_pesquisavel(
                 page.insert_font(fontname=FONTE_PECAS, fontfile=fonte_path)
 
             for b in boxes:
-                recorte = img[b.y1:b.y2, b.x1:b.x2]
+                # De pé para classificar (F8.1): o modelo aprendeu glifo em pé,
+                # e o mesmo recorte deitado desce de 94,2% para 8,4%.
+                recorte = vertical.recorte_de_pe(img, b)
                 if recorte.size == 0:
                     continue
 
@@ -172,14 +193,23 @@ def gerar_pdf_pesquisavel(
 
                 x1, y1 = b.x1 * escala, b.y1 * escala
                 x2, y2 = b.x2 * escala, b.y2 * escala
-                corpo = _corpo_que_preenche(fonte, char, x2 - x1, y2 - y1)
+                angulo = getattr(b, "angulo", 0) % 360
+                # Num box girado o texto corre na altura da caixa, e o corpo da
+                # letra é que ocupa a largura.
+                if angulo in (90, 270):
+                    corpo = _corpo_que_preenche(fonte, char, y2 - y1, x2 - x1)
+                else:
+                    corpo = _corpo_que_preenche(fonte, char, x2 - x1, y2 - y1)
+                origem = _origem_do_texto(angulo, x1, y1, x2, y2)
 
                 if modo in ("searchable", "both"):
                     # render_mode=3 = invisível: o texto existe para busca e
-                    # cópia, mas não aparece nem cobre o original.
+                    # cópia, mas não aparece nem cobre o original. O texto
+                    # girado entra girado: assim a seleção no leitor cai sobre
+                    # o caractere certo e a ordem de cópia é a de leitura.
                     page.insert_text(
-                        fitz.Point(x1, y2), char,
-                        fontname=FONTE_OCR, fontsize=corpo, render_mode=3,
+                        origem, char, fontname=FONTE_OCR, fontsize=corpo,
+                        render_mode=3, rotate=angulo,
                     )
 
                 if (modo in ("replace", "both")
@@ -189,8 +219,8 @@ def gerar_pdf_pesquisavel(
                     page.draw_rect(fitz.Rect(x1, y1, x2, y2),
                                    color=(1, 1, 1), fill=(1, 1, 1))
                     page.insert_text(
-                        fitz.Point(x1, y2), char,
-                        fontname=FONTE_PECAS, fontsize=corpo,
+                        origem, char, fontname=FONTE_PECAS, fontsize=corpo,
+                        rotate=angulo,
                     )
                     resumo["pecas_substituidas"] += 1
 

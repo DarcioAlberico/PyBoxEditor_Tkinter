@@ -25,6 +25,14 @@ class BoxEntry:
     confidence: float = 0.0
     source: str = ""
 
+    # Graus anti-horários do TEXTO impresso, não do recorte (F8.1):
+    #   0    normal
+    #   90   o texto sobe  (lê-se de baixo para cima)
+    #   270  o texto desce (lê-se de cima para baixo)
+    # Quem classifica precisa do glifo de pé — `core.vertical.endireitar` faz
+    # essa volta num lugar só.
+    angulo: int = 0
+
     def as_tuple(self):
         return (self.char, self.x1, self.y1, self.x2, self.y2)
 
@@ -34,10 +42,13 @@ class BoxEntry:
 
         Não é o `as_tuple`, e a diferença importa: aquele devolve só caractere e
         coordenadas, para quem desenha e mede. Este serve para guardar e
-        restaurar **sem perder nada** — confiança e origem inclusive.
+        restaurar **sem perder nada** — confiança, origem e ângulo inclusive.
+
+        Estado gravado antes da F8.1 tem sete campos e continua carregando: o
+        `angulo` fica no valor padrão, que é o que aquele box queria dizer.
         """
         return (self.char, self.x1, self.y1, self.x2, self.y2,
-                self.confidence, self.source)
+                self.confidence, self.source, self.angulo)
 
     @classmethod
     def from_state(cls, estado) -> "BoxEntry":

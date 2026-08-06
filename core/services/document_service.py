@@ -166,7 +166,8 @@ class DocumentSession:
         for pagina, boxes in self._pages.items():
             if boxes:
                 paginas[str(pagina)] = [
-                    (b.char, b.x1, b.y1, b.x2, b.y2, round(b.confidence, 4), b.source)
+                    (b.char, b.x1, b.y1, b.x2, b.y2, round(b.confidence, 4),
+                     b.source, getattr(b, "angulo", 0))
                     for b in boxes
                 ]
         return {
@@ -211,10 +212,14 @@ class DocumentSession:
                     char, x1, y1, x2, y2 = it[0], int(it[1]), int(it[2]), int(it[3]), int(it[4])
                     conf = float(it[5]) if len(it) > 5 else 0.0
                     origem = it[6] if len(it) > 6 else ""
+                    # Rascunho gravado antes da F8.1 não tem o oitavo campo, e
+                    # a ausência dele quer dizer exatamente ângulo zero.
+                    angulo = int(it[7]) if len(it) > 7 else 0
                 except (TypeError, ValueError, IndexError):
                     continue
                 boxes.append(BoxEntry(char, x1, y1, x2, y2,
-                                      confidence=conf, source=origem or ""))
+                                      confidence=conf, source=origem or "",
+                                      angulo=angulo if angulo in (0, 90, 180, 270) else 0))
             if boxes:
                 self._pages[indice] = boxes
 

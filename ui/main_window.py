@@ -5,7 +5,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import formato_box
+from core import formato_box, vertical
 from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
@@ -1153,9 +1153,17 @@ class MainWindow(tk.Frame):
         thread de trabalho recortando dela enquanto o usuário faz pan/zoom seria
         dois acessos concorrentes ao mesmo objeto. Os recortes de caractere são
         pequenos, então o custo é baixo.
+
+        Box de texto girado sai **de pé** (F8.1): o classificador foi treinado
+        em glifo em pé, e o mesmo recorte deitado desce de 94,2% para 8,4%.
+
+        `np.array` e não `np.asarray`: a segunda pode devolver vista sobre o
+        buffer da própria PIL.Image, e aí os recortes voltariam a apontar para
+        o objeto compartilhado — que é justamente o que este método existe
+        para evitar. Uma cópia da página custa menos que milhares de recortes.
         """
-        return [np.array(self.image.crop((b.x1, b.y1, b.x2, b.y2)))
-                for b in self.boxes]
+        pagina = np.array(self.image)
+        return [vertical.recorte_de_pe(pagina, b) for b in self.boxes]
 
     def _preencher_boxes(self, titulo, preparar, resumo):
         """

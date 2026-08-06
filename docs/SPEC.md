@@ -112,6 +112,13 @@ tratá-lo como suspeito encheria a tela de falso alarme ao abrir um arquivo salv
 `source == "manual"` com `confidence = 1.0` é o que a correção do usuário grava. Sem
 isso a cor não convergiria e a revisão não teria fim visível.
 
+**`angulo: int = 0` — [feito, F8.1].** Graus anti-horários do **texto impresso**, não do
+recorte, na convenção do PDF: `0` normal, `90` o texto sobe (lê-se de baixo para cima),
+`270` desce. Quem classifica pede o glifo de pé a `core.vertical.endireitar`, que é o
+único lugar do código que raciocina sobre o sinal do giro. O campo atravessa `as_state`,
+o rascunho de autosave e o `.box` (§2.3), porque um ângulo perdido devolve o box à
+leitura errada de antes — 8,4% de acerto contra 94,4%.
+
 **Invariantes** (validar ao construir e após qualquer mutação):
 
 - `x1 < x2` e `y1 < y2`
@@ -162,6 +169,13 @@ Regras:
 > a linha com 5 campos e o leitor a descartava, perdendo o box calado. A tolerância a 5
 > campos, que a spec pedia por compatibilidade, passou a significar exatamente isso: o
 > primeiro campo era um espaço literal, como o Tesseract o grava.
+
+> **O sétimo campo, da F8.1.** Um box de texto girado grava o ângulo depois do número da
+> página, e **só quando ele não é zero** — página sem texto vertical continua gravando o
+> arquivo byte a byte igual, e quem lê só os seis campos do Tesseract não vê diferença.
+> Na leitura, um sétimo campo que não seja 0, 90, 180 ou 270 é ignorado em vez de
+> derrubar a linha: o campo é extensão nossa, e perder o ângulo custa menos que perder o
+> box.
 
 ---
 
@@ -647,6 +661,29 @@ Contratos que a implementação estabeleceu, todos vindos de medição na págin
 
 O peso da confiança (F3.2) está em `custo_da_troca` e hoje é inerte: medido, o modelo
 erra com confiança mediana 1,000. Ver F1.9 no ROADMAP.
+
+### 5.7 Texto impresso na vertical — [feito, F8.1, em `core/vertical.py`]
+
+Rótulo girado ao lado do diagrama (*"Analysis diagram"*). Não estava na spec, e o custo
+de não tratá-lo é calado: o classificador acerta 94,4% do recorte de pé e **8,4%** do
+mesmo recorte deitado — devolvendo outra letra, com confiança normal.
+
+O contrato, todo ele vindo de medição:
+
+1. **A geometria propõe, o classificador dispõe.** `candidatos` recolhe pilhas
+   plausíveis; o ângulo é escolhido pela confiança **média da pilha**, e 0° (não é
+   girado) ganha por padrão — só perde por uma margem. **Sem árbitro, nada acontece**,
+   como em `dividir_glifos_colados` (F1.5b).
+2. **A pilha é uma unidade** em tudo que a toca: fora do merge vertical (que a colaria),
+   fora do corte de glifo colado (que a cortaria no eixo errado), e um elemento só na
+   ordem de leitura (senão cada letra cai numa linha de texto diferente).
+3. **Girar é transposição.** Só múltiplos de 90°; nada de interpolação antes de
+   classificar. `endireitar` é o único lugar que raciocina sobre o sinal do giro.
+4. **Quem consome box pede o recorte de pé** — a cadeia de fallback, a base de
+   referência do k-NN e o PDF pesquisável, que escreve a camada invisível girada
+   (`insert_text(rotate=...)`, com a convenção conferida contra o texto extraído).
+
+`medir_vertical.py` refaz as quatro medições da fase.
 
 ---
 

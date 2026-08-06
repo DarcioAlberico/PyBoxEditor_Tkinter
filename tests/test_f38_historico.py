@@ -39,8 +39,8 @@ def _estados(boxes):
 # ----------------------------------------------------------------------
 
 def test_as_state_leva_todos_os_campos():
-    b = BoxEntry("fi", 1, 2, 3, 4, confidence=0.75, source="lote")
-    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote")
+    b = BoxEntry("fi", 1, 2, 3, 4, confidence=0.75, source="lote", angulo=90)
+    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90)
 
 
 def test_from_state_desfaz_as_state():
@@ -50,9 +50,14 @@ def test_from_state_desfaz_as_state():
 
 def test_as_state_nao_e_as_tuple():
     """`as_tuple` é para quem desenha; `as_state` é para guardar sem perder."""
+    import dataclasses
+
     b = BoxEntry("a", 1, 2, 3, 4, confidence=0.9, source="manual")
     assert b.as_tuple() == ("a", 1, 2, 3, 4)
-    assert len(b.as_state()) == 7
+    # Um item por campo do dataclass, e não um número fixo: assim o teste
+    # cobra o contrato ("não perde nada") de qualquer campo que apareça
+    # depois — o `angulo` da F8.1 foi o primeiro a aparecer.
+    assert len(b.as_state()) == len(dataclasses.fields(BoxEntry))
 
 
 def test_from_state_devolve_objeto_novo():
