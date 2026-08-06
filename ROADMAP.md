@@ -30,7 +30,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
-| **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | F8.1 **concluída**; F8.2–F8.3 planejadas |
+| **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | F8.1–F8.2 **concluídas**; F8.3 planejada |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -42,7 +42,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **732 testes**, `pytest` na raiz.
+Cobertura: **789 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -2368,40 +2368,75 @@ seguidas em vez de uma.
 Cobertura: `tests/test_f81_vertical.py`, 48 testes. `medir_vertical.py` refaz as
 quatro medições acima.
 
-### F8.2 — O diagrama vira uma janela com tabuleiro editável — PLANEJADA
+### F8.2 — O diagrama vira uma janela com tabuleiro editável — CONCLUÍDA
 
-**O que existe.** A F7.1 lê a posição e mostra o recorte impresso ao lado da
-leitura, marcando de vermelho o que a legalidade trocou e de laranja o duvidoso.
-O diálogo é **só de leitura**: quem vê um bispo lido como peão copia um FEN
-errado ou desiste.
+**Concluída em 2026-08-05.** `core/tabuleiro_edicao.py`, `ui/dialogo_diagrama.py`
+reescrito, e um botão **Diagramas...** na barra do editor.
 
-**Por que editar não é enfeite.** 94,5% por casa são ~3,5 casas erradas em 64, e
-uma posição com três casas erradas é uma posição errada. A F7.1 já concluiu que
-isto é um rascunho para conferir; conferir sem poder corrigir devolve o trabalho
-inteiro para fora do programa.
+**Mostrar sem deixar corrigir devolvia o trabalho para fora do programa.** A F7.1
+põe o recorte impresso ao lado da leitura e marca o que a legalidade trocou —
+mas 94,5% por casa são ~3,5 casas erradas em 64, e quem via um bispo lido como
+peão copiava um FEN errado ou desistia.
 
-O que a fase faz:
+O que entrou:
 
-- **Um botão, e não só o menu.** O caminho de hoje (Ferramentas → "Ler posição
-  dos diagramas...") fica; entra um botão na barra, ao lado dos de página, e o
-  duplo clique num box de diagrama abre a janela já naquele diagrama.
-- **Editar a casa.** Paleta com as 12 peças e a borracha; clicar na casa aplica
-  o que estiver escolhido. Teclado como atalho (`K Q R B N P` maiúsculo para
-  branca, minúsculo para preta, `Delete` esvazia), arrastar move a peça,
-  `Ctrl+Z` desfaz dentro da janela.
-- **O FEN e a legalidade acompanham a edição**, ao vivo: contagem de peças, reis,
-  peões na fila errada. É a mesma prova da F7.1, agora sobre o que o usuário
-  acabou de digitar.
-- **Lado a jogar e roque deixam de ser convenção calada.** Hoje o FEN assume
-  brancas sem roque e avisa. Quem já está editando pode dizer; o aviso continua
-  para quem não disse.
-- **A casa corrigida ganha cor própria** (verde), ao lado do vermelho da
-  legalidade e do laranja da dúvida. Não é enfeite: é o dado que a F8.3 consome.
+- **Um botão, e não só o menu.** Ler diagrama é ação de página; Ferramentas
+  guarda configuração. O menu continua onde estava.
+- **Clicar seleciona; quem escreve é a tecla ou a paleta.** Um clique que já
+  apagasse a casa faria da conferência um campo minado. Com uma peça escolhida
+  na paleta o clique passa a pintar, e clicar nela de novo volta ao modo seguro.
+  Botão direito esvazia, arrastar move, `Ctrl+Z` desfaz.
+- **A casa corrigida vira autoridade** — confiança 1,0 e cor própria (verde) —
+  do mesmo jeito que o box digitado vira `source="manual"` na F3.2.
+- **Trocar de diagrama e voltar não perde a correção**, pelo mesmo compromisso da
+  F3.7 com as páginas: o que o usuário fez não se perde por navegar.
 
-**O estado do tabuleiro sai da janela.** Um `core/tabuleiro_edicao.py` guarda as
-64 casas, o desfazer, o FEN e a legalidade, e o diálogo só desenha — pelo mesmo
-motivo que a F7.1 pôs a leitura em `core/diagrama.py`: o que tem regra precisa de
-teste, e teste de widget não é teste de regra.
+#### A legalidade ficou mais forte porque agora alguém pode responder
+
+A F7.1 arbitra por contagem — um rei de cada cor, oito peões, dezesseis peças.
+Aqui a checagem passou a ser a do `python-chess` inteira (`Board.status()`), e a
+diferença **não é de rigor, é de informação**: com o lado a jogar preenchido,
+"o rei de quem não está a jogar está em xeque" vira uma pergunta que tem
+resposta. Era impossível de fazer enquanto o lado a jogar fosse convenção.
+
+O mesmo vale para o roque, e ele cobrou uma decisão: só é oferecido o que a
+posição comporta (rei em e1 e torre em h1 para o `K`). O `python-chess` derruba
+um direito impossível na hora de escrever o FEN, então marcar a caixa e ver `-`
+na saída seria pior do que não oferecer.
+
+**O que o usuário informou não vira leitura.** O aviso da F7.1 dizia que o FEN
+assume brancas a jogar, sem roque; informado o lado ou o roque, ele passa a dizer
+que vieram de quem editou. En passant continua fora, e o aviso diz isso também.
+
+#### Uma marca que deixa de valer, e um teste que travava a suíte
+
+**Corrigir apaga o vermelho da legalidade.** Aquela marca dizia "isto aqui eu
+troquei sozinho", o que deixa de ser verdade assim que a mão passa por ali —
+manter as duas contaria a casa duas vezes no resumo e pintaria de vermelho
+justamente o que o usuário acabou de escolher.
+
+**O teste do botão pendurou a suíte inteira**, e o motivo vale registro para o
+próximo teste de UI: apertar o botão executa o caminho de verdade, que sem imagem
+aberta abre um `showinfo` **modal** — e ninguém clica em OK. Pior, a saída óbvia
+não funcionaria: trocar `win.extrair_diagramas` por um dublê não muda nada,
+porque o `command` é ligado ao método na construção. O teste passaria sem provar
+coisa nenhuma. O jeito certo é o do `_App` da F3.6: substituir o `messagebox` e
+conferir onde o botão chega.
+
+#### O que esta fase não entrega
+
+**A correção ainda morre na tela.** `TabuleiroEdicao.correcoes()` já devolve as
+casas mexidas à mão — é o que a F8.3 vai colher —, mas nada as grava ainda.
+
+O FEN sai por cópia; não há caminho de volta dele para a página. Os contadores de
+lance são sempre `0 1`, e en passant é sempre `-`.
+
+**O estado do tabuleiro mora fora da janela**, em `core/tabuleiro_edicao.py`,
+pelo mesmo motivo que a F7.1 pôs a leitura em `core/diagrama.py`: o que tem regra
+precisa de teste, e teste de widget não é teste de regra. Dos 57 testes desta
+fase, 40 não abrem janela nenhuma.
+
+Cobertura: `tests/test_f82_tabuleiro.py`, 57 testes.
 
 ### F8.3 — Treino só de diagramas, alimentado pelas correções — PLANEJADA
 
