@@ -2,7 +2,8 @@
 
 Versão: 2.0
 Data: 2026-08-03
-Status: **implementado** (ver ressalvas abaixo) — atualizado em 2026-08-04
+Status: **implementado até a F8** (ver ressalvas abaixo); a §5.8 é planejada e não está
+feita — atualizado em 2026-08-06
 Substitui parcialmente: [`Substituição de Glifos de Xadrez.md`](../Substituição%20de%20Glifos%20de%20Xadrez.md) (v1.0)
 Companheiro: [`ROADMAP.md`](../ROADMAP.md)
 
@@ -60,6 +61,13 @@ linguagem.
 >
 > As três seguiram o mesmo caminho: o que parecia trabalho novo era, em boa parte,
 > trabalho já feito por outro motivo.
+>
+> **A correção por modelo de linguagem saiu resolvida pela metade, e a metade que falta
+> está registrada.** A legalidade cuida da notação; o texto corrido entre os lances não
+> tem correção nenhuma. É a §5.8 — dicionário de palavras e palavras do usuário, no
+> desenho do ABBYY —, planejada como F9 e ainda não feita. Mesmo padrão das três acima:
+> a segmentação de palavras, a confiança por box e a edição que não inventa box já
+> existem, escritas para a §5.6.
 
 ---
 
@@ -685,6 +693,69 @@ O contrato, todo ele vindo de medição:
 
 `medir_vertical.py` refaz as quatro medições da fase.
 
+### 5.8 Léxico do texto corrido — [a fazer, F9]
+
+Dicionário de palavras sobre os pedaços de **prosa**, no lugar que a §5.6 deixou vazio:
+a legalidade cuida da notação e nada cuida do texto entre os lances. Módulo novo
+`core/lexico.py`.
+
+Os contratos, e nenhum deles é preferência de estilo — todos saem de defeito já pago:
+
+1. **A fronteira com a notação é a que já existe.** `notacao._fatiar` tipa cada pedaço
+   em `lance` ou `outro` e `parece_lance` é a peneira. O léxico só vê `outro`. Aplicar
+   lista de palavras a `Bxf6` ou `exd5` destruiria a notação, porque nenhum deles é
+   palavra de idioma nenhum — e a legalidade é um dicionário melhor, por ser dependente
+   de contexto: `Nf3` é válido numa posição e impossível na seguinte.
+2. **Fora do dicionário significa "não mexer".** Palavra desconhecida é **sinalizada**,
+   nunca aproximada da mais parecida. `Nimzowitsch` não está em lista alguma, e forçar a
+   troca entregaria prosa limpa e falsa — a forma de falha da §4.2 (o `·` da Helvetica) e
+   da §3 (o separador que partia glifo bom sem ninguém ver).
+3. **Os candidatos vêm do classificador, não do alfabeto** — o padrão de árbitro da §3 e
+   da §5.7. Falta o pré-requisito: `NeuralPredictor.predict` e
+   `LearningService.predict_neural` devolvem `Tuple[str, float]`, um caractere só. Sem
+   `predict_topk`, trocar `l` por `1` e por `q` custam o mesmo e a correção inventa
+   caractere que nenhum box sustenta. A triagem do item 5 **não** depende disso.
+4. **Só box sobrando vira edição** — item 5 da §5.6, pelo mesmo motivo. Caractere
+   faltando não tem box para apontar, e vira sugestão.
+5. **O produto principal é triagem, não correção.** A F1.9 mediu que a confiança só
+   ordena (AUROC 0,86–0,87): revisando 4% da página o revisor acha 52,5% dos erros, e
+   não há corte que ache o resto por preço aceitável. "Fora do dicionário" é um sinal
+   **independente da confiança** — pega o erro lido com confiança 1,000 — e entra como
+   filtro na §7.4.
+6. **Nada acontece sem dicionário carregado.** Padrão é não agir, como
+   `separar_colados="auto"`.
+7. **O idioma é escolha do perfil (§4.5), não adivinhação.** Estes livros são em inglês;
+   dicionário do idioma errado é pior que nenhum.
+
+Sem dependência nova: um `set` de palavras mais os candidatos do top-k. `pyspellchecker`
+e `hunspell` ficam **descartados de propósito** — o gerador de candidatos deles varre o
+alfabeto inteiro, que é o modo de falha do contrato 3. A lista tem de ser **empacotada**
+no repositório, com a ressalva da §9.2: a `assets/fonts/DejaVuSans.ttf` também deveria
+estar e não está.
+
+`palavras_da_pagina`, `Simbolo`, `custo_da_troca`, `Correcao` e `aplicar` (§5.6) são
+reusados inteiros — segmentação de palavra, confiança por box, distância de edição
+ponderada e edição que não inventa box já estão escritos.
+
+**Dicionário do usuário.** As palavras que uma lista genérica não tem são as que se
+repetem num livro de xadrez: jogador (Yusupov, Nimzowitsch), abertura (Benoni, Grünfeld,
+Najdorf), vocabulário do jogo (zugzwang, fianchetto, prophylaxis), editora. Sem elas o
+sinal do contrato 5 acusa erro em toda página e o revisor aprende a ignorá-lo. Ficam
+**por perfil de livro**, no `config/profiles/<nome>.json` da §4.5, e crescem pela
+correção do usuário, como em §7.5 e §7.10 — com a regra da §7.10 valendo aqui também:
+**silêncio não é confirmação**, só entra a palavra digitada à mão.
+
+**Medir antes de escrever**, na ordem, e a primeira medição pode encerrar o item:
+quantos caracteres errados das 9 páginas rotuladas caem dentro de palavra de prosa (fora
+de lance, fora de pontuação); a precisão da sinalização; e F1 com e sem o léxico **mais**
+correções boas e ruins contadas em separado, na forma da tabela da F1.5b — medir só por
+recall foi o que deixou o defeito da §3 passar. `core/avaliacao_pagina.py` é o arnês.
+
+Alcance conhecido, das confusões que a §5.4 mediu: `1`↔`l` e a ligadura `f`→`f7` são
+visíveis ao léxico; `,`↔`'`, `.`↔`-` e `✝`↔`+` não são, porque pontuação não está dentro
+de palavra. E palavra partida por hífen no fim da linha só existe depois da ordenação de
+leitura (ROADMAP F1.6).
+
 ---
 
 ## 6. Aplicação
@@ -765,7 +836,9 @@ Trabalho de CPU pesada (OpenCV, PyTorch) libera o GIL, então threads bastam —
 | `ui.autosave_interval` | 25 (alterações) |
 | `ui.zoom_on_select` | false |
 | `ui.confidence_colors` | true |
-| `paths.last_dir`, `paths.tesseract` | — |
+| `lexico.ativo` (§5.8) | true |
+| `lexico.idioma` (§5.8) | "en" — o idioma dos livros, não o do programa |
+| `paths.last_dir`, `paths.tesseract`, `paths.dicionario_usuario` | — |
 
 Eliminar todo literal de limiar espalhado pelo código.
 
@@ -1226,3 +1299,11 @@ distribuir por release ou armazenamento externo.
 
 O último critério é o que resume o projeto. Hoje ele é inatingível — porque o programa
 não abre.
+
+### F9 — léxico (§5.8)
+- [ ] Nenhuma palavra é reescrita sem que os candidatos venham do `predict_topk`
+- [ ] Palavra fora do dicionário é sinalizada, nunca trocada pela mais parecida
+- [ ] Sem dicionário carregado, o léxico não altera um caractere
+- [ ] `Bxf6`, `exd5`, `O-O` e os demais pedaços tipados `lance` não passam pelo léxico
+- [ ] A precisão da sinalização está medida nas páginas rotuladas, com a fatia de erro
+      alcançável contada **antes** de o léxico ser escrito

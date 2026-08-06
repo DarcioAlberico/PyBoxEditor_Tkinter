@@ -31,6 +31,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
 | **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
+| **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **planejada** (F9.1–F9.2) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -1868,7 +1869,10 @@ do treino e fora do repositório. Detalhes na SPEC §5.2.
 
 ## Ordem de execução
 
-**Todos os itens do roadmap estão concluídos** (o último, a F5.4, em 2026-08-04).
+**Todos os itens de F0 a F8 estão concluídos** (o último, a F8.3, em 2026-08-05). A
+**F9** (léxico do texto corrido) é a única em aberto, e a ordem dentro dela está no
+próprio item: mede-se primeiro quanto do erro é alcançável, porque essa contagem pode
+encerrar a fase.
 
 ```
 F0  desbloqueio      F0.1 BoxEntry   F0.2 fonte Unicode   F0.3 undo/redo
@@ -2554,6 +2558,170 @@ guarda a impressão da base (F7.3 aplicada aqui), então dá para saber que ele
 está velho — mas ninguém avisa sozinho ainda.
 
 Cobertura: `tests/test_f83_treino_diagrama.py`, 37 testes.
+
+---
+
+## F9 — Léxico do texto corrido — PLANEJADA
+
+> Ideia trazida pelo usuário em 2026-08-06: o ABBYY FineReader usa dicionário, e deixa
+> acrescentar palavras próprias. **Ajuda, sim** — reordenar hipóteses de palavra inteira
+> contra um léxico é a segunda etapa padrão de todo OCR maduro, e o Tesseract, que já
+> está na cadeia de fallback, traz a dele (`load_system_dawg`, `load_freq_dawg`,
+> `--user-words`).
+>
+> O que muda quando a ideia encosta *neste* projeto são três coisas, e vale escrevê-las
+> antes de alguém codificar: metade do texto já tem um dicionário melhor que qualquer
+> lista de palavras; a metade que sobra nunca recebeu correção nenhuma; e o ganho mais
+> provável não é corrigir, é **triar**.
+
+### F9.1 — Dicionário do texto corrido
+
+#### A metade que já está resolvida, e não por lista de palavras
+
+A F1.7 confronta cada lance com as regras do xadrez. Aquilo **é** um dicionário, e um que
+nenhuma lista alcança, porque depende de contexto: `Nf3` é palavra válida numa posição e
+impossível na seguinte. Uma lista estática não tem como dizer isso — e, aplicada à
+notação, faria o oposto do que se quer. `Bxf6`, `exd5` e `Rd1` não são palavra de idioma
+nenhum, e um dicionário que insista em aproximá-las da palavra mais parecida destrói
+justamente a parte do livro que o projeto existe para ler.
+
+Então a primeira decisão de desenho é uma fronteira — e ela **já está no código**:
+`notacao._fatiar` classifica cada pedaço da linha em `lance` ou `outro`, e
+`parece_lance` é a peneira que separa "counterplay" de "N□f6". O léxico é dono dos
+pedaços `outro`; a legalidade continua dona dos `lance`. Nenhum dos dois toca no
+material do outro.
+
+O resto do maquinário também está pronto, e por outro motivo: `palavras_da_pagina` já
+recorta palavra por palavra a partir dos boxes (com o limiar de espaço e a segunda
+passada dos números que a F1.7 mediu), `Simbolo` amarra cada caractere ao box de onde
+veio, `custo_da_troca` é distância de edição ponderada pela confiança, e
+`Correcao`/`aplicar` já sabem editar box sem inventar box. É o padrão que a SPEC §1
+registra: o que parece trabalho novo é, em boa parte, trabalho já feito por outro motivo.
+
+#### O que um léxico enxerga da lista de erros que já foi medida
+
+A F1.3 registrou as confusões do modelo no conjunto de teste. Separadas pelo que uma
+lista de palavras teria como perceber:
+
+| Confusão medida (F1.3) | O léxico enxerga? | Por quê |
+|---|---|---|
+| `1` ↔ `l` | **sim** | `p1ay` não é palavra; `play` é |
+| `f` → `f7` (a ligadura da F1.4) | **sim** | palavra com casa de xadrez no meio não é palavra |
+| `W` ↔ `w` | em parte | só onde a caixa é impossível na posição |
+| `,` ↔ `'` | **não** | pontuação não está dentro de palavra |
+| `.` ↔ `-` | **não** | idem |
+| `✝` ↔ `+` | **não** | idem |
+
+Metade da lista, portanto, está fora do alcance por construção. Isso não desqualifica o
+item — mas desqualifica a expectativa de que dicionário conserte OCR em geral.
+
+#### Onde está o ganho provável, e é triagem antes de correção
+
+A F1.9 mediu o teto da triagem por confiança: revisando 4% da página o revisor acha
+**52,5%** dos erros, e subir o corte para 0,999 troca +10 pontos de esforço por +18 de
+erros achados. O limitador é que a confiança **ordena** razoavelmente (AUROC 0,86–0,87)
+e nada mais — não existe corte que ache os erros restantes por um preço aceitável.
+
+"Palavra fora do dicionário" é um sinal **independente da confiança**, e é isso que o
+torna interessante: um erro lido com confiança 1,000 dentro de uma palavra impossível
+continua visível para o léxico. Somado ao filtro da F3.3 ("só palavras fora do
+dicionário"), é um segundo eixo de triagem sobre a mesma página.
+
+O número que decide se o item se paga é a **precisão desse sinal**: de cada 100 palavras
+sinalizadas, quantas contêm erro de verdade. Nome próprio, notação e abreviação de livro
+de xadrez vão inflar o falso alarme, e é por isso que a F9.2 não é enfeite.
+
+#### A armadilha, e ela já custou duas vezes neste projeto
+
+Um léxico que **edita** é perigoso do jeito pior: ele troca um erro visível por uma
+palavra plausível e errada. `Nimzowitsch` não está em lista de idioma nenhum, e um
+corretor que force a palavra mais próxima entrega prosa limpa e falsa — o revisor não
+tem como desconfiar. É a mesma forma de falha da F0.2 (o `·` que a Helvetica escrevia em
+silêncio) e da F1.5 (o separador que partia glifo bom e ninguém via, porque a medida
+olhava só o recall).
+
+Daí os contratos, todos derivados de lições já pagas:
+
+1. **Fora do dicionário significa "não mexer", nunca "aproximar da palavra mais
+   parecida".** Palavra desconhecida é sinalizada. O ABBYY faz assim, e é o motivo de o
+   dicionário do usuário existir por lá.
+2. **Os candidatos vêm do classificador, não do alfabeto.** É a lição da F1.5b — a
+   geometria propõe, o classificador dispõe. Aqui: o léxico propõe, o classificador
+   arbitra. Sem isso, "trocar `l` por `1`" e "trocar `l` por `q`" custam o mesmo, e a
+   correção passa a inventar caractere que nenhum box sustenta.
+3. **Só box sobrando vira edição** — o contrato 5 da F1.7, pelo mesmo motivo: caractere
+   faltando não tem box para apontar, e vira sugestão.
+4. **Nada acontece sem dicionário carregado**, como em `dividir_glifos_colados` e em
+   `core/vertical.py`. O padrão é não agir.
+
+O contrato 2 é a única lacuna real de código: `LearningService.predict_neural` e
+`NeuralPredictor.predict` devolvem `Tuple[str, float]` — **um** caractere. Falta um
+`predict_topk`, e é pré-requisito de qualquer correção; para a triagem do parágrafo
+anterior, não é.
+
+#### O que medir antes de escrever o léxico
+
+Na ordem, e a primeira medição pode encerrar o item:
+
+1. **Quanto do erro é alcançável.** Nas 9 páginas rotuladas, contar os caracteres
+   errados que caem dentro de palavra de prosa — fora de lance, fora de pontuação. O
+   pipeline está em 93,8 de F1; se a fatia alcançável for magra, o item não se paga, e
+   custou uma contagem. É a lição da F1.8, que supôs milhares de boxes de lixo e mediu
+   **um**.
+2. **A precisão da sinalização**, como acima.
+3. **F1 da página com e sem o léxico, mais a contagem de correções boas e ruins
+   separadas**, na forma da tabela da F1.5b. Medir só por recall é o que deixou o
+   defeito da F1.5 passar: uma edição ruim quase não mexe no recall e despeja uma
+   palavra inventada no texto. `core/avaliacao_pagina.py` já mede página contra `.box`
+   rotulado, então o arnês existe.
+
+Um detalhe que a medição vai encontrar: estes livros são em **inglês**, e o texto do
+programa é em português. O idioma do léxico é escolha explícita do perfil (SPEC §4.5), não
+adivinhação — dicionário do idioma errado é pior que nenhum.
+
+#### O módulo
+
+`core/lexico.py`: carregar lista de palavras, dizer se uma palavra é conhecida,
+sinalizar as que não são, e — só com árbitro — propor a troca cujos candidatos saem do
+`predict_topk`. Filtro novo na F3.3 e um relatório no padrão da F1.7 (propõe, marca, não
+reescreve calado).
+
+**Sem dependência nova.** Um `set` de palavras mais candidatos vindos do top-k resolve.
+`pyspellchecker` e `hunspell` estão descartados de propósito: o gerador de candidatos
+deles varre o alfabeto inteiro, que é exatamente o modo de falha do contrato 2. A lista
+de 50–100 mil palavras dá algumas centenas de KB e tem de ser **empacotada** no
+repositório — a `assets/fonts/DejaVuSans.ttf` da SPEC §9.2 ainda não foi, e é a mesma
+armadilha.
+
+Sub-problema conhecido, para não ser descoberto na hora: palavra partida por hífen no
+fim da linha ("counter-" / "play") só existe como palavra depois de a F1.6 ter posto as
+linhas em ordem.
+
+### F9.2 — Dicionário do usuário
+
+A parte da pergunta que tem mais valor aqui, e por um motivo específico: as palavras que
+uma lista genérica **não** tem são justamente as que se repetem num livro de xadrez.
+Nome de jogador (Yusupov, Nimzowitsch, Botvinnik), nome de abertura (Benoni, Benko,
+Grünfeld, Najdorf), vocabulário do jogo (zugzwang, Zwischenzug, fianchetto, prophylaxis,
+outpost), editora e série. Sem elas, a sinalização da F9.1 acusa erro em toda página e
+o revisor aprende a ignorá-la — que é o modo de morte de qualquer alarme.
+
+Duas escolhas de desenho:
+
+- **Por perfil de livro, no `config/profiles/<nome>.json` da F2.4.** Um livro do Yusupov
+  fala de Yusupov em toda página; um do Kasparov, não. O perfil já existe e já é
+  selecionado por livro.
+- **A correção do usuário alimenta a lista**, como em F3.6 e F8.3 — corrijo, guardo,
+  melhora. Palavra digitada à mão e confirmada entra no dicionário do usuário. Mesma
+  regra da F8.3, e pelo mesmo motivo: **silêncio não é confirmação** — só entra o que
+  foi digitado, não o que passou batido.
+
+### O que a F9 não promete
+
+Não melhora a notação (é a F1.7 que faz isso, e ela já está feita). Não alcança a
+pontuação, que é metade das confusões medidas. E não ataca o gargalo: nas 9 páginas
+rotuladas a distância entre o pipeline (93,8 de F1) e o classificador em recorte já
+segmentado (99,83%) continua sendo **segmentação**, e nenhum dicionário a conserta.
 
 ---
 
