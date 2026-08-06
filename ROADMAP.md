@@ -30,7 +30,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
-| **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | F8.1–F8.2 **concluídas**; F8.3 planejada |
+| **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -42,7 +42,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **789 testes**, `pytest` na raiz.
+Cobertura: **827 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -2438,38 +2438,101 @@ fase, 40 não abrem janela nenhuma.
 
 Cobertura: `tests/test_f82_tabuleiro.py`, 57 testes.
 
-### F8.3 — Treino só de diagramas, alimentado pelas correções — PLANEJADA
+### F8.3 — Treino só de diagramas, alimentado pelas correções — CONCLUÍDA
 
-**O que existe.** 361 amostras rotuladas à mão em `training_data_diagrama/`, um
-banco de vizinhos (HOG + PCA-32, voto de 3) e `treinar_diagrama.py` para refazê-lo.
-As classes magras são `B`, `Q` e `b`, com 7 a 11 amostras — e a F7.1 já mediu que
-são as que mais erram.
+**Concluída em 2026-08-05.** `core/treino_diagrama.py`, o botão "Guardar
+amostras" na janela de diagramas e Ferramentas → "Treinar modelo de
+diagramas...". `treinar_diagrama.py` virou uma casca fina sobre o módulo.
 
-**O ciclo que falta é o que foi pedido: corrijo, e vai melhorando.** Hoje a
-correção morre na tela; a única forma de crescer a base é recortar casas à mão.
+**A correção morria na tela.** A F8.2 deixou corrigir a casa; a única forma de
+crescer a base continuava sendo recortar casas à mão, e as 357 amostras de hoje
+saíram todas assim.
 
-O que a fase faz:
+- **A amostra é o resíduo**, e não o recorte: o modelo lê `casa - fundo`, e
+  guardar a casa crua faria ele aprender o papel do livro. Um teste compara o
+  que foi para o disco com o resíduo que o próprio leitor calcula.
+- **Silêncio não é confirmação.** Casa que ninguém tocou só entra por um
+  "conferi o diagrama inteiro" explícito — decisão da F2.3, e sem ela a base
+  cresceria enviesada para o que o modelo já acerta, que é justamente o que não
+  precisa de amostra.
+- **Casa esvaziada não vira amostra**, e não é esquecimento: o modelo tem 12
+  classes de peça e nenhuma de casa vazia. Quem decide vazia/ocupada é o limiar
+  de Otsu da F7.1, antes do classificador; corrigir um falso positivo conserta o
+  FEN e não tem onde ser aprendido.
+- **O nome da amostra é determinístico e leva a procedência** (página, diagrama,
+  caixa, casa). Conferir o mesmo diagrama duas vezes regrava em vez de duplicar,
+  e `gravar` apaga a mesma procedência das outras classes — sem isso, uma casa
+  corrigida de bispo para cavalo deixaria a mesma imagem rotulada das duas
+  maneiras, que é o defeito da F1.4.
 
-- **A correção vira amostra.** Casa corrigida na F8.2 grava um PNG em
-  `training_data_diagrama/<cor>/<LETRA>/`, e grava o **resíduo** (casa menos o
-  fundo estimado daquele diagrama), que é o que o modelo lê — não o recorte cru.
-  A procedência (página, diagrama, casa) vai junto, para dar para voltar na
-  origem de uma amostra suspeita.
-- **Silêncio não é confirmação.** Casa que o usuário não tocou não vira amostra
-  por não ter sido tocada: entra só por um "conferi este diagrama inteiro"
-  explícito. É a decisão da F2.3 — o que tem consequência pede ato, não omissão.
-  Sem isso a base cresceria enviesada para o que o modelo já acerta.
-- **Treinar de dentro do programa**, em thread, com o relatório por classe e o
-  aviso das classes magras que o script já imprime, e recarregando o modelo em
-  memória no fim.
-- **Um número que mostre o progresso.** Com 361 amostras não há conjunto de teste
-  que se sustente; a medida honesta é *leave-one-out* por classe, e é ela que o
-  relatório passa a mostrar — é o que transforma "vamos progredindo" em algo
-  verificável.
-- **A base de diagrama ganha a conferência da F1.4 e da F7.3**: imagem duplicada
-  com rótulos diferentes, classe vazia, amostra de tamanho errado; e o `.npz`
-  passa a carregar a contagem e a impressão da base que o gerou, para um modelo
-  não se descasar das amostras que o descrevem.
+#### Uma correção é um voto em três, e isso foi medido
+
+O ciclo foi rodado inteiro numa página real: ler o diagrama, corrigir uma casa,
+guardar, retreinar, reler. **A casa continuou saindo errada.**
+
+A amostra nova é o vizinho mais próximo (similaridade 0,990) — mas a leitura
+soma a similaridade dos **três** mais próximos, e dois vizinhos antigos somam
+1,876. Com duas correções parecidas a soma vira e a casa passa a ler o que foi
+corrigido:
+
+| correções guardadas | como a casa passa a ser lida |
+|---:|---|
+| 0 | `p` (errado) |
+| 1 | `p` |
+| **2** | **`Q`** |
+
+Não é defeito: é a aritmética do classificador da F7.1, e é o que faz o "vai
+progredindo" ser progressivo em vez de uma amostra mandar sozinha. **O relatório
+de treino diz isso**, porque é depois de treinar que a expectativa se forma — e
+quem corrige uma casa, retreina e não vê mudança conclui que nada funciona.
+
+#### O número que mostra progresso, e o que ele não é
+
+Com 357 amostras não há conjunto de teste que se sustente: separar 20% deixaria
+uma classe magra com duas amostras. A medida é *leave-one-out* com o mesmo voto
+de 3 vizinhos da leitura — **96,6%** hoje, em 0,3 s.
+
+**Ele é otimista, e o relatório avisa.** A base do PCA usa todas as amostras
+(refazê-la a cada uma custaria ~30 s) e amostras quase idênticas se ajudam. Serve
+para comparar rodadas, não para prometer acerto em livro novo — é a lição da
+F1.3, que é a única razão de este número existir com um aviso colado.
+
+**E ele derrubou o que a F7.1 supunha.** Lá ficou escrito que as classes magras
+`B`, `Q` e `b` "são as que mais erram". Em leave-one-out elas acertam 100%, e
+quem erra é o cavalo branco: `N` 67%, `q` 89%, `n` 91%. As duas coisas convivem —
+7 amostras de bispo podem ser 7 gêmeos, e aí o LOO premia o gêmeo — mas quem
+quiser conferir diagramas para ajudar o modelo agora sabe que o alvo é o cavalo.
+
+#### O defeito que estava tornando a F7.1 inalcançável
+
+Ao rodar o ciclo numa página real, nenhum diagrama aparecia. O motivo estava no
+comando desde a F7.1: `extrair_diagramas` passava `self.boxes` para `localizar`,
+e **o tabuleiro não está nessa lista** — `generate_boxes_opencv` descarta o
+contorno grande antes de devolver (F1.8). Pedia-se que ela achasse entre os
+contornos justamente aquele que já tinha sido tirado.
+
+Medido em 6 páginas reais com diagrama: **0 encontrados**, contra 2 ou 3 por
+página gerando os contornos sem o descarte. O comando respondia sempre "nenhum
+diagrama encontrado nesta página", e o texto ainda sugeria que a culpa era da
+borda da página. Agora ele faz a própria passada de contornos, sem descarte e
+sem separar glifo colado (0,36 s numa página de 1.605 boxes).
+
+**Três testes da F7.1 passavam com o comando quebrado**, e o motivo merece ficar
+registrado: eles montavam `win.boxes` à mão, incluindo o box do tabuleiro — uma
+entrada que o caminho de produção nunca produz. Teste que fabrica a entrada
+perfeita mede a função, não o programa.
+
+#### O que esta fase não entrega
+
+**Nada mede se a base cresceu para melhor.** O leave-one-out compara rodadas na
+própria base; para saber se o livro passou a ser lido melhor seria preciso
+transcrever casas à mão de novo, como as 128 da F7.1.
+
+Uma amostra guardada só vale depois de treinar, e o treino é manual. O `.npz`
+guarda a impressão da base (F7.3 aplicada aqui), então dá para saber que ele
+está velho — mas ninguém avisa sozinho ainda.
+
+Cobertura: `tests/test_f83_treino_diagrama.py`, 37 testes.
 
 ---
 
