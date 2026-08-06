@@ -25,12 +25,41 @@ from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
 
 
-NAGS = [
-    ("!", "Boa jogada"), ("!!", "Excelente"), ("?", "Erro"), ("??", "Erro grave"),
-    ("!?", "Interessante"), ("?!", "Duvidoso"), ("=", "Igualdade"), ("±", "Brancas melhor"),
-    ("∓", "Negras melhor"), ("+-", "Brancas vencem"), ("-+", "Negras vencem"),
-    ("∞", "Posição incerta"), ("⨀", "Zugzwang"), ("□", "Lance único"), ("Δ", "Com ideia de")
+# Símbolos do "Key to symbols used" destes livros, por família. O agrupamento é o
+# da própria página do livro, e serve para achar o botão: numa fileira única de 23
+# o olho procura, em quatro grupos ele vai direto.
+#
+# **Todos foram conferidos contra a fonte, e não é zelo excessivo.** `Segoe UI
+# Symbol` desenha os 23; `MS Gothic`, que é a candidata seguinte em
+# `chess_pdf_processor.CHESS_FONT_CANDIDATES`, não tem `⩲`, `⩱`, `⌓` — nem o `⨀`
+# que já estava aqui antes. Glifo ausente vira caixa vazia sem aviso, que é o
+# defeito do `·` da SPEC §4.2.
+NAGS_POR_FAMILIA = [
+    ("Avaliação", [
+        ("⩲", "Brancas ligeiramente melhor"), ("⩱", "Negras ligeiramente melhor"),
+        ("±", "Brancas melhor"), ("∓", "Negras melhor"),
+        ("+-", "Brancas vencem"), ("-+", "Negras vencem"),
+        ("=", "Igualdade"), ("∞", "Posição incerta"),
+    ]),
+    ("Lance", [
+        ("!", "Boa jogada"), ("!!", "Excelente"), ("?", "Erro"), ("??", "Erro grave"),
+        ("!?", "Interessante"), ("?!", "Duvidoso"),
+        ("□", "Lance único"), ("#", "Mate"),
+    ]),
+    ("Ideia", [
+        # `≡` é aproximação: o símbolo de compensação do Informator não tem ponto
+        # de código próprio em Unicode, e três barras é como estes livros o
+        # imprimem. Trocá-lo depois é mexer numa linha desta tabela.
+        ("≡", "Com compensação"), ("⇄", "Com contrajogo"),
+        ("⌓", "Melhor é"), ("Δ", "Com ideia de"), ("⨀", "Zugzwang"),
+    ]),
+    ("Lado", [
+        ("△", "Brancas jogam"), ("▼", "Negras jogam"),
+    ]),
 ]
+
+#: A lista achatada, que é o que o menu de contexto e os testes consomem.
+NAGS = [par for _, familia in NAGS_POR_FAMILIA for par in familia]
 
 
 class MainWindow(tk.Frame):
@@ -432,16 +461,32 @@ class MainWindow(tk.Frame):
         nag_frame = tk.Frame(self)
         nag_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
 
-        tk.Label(nag_frame, text="NAGs Rápidos:").pack(side="left", padx=5, pady=3)
-        for nag_char, tooltip in NAGS:
-            btn = tk.Button(nag_frame, text=nag_char, width=3,
-                            command=lambda c=nag_char: self.apply_nag(c))
-            btn.bind("<Enter>", lambda e, text=tooltip: self.show_nag_tooltip(text))
-            btn.bind("<Leave>", lambda e: self.hide_nag_tooltip())
-            btn.pack(side="left", padx=2, pady=3)
-
-        self.lbl_tooltip = tk.Label(nag_frame, text="", fg="gray")
-        self.lbl_tooltip.pack(side="left", padx=10)
+        # **Duas linhas, e não uma.** Os 23 símbolos em fila única pedem 1.076 px
+        # e a janela mínima tem 1.024 (`appy.LARGURA_MINIMA`): com `side="left"`
+        # o excesso é cortado à direita sem aviso, e sumiriam justamente os dois
+        # últimos. É o mesmo defeito que o `appy._geometria_que_cabe` existe para
+        # não repetir — lá o sintoma foi "o botão de próxima página não aparece".
+        for faixa, familias in ((0, NAGS_POR_FAMILIA[:2]), (1, NAGS_POR_FAMILIA[2:])):
+            linha = tk.Frame(nag_frame)
+            linha.pack(fill="x")
+            tk.Label(linha, text="NAGs Rápidos:" if not faixa else "").pack(
+                side="left", padx=5, pady=1)
+            for titulo, familia in familias:
+                # Um rótulo separa as famílias. Sem ele, 23 botões iguais viram
+                # uma parede: o agrupamento é o que faz achar o `!?` sem ler os
+                # anteriores um a um.
+                tk.Label(linha, text=titulo, fg="gray40").pack(side="left",
+                                                               padx=(8, 2))
+                for nag_char, tooltip in familia:
+                    btn = tk.Button(linha, text=nag_char, width=3,
+                                    command=lambda c=nag_char: self.apply_nag(c))
+                    btn.bind("<Enter>",
+                             lambda e, text=tooltip: self.show_nag_tooltip(text))
+                    btn.bind("<Leave>", lambda e: self.hide_nag_tooltip())
+                    btn.pack(side="left", padx=1, pady=1)
+            if faixa:
+                self.lbl_tooltip = tk.Label(linha, text="", fg="gray")
+                self.lbl_tooltip.pack(side="left", padx=10)
 
         # Barra de Navegacao PDF
         self.nav_frame = tk.Frame(self)
@@ -586,11 +631,14 @@ class MainWindow(tk.Frame):
                                       accelerator="Ctrl+E",
                                       command=self.aplicar_aos_semelhantes)
         self.context_menu.add_separator()
-        for nag_char, desc in NAGS:
-            self.context_menu.add_command(
-                label=f"{nag_char} ({desc})",
-                command=lambda c=nag_char: self.apply_nag(c)
-            )
+        for k, (_, familia) in enumerate(NAGS_POR_FAMILIA):
+            if k:
+                self.context_menu.add_separator()
+            for nag_char, desc in familia:
+                self.context_menu.add_command(
+                    label=f"{nag_char} ({desc})",
+                    command=lambda c=nag_char: self.apply_nag(c)
+                )
 
         self.listbox.bind("<Button-3>", self.show_context_menu)
 

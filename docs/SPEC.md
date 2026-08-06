@@ -1013,11 +1013,28 @@ errado. A navegação passa o índice de destino como argumento e quem atualiza 
 │                                      │  0002 '?'  --  ░░  │
 │                                      │  0003 'c'  71% ▓▓  │
 ├──────────────────────────────────────┴────────────────────┤
-│ Caractere: [_] [Aplicar] [Próximo>>] │ NAGs: ! !! ? ?? …  │
+│ Caractere: [_] [Aplicar] [Próximo>>]                      │
+│ NAGs: Avaliação ⩲ ⩱ ± ∓ +- -+ = ∞ │ Lance ! !! ? ?? !? …  │
+│       Ideia ≡ ⇄ ⌓ Δ ⨀ │ Lado △ ▼                          │
 ├───────────────────────────────────────────────────────────┤
 │ ◀ Pág 12/248 ▶ │ 1.847 boxes │ 23 vazios │ ▓▓▓░ 68%      │
 └───────────────────────────────────────────────────────────┘
 ```
+
+**Os NAGs são a tabela do "Key to symbols used" destes livros**, em quatro famílias
+— avaliação, lance, ideia e lado a jogar — e em **duas linhas**: os 23 em fila única
+pedem 1.076 px contra os 1.024 da janela mínima, e `pack(side="left")` corta o
+excesso à direita sem avisar. Mesmo defeito que `appy._geometria_que_cabe` existe
+para não repetir.
+
+Símbolo novo na tabela **tem de ser conferido contra a fonte** (`missing_glyphs`, da
+§9.2): `Segoe UI Symbol` desenha os 23, mas `MS Gothic` — a candidata seguinte da
+cadeia — não tem `⩲`, `⩱`, `⌓` nem `⨀`. Glifo ausente vira caixa vazia sem erro
+nenhum, que é o defeito do `·` da §4.2. `tests/test_nags.py` trava isso.
+
+Uma aproximação registrada: `≡` (com compensação) não é o símbolo do Informator, que
+não tem ponto de código próprio em Unicode — três barras é como estes livros o
+imprimem.
 
 ### 7.2 Confiança visível
 
