@@ -42,7 +42,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **827 testes**, `pytest` na raiz.
+Cobertura: **836 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -2423,6 +2423,27 @@ porque o `command` é ligado ao método na construção. O teste passaria sem pr
 coisa nenhuma. O jeito certo é o do `_App` da F3.6: substituir o `messagebox` e
 conferir onde o botão chega.
 
+#### Depois: as figuras do livro e o clique que alterna
+
+Duas correções pedidas depois de a janela existir, e as duas são sobre o gesto
+custar menos.
+
+**As peças passaram a vir de `pieces/`** (`wK.png`, `bP.png`, …) em vez dos
+glifos Unicode da fonte do sistema. O desenho da fonte é o que estiver
+instalado, e ele não se parece com o do livro que está ao lado na mesma janela —
+que é justamente a comparação que a F7.1 pôs ali. É **tudo ou nada**: faltando
+um arquivo, o tabuleiro volta inteiro aos glifos e a legenda diz por quê. Dez
+figuras e dois glifos no meio confundiriam mais que doze glifos, e uma janela
+que some com as peças porque um arquivo mudou de lugar é pior que uma janela
+feia.
+
+**O clique com a peça escolhida alterna.** Clicar de novo na casa que já tem
+aquela peça esvazia; clicar outra vez põe de volta. Com isso a paleta basta para
+os dois movimentos da conferência — trocar a peça errada e apagar a que não
+existe — sem trocar de ferramenta no meio. Casa com **outra** peça é
+substituída, e não esvaziada; e a borracha não alterna, porque alternar exigiria
+uma peça para pôr de volta e ela não tem nenhuma.
+
 #### O que esta fase não entrega
 
 **A correção ainda morre na tela.** `TabuleiroEdicao.correcoes()` já devolve as
@@ -2436,7 +2457,7 @@ pelo mesmo motivo que a F7.1 pôs a leitura em `core/diagrama.py`: o que tem reg
 precisa de teste, e teste de widget não é teste de regra. Dos 57 testes desta
 fase, 40 não abrem janela nenhuma.
 
-Cobertura: `tests/test_f82_tabuleiro.py`, 57 testes.
+Cobertura: `tests/test_f82_tabuleiro.py`, 66 testes.
 
 ### F8.3 — Treino só de diagramas, alimentado pelas correções — CONCLUÍDA
 
