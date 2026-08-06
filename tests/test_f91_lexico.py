@@ -12,6 +12,7 @@ import os
 import pytest
 
 from core import lexico
+from core.box_model import BoxEntry
 
 
 PROSA = {"of", "the", "a", "in", "to", "so", "me", "some", "open", "ing",
@@ -229,6 +230,45 @@ def test_palavra_do_usuario_deixa_de_ser_suspeita(lex):
     assert lexico.sinalizar([_sim("Benko")], lex)[0].palavra == "Benko"
     lex.acrescentar("Benko")
     assert lexico.sinalizar([_sim("Benko")], lex) == []
+
+
+# -------------------------------------------- a cola que a UI consome
+
+def _boxes(texto, y=0, larg=10, alt=20, espaco=12):
+    """Uma linha de boxes: espaço no texto vira lacuna larga."""
+    boxes, x = [], 0
+    for ch in texto:
+        if ch == " ":
+            x += espaco
+            continue
+        boxes.append(BoxEntry(ch, x, y, x + larg, y + alt,
+                              confidence=1.0, source="neural"))
+        x += larg + 1
+    return boxes
+
+
+def test_suspeitas_da_pagina_nao_toca_em_notacao(lex):
+    """
+    Contrato 1 da SPEC §5.8, e é o que esta função existe para garantir.
+
+    `Bxf6` e `exd5` não são palavra de idioma nenhum: sem o filtro de
+    `notacao._fatiar`, todo lance da página viraria suspeita e a triagem morreria
+    afogada na notação, que é justamente a parte que o programa existe para ler.
+    """
+    s = lexico.suspeitas_da_pagina(_boxes("15.Bxf6 exd5 the plyas"), lex)
+    assert [x.palavra for x in s] == ["plyas"]
+
+
+def test_suspeitas_da_pagina_aponta_os_boxes_da_palavra(lex):
+    """Os índices são o que a UI destaca — errar isso marca o box errado."""
+    boxes = _boxes("the plyas")
+    (s,) = lexico.suspeitas_da_pagina(boxes, lex)
+    assert [boxes[i].char for i in s.indices] == list("plyas")
+
+
+def test_suspeitas_da_pagina_sem_dicionario_nao_sinaliza_nada():
+    """Contrato 6: sem lista, nada acontece — nem sobre prosa errada."""
+    assert lexico.suspeitas_da_pagina(_boxes("plyas ofthe"), lexico.Lexico()) == []
 
 
 def test_caminho_padrao_e_relativo_ao_projeto():

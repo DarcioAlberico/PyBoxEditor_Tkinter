@@ -31,7 +31,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
 | **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
-| **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **planejada** (F9.1–F9.2) |
+| **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **F9.1 feita**; F9.2 planejada |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -2668,7 +2668,7 @@ Cobertura: `tests/test_f83_treino_diagrama.py`, 37 testes.
 
 ---
 
-## F9 — Léxico do texto corrido — PLANEJADA
+## F9 — Léxico do texto corrido — F9.1 FEITA, F9.2 PLANEJADA
 
 > Ideia trazida pelo usuário em 2026-08-06: o ABBYY FineReader usa dicionário, e deixa
 > acrescentar palavras próprias. **Ajuda, sim** — reordenar hipóteses de palavra inteira
@@ -2681,7 +2681,7 @@ Cobertura: `tests/test_f83_treino_diagrama.py`, 37 testes.
 > lista de palavras; a metade que sobra nunca recebeu correção nenhuma; e o ganho mais
 > provável não é corrigir, é **triar**.
 
-### F9.1 — Dicionário do texto corrido
+### F9.1 — Dicionário do texto corrido — FEITA
 
 #### A metade que já está resolvida, e não por lista de palavras
 
@@ -2975,6 +2975,45 @@ armadilha.
 Sub-problema conhecido, para não ser descoberto na hora: palavra partida por hífen no
 fim da linha ("counter-" / "play") só existe como palavra depois de a F1.6 ter posto as
 linhas em ordem.
+
+#### Ligado na revisão (2026-08-06)
+
+`lexico.suspeitas_da_pagina` é o único caminho da UI até o dicionário, e roda
+`notacao._fatiar` antes de consultar — o contrato 1 num lugar só. Na tela: sublinhado
+roxo sob o box, coluna `*` na lista, contador de palavras e o alternador **"só fora do
+dicionário"** ao lado de "só pendentes".
+
+Duas decisões que a integração forçou, e as duas saem de número já medido:
+
+1. **O sublinhado não substitui a cor do box.** A cor é a confiança do caractere; o
+   léxico julga a palavra. O caso que só o dicionário pega é o box **verde**, de
+   confiança 1,000 — pintá-lo apagaria o dado que já estava lá.
+2. **Com o filtro ligado, o `F3` anda por todos os visíveis**, não só pelos que
+   `precisa_revisao` aponta. Pelo mesmo motivo: quase nenhuma palavra fora do
+   dicionário é "pendente", e o `F3` responderia "nada pendente" com a tela cheia de
+   marcas.
+
+Custo medido: 9,5 ms numa página de 1.589 boxes, contra 0,36 ms da chave de cache — e
+`update_sidebar` está no caminho da tecla do modo digitação, onde a F3.8 já teve de
+matar um `deepcopy` de 15,8 ms. Com cache, 2,2 ms por chamada; a carga das listas é
+preguiçosa (294 ms na primeira página, zero em quem só abre um `.box`).
+
+#### Achado à espera de medida: 9,2% do alarme é palavra composta
+
+Das 153 suspeitas nas 10 páginas rotuladas, **14 são compostas cujas partes estão
+todas no dicionário**: `high-quality`, `move-orders` e nomes de tabela de torneio
+(`Gavrilov,Alexey`). O `nucleo` só tira pontuação das pontas, então elas chegam
+inteiras e nenhuma lista as tem.
+
+**A correção óbvia é uma armadilha, e é o que vale registrar.** Partir a palavra em
+todo caractere não-alfabético e aceitá-la se as partes forem conhecidas calaria 18
+suspeitas — mas entre elas `cons1der`, `log1cal` e `wh1ch`, que são o alvo canônico da
+fase: `cons`+`der` estão as duas na lista de 310 mil. Partir **só** em `-`, `,` e
+apóstrofo cala 14 e não toca em nenhuma das 12 com dígito.
+
+Não foi implementado: falta rodar o `medir_troca.py` com a regra para saber o que ela
+**esconde**, e é essa a metade que a medida 2 esqueceu de perguntar. Quatro das 14 são
+fragmento e não composta legítima (`er,Fr`, `Bosboom-Van`), então a regra tem custo.
 
 ### F9.2 — Dicionário do usuário
 

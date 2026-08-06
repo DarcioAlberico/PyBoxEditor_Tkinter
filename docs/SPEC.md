@@ -804,6 +804,30 @@ sem o defeito de ser americana: `manoeuvres` está nesta. Fica a ressalva da §9
 reusados inteiros — segmentação de palavra, confiança por box, distância de edição
 ponderada e edição que não inventa box já estão escritos.
 
+**Na revisão** — `lexico.suspeitas_da_pagina(boxes, lex)` é o único caminho da UI até
+o dicionário, e existe para o contrato 1 valer num lugar só: ela roda
+`notacao._fatiar` e entrega ao léxico apenas o que ele tipa `outro`. Escrever esse
+filtro de novo em cada chamador é como a F1.5 acabou medindo uma coisa e a aplicação
+fazendo outra.
+
+O sinal aparece em três lugares, e em nenhum deles rouba a cor da §7.2:
+
+| onde | como |
+|---|---|
+| canvas | sublinhado roxo sob o box, como corretor ortográfico |
+| lista lateral | uma coluna `*` à esquerda, largura fixa |
+| contador | "N fora do dicionário" — palavras, não boxes |
+
+**A cor do contorno continua sendo só a confiança**, porque os dois eixos são
+independentes e o caso que só o dicionário pega é justamente o box verde de
+confiança 1,000. Pintá-lo apagaria o dado que já estava lá para mostrar outro.
+
+Custo: 9,5 ms numa página de 1.589 boxes, e `update_sidebar` roda a cada tecla do
+modo digitação (§7.3) — é a ordem do `deepcopy` que a §6.1 teve de tirar desse
+caminho. Fica em cache com chave `(char, x1, y1)` por box, que custa 0,36 ms; a
+posição entra na chave porque mover um box muda onde a `notacao` corta as palavras.
+A carga das listas é preguiçosa: 150 ms que não se pagam em quem só abre um `.box`.
+
 **Dicionário do usuário.** As palavras que uma lista genérica não tem são as que se
 repetem num livro de xadrez: jogador (Yusupov, Nimzowitsch), abertura (Benoni, Grünfeld,
 Najdorf), vocabulário do jogo (zugzwang, fianchetto, prophylaxis), editora. Sem elas o
@@ -1040,10 +1064,17 @@ tratamento especial.
 **Implementados na F3.3.**
 
 - [feito] caixa de busca por caractere (`Ctrl+F` foca nela)
-- [feito] alternadores: só pendentes / só vazios / por origem
+- [feito] alternadores: só pendentes / só vazios / **só fora do dicionário** / por origem
 - [feito] `F3` / `Shift+F3` — próximo/anterior pendente dentro do filtro ativo,
   circular
-- [feito] contador "mostrando N de M"
+- [feito] contador "mostrando N de M", mais "N fora do dicionário"
+
+**O filtro do léxico (F9) troca o critério do `F3`, e não é detalhe de conforto.**
+Com ele ligado, `F3` anda por *todos* os visíveis em vez de só pelos que
+`precisa_revisao` aponta. Uma palavra fora do dicionário costuma vir com confiança
+alta — 1,000 é a mediana de um erro, pela F1.9 —, então o critério de sempre
+responderia "nada pendente" com a tela cheia de marcas. São dois eixos, e quando o
+usuário escolhe o do dicionário é esse que tem de mandar.
 
 **Contrato que não pode ser quebrado:** com filtro ativo a lista deixa de mapear 1:1
 com `self.boxes`. Toda conversão passa por `_visiveis` (índices dos boxes exibidos) e

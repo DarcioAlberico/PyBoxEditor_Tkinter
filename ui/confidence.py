@@ -23,6 +23,13 @@ COR_ALTA = "#2E9B4F"       # verde
 
 COR_SELECAO = "#FFD400"    # amarelo — marcação de seleção
 
+# Fora do dicionário (F9). **Não é um degrau da escala acima, e por isso é um
+# sublinhado e não a cor do contorno**: o sinal do léxico é independente da
+# confiança — a F1.9 mediu que 1,000 é a confiança mediana de um erro, e é
+# justamente esse que o dicionário pega. Pintar o box roubaria a informação que já
+# estava lá para mostrar outra.
+COR_LEXICO = "#8E24AA"     # roxo
+
 LEGENDA = [
     (COR_ALTA, f"≥{int(LIMIAR_ALTO * 100)}%"),
     (COR_MEDIA, f"≥{int(LIMIAR_MEDIO * 100)}%"),
@@ -30,6 +37,10 @@ LEGENDA = [
     (COR_SEM_INFO, "s/ info"),
     (COR_VAZIO, "vazio"),
 ]
+
+# Legenda própria, porque o eixo é outro: a escala acima é do caractere, esta é
+# da palavra.
+LEGENDA_LEXICO = (COR_LEXICO, "fora do dicionário")
 
 
 def cor_do_box(box) -> str:

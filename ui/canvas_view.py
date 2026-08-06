@@ -3,7 +3,7 @@ from typing import Tuple
 from PIL import ImageTk, Image
 
 from core.box_model import BoxEntry
-from ui.confidence import cor_do_box, COR_SELECAO
+from ui.confidence import cor_do_box, COR_LEXICO, COR_SELECAO
 
 #: Marca do lado que é o topo do glifo num box de texto girado (F8.1).
 COR_GIRADO = "#8E24AA"
@@ -483,6 +483,11 @@ class CanvasView(tk.Canvas):
         sel = self.controller.selected_index
         hs = self.HANDLE_SIZE
 
+        # Fora do dicionário (F9). Vem pronto do controller, que guarda o
+        # resultado em cache: recalcular aqui custaria 9,5 ms por redraw, e o
+        # redraw acontece a cada seta.
+        suspeitos = self.controller.boxes_suspeitos()
+
         for i, b in enumerate(self.controller.boxes):
             # Pequena otimização: não desenhar se estiver muito fora
             # Mas vamos manter simples para garantir que não suam.
@@ -499,6 +504,16 @@ class CanvasView(tk.Canvas):
                 x1, y1, x2, y2, outline=color, width=width,
                 dash=(3, 3) if not b.char else None,
             )
+
+            # Fora do dicionário: sublinhado, como o de um corretor ortográfico —
+            # e **por baixo do box, não no lugar da cor dele**. São dois eixos
+            # independentes (SPEC §5.8, contrato 5): o contorno diz o que o
+            # classificador achou do caractere, o traço diz o que o dicionário
+            # achou da palavra, e o caso que só o léxico pega é justamente o box
+            # verde de confiança 1,000.
+            if i in suspeitos:
+                self.create_line(x1, y2 + 2, x2, y2 + 2,
+                                 fill=COR_LEXICO, width=2)
 
             # Texto girado (F8.1): um traço no lado que é o TOPO do glifo. Sem
             # isto o box de um rótulo vertical é indistinguível de um box

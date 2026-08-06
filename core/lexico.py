@@ -35,6 +35,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from core import notacao
+
 
 # As duas listas empacotadas, produzidas por `importar_lexico.py` a partir do
 # dicionário que o usuário mantinha para o ABBYY FineReader. Ficam separadas porque
@@ -329,3 +331,26 @@ def sinalizar(palavras: Iterable[Sequence[Tuple[str, int]]],
             continue
         fora.append(Suspeita(palavra=nuc, indices=indices))
     return fora
+
+
+def suspeitas_da_pagina(boxes: Sequence, lex: Lexico) -> List[Suspeita]:
+    """
+    As suspeitas de uma página inteira de boxes — a cola que a UI consome.
+
+    **Existe para o contrato 1 da SPEC §5.8 ter um lugar só.** Quem separa lance
+    de prosa é `notacao._fatiar`, e só o que ele tipa `outro` chega ao dicionário;
+    escrever esse filtro de novo em cada chamador é como a F1.5 acabou medindo uma
+    coisa e a aplicação fazendo outra. `medir_lexico.py` monta a mesma população.
+
+    O privado `_fatiar` é usado de propósito, e pela mesma razão: é o código que a
+    F1.7 roda em produção.
+    """
+    if lex.vazio:
+        return []
+    palavras = []
+    for linha in notacao.palavras_da_pagina(boxes):
+        for palavra in linha:
+            for pedaco in notacao._fatiar(palavra):
+                if pedaco.tipo == "outro":
+                    palavras.append([(s.char, s.indice) for s in pedaco.simbolos])
+    return sinalizar(palavras, lex)

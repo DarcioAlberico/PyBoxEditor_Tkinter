@@ -81,6 +81,10 @@ class JanelaFalsa:
         self.selected_index = -1
         self._visiveis = []
         self.filtro = None
+        # Fora do dicionário (F9). Vazio por padrão: sem lista instalada o
+        # `lexico.carregar` devolve léxico vazio e nada é sinalizado, que é o
+        # contrato 6 da SPEC §5.8.
+        self.suspeitos = set()
 
     # --- colaboradores que update_sidebar chama ---
     def _atualizar_origens(self):
@@ -99,10 +103,13 @@ class JanelaFalsa:
             return self._visiveis.index(indice)
         return None
 
+    def boxes_suspeitos(self):
+        return self.suspeitos
+
     # --- os métodos reais sob teste ---
-    def _linha_da_lista(self, i):
+    def _linha_da_lista(self, i, suspeitos=()):
         from ui.main_window import MainWindow
-        return MainWindow._linha_da_lista(self, i)
+        return MainWindow._linha_da_lista(self, i, suspeitos)
 
     def update_sidebar(self):
         from ui.main_window import MainWindow
@@ -221,7 +228,36 @@ def test_filtro_nao_confunde_linha_com_indice_de_box():
     j.update_sidebar()
 
     assert j.listbox.itens, "o filtro não deixou nada"
-    assert j.listbox.itens[0].startswith(f"{j._visiveis[0]:04d}")
+    # A primeira coluna é a marca do léxico (F9); o índice vem depois dela.
+    assert j.listbox.itens[0].lstrip("* ").startswith(f"{j._visiveis[0]:04d}")
+
+
+def test_marca_do_lexico_e_uma_coluna_e_nao_a_cor():
+    """
+    Fora do dicionário aparece como coluna à esquerda, e a cor não muda.
+
+    A cor é a confiança do caractere e o léxico é a palavra — dois eixos que a
+    SPEC §5.8 mantém separados de propósito, porque o erro que só o dicionário
+    pega é justamente o que veio com confiança alta. Se a marca virasse cor, ela
+    apagaria o dado que já estava lá.
+    """
+    j = _janela(6)
+    j.suspeitos = {2, 3}
+    j.update_sidebar()
+
+    marcados = [t[0] for t in j.listbox.itens]
+    assert marcados == [" ", " ", "*", "*", " ", " "]
+    # Todas com confiança 0,95: a cor continua a mesma nas seis.
+    cores = {j._linha_da_lista(i, j.suspeitos)[1] for i in range(6)}
+    assert cores == {conf_ui.COR_ALTA}
+
+
+def test_linhas_continuam_alinhadas_com_e_sem_marca():
+    """A coluna é fixa: sem isso a lista fica em zigue-zague ao rolar."""
+    j = _janela(4)
+    j.suspeitos = {1}
+    j.update_sidebar()
+    assert len({len(t) for t in j.listbox.itens}) == 1
 
 
 def test_lista_vazia_nao_explode():

@@ -5,7 +5,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import formato_box, vertical
+from core import formato_box, lexico, vertical
 from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
@@ -55,6 +55,18 @@ class MainWindow(tk.Frame):
         # Índices dos boxes visíveis na lista. Com filtro ativo a lista deixa
         # de mapear 1:1 com self.boxes, e toda seleção precisa passar por aqui.
         self._visiveis = []
+
+        # Léxico (F9): carregado na primeira página que precisar dele, porque são
+        # 310 mil palavras e 150 ms que nunca se pagam em quem só abre um .box.
+        # `None` é "ainda não tentei" e distingue de `Lexico()` vazio, que é
+        # "tentei e não achei arquivo" — sem isso a carga se repetiria a cada
+        # página numa instalação sem `assets/lexico/`.
+        self._lexico = None
+        # (chave de conteúdo, suspeitas). A conta custa 9,5 ms numa página de
+        # 1.589 boxes e `update_sidebar` roda a cada tecla do modo digitação —
+        # é a mesma ordem do `deepcopy` que a F3.8 teve de tirar do caminho da
+        # tecla. A chave custa 0,36 ms.
+        self._cache_suspeitas = (None, [])
 
         # Modo digitação contínua: a tecla aplica e avança, sem Enter.
         self.modo_digitacao = False
@@ -325,6 +337,7 @@ class MainWindow(tk.Frame):
         self.var_busca = tk.StringVar()
         self.var_so_pendentes = tk.BooleanVar(value=False)
         self.var_so_vazios = tk.BooleanVar(value=False)
+        self.var_so_fora_dicionario = tk.BooleanVar(value=False)
         self.var_origem = tk.StringVar(value=self.ORIGEM_TODAS)
 
         filtros = tk.LabelFrame(sidebar, text="Filtrar")
@@ -342,6 +355,11 @@ class MainWindow(tk.Frame):
                        command=self.on_boxes_changed_view).pack(anchor="w", padx=2)
         tk.Checkbutton(filtros, text="só vazios", variable=self.var_so_vazios,
                        command=self.on_boxes_changed_view).pack(anchor="w", padx=2)
+        self.chk_fora_dicionario = tk.Checkbutton(
+            filtros, text="só fora do dicionário",
+            variable=self.var_so_fora_dicionario,
+            command=self.on_boxes_changed_view)
+        self.chk_fora_dicionario.pack(anchor="w", padx=2)
 
         linha2 = tk.Frame(filtros)
         linha2.pack(fill="x", padx=2, pady=1)
@@ -472,6 +490,12 @@ class MainWindow(tk.Frame):
         for cor, texto in conf_ui.LEGENDA:
             tk.Label(legenda, text="\u25a0", fg=cor).pack(side="left")
             tk.Label(legenda, text=texto, fg="gray20").pack(side="left", padx=(0, 8))
+
+        # O l\u00e9xico entra com um tra\u00e7o, n\u00e3o com um quadrado: no canvas ele \u00e9 um
+        # sublinhado sob o box, e a legenda tem de parecer com o que se v\u00ea l\u00e1.
+        cor_lex, texto_lex = conf_ui.LEGENDA_LEXICO
+        tk.Label(legenda, text="\u2581", fg=cor_lex).pack(side="left")
+        tk.Label(legenda, text=texto_lex, fg="gray20").pack(side="left")
 
         self.lbl_revisao = tk.Label(self.nav_frame, text="", fg="gray20")
         self.lbl_revisao.pack(side="left", padx=10)
@@ -1318,6 +1342,48 @@ class MainWindow(tk.Frame):
     # Sidebar / seleção
     # -------------------------------------------------------
 
+    # -------------------------------------------------------
+    # Léxico (F9) — triagem por palavra, independente da confiança
+    # -------------------------------------------------------
+
+    def lexico_da_sessao(self):
+        """O léxico, carregado uma vez. Vazio se não houver lista instalada."""
+        if self._lexico is None:
+            self._lexico = lexico.carregar()
+        return self._lexico
+
+    def suspeitas(self):
+        """
+        As palavras de prosa que o dicionário não conhece, nesta página.
+
+        **É triagem, não correção** — contrato 2 da SPEC §5.8. Palavra fora do
+        dicionário é sinalizada e nunca aproximada da mais parecida: `Nimzowitsch`
+        não está em lista alguma, e trocá-la entregaria prosa limpa e falsa.
+
+        O que isto acrescenta ao filtro "só pendentes" é um sinal **independente da
+        confiança**: a F1.9 mediu que 1,000 é a confiança mediana de um erro, e
+        esses o `precisa_revisao` não vê. Medido em 10 páginas com o OCR real, o
+        sinal pega 53,8% dos erros dentro de palavra de prosa, ao preço de acender
+        em 5,8% das palavras certas (ROADMAP F9.1, medida 3).
+        """
+        if not self.boxes:
+            return []
+        lex = self.lexico_da_sessao()
+        if lex.vazio:
+            return []
+        # Posição entra na chave junto do caractere: mover um box muda onde a
+        # `notacao` corta as palavras, e com chave só de texto a suspeita ficaria
+        # velha depois de um arraste.
+        chave = tuple((b.char, b.x1, b.y1) for b in self.boxes)
+        if self._cache_suspeitas[0] != chave:
+            self._cache_suspeitas = (chave,
+                                     lexico.suspeitas_da_pagina(self.boxes, lex))
+        return self._cache_suspeitas[1]
+
+    def boxes_suspeitos(self):
+        """Índices de box cobertos por alguma suspeita — o que a UI marca."""
+        return {i for s in self.suspeitas() for i in s.indices}
+
     def boxes_visiveis(self):
         """
         Índices dos boxes que passam pelo filtro ativo.
@@ -1330,13 +1396,17 @@ class MainWindow(tk.Frame):
         termo = self.var_busca.get().strip()
         so_pendentes = self.var_so_pendentes.get()
         so_vazios = self.var_so_vazios.get()
+        so_fora = self.var_so_fora_dicionario.get()
         origem = self.var_origem.get()
+        suspeitos = self.boxes_suspeitos() if so_fora else ()
 
         visiveis = []
         for i, b in enumerate(self.boxes):
             if so_vazios and b.char:
                 continue
             if so_pendentes and not conf_ui.precisa_revisao(b):
+                continue
+            if so_fora and i not in suspeitos:
                 continue
             if origem != self.ORIGEM_TODAS and (b.source or self.ORIGEM_VAZIA) != origem:
                 continue
@@ -1350,6 +1420,7 @@ class MainWindow(tk.Frame):
     def limpar_filtros(self):
         self.var_so_pendentes.set(False)
         self.var_so_vazios.set(False)
+        self.var_so_fora_dicionario.set(False)
         self.var_origem.set(self.ORIGEM_TODAS)
         self.var_busca.set("")          # o trace já redesenha a lista
 
@@ -1367,11 +1438,17 @@ class MainWindow(tk.Frame):
         if self.var_origem.get() not in valores:
             self.var_origem.set(self.ORIGEM_TODAS)
 
-    def _linha_da_lista(self, i):
-        """(texto, cor) de um box na lista lateral."""
+    def _linha_da_lista(self, i, suspeitos=()):
+        """(texto, cor) de um box na lista lateral.
+
+        O léxico entra como uma coluna à esquerda, e não como cor: a cor já é a
+        confiança, e são dois eixos diferentes. Uma coluna fixa de um caractere
+        mantém o resto da linha alinhado com as vizinhas.
+        """
         b = self.boxes[i]
         disp_ch = b.char if b.char else "?"
-        return (f"{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})",
+        marca = "*" if i in suspeitos else " "
+        return (f"{marca}{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})",
                 # A mesma escala do canvas, para o olho não ter que traduzir.
                 conf_ui.cor_do_box(b))
 
@@ -1394,7 +1471,8 @@ class MainWindow(tk.Frame):
         self._atualizar_origens()
         self._visiveis = self.boxes_visiveis()
 
-        linhas = [self._linha_da_lista(i) for i in self._visiveis]
+        suspeitos = self.boxes_suspeitos()
+        linhas = [self._linha_da_lista(i, suspeitos) for i in self._visiveis]
         anterior = getattr(self, "_linhas_desenhadas", None)
 
         if anterior is None or len(anterior) != len(linhas):
@@ -1440,9 +1518,15 @@ class MainWindow(tk.Frame):
             return
         total = len(self.boxes)
         mostrando = len(self._visiveis)
-        self.lbl_filtro.config(
-            text=("mostrando todos os %d" % total) if mostrando == total
-            else "mostrando %d de %d" % (mostrando, total))
+        texto = ("mostrando todos os %d" % total) if mostrando == total \
+            else "mostrando %d de %d" % (mostrando, total)
+        # Quantas palavras, não quantos boxes: o léxico decide por palavra, e
+        # dizer "31 caracteres fora do dicionário" contaria as letras de dez
+        # palavras e não bateria com nada que o revisor vê.
+        n_suspeitas = len(self.suspeitas())
+        if n_suspeitas:
+            texto += "  ·  %d fora do dicionário" % n_suspeitas
+        self.lbl_filtro.config(text=texto)
 
         pendentes = sum(1 for b in self.boxes if conf_ui.precisa_revisao(b))
         if pendentes:
@@ -1910,9 +1994,19 @@ class MainWindow(tk.Frame):
 
         É o que transforma "reler 2.000 caracteres" em "conferir os 80 duvidosos":
         os verdes são pulados. Dá a volta ao chegar na ponta.
+
+        **Com o filtro do léxico ligado, quem manda é o léxico**, e sem isto o
+        `F3` ficaria inútil justamente onde a fase serve para alguma coisa: uma
+        palavra fora do dicionário costuma ser lida com confiança alta — 1,000 é
+        a mediana de um erro, pela F1.9 —, então `precisa_revisao` não vê nenhuma
+        e a lista filtrada responderia "nada pendente" com a tela cheia de
+        sublinhados roxos.
         """
-        pendentes = [i for i in self._visiveis
-                     if conf_ui.precisa_revisao(self.boxes[i])]
+        if self.var_so_fora_dicionario.get():
+            pendentes = list(self._visiveis)
+        else:
+            pendentes = [i for i in self._visiveis
+                         if conf_ui.precisa_revisao(self.boxes[i])]
         if not pendentes:
             self.status.set("Nada pendente na lista atual.")
             return "break"
