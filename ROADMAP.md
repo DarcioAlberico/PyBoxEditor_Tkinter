@@ -30,6 +30,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
+| **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | F8.1 **concluída**; F8.2–F8.3 planejadas |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -41,7 +42,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **684 testes**, `pytest` na raiz.
+Cobertura: **732 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -2195,6 +2196,245 @@ Terceira vez que uma hipótese plausível deste projeto cai na medição, depois
 de glifos por projeção (F1.5b) e do canal de sinal para a cor da peça (F7.1). Fica
 registrado para ninguém tentar de novo pelo mesmo caminho: **quem separa linha de
 variante não é a tipografia.**
+
+---
+
+## F8 — Texto girado e diagramas conferíveis
+
+Três pedidos da mesma conversa, e eles não são o mesmo trabalho: o primeiro é de
+reconhecimento, os outros dois são de interface e de dados. Ficam em três fases
+que se entregam sozinhas, na ordem em que foram pedidos — a F8.1 não depende das
+outras duas, e a F8.3 só faz sentido depois da F8.2, porque é a correção feita
+lá que vira amostra aqui.
+
+| fase | o que entrega | depende de |
+|---|---|---|
+| **F8.1** | o texto impresso na vertical é lido, e para de estragar o texto em volta | — |
+| **F8.2** | o diagrama abre numa janela com tabuleiro **editável** | F7.1 |
+| **F8.3** | a correção do tabuleiro vira amostra, e o modelo de diagrama retreina | F8.2 |
+
+### F8.1 — Ler o texto impresso na vertical — CONCLUÍDA
+
+**Concluída em 2026-08-05.** `core/vertical.py`, `BoxEntry.angulo`, e a marcação
+entra sozinha na geração de boxes quando há modelo carregado.
+
+**O programa lia esse texto errado sem dizer que leu.** Rótulos como *"Analysis
+diagram"* saem impressos girados 90° ao lado do diagrama. Medido com o modelo em
+uso, nos 10.606 caracteres rotulados à mão:
+
+| recorte | acerto |
+|---|---:|
+| de pé (linha de base) | **94,40%** |
+| o mesmo, girado 90° | **8,38%** |
+| girado e desgirado | 94,40% |
+
+Os 8,38% não são "não leu": são outra letra, com confiança de leitura normal e
+origem `neural` como qualquer outra. A terceira linha diz o resto: **girar por
+múltiplo de 90° é transposição**, não reamostragem — as respostas voltam
+idênticas uma a uma (100,00%), então o custo do conserto é zero e o que faltava
+era só saber para que lado girar.
+
+#### O estrago não parava no rótulo
+
+Colando uma linha real de 17 caracteres, girada, na margem de uma página real —
+mesma fonte, mesmo scan:
+
+- **A segmentação colava a pilha.** O `merge_vertical_boxes` funde caixas
+  alinhadas em x e encostadas em y, que é exatamente a descrição de duas letras
+  vizinhas de um rótulo girado: 17 caracteres saíam como **7 boxes**.
+- **A ordem de leitura espalhava.** Cada letra da pilha cai numa linha de texto
+  diferente, e o rótulo entrava letra a letra no meio de **6 linhas** do
+  parágrafo vizinho.
+
+Ponta a ponta, com o pipeline de produção e o mesmo classificador, em três
+páginas com uma linha real colada girada:
+
+| | boxes | caracteres certos (de 47) |
+|---|---:|---:|
+| antes | 7, 10 e 2 | **1** |
+| depois | 16, 13 e 15 | **34** |
+
+#### A geometria propõe, o classificador dispõe
+
+Geometria sozinha não separa um rótulo girado de uma **coluna de primeiras
+letras de parágrafo**: as duas são caixas empilhadas dividindo a faixa de x. O
+que as separa é o vão — entre letras ele é de espaço de letra; entre linhas, de
+entrelinha. `candidatos` recolhe pilhas plausíveis e **quem decide o ângulo é o
+classificador**, pela confiança média da pilha inteira. É o critério da F1.5b,
+onde o árbitro confirma cada corte, e o da F7.1, onde a legalidade arbitra.
+
+Medido em 1.312 linhas reais simuladas nos quatro ângulos: o argmax da média
+acerta o ângulo impresso em **99,7%**, com folga mediana de 0,074 sobre o melhor
+concorrente. A única falha é um empate de 0,001.
+
+**Sem árbitro a fase não faz nada**, e isso é a lição da F1.5b levada a sério:
+lá, separar glifo colado sem quem confirmasse custava 2,3 pontos de F1. Marcar
+ângulo por geometria pura teria o mesmo defeito, e o dano seria maior — mexeria
+em texto normal para acertar o raro.
+
+#### O limiar que a medição escolheu
+
+O vão máximo entre letras da pilha foi varrido em 81 páginas reais contra a
+linha colada. É um joelho, não uma preferência (a contagem é com o piso de
+quatro caixas, que era o de então):
+
+| vão (em alturas medianas) | pilhas propostas em página normal | a pilha colada |
+|---|---:|---|
+| 0,7 | 25 | sai partida (9 de 16 caixas) |
+| **0,8** | **103** | **sai inteira** |
+| 0,9 | 554 | inteira |
+
+E aí apareceu o motivo de a pilha mínima ser **cinco caixas e não quatro**: com
+quatro, essas 81 páginas — que não têm texto vertical nenhum — davam **5 pilhas
+aceitas por engano**, e as cinco eram **colunas de peças dentro do diagrama**.
+Uma coluna de quatro peças é alta, estreita, encostada e de vão zero: passa em
+toda a geometria, e com quatro amostras a média da confiança ainda é ruído.
+
+#### A varredura completa achou o falso positivo que importava
+
+Nas 81 páginas de amostra, nenhuma candidata de cinco ou mais era aceita. Nas
+**322** páginas do livro inteiro, três eram — e as três merecem estar aqui,
+porque duas não são o que a amostra sugeria:
+
+| o que era | caixas | dano |
+|---|---:|---|
+| coluna de peças dentro do diagrama | 5 | nenhum: não é texto |
+| **primeiras letras de linhas seguidas** | 5 | 5 caracteres reais lidos deitados |
+| **primeiras letras de linhas seguidas** | 9 | 9 caracteres reais lidos deitados |
+
+O caso que a fase precisava recusar por construção — a coluna de letras iniciais
+de linhas de uma variante apertada — estava passando. **A diferença entre as
+duas coisas é estrutural, e não estatística: letra de linha horizontal tem
+vizinha ao lado; letra de linha vertical tem vizinha em cima e embaixo.** Uma
+pilha em que mais da metade das caixas tem outro caractere encostado ao lado não
+é palavra girada.
+
+Só conta vizinha do tamanho de um caractere, e isso não é detalhe: o box do
+diagrama fica encostado no rótulo que esta fase existe para ler, e contá-lo como
+vizinho recusaria justamente o caso alvo.
+
+Com a regra, nas mesmas 322 páginas:
+
+| | candidatas propostas | aceitas por engano |
+|---|---:|---:|
+| antes | 116 | 3 |
+| depois | **7** | **0** |
+
+E a linha colada continua saindo inteira e lida — o que a regra tirou foi só
+texto normal que nunca deveria ter sido proposto.
+
+**Página sem texto vertical sai idêntica.** Não "parecida": comparando a lista
+de boxes gerada com e sem a fase, em 11 páginas reais com o modelo carregado, os
+caracteres e as quatro coordenadas batem um a um. É o que se espera de uma fase
+que só age sobre o que ela mesma marca — e é o único jeito de afirmar que ela
+não cobra nada de quem não tem rótulo girado.
+
+#### O ângulo é do texto, e vai junto até o PDF
+
+`BoxEntry.angulo` são graus anti-horários do **texto impresso** — a convenção do
+PDF, e não a do recorte: 90 sobe (lê-se de baixo para cima), 270 desce. Quem
+classifica pede o glifo de pé a `vertical.endireitar`, num lugar só.
+
+O ângulo atravessa tudo o que guarda box: `as_state` (desfazer), o rascunho de
+autosave e o `.box`, que ganhou um **sétimo campo** — escrito só quando o ângulo
+não é zero, de modo que uma página sem texto girado grava o arquivo byte a byte
+igual ao de antes. Na saída, a camada invisível do PDF entra girada, com o
+`rotate` do PyMuPDF conferido contra a direção do texto extraído (0,-1 para 90°)
+e não suposto. E a base de referência do k-NN aprende o glifo **de pé**: guardar
+um 'A' deitado sob o rótulo 'A' envenenaria a vizinhança para todo mundo, e o
+aprendizado é justamente a via por onde uma correção do usuário entra.
+
+No canvas, um traço marca o lado que é o topo do glifo. Sem ele, a leitura de um
+rótulo vertical — que sai de baixo para cima — pareceria embaralhada sem motivo.
+
+#### O que esta fase não entrega
+
+**180° não é candidato.** Livro impresso não traz linha de cabeça para baixo, e
+cada ângulo a mais é uma chance a mais de virar uma pilha curta pelo lado
+errado. A medição mostra que o classificador *saberia* separá-lo (99,7% também):
+ele fica de fora por não existir no material.
+
+**Texto em ângulo que não seja múltiplo de 90° continua sem leitura.** Nada aqui
+gira por interpolação, e não deve: seria reamostrar o glifo antes de
+classificá-lo, que é o oposto do que a terceira linha da primeira tabela
+comprou.
+
+**A medição é de material montado, não colhido.** As páginas deste repositório
+não têm texto vertical; o que existe é a linha real colada girada. O ângulo, a
+fonte e o scan são reais, o *lugar* é montado — e um rótulo com espaçamento
+muito diferente pode partir a pilha em duas, caso em que saem duas pilhas
+seguidas em vez de uma.
+
+Cobertura: `tests/test_f81_vertical.py`, 48 testes. `medir_vertical.py` refaz as
+quatro medições acima.
+
+### F8.2 — O diagrama vira uma janela com tabuleiro editável — PLANEJADA
+
+**O que existe.** A F7.1 lê a posição e mostra o recorte impresso ao lado da
+leitura, marcando de vermelho o que a legalidade trocou e de laranja o duvidoso.
+O diálogo é **só de leitura**: quem vê um bispo lido como peão copia um FEN
+errado ou desiste.
+
+**Por que editar não é enfeite.** 94,5% por casa são ~3,5 casas erradas em 64, e
+uma posição com três casas erradas é uma posição errada. A F7.1 já concluiu que
+isto é um rascunho para conferir; conferir sem poder corrigir devolve o trabalho
+inteiro para fora do programa.
+
+O que a fase faz:
+
+- **Um botão, e não só o menu.** O caminho de hoje (Ferramentas → "Ler posição
+  dos diagramas...") fica; entra um botão na barra, ao lado dos de página, e o
+  duplo clique num box de diagrama abre a janela já naquele diagrama.
+- **Editar a casa.** Paleta com as 12 peças e a borracha; clicar na casa aplica
+  o que estiver escolhido. Teclado como atalho (`K Q R B N P` maiúsculo para
+  branca, minúsculo para preta, `Delete` esvazia), arrastar move a peça,
+  `Ctrl+Z` desfaz dentro da janela.
+- **O FEN e a legalidade acompanham a edição**, ao vivo: contagem de peças, reis,
+  peões na fila errada. É a mesma prova da F7.1, agora sobre o que o usuário
+  acabou de digitar.
+- **Lado a jogar e roque deixam de ser convenção calada.** Hoje o FEN assume
+  brancas sem roque e avisa. Quem já está editando pode dizer; o aviso continua
+  para quem não disse.
+- **A casa corrigida ganha cor própria** (verde), ao lado do vermelho da
+  legalidade e do laranja da dúvida. Não é enfeite: é o dado que a F8.3 consome.
+
+**O estado do tabuleiro sai da janela.** Um `core/tabuleiro_edicao.py` guarda as
+64 casas, o desfazer, o FEN e a legalidade, e o diálogo só desenha — pelo mesmo
+motivo que a F7.1 pôs a leitura em `core/diagrama.py`: o que tem regra precisa de
+teste, e teste de widget não é teste de regra.
+
+### F8.3 — Treino só de diagramas, alimentado pelas correções — PLANEJADA
+
+**O que existe.** 361 amostras rotuladas à mão em `training_data_diagrama/`, um
+banco de vizinhos (HOG + PCA-32, voto de 3) e `treinar_diagrama.py` para refazê-lo.
+As classes magras são `B`, `Q` e `b`, com 7 a 11 amostras — e a F7.1 já mediu que
+são as que mais erram.
+
+**O ciclo que falta é o que foi pedido: corrijo, e vai melhorando.** Hoje a
+correção morre na tela; a única forma de crescer a base é recortar casas à mão.
+
+O que a fase faz:
+
+- **A correção vira amostra.** Casa corrigida na F8.2 grava um PNG em
+  `training_data_diagrama/<cor>/<LETRA>/`, e grava o **resíduo** (casa menos o
+  fundo estimado daquele diagrama), que é o que o modelo lê — não o recorte cru.
+  A procedência (página, diagrama, casa) vai junto, para dar para voltar na
+  origem de uma amostra suspeita.
+- **Silêncio não é confirmação.** Casa que o usuário não tocou não vira amostra
+  por não ter sido tocada: entra só por um "conferi este diagrama inteiro"
+  explícito. É a decisão da F2.3 — o que tem consequência pede ato, não omissão.
+  Sem isso a base cresceria enviesada para o que o modelo já acerta.
+- **Treinar de dentro do programa**, em thread, com o relatório por classe e o
+  aviso das classes magras que o script já imprime, e recarregando o modelo em
+  memória no fim.
+- **Um número que mostre o progresso.** Com 361 amostras não há conjunto de teste
+  que se sustente; a medida honesta é *leave-one-out* por classe, e é ela que o
+  relatório passa a mostrar — é o que transforma "vamos progredindo" em algo
+  verificável.
+- **A base de diagrama ganha a conferência da F1.4 e da F7.3**: imagem duplicada
+  com rótulos diferentes, classe vazia, amostra de tamanho errado; e o `.npz`
+  passa a carregar a contagem e a impressão da base que o gerou, para um modelo
+  não se descasar das amostras que o descrevem.
 
 ---
 
