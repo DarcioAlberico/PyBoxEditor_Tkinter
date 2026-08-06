@@ -529,6 +529,15 @@ mover para quarentena a apagar.
    caractere na página real de 95,32% para 96,04%, e F1 do pipeline de 93,8 para 94,2
    (ROADMAP F1.9 e F1.5b, re-medidas).
 
+   **Onde a decisão cobra**, medido em 2026-08-06 por `medir_lexico.py`: em **60 dos 336
+   caracteres errados** das páginas rotuladas (18%) o modelo prediz uma ligadura onde a
+   verdade tem um caractere só — `f6` no lugar de `5`, `Th` no lugar de `d` —, e cada um
+   injeta um caractere no texto. É o maior balde de erro depois de palavra de prosa. Não
+   reverte a decisão, que rendeu +0,4 de F1 no total; diz onde coletar amostra. Outros 8
+   erros contados não são erro: são ligadura **certa** que o `comparar` de
+   `core/avaliacao_pagina.py` pune, porque ele casa um box gerado com um rotulado só e o
+   par colado tem dois. O metro subestima estas classes, por 2,4%.
+
    **A consequência a acompanhar** é que uma classe de par concorre com o separador de
    glifos colados, e o efeito está medido: a vantagem do árbitro do corte caiu de +0,3
    para +0,1 de F1, com cortes bons de 23 para 13. Como o separador rende hoje 0,1 ponto,
@@ -767,9 +776,29 @@ Os contratos, e nenhum deles é preferência de estilo — todos saem de defeito
 
 Sem dependência nova: um `set` de palavras mais os candidatos do top-k. `pyspellchecker`
 e `hunspell` ficam **descartados de propósito** — o gerador de candidatos deles varre o
-alfabeto inteiro, que é o modo de falha do contrato 3. A lista tem de ser **empacotada**
-no repositório, com a ressalva da §9.2: a `assets/fonts/DejaVuSans.ttf` também deveria
-estar e não está.
+alfabeto inteiro, que é o modo de falha do contrato 3.
+
+**A lista está empacotada** em `assets/lexico/`, em dois arquivos gerados por
+`importar_lexico.py` a partir do dicionário que o usuário mantinha para o ABBYY
+FineReader:
+
+| | palavras | | |
+|---|---:|---|---|
+| `en.txt.gz` | 73.447 | 0,21 MB | vocabulário do idioma |
+| `nomes.txt.gz` | 237.018 | 0,74 MB | nome próprio |
+
+A divisão sai da **caixa da entrada original** no arquivo do ABBYY, que guarda palavra
+comum nas duas caixas (`build` e `Build`) e nome próprio só na Capitalizada (`Andretti`).
+`carregar(nomes=False)` deixa os nomes de fora, e a troca está medida (ROADMAP F9.1,
+medida 3): só o idioma dá 58,5% de recall com 12,1% de alarme falso; com os nomes, 53,8% e
+5,8%. **Nome próprio baixa o alarme e esconde erro**, e não há joelho na curva onde a
+escolha se faça sozinha.
+
+Duas notas de formato. O `.gz` existe porque 0,94 MB foi o que tirou o tamanho do caminho
+— a lista da medida 2 tinha 4,23 MB e não entrou; `_ler` decide pelo sufixo e continua
+abrindo texto puro. E as 73 mil do idioma dão o mesmo alarme falso que as 370 mil de lá,
+sem o defeito de ser americana: `manoeuvres` está nesta. Fica a ressalva da §9.2 — a
+`assets/fonts/DejaVuSans.ttf` também deveria estar empacotada e não está.
 
 `palavras_da_pagina`, `Simbolo`, `custo_da_troca`, `Correcao` e `aplicar` (§5.6) são
 reusados inteiros — segmentação de palavra, confiança por box, distância de edição
@@ -782,6 +811,12 @@ sinal do contrato 5 acusa erro em toda página e o revisor aprende a ignorá-lo.
 **por perfil de livro**, no `config/profiles/<nome>.json` da §4.5, e crescem pela
 correção do usuário, como em §7.5 e §7.10 — com a regra da §7.10 valendo aqui também:
 **silêncio não é confirmação**, só entra a palavra digitada à mão.
+
+O `nomes.txt.gz` acima **não** é este dicionário, e a diferença importa: ele vem
+empacotado e cobre os oito primeiros exemplos deste parágrafo, mas `do_usuario` guarda o
+que **este** usuário digitou. Misturar os dois apagaria a única pergunta que `procedencia`
+existe para responder — se o acerto veio da lista dele ou de uma de prateleira —, que é
+como se sabe se a lista do usuário está fazendo trabalho.
 
 **Medir antes de escrever**, na ordem, e a primeira medição pode encerrar o item:
 quantos caracteres errados das 9 páginas rotuladas caem dentro de palavra de prosa (fora
@@ -876,6 +911,7 @@ Trabalho de CPU pesada (OpenCV, PyTorch) libera o GIL, então threads bastam —
 | `ui.confidence_colors` | true |
 | `lexico.ativo` (§5.8) | true |
 | `lexico.idioma` (§5.8) | "en" — o idioma dos livros, não o do programa |
+| `lexico.nomes` (§5.8) | true — os 237 mil nomes próprios junto do idioma |
 | `paths.last_dir`, `paths.tesseract`, `paths.dicionario_usuario` | — |
 
 Eliminar todo literal de limiar espalhado pelo código.

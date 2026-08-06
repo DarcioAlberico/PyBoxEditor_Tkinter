@@ -2771,11 +2771,8 @@ anterior, não é.
 
 Na ordem, e a primeira medição pode encerrar o item:
 
-1. **Quanto do erro é alcançável.** Nas 9 páginas rotuladas, contar os caracteres
-   errados que caem dentro de palavra de prosa — fora de lance, fora de pontuação. O
-   pipeline está em 93,8 de F1; se a fatia alcançável for magra, o item não se paga, e
-   custou uma contagem. É a lição da F1.8, que supôs milhares de boxes de lixo e mediu
-   **um**.
+1. ~~**Quanto do erro é alcançável.**~~ — **medido em 2026-08-06, ver abaixo: 43,5%.
+   A fase segue.**
 2. **A precisão da sinalização**, como acima.
 3. **F1 da página com e sem o léxico, mais a contagem de correções boas e ruins
    separadas**, na forma da tabela da F1.5b. Medir só por recall é o que deixou o
@@ -2786,6 +2783,180 @@ Na ordem, e a primeira medição pode encerrar o item:
 Um detalhe que a medição vai encontrar: estes livros são em **inglês**, e o texto do
 programa é em português. O idioma do léxico é escolha explícita do perfil (SPEC §4.5), não
 adivinhação — dicionário do idioma errado é pior que nenhum.
+
+#### Medida 1 (2026-08-06): 43,5% do erro é alcançável, e a fase segue
+
+`medir_lexico.py`, nas 10 páginas rotuladas, com o modelo de 119 classes e o pipeline de
+produção (separador arbitrado). Dos **336 caracteres lidos errado**:
+
+| onde o erro cai | n | do erro | quem resolve |
+|---|---:|---:|---|
+| **dentro de palavra de prosa (≥2 letras)** | **146** | **43,5%** | **o léxico** |
+| núcleo não é palavra (`2010`, `0-0`, pontuação) | 68 | 20,2% | ninguém, por lista |
+| dentro de lance | 57 | 17,0% | a legalidade (F1.7) |
+| palavra de uma letra só | 36 | 10,7% | ninguém — está no dicionário de qualquer jeito |
+| fora do núcleo (pontuação das pontas) | 24 | 7,1% | ninguém |
+| número de jogada | 5 | 1,5% | a legalidade |
+
+Mais **129 boxes espúrios dentro de palavra**, que o léxico pode esvaziar pelo contrato 3
+— um caractere a mais numa palavra é tão visível quanto um trocado. Os **236 caracteres
+perdidos** (sem box) ficam fora: viram sugestão, não edição.
+
+Não é fatia magra, então a F1.8 não se repetiu aqui. Mas três correções ao denominador
+saíram da conferência, e as três **reduzem** o número:
+
+- **8 dos 336 não são erro nenhum: são ligadura certa que o metro pune.** `comparar` casa
+  um box gerado com **um** rotulado, então um box que cobre `e4` colado casa com o `e`;
+  ler `e4` — a leitura certa, e a razão de a classe existir — sai como erro *e* deixa o
+  `4` como perdido. Suspeitei que fossem os 68 casos de ligadura e medi: são 8. O metro
+  subestima o modelo de 119 classes, mas por 2,4%, não por um quinto.
+- **17 têm verdade `'?'`** — quem rotulou à mão não conseguiu ler o glifo. Não é erro do
+  modelo, e em pelo menos um caso (`'the'` contra verdade `'?he'`) o modelo leu certo e o
+  humano não.
+- Descontando os dois, sobram **311 erros reais** e a fatia alcançável fica em ~44% — a
+  conclusão não se move.
+
+**Um defeito da minha própria medida, achado olhando os exemplos.** A primeira versão
+recortava o núcleo da palavra pelo texto **lido**, e com isso `Mov6` (verdade `Move`) e
+`3awn` (verdade `Pawn`) caíam em "fora do núcleo": o caractere errado virou dígito e
+deixou de ser borda alfabética. São os erros mais alcançáveis que existem e a medida os
+jogava fora. O núcleo passou a ser recortado da **verdade**. É o mesmo formato de erro que
+a F1.5 cometeu com "zero pedaços estreitos novos" — a propriedade medida não era a
+propriedade que interessava.
+
+**O que a divisão por caixa diz sobre a F9.2, e é mais do que se esperava:** dos 146
+alcançáveis, **62 (42,5%) estão em palavra Capitalizada** — `Gavilov`, `Andekin`,
+`Nimzowitsch`. Um dicionário genérico não tem nenhuma delas. A F9.2 deixou de ser
+complemento e passou a responder por perto de metade do alcance da fase.
+
+**A fronteira com a notação vaza em 18 pedaços**, e a medida diz de que jeito: são lances
+tão maltratados que `parece_lance` os rejeita (`BG7`, `K;5`, `;xa2`, `Rag`) e caem no lado
+do léxico. Nenhum deles está no dicionário, então pelo contrato 2 viram **alarme falso, e
+não estrago** — é a primeira medição que sustenta aquele contrato em vez de só argumentar
+por ele. Com correção automática agressiva, seriam 18 lances reescritos como palavra.
+
+**Um custo das classes novas que ninguém havia contado.** Em **60 dos 336 erros** (18%) o
+modelo prediz uma ligadura onde a verdade tem um caractere só, injetando um caractere no
+texto — `f6` no lugar de `5`, `Th` no lugar de `d`. É o maior balde depois de `PALAVRA`.
+Não reverte a decisão da SPEC §5.2 item 6, que rendeu +0,4 de F1 no total; mostra onde ela
+cobra, e é alvo de coleta de amostra, não de desenho.
+
+#### Medida 2 (2026-08-06): o piso de alarme falso é 12,1%, e um terço dele não é da lista
+
+`medir_lexico.py --lista <arquivo>`, com `words_alpha.txt` do `dwyl/english-words`
+(370.105 palavras, 4,23 MB, domínio público). A medida **não usa o modelo**: constrói as
+palavras sobre a verdade rotulada e pergunta quantas a lista não tem. Toda palavra que
+está certa na página e falta na lista viraria alarme falso, então isto é o piso do falso
+positivo, medido antes de existir léxico.
+
+| | |
+|---|---:|
+| palavras de prosa na verdade | 1.170 (598 distintas) |
+| fora da lista | 141 (126 distintas) |
+| **piso de alarme falso** | **12,1%** |
+| das ausências, Capitalizadas | 46 (32,6%) |
+
+De quem é a ausência — atribuição aproximada, e o método está no código:
+
+| | n | | exemplos |
+|---|---:|---:|---|
+| vocabulário de verdade ausente | 111 | 78,7% | `Benko`, `Tromso`, `Elo`, `queenside`, `manoeuvres` |
+| espaço perdido na segmentação | 18 | 12,8% | `ofthe`, `Ofcourse`, `BenkoGambit`, `protecttheisolatedpawns` |
+| pedaço de palavra partida | 12 | 8,5% | `barrassment`, `ghting`, `equa`, `comfo` |
+
+**Três coisas dentro do balde "vocabulário" que não são vocabulário**, e é o achado que
+muda trabalho:
+
+1. **Fragmento de notação virando palavra de prosa** — `Nc`, `Rxf`, `xe`, `rb`, `tt`. Um
+   lance cujo dígito caiu noutro pedaço perde a casa, `parece_lance` o rejeita por falta
+   de `[a-h][1-8]`, e ele entra na prosa. **Isto está medido sobre a verdade rotulada, sem
+   OCR nenhum**: a fronteira não vaza só por causa de leitura ruim, vaza por fatiamento.
+2. **A lista é americana** — `manoeuvres` está certa e falta. Uma lista só de en-US
+   sinaliza a grafia britânica de um livro britânico (Quality Chess é escocesa).
+3. **Nome próprio e vocabulário de xadrez**, que é a F9.2 confirmada por outro caminho:
+   `Benko` sozinho aparece 6 vezes em 10 páginas.
+
+**Consequência para a ordem da fase.** Somando espaço perdido, palavra partida e fragmento
+de notação, perto de **um terço do alarme falso não se conserta com lista nenhuma** — é
+`notacao.palavras_da_pagina` e o fatiamento. Arrumar a fronteira de palavra passou a vir
+**antes** de escrever o léxico, e tem a vantagem de ser medível sobre a verdade rotulada,
+sem modelo e em segundos.
+
+**Duas atribuições erradas minhas no caminho, e a segunda é a mesma lição da primeira.** O
+teste de "espaço perdido" decompõe a palavra ausente em palavras conhecidas. Rodado contra
+as 370 mil, ele dizia 60,3% — porque uma lista desse tamanho tem lixo de duas e três
+letras para tudo: `Benko` decompõe em `ben`+`ko`, `queenside` em `queen`+`side`. Passou a
+decompor contra o **vocabulário das próprias páginas**, e caiu para 12,8%. O teste de
+"pedaço de palavra" tinha o mesmo vício (`Elo` como prefixo de `elope`) e exige agora 4
+letras e folga de 2. Em ambos os casos o erro era medir contra um universo grande demais
+para o sinal ser sinal.
+
+**A lista ainda não entrou no repositório.** 4,23 MB é dez vezes o que a SPEC §5.8
+estimava, e o tamanho tem uma troca não medida: lista maior baixa o alarme falso e
+**esconde mais erro** — `glans` está nela, então `plans` lido `glans` passaria batido. O
+número que falta é alarme falso contra erro achado por tamanho de lista, e ele precisa de
+uma lista ordenada por frequência, que esta não é.
+
+> Resolvido pela medida 3: a lista entrou, e a troca que faltava é a tabela dela.
+
+#### Medida 3 (2026-08-06): a lista do ABBYY entrou, e a troca que faltava tem números
+
+O usuário mantinha, para o ABBYY FineReader, um dicionário de xadrez com nomes de
+jogadores. É a fonte que a F9.2 pedia, e chegou pronta. `importar_lexico.py` a traz para
+`assets/lexico/`; `medir_troca.py` roda o OCR de verdade e classifica cada palavra de prosa
+lida — é o arnês que faltava, porque `medir_lexico --lista` mede sobre a verdade e por isso
+só enxerga o alarme falso:
+
+| | palavras | recall | alarme falso | precisão |
+|---|---:|---:|---:|---:|
+| `words_alpha` (medida 2, referência) | 370.105 | — | 12,1% | — |
+| **idioma** — as minúsculas do ABBYY | 73.447 | 58,5% | 12,1% | 39,2% |
+| **idioma + nomes** — o arquivo como veio | 310.465 | **53,8%** | **5,8%** | **47,1%** |
+| idem, tokenizando `m.lois` em `lois` | 508.289 | 49,1% | 4,8% | 49,5% |
+| idem, mais as outras cinco listas | 516.498 | 48,1% | 4,7% | 49,5% |
+| só os nomes | 237.018 | 95,3% | 87,5% | 9,5% |
+
+*Recall* é dos 106 erros de OCR dentro de palavra de prosa; *alarme falso* é sobre as
+1.102 palavras lidas; *precisão* é quanto do que se sinaliza é erro de verdade. A coluna
+de alarme falso sobre a **verdade** (`medir_lexico --lista`, sem modelo) dá 12,1% / 8,8% /
+8,0% / 7,9%, e com os reparos de fronteira do `core.lexico` cai para 8,9% / 6,0% / 5,2%.
+
+**A troca existe e é suave**: de 73 mil para 516 mil palavras, o alarme falso cai 7,4
+pontos e o recall cai 10,4. Não há joelho na curva — cada palavra a mais compra silêncio e
+vende um erro. **A escolha é o arquivo como veio**, 310.465 palavras: é onde o alarme falso
+já caiu mais da metade e o recall ainda está acima de 50%.
+
+**73.447 palavras dão o mesmo 12,1% de alarme falso que as 370.105 da medida 2**, com um
+quinto do tamanho — e sem o defeito registrado lá: `manoeuvres` está nela, porque um
+dicionário montado sobre livros de xadrez britânicos não é americano.
+
+**O que decide idioma de nome próprio é a caixa da entrada original.** O ABBYY guarda
+palavra comum nas duas caixas (`build` e `Build`) e nome próprio só na Capitalizada
+(`Andretti`). A primeira tentativa separou por subtração — o dicionário menos a lista de
+jogadores — e o alarme falso saltou de 8,8% para **62,7%**: `MegaDatabase(Jogadores)` tem
+time e torneio (`Aachen Hoern U20`), então subtraí-la levava inglês junto.
+
+**Duas escolhas que a medida mandou desfazer.** Metade do arquivo é inicial colada a
+sobrenome (`m.lois`, `P.Puustinenasi`); partir no ponto para colher `lois` acrescenta 198
+mil palavras e troca 4,7 pontos de recall por 1,0 de alarme falso. E das seis listas da
+pasta, **só uma é lida**: `Chess-Dic-68 with MegaDatabePlayers` contém 99,8% dos tokens de
+`MegaDatabase(Jogadores palavras unicas)`, e somar as outras cinco rendeu 0,1 ponto.
+
+**O tamanho deixou de ser objeção.** 0,94 MB comprimido (0,21 do idioma, 0,74 dos nomes)
+contra os 4,23 MB que barraram a lista anterior. `core.lexico._ler` abre `.gz` e texto
+puro pelo sufixo.
+
+**Uma medição errada no caminho, e é a mesma de sempre.** A primeira rodada dizia que a
+lista grande escondia *mais* erro que a pequena por uma margem absurda, com exemplos como
+`difficult` lido onde a verdade seria `diffcult` e `King` onde seria `ng`. Não era erro de
+OCR: a verdade é remontada dos pares de `comparar`, e box gerado sem par contribui string
+vazia, truncando a verdade. Pedaço com box sem par passou a não ser medível — são 154, e
+sobram 1.102 palavras. Terceira vez na fase que a propriedade medida não era a que
+interessava; as outras duas estão na F1.5 e na medida 1.
+
+**O que continua sem número.** Nenhuma destas listas é ordenada por frequência, então a
+poda que baixaria o tamanho sem custar recall — tirar `glans` e manter `plans` — continua
+impossível de fazer com critério.
 
 #### O módulo
 

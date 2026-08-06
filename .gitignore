@@ -29,6 +29,10 @@ relatorio_treino_erros/
 # Scans de livros — grandes e derivados de material com copyright
 ilovepdf_pages-to-jpg/
 
+# Fonte do léxico (F9.1) — 31 MB de listas do ABBYY FineReader. O que o programa
+# usa é o produto de `importar_lexico.py`, 0,94 MB em assets/lexico/, e esse vai.
+Lista de Palavras/
+
 # Logs e artefatos de execução
 crash_log.txt
 full_log.txt
