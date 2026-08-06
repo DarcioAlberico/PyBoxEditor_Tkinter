@@ -975,6 +975,29 @@ Com 2.000 boxes, cada seta reconstrói 2.000 linhas e a digitação engasga.
 
 Migrar para `ttk.Treeview` e atualizar **só as linhas alteradas**.
 
+### 7.9 Tabuleiro editável — [feito, F8.2, em `core/tabuleiro_edicao.py`]
+
+A janela de diagrama da F7.1 era só de leitura, e a leitura acerta 94,5% das
+casas: conferir sem poder corrigir devolve o trabalho para fora do programa.
+
+O contrato:
+
+1. **O estado mora fora do widget.** As 64 casas, o desfazer, o FEN e a legalidade
+   ficam em `core/tabuleiro_edicao.py`; o diálogo desenha e despacha cliques. Mesma
+   separação da F7.1 entre `core/diagrama.py` e a janela, e pelo mesmo motivo: o que
+   tem regra precisa de teste, e teste de widget não é teste de regra.
+2. **A edição não toca a `Leitura`.** Fechar sem confirmar não pode ter mudado nada —
+   a leitura é o que o programa leu, a edição é o que o usuário quis.
+3. **Clicar seleciona, não escreve.** Quem escreve é a tecla (maiúscula = branca) ou
+   a paleta escolhida. Botão direito esvazia, arrastar move, `Ctrl+Z` desfaz.
+4. **A casa corrigida vira autoridade** (confiança 1,0, cor própria) e deixa de contar
+   como arbitrada pela legalidade — aquela marca deixou de ser verdade.
+5. **A legalidade é a do `python-chess` inteira** (`Board.status()`), e não só a
+   contagem da F7.1: com o lado a jogar informado, o xeque do lado errado passa a ser
+   decidível. Só se oferece o roque que a posição comporta.
+6. **O desfazer guarda o estado inteiro** (64 casas, lado e roque), pelo que a F3.8
+   mediu: estado incremental teria estado próprio para errar.
+
 ---
 
 ## 8. Testes — [feito]

@@ -398,10 +398,17 @@ class MainWindow(tk.Frame):
         tk.Button(editor, text="Digitação (F2)",
                   command=self.alternar_modo_digitacao).grid(row=0, column=5, padx=5)
 
+        # O caminho pelo menu continua existindo, mas ler diagrama é ação de
+        # página, não de configuração: escondê-la em Ferramentas fazia dela um
+        # recurso que só quem já sabia encontrava (F8.2).
+        self.btn_diagramas = tk.Button(editor, text="Diagramas...",
+                                       command=self.extrair_diagramas)
+        self.btn_diagramas.grid(row=0, column=6, padx=5)
+
         # Indicador do modo: sem ele o usuário não sabe por que as teclas
         # mudaram de comportamento.
         self.lbl_modo = tk.Label(editor, text="", font=("Segoe UI", 9, "bold"))
-        self.lbl_modo.grid(row=0, column=6, padx=8)
+        self.lbl_modo.grid(row=0, column=7, padx=8)
 
         # NAGs Quick Access
         nag_frame = tk.Frame(self)

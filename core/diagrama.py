@@ -124,6 +124,7 @@ class Casa:
     simbolo: Optional[str]           # None = vazia; senão 'PNBRQKpnbrqk'
     confianca: float = 0.0
     arbitrada: bool = False          # a legalidade mudou esta leitura
+    corrigida: bool = False          # a mão do usuário mudou esta leitura (F8.2)
 
     @property
     def nome(self) -> str:
