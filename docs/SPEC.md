@@ -1091,6 +1091,42 @@ Uma aproximação registrada: `≡` (com compensação) não é o símbolo do In
 não tem ponto de código próprio em Unicode — três barras é como estes livros o
 imprimem.
 
+#### O menu Notação — a tabela completa do padrão PGN
+
+A barra rápida tem os 23 que se digitam o dia inteiro. O menu **Notação** tem os 169
+do padrão PGN (`core/nags.py`), que é outra coisa: o símbolo que aparece uma vez em
+duzentas páginas, e a resposta para "o que é `$26`". São as duas listas da Wikipedia
+— a padrão (`$0`–`$139`) e a que o ChessPad acrescentou (`$140`–`$148`, `$220`–`$221`,
+`$238`–`$255`). As faixas que a especificação reserva sem definir não entram.
+
+**Em 22 submenus por família, não em coluna única.** Cento e sessenta e nove itens a
+~20 px pedem 3.400 px de altura; o Tk não avisa que não cabe — quebra o menu em
+colunas lado a lado e a lista perde a ordem. Montar tudo custa 4 ms.
+
+**Clicável só quem tem o que escrever no box**, e o rótulo diz por quê:
+
+| rótulo | o que é | quantos |
+|---|---|---|
+| `$14 ⩲ Brancas ligeiramente melhor` | tem símbolo e tem fonte | 43 |
+| `$24 — Brancas com leve vantagem de espaço` | o padrão definiu sem forma impressa | 121 |
+| `$249 ⯺ Peões ligados (sem fonte)` | símbolo existe, nenhuma fonte o desenha | 5 |
+
+A terceira linha é a que importa: `U+2BF9`–`U+2BFE`, o bloco que o Unicode 11
+reservou para xadrez, não é coberto por nenhuma candidata de `CHESS_FONT_CANDIDATES`
+numa instalação Windows típica — nem pelo próprio Tk, que os mostra como retângulo
+vazio no menu. Deixá-los clicáveis escreveria no box um caractere invisível no PDF
+final, sem erro no caminho. `nags.sem_glifo()` **mede** em vez de decorar (17 ms, uma
+vez por processo), então a restrição some sozinha se uma fonte que os cubra chegar a
+`assets/fonts/`.
+
+**Onde as duas tabelas se encontram, o ponto de código é o da barra rápida.** `Δ`
+(U+0394) e `∆` (U+2206) têm o mesmo desenho e códigos diferentes, e o mesmo vale para
+`⇄` (U+21C4) contra `⇆` (U+21C6) do `$132`, para `!!` contra `‼` (U+203C) do `$3` e
+para o hífen de `+-` contra o U+2212 do `$18`. Deixar os dois entrarem em `.box`
+diferentes daria **duas classes ensinando o mesmo glifo** ao modelo. `$44` vai além:
+troca o `⯹` do padrão pelo `≡` da barra, que é o mesmo conceito e tem fonte.
+`tests/test_nags.py` trava cada um desses pares.
+
 ### 7.2 Confiança visível
 
 **Implementada na F3.2** — `ui/confidence.py` centraliza limiares, cores e o teste

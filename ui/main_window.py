@@ -5,7 +5,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import formato_box, lexico, vertical
+from core import formato_box, lexico, nags, vertical
 from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
@@ -582,6 +582,8 @@ class MainWindow(tk.Frame):
         m_file.add_command(label="Sair", command=self._on_close)
         menubar.add_cascade(label="Arquivo", menu=m_file)
 
+        self._build_menu_notacao(menubar)
+
         m_tools = tk.Menu(menubar, tearoff=0)
         m_tools.add_command(label="Gerar boxes (OpenCV)", command=self.generate_boxes_opencv)
         m_tools.add_command(label="Preencher caracteres (OCR)", command=self.auto_fill_characters)
@@ -624,6 +626,47 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Substituir Glifos em PDF Escaneado (Neural)...",
                             command=self.substitute_glyphs_neural_action)
         menubar.add_cascade(label="Ferramentas", menu=m_tools)
+
+    def _build_menu_notacao(self, menubar):
+        """
+        O menu **Notação**: a tabela completa de NAGs do padrão PGN.
+
+        A barra rápida tem os 23 símbolos do "Key to symbols used" destes livros,
+        que é o que se digita o dia inteiro. Este menu tem os 169 do padrão, que é
+        outra coisa: serve para o símbolo que aparece uma vez em duzentas páginas e
+        para saber que `$26` existe e chama-se "vantagem de espaço".
+
+        **Em submenus por família, e não em coluna única.** Cento e sessenta e nove
+        itens a ~20 px pedem 3.400 px de altura; o Tk não avisa que não cabe — ele
+        quebra o menu em colunas lado a lado, e a lista deixa de ter ordem visível.
+        Vinte e duas famílias cabem numa coluna de 440 px.
+
+        **O item só fica clicável se houver o que escrever no box.** Duas razões
+        para não haver, e o rótulo diz qual: `—` no lugar do símbolo é NAG que o
+        padrão definiu sem forma impressa (`$24`, "leve vantagem de espaço" — 121
+        dos 169 são assim); "(sem fonte)" é símbolo que existe mas que nenhuma
+        fonte do disco desenha, medido em `nags.sem_glifo()`. Deixar o segundo caso
+        clicável escreveria no box um caractere que vira retângulo vazio no PDF sem
+        erro nenhum no caminho — o defeito do `·` da SPEC §4.2.
+        """
+        m_nag = tk.Menu(menubar, tearoff=0)
+
+        # Uma medição só para as 169 entradas (17 ms), em vez de uma por item.
+        ausentes = nags.sem_glifo()
+
+        for titulo, familia in nags.FAMILIAS:
+            sub = tk.Menu(m_nag, tearoff=0)
+            for nag in familia:
+                if nags.desenhavel(nag, ausentes):
+                    sub.add_command(label=nags.rotulo(nag),
+                                    command=lambda s=nag.simbolo: self.apply_nag(s))
+                else:
+                    sufixo = "   (sem fonte)" if nag.simbolo else ""
+                    sub.add_command(label=nags.rotulo(nag) + sufixo,
+                                    state="disabled")
+            m_nag.add_cascade(label=titulo, menu=sub)
+
+        menubar.add_cascade(label="Notação", menu=m_nag)
 
     def _build_context_menu(self):
         self.context_menu = tk.Menu(self, tearoff=0)
