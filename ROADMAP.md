@@ -31,7 +31,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
 | **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
-| **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **F9.1 feita**; F9.2 planejada |
+| **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **concluída** (F9.1, F9.2) |
 | **F10** | Texto em negativo | O nome dos jogadores na tarja preta deixa de ser um borrão e vira texto | **concluída** (F10.1) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
@@ -50,7 +50,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **919 testes**, `pytest` na raiz.
+Cobertura: **946 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1977,10 +1977,10 @@ do treino e fora do repositório. Detalhes na SPEC §5.2.
 
 ## Ordem de execução
 
-**Todos os itens de F0 a F8 estão concluídos** (o último, a F8.3, em 2026-08-05). A
-**F9** (léxico do texto corrido) é a única em aberto, e a ordem dentro dela está no
-próprio item: mede-se primeiro quanto do erro é alcançável, porque essa contagem pode
-encerrar a fase.
+**Todos os itens de F0 a F10 estão concluídos** — a F9 fechou em 2026-08-06 com a F9.2, e
+a F10 (texto em negativo) no mesmo dia. A ordem dentro da F9 foi a que o item mandava:
+mediu-se primeiro quanto do erro era alcançável, e a contagem não encerrou a fase, mas
+dimensionou-a — o dicionário do livro apaga 9,2% do alarme falso, não a maioria dele.
 
 ```
 F0  desbloqueio      F0.1 BoxEntry   F0.2 fonte Unicode   F0.3 undo/redo
@@ -3016,24 +3016,99 @@ Não foi implementado: falta rodar o `medir_troca.py` com a regra para saber o q
 **esconde**, e é essa a metade que a medida 2 esqueceu de perguntar. Quatro das 14 são
 fragmento e não composta legítima (`er,Fr`, `Bosboom-Van`), então a regra tem custo.
 
-### F9.2 — Dicionário do usuário
+### F9.2 — Dicionário do usuário — CONCLUÍDA
 
-A parte da pergunta que tem mais valor aqui, e por um motivo específico: as palavras que
-uma lista genérica **não** tem são justamente as que se repetem num livro de xadrez.
-Nome de jogador (Yusupov, Nimzowitsch, Botvinnik), nome de abertura (Benoni, Benko,
-Grünfeld, Najdorf), vocabulário do jogo (zugzwang, Zwischenzug, fianchetto, prophylaxis,
-outpost), editora e série. Sem elas, a sinalização da F9.1 acusa erro em toda página e
-o revisor aprende a ignorá-la — que é o modo de morte de qualquer alarme.
+**Concluída em 2026-08-06.** `core/lexico.py` ganhou a lista por livro, e ela é
+alimentada pelo mesmo "Aprender com Página Atual" que já alimenta o k-NN.
 
-Duas escolhas de desenho:
+A premissa: as palavras que uma lista genérica **não** tem são justamente as que se
+repetem num livro de xadrez. Nome de jogador (Yusupov, Nimzowitsch, Botvinnik), nome de
+abertura (Benoni, Benko, Grünfeld, Najdorf), vocabulário do jogo (zugzwang, fianchetto,
+outpost), editora e série. Sem elas, a sinalização da F9.1 acusa erro em toda página e o
+revisor aprende a ignorá-la — que é o modo de morte de qualquer alarme.
 
-- **Por perfil de livro, no `config/profiles/<nome>.json` da F2.4.** Um livro do Yusupov
-  fala de Yusupov em toda página; um do Kasparov, não. O perfil já existe e já é
-  selecionado por livro.
-- **A correção do usuário alimenta a lista**, como em F3.6 e F8.3 — corrijo, guardo,
-  melhora. Palavra digitada à mão e confirmada entra no dicionário do usuário. Mesma
-  regra da F8.3, e pelo mesmo motivo: **silêncio não é confirmação** — só entra o que
-  foi digitado, não o que passou batido.
+#### O que a medição diz, e ela é modesta
+
+`medir_lexico.py --usuario` mede deixando **uma página de fora**: aprende o vocabulário
+das outras e conta o alarme falso na que sobrou. Medir na mesma página em que se aprendeu
+responderia 100% por construção.
+
+| | ocorrências | alarme falso |
+|---|---:|---:|
+| sem dicionário do usuário | 142 | 12,1% |
+| com o das outras páginas | 129 | **11,0%** |
+| com o das outras páginas **do mesmo livro** | 129 | 11,0% |
+
+**O dicionário do livro apaga 9,2% do alarme falso**, e não mais — bem abaixo do que este
+item prometia. O motivo está medido, e é o teto, não a implementação:
+
+    das 128 palavras distintas que acendem nas 10 páginas
+      4    aparecem em mais de uma página   <- tudo que um dicionário de livro alcança
+      124  aparecem numa página só          <- fora do alcance de qualquer lista
+
+E das 4 repetidas, **uma** é vocabulário de verdade (`benko`, em 4 páginas); as outras
+três — `ofthe`, `ofa`, `xe` — são espaço perdido e fragmento, defeito de segmentação que
+o dicionário não deve calar e que a regra do box digitado à mão não deixa entrar.
+
+**A amostra é rala para esta pergunta, e vale dizer em vez de esconder.** As 10 páginas
+rotuladas são esparsas (13, 14, 20, 22, 33, 57, 108, 128 do Kasparov), e o vocabulário de
+um livro se repete dentro de um capítulo. Uma sonda na camada de texto do livro inteiro do
+Yusupov sugere repetição bem maior, mas **não é citável como medida**: aquela camada
+codifica figurina como letra, então `parece_lance` não peneira a notação e `xf`, `gxf` e
+`cxd` entram como se fossem palavra. Medir isso direito pede páginas rotuladas
+consecutivas, que não existem.
+
+#### Onde a lista mora — e por que não é no perfil
+
+Este item previa `config/profiles/<nome>.json`, da F2.4, e a implementação divergiu por um
+motivo que só aparece ao ler o código: **o perfil é escolhido por padrão de fonte, não por
+livro**. `perfis.escolher` casa `font_patterns` contra o nome da fonte do PDF, e dois
+livros compostos na mesma fonte caem no mesmo perfil — guardar ali daria a um livro do
+Kasparov o vocabulário de um do Yusupov, que é o contrário do motivo da fase. Os dois
+perfis que existem também são versionados e comentados à mão, e reescrevê-los a cada
+palavra aprendida encheria o `git status` do usuário.
+
+Ficou ao lado do documento, como o rascunho da F3.4:
+
+    livro.pdf              -> livro.lexico.txt
+    pasta/pagina-0012.jpg  -> pasta/lexico.txt        (a lista é da pasta, não da página)
+
+Texto puro, uma palavra por linha, ordenado. O formato é escolha de desenho: é assim que o
+usuário tira à mão a palavra que entrou errada, e **sem esse escape não haveria como
+tirar** — não há tela que mostre "esta palavra deixou de acender".
+
+#### O que entra, e as quatro coisas que não entram
+
+A regra é a da F8.3: **silêncio não é confirmação**. Entra a palavra de prosa que tem pelo
+menos um box digitado à mão — é o que separa `Nimzowitsch`, que o revisor leu e corrigiu,
+de `Kdinovsb`, que o OCR inventou e ninguém olhou. Um box basta: o revisor corrige a letra
+errada, não a palavra inteira.
+
+Não entram, e cada recusa fecha um jeito de a lista calar o alarme que ela deveria dar:
+
+1. **A palavra que ninguém tocou**, ainda que lida com confiança 1,000 — que é a confiança
+   mediana de um erro (F1.9).
+2. **A palavra com box vazio dentro dela.** Box sem caractere não vira símbolo, então
+   `Kalinovsky` com um buraco chega como `Kalinvsky` e entraria assim. Quem acha o buraco é
+   a geometria, porque o texto já não o mostra. Isto recusa também o box esvaziado **de
+   propósito** — `apply_char` grava `source=""` nos dois casos, e entre não aprender uma
+   palavra boa e aprender uma furada, o barato é o primeiro.
+3. **A palavra com dígito no meio.** `p1ay` é o caso canônico da fase.
+4. **Notação**, pelo contrato 1 da SPEC §5.8 — e é o caso mais provável de todos, porque
+   lance é o que o revisor mais corrige.
+
+#### Um defeito que a fase criou e fechou no caminho
+
+`Lexico.vazio` era o critério de "não agir", e a F9.2 tornou alcançável o caso em que ele
+mente: um livro com `.lexico.txt` ao lado e **sem** `assets/lexico/` instalado tem dezenas
+de palavras contra centenas na página — `vazio` diria falso e a tela inteira acenderia.
+Entrou `Lexico.sinaliza`, que é `bool(palavras)`: acusar palavra desconhecida exige a lista
+geral. As duas fronteiras (`juntar_hifenizadas`, `partir_colada`) continuam olhando
+`vazio`, e de propósito — elas só agem quando o resultado **é** palavra conhecida, então
+lista curta as deixa quietas em vez de barulhentas.
+
+Cobertura: `tests/test_f92_dicionario.py`, 25 testes, dos quais 10 são sobre o que **não**
+entra na lista.
 
 ### O que a F9 não promete
 
@@ -3042,6 +3117,12 @@ pontuação, que é metade das confusões medidas. E não ataca o gargalo: na ú
 pipeline (2026-08-04, 9 páginas rotuladas) a distância entre os 93,8 de F1 e os 99,83% do
 classificador em recorte já segmentado continua sendo **segmentação**, e nenhum dicionário
 a conserta.
+
+A F9.2 acrescentou um limite que só a medição mostrou: **o dicionário do livro alcança a
+palavra que se repete, e nas páginas rotuladas 124 das 128 que acendem aparecem uma vez
+só.** Ele apaga 9,2% do alarme falso. O resto do alarme não é vocabulário — é espaço
+perdido, fragmento de palavra e nome próprio visto uma vez, e cada um desses tem dono
+noutro lugar do pipeline.
 
 ---
 

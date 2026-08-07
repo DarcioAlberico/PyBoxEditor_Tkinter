@@ -423,6 +423,115 @@ def medir_lista(caminho, reparar=False):
     return 0
 
 
+def medir_dicionario_do_usuario(caminho):
+    """
+    O dicionário do livro (F9.2) paga? Uma página de cada vez, fora da amostra.
+
+    **O protocolo é deixar-uma-de-fora, e ele não é enfeite estatístico.** A
+    pergunta da fase é se o vocabulário aprendido numa página cala alarme falso
+    na *seguinte* — medir na mesma página em que se aprendeu responderia
+    trivialmente 100%, porque a palavra entrou por ter sido vista ali.
+
+    O que o usuário confirmaria é modelado assim: numa página revisada, a
+    palavra de prosa que a lista geral **não** tem é justamente a que acende, e
+    o revisor a lê, corrige e sustenta. Então a lista dele, depois de revisar as
+    outras páginas, é o conjunto dessas palavras — que é o que
+    `lexico.palavras_confirmadas` recolhe na aplicação, com a diferença de que
+    lá a confirmação é o box digitado à mão.
+
+    Por livro, e não só no total: a promessa da F9.2 é que o vocabulário se
+    repete **dentro** de um livro. Se o ganho vier de páginas de outro livro, a
+    escolha de guardar a lista por documento estaria errada.
+    """
+    lista = lexico._ler(caminho)
+    print(f"{caminho}: {len(lista)} palavras\n")
+
+    paginas = []
+    for imagem, caminho_box in paginas_rotuladas():
+        img = Image.open(imagem)
+        rotulados = carregar_box(caminho_box, img.size[1])
+        if len(rotulados) < MIN_ROTULADOS:
+            continue
+        palavras = palavras_verdadeiras(rotulados)
+        if palavras:
+            paginas.append((os.path.basename(imagem), palavras))
+
+    if len(paginas) < 2:
+        print("são precisas ao menos 2 páginas rotuladas")
+        return 1
+
+    def livro(nome):
+        # O nome do arquivo começa com o do livro; o sufixo é "_page-0021.jpg".
+        return nome.split("_page-")[0]
+
+    # O que o revisor teria confirmado em cada página: o que acendeu nela.
+    confirmadas = {nome: {w.lower() for w in palavras if w.lower() not in lista}
+                   for nome, palavras in paginas}
+
+    print(f"{'página':<38} {'palavras':>8} {'sem':>6} {'com':>6} {'com (livro)':>12}")
+    tot = tot_sem = tot_com = tot_livro = 0
+    for nome, palavras in paginas:
+        outras = {w for n, ws in confirmadas.items() if n != nome for w in ws}
+        do_livro = {w for n, ws in confirmadas.items()
+                    if n != nome and livro(n) == livro(nome) for w in ws}
+
+        sem = [w for w in palavras if w.lower() not in lista]
+        com = [w for w in sem if w.lower() not in outras]
+        so_livro = [w for w in sem if w.lower() not in do_livro]
+
+        tot += len(palavras)
+        tot_sem += len(sem)
+        tot_com += len(com)
+        tot_livro += len(so_livro)
+        print(f"{nome[-36:]:<38} {len(palavras):>8} "
+              f"{100.0*len(sem)/len(palavras):>5.1f}% "
+              f"{100.0*len(com)/len(palavras):>5.1f}% "
+              f"{100.0*len(so_livro)/len(palavras):>11.1f}%")
+
+    print(f"\n=========== TOTAL — {tot} palavras de prosa ===========")
+    print(f"  alarme falso sem dicionário do usuário   {tot_sem:>6}"
+          f"  = {100.0*tot_sem/tot:.1f}%")
+    print(f"  com o de todas as outras páginas         {tot_com:>6}"
+          f"  = {100.0*tot_com/tot:.1f}%")
+    print(f"  com o das outras páginas DO MESMO LIVRO  {tot_livro:>6}"
+          f"  = {100.0*tot_livro/tot:.1f}%")
+    corte = 100.0 * (tot_sem - tot_livro) / tot_sem if tot_sem else 0.0
+    print(f"\n  o dicionário do livro apaga {corte:.1f}% do alarme falso")
+
+    # Por que o corte é esse, e não maior: o dicionário só alcança a palavra que
+    # **se repete**. Uma palavra que aparece numa página só nunca terá sido
+    # confirmada antes, por melhor que a lista do livro fique.
+    ocorre_em = defaultdict(set)
+    for nome, palavras in paginas:
+        for w in palavras:
+            b = w.lower()
+            if b not in lista:
+                ocorre_em[b].add(nome)
+
+    repetidas = {w: p for w, p in ocorre_em.items() if len(p) > 1}
+    unicas = {w for w, p in ocorre_em.items() if len(p) == 1}
+    print(f"\nO teto: das {len(ocorre_em)} palavras distintas que acendem,")
+    print(f"  aparecem em mais de uma página  {len(repetidas):>4}"
+          f"   — o que um dicionário de livro pode alcançar")
+    print(f"  aparecem numa página só         {len(unicas):>4}"
+          f"   — fora do alcance de qualquer lista")
+
+    vocabulario = {w.lower() for _n, ws in paginas for w in ws}
+    conta, exemplos = culpa_da_ausencia(sorted(unicas), lista, vocabulario)
+    print("\nE as que aparecem uma vez só são, na maioria, nem vocabulário:")
+    for cat in ("espaco-perdido", "prefixo-de-palavra", "sufixo-de-palavra",
+                "vocabulario"):
+        if conta[cat]:
+            print(f"  {cat:<20} {conta[cat]:>4} "
+                  f"{100.0*conta[cat]/len(unicas):>5.1f}%"
+                  f"   ex.: {', '.join(exemplos[cat][:5])}")
+
+    print("\nAs repetidas, que são o que a lista do livro guarda:")
+    for w, p in sorted(repetidas.items(), key=lambda kv: -len(kv[1]))[:12]:
+        print(f"  {len(p)} páginas  {w}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exemplos", type=int, default=0,
@@ -431,8 +540,12 @@ def main():
                     help="aplica os reparos de fronteira e re-mede")
     ap.add_argument("--lista", default=None,
                     help="mede a cobertura de uma lista de palavras (sem modelo)")
+    ap.add_argument("--usuario", action="store_true",
+                    help="mede o dicionário do livro (F9.2), deixando uma página de fora")
     args = ap.parse_args()
 
+    if args.usuario:
+        return medir_dicionario_do_usuario(args.lista or lexico.CAMINHO_PADRAO)
     if args.lista:
         return medir_lista(args.lista, reparar=args.reparar)
 

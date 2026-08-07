@@ -785,6 +785,13 @@ Os contratos, e nenhum deles é preferência de estilo — todos saem de defeito
    entra como filtro na §7.4.
 6. **Nada acontece sem dicionário carregado.** Padrão é não agir, como
    `separar_colados="auto"`.
+
+   > **Precisão que a F9.2 obrigou:** "carregado" quer dizer **a lista geral**
+   > (`Lexico.sinaliza`), não qualquer lista. Com o dicionário do livro ao lado e o do
+   > idioma ausente, `vazio` diria falso e a página inteira acenderia — dezenas de
+   > palavras contra centenas. As duas fronteiras (`juntar_hifenizadas`,
+   > `partir_colada`) continuam olhando `vazio`: elas só agem quando o resultado **é**
+   > palavra conhecida, então lista curta as deixa quietas.
 7. **O idioma é escolha do perfil (§4.5), não adivinhação.** Estes livros são em inglês;
    dicionário do idioma errado é pior que nenhum.
 
@@ -842,13 +849,27 @@ caminho. Fica em cache com chave `(char, x1, y1)` por box, que custa 0,36 ms; a
 posição entra na chave porque mover um box muda onde a `notacao` corta as palavras.
 A carga das listas é preguiçosa: 150 ms que não se pagam em quem só abre um `.box`.
 
-**Dicionário do usuário.** As palavras que uma lista genérica não tem são as que se
-repetem num livro de xadrez: jogador (Yusupov, Nimzowitsch), abertura (Benoni, Grünfeld,
-Najdorf), vocabulário do jogo (zugzwang, fianchetto, prophylaxis), editora. Sem elas o
-sinal do contrato 5 acusa erro em toda página e o revisor aprende a ignorá-lo. Ficam
-**por perfil de livro**, no `config/profiles/<nome>.json` da §4.5, e crescem pela
-correção do usuário, como em §7.5 e §7.10 — com a regra da §7.10 valendo aqui também:
-**silêncio não é confirmação**, só entra a palavra digitada à mão.
+**Dicionário do usuário — [feito, F9.2].** As palavras que uma lista genérica não tem são
+as que se repetem num livro de xadrez: jogador (Yusupov, Nimzowitsch), abertura (Benoni,
+Grünfeld, Najdorf), vocabulário do jogo (zugzwang, fianchetto, prophylaxis), editora. Sem
+elas o sinal do contrato 5 acusa erro em toda página e o revisor aprende a ignorá-lo. A
+lista cresce pela correção do usuário, como em §7.5 e §7.10 — com a regra da §7.10 valendo
+aqui também: **silêncio não é confirmação**, só entra a palavra digitada à mão.
+
+> **Correção desta spec: não é por perfil, é por documento.** A §4.5 escolhe perfil por
+> **padrão de fonte**, não por livro — `perfis.escolher` casa `font_patterns` contra o nome
+> da fonte, e dois livros compostos na mesma fonte cairiam na mesma lista, que é o
+> contrário do motivo do item. A lista ficou ao lado do documento, como o rascunho da §6.4:
+> `livro.pdf` → `livro.lexico.txt`, e `pasta/pagina-0012.jpg` → `pasta/lexico.txt`, porque
+> um livro digitalizado é uma pasta e não uma página. Texto puro, ordenado, uma por linha:
+> é assim que se tira à mão a palavra que entrou errada, e não há tela que faça isso.
+>
+> **O que não entra é metade do desenho**, porque palavra errada na lista cala o alarme em
+> silêncio: a que ninguém tocou (ainda que com confiança 1,000), a que tem box vazio dentro
+> — achado pela geometria, já que box vazio não vira símbolo —, a que tem dígito no meio, e
+> notação. Medido nas 10 páginas rotuladas com o protocolo de deixar-uma-de-fora, o ganho é
+> **9,2% do alarme falso**: das 128 palavras distintas que acendem, 124 aparecem numa
+> página só, e essas nenhuma lista alcança (ROADMAP F9.2).
 
 O `nomes.txt.gz` acima **não** é este dicionário, e a diferença importa: ele vem
 empacotado e cobre os oito primeiros exemplos deste parágrafo, mas `do_usuario` guarda o
@@ -1516,9 +1537,11 @@ O último critério é o que resume o projeto. Hoje ele é inatingível — porq
 não abre.
 
 ### F9 — léxico (§5.8)
-- [ ] Nenhuma palavra é reescrita sem que os candidatos venham do `predict_topk`
-- [ ] Palavra fora do dicionário é sinalizada, nunca trocada pela mais parecida
-- [ ] Sem dicionário carregado, o léxico não altera um caractere
-- [ ] `Bxf6`, `exd5`, `O-O` e os demais pedaços tipados `lance` não passam pelo léxico
-- [ ] A precisão da sinalização está medida nas páginas rotuladas, com a fatia de erro
+- [x] Nenhuma palavra é reescrita sem que os candidatos venham do `predict_topk`
+- [x] Palavra fora do dicionário é sinalizada, nunca trocada pela mais parecida
+- [x] Sem dicionário carregado, o léxico não altera um caractere
+- [x] `Bxf6`, `exd5`, `O-O` e os demais pedaços tipados `lance` não passam pelo léxico
+- [x] A precisão da sinalização está medida nas páginas rotuladas, com a fatia de erro
       alcançável contada **antes** de o léxico ser escrito
+- [x] A lista do usuário só recebe palavra que ele digitou, e o ganho dela está medido
+      com uma página fora da amostra (F9.2: 9,2% do alarme falso)

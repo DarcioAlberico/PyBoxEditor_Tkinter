@@ -872,6 +872,7 @@ class MainWindow(tk.Frame):
         self.pdf_service.close()
 
         self.session = DocumentSession(path, num_pages=1, is_pdf=False)
+        self._esquecer_lexico()
         self.current_pdf_page = 0
         self._mudancas_desde_autosave = 0
         recuperou = self._tentar_recuperar()
@@ -952,6 +953,7 @@ class MainWindow(tk.Frame):
         # A sessão nova precisa existir antes de carregar a página, e a página
         # atual não deve ser arquivada na sessão nova (ela é do documento antigo).
         self.session = DocumentSession(path, num_pages=num_pages, is_pdf=True)
+        self._esquecer_lexico()
         self.boxes = []
         self.current_pdf_page = 0
         self._mudancas_desde_autosave = 0
@@ -1438,10 +1440,47 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def lexico_da_sessao(self):
-        """O léxico, carregado uma vez. Vazio se não houver lista instalada."""
+        """
+        O léxico desta sessão: a lista geral mais a deste livro (F9.2).
+
+        Carregado uma vez por documento, não uma vez por processo — a lista do
+        usuário é por livro, e mantê-la de um documento para o outro daria ao
+        Kasparov o vocabulário do Yusupov, que é o contrário do motivo da F9.2.
+        `_esquecer_lexico` é quem invalida, na abertura.
+        """
         if self._lexico is None:
-            self._lexico = lexico.carregar()
+            self._lexico = lexico.carregar(
+                caminho_usuario=self._caminho_do_lexico())
         return self._lexico
+
+    def _caminho_do_lexico(self):
+        """Onde fica a lista deste livro, ou None sem documento aberto."""
+        if self.session is None:
+            return None
+        return lexico.caminho_do_usuario(self.session.path, self.session.is_pdf)
+
+    def _esquecer_lexico(self):
+        """Força a recarga do léxico e das suspeitas — chamada ao abrir."""
+        self._lexico = None
+        self._cache_suspeitas = (None, [])
+
+    def aprender_palavras_da_pagina(self):
+        """
+        Põe no dicionário do livro as palavras que o usuário sustentou.
+
+        Roda junto do "Aprender com Página Atual", e não num comando próprio: é
+        a mesma confirmação, sobre a mesma página, e a F8.3 já estabeleceu que o
+        que vira dado é o que o usuário sustenta explicitamente. Um segundo item
+        de menu pediria que ele se lembrasse de dois.
+        """
+        lex = self.lexico_da_sessao()
+        caminho = self._caminho_do_lexico()
+        if not lex.sinaliza or not caminho:
+            return []
+        novas = lexico.aprender_da_pagina(self.boxes, lex, caminho)
+        if novas:
+            self._cache_suspeitas = (None, [])
+        return novas
 
     def suspeitas(self):
         """
@@ -2252,13 +2291,28 @@ class MainWindow(tk.Frame):
         imagem = self.image.copy()
         boxes = [b.copy() for b in self.boxes]
 
+        # Fora da thread: mexe no léxico da sessão e no cache de suspeitas, que
+        # são estado da UI. É rápido — a página inteira é uma passada de
+        # `_fatiar` — e não tem por que disputar a vaga da tarefa de fundo.
+        palavras = self.aprender_palavras_da_pagina()
+
         def trabalho(h):
             h.progress(0, len(boxes), "gravando amostras")
             return self.learning_service.learn_from_boxes(imagem, boxes)
 
         def concluir(count):
-            messagebox.showinfo(
-                "Sucesso", f"Aprendizado concluído.\n{count} novos modelos adicionados.")
+            aviso = f"Aprendizado concluído.\n{count} novos modelos adicionados."
+            if palavras:
+                # Só as primeiras: uma página pode render dezenas, e o diálogo
+                # não é o lugar de listar vocabulário — o arquivo é.
+                amostra = ", ".join(palavras[:8])
+                resto = f" (+{len(palavras) - 8})" if len(palavras) > 8 else ""
+                aviso += (f"\n\n{len(palavras)} palavra(s) no dicionário deste "
+                          f"livro:\n{amostra}{resto}")
+            messagebox.showinfo("Sucesso", aviso)
+            if palavras:
+                self.update_sidebar()
+                self.update_canvas()
 
         self._run_task("Aprender com a página", trabalho, concluir, indeterminado=True)
 

@@ -94,6 +94,24 @@ class Lexico:
         """Sem dicionário, nada acontece — como `separar_colados="auto"`."""
         return not self.palavras and not self.do_usuario
 
+    @property
+    def sinaliza(self) -> bool:
+        """
+        Dá para acusar palavra desconhecida? **Só com a lista geral.**
+
+        A do usuário sozinha não serve, e o caso é alcançável desde a F9.2: um
+        livro com `.lexico.txt` ao lado e sem `assets/lexico/` instalado tem
+        dezenas de palavras contra centenas na página, e `the` e `with` também
+        ficariam "fora do dicionário" — a tela inteira acesa, que é o modo de
+        morte de qualquer alarme.
+
+        As duas fronteiras (`juntar_hifenizadas`, `partir_colada`) continuam
+        olhando `vazio`, e não isto: elas só agem quando o resultado **é**
+        palavra conhecida, então uma lista curta as deixa quietas em vez de
+        barulhentas.
+        """
+        return bool(self.palavras)
+
     def conhece(self, palavra: str) -> bool:
         b = palavra.lower()
         return b in self.palavras or b in self.do_usuario
@@ -121,6 +139,69 @@ class Lexico:
             return False
         self.do_usuario.add(b)
         return True
+
+
+# ----------------------------------------------------------------------
+# A lista deste livro (F9.2)
+# ----------------------------------------------------------------------
+
+#: Sufixo do arquivo que guarda o que o usuário confirmou neste documento.
+SUFIXO_USUARIO = ".lexico.txt"
+
+#: Nome do arquivo quando o "documento" é uma imagem solta: a lista é da
+#: **pasta**, e não da página. Um livro digitalizado é uma pasta de JPEGs, e uma
+#: lista por página não seria dicionário de livro nenhum.
+NOME_NA_PASTA = "lexico.txt"
+
+
+def caminho_do_usuario(documento: Optional[str], e_pdf: bool = True) -> Optional[str]:
+    """
+    Onde fica a lista deste livro. `None` se não há documento aberto.
+
+    **Não é no perfil, e a F9.2 previa que fosse.** O `config/profiles/*.json` da
+    F2.4 é escolhido por **padrão de fonte**, não por livro: `escolher()` casa
+    `font_patterns` contra o nome da fonte do PDF, e dois livros compostos na
+    mesma fonte caem no mesmo perfil. Guardar ali daria a um livro do Kasparov o
+    vocabulário de um do Yusupov, que é exatamente o contrário do motivo da fase.
+    Os dois perfis que existem também são versionados e comentados à mão — o
+    programa reescrevê-los a cada palavra aprendida encheria o `git status` do
+    usuário de ruído.
+
+    Ao lado do documento, então, como o rascunho da F3.4:
+
+        livro.pdf              -> livro.lexico.txt
+        pasta/pagina-0012.jpg  -> pasta/lexico.txt
+
+    Texto puro, uma palavra por linha, que é o formato que `_ler` já abre e que o
+    usuário edita à mão quando uma palavra entrou errada. Sem esse escape, tirar
+    uma palavra da lista exigiria uma tela.
+    """
+    if not documento:
+        return None
+    if e_pdf:
+        return os.path.splitext(documento)[0] + SUFIXO_USUARIO
+    return os.path.join(os.path.dirname(documento) or ".", NOME_NA_PASTA)
+
+
+def salvar_do_usuario(caminho: str, palavras: Iterable[str]) -> int:
+    """
+    Grava a lista do usuário, ordenada. Devolve quantas foram gravadas.
+
+    Ordenada e uma por linha porque o arquivo é para ser lido e corrigido por
+    gente: numa lista em ordem de chegada, achar a palavra que entrou errada
+    seria varredura.
+    """
+    lista = sorted({p.strip().lower() for p in palavras if p.strip()})
+    pasta = os.path.dirname(caminho)
+    if pasta:
+        os.makedirs(pasta, exist_ok=True)
+    # Arquivo temporário e `os.replace`, como o autosave da F3.4: travar no meio
+    # da escrita não pode deixar o vocabulário do livro pela metade.
+    temporario = caminho + ".tmp"
+    with open(temporario, "w", encoding="utf-8") as f:
+        f.write("\n".join(lista) + ("\n" if lista else ""))
+    os.replace(temporario, caminho)
+    return len(lista)
 
 
 def _ler(caminho: str) -> Set[str]:
@@ -316,7 +397,7 @@ def sinalizar(palavras: Iterable[Sequence[Tuple[str, int]]],
     chega aqui.
     """
     fora: List[Suspeita] = []
-    if lex.vazio:
+    if not lex.sinaliza:
         return fora
     for simbolos in palavras:
         nuc, indices = boxes_do_nucleo(simbolos)
@@ -345,12 +426,123 @@ def suspeitas_da_pagina(boxes: Sequence, lex: Lexico) -> List[Suspeita]:
     O privado `_fatiar` é usado de propósito, e pela mesma razão: é o código que a
     F1.7 roda em produção.
     """
-    if lex.vazio:
+    if not lex.sinaliza:
         return []
+    return sinalizar(_palavras_de_prosa(boxes), lex)
+
+
+def _palavras_de_prosa(boxes: Sequence) -> List[List[Tuple[str, int]]]:
+    """As palavras tipadas `outro` da página, como pares (caractere, box)."""
     palavras = []
     for linha in notacao.palavras_da_pagina(boxes):
         for palavra in linha:
             for pedaco in notacao._fatiar(palavra):
                 if pedaco.tipo == "outro":
                     palavras.append([(s.char, s.indice) for s in pedaco.simbolos])
-    return sinalizar(palavras, lex)
+    return palavras
+
+
+# ----------------------------------------------------------------------
+# O que o usuário confirmou (F9.2)
+# ----------------------------------------------------------------------
+
+#: Origem que marca "o usuário digitou" — a autoridade do `BoxEntry` (§2.1).
+ORIGEM_MANUAL = "manual"
+
+
+def _tem_buraco(da_palavra: Sequence, vazios: Sequence) -> bool:
+    """
+    Há box sem caractere **dentro** do trecho que a palavra ocupa?
+
+    Pela geometria, e não pelo texto: box vazio não vira símbolo, então quando a
+    palavra chega aqui o buraco já não aparece nela. Um box vazio conta se o
+    centro dele cai entre a primeira e a última caixa da palavra e ele divide a
+    linha com elas — o mesmo par de testes (faixa em x, sobreposição em y) que a
+    `notacao` usa para montar a linha.
+    """
+    if not da_palavra or not vazios:
+        return False
+    x1 = min(b.x1 for b in da_palavra)
+    x2 = max(b.x2 for b in da_palavra)
+    topo = min(b.y1 for b in da_palavra)
+    base = max(b.y2 for b in da_palavra)
+
+    for v in vazios:
+        cx, cy = (v.x1 + v.x2) / 2, (v.y1 + v.y2) / 2
+        if x1 <= cx <= x2 and topo <= cy <= base:
+            return True
+    return False
+
+
+def palavras_confirmadas(boxes: Sequence, lex: Lexico) -> List[str]:
+    """
+    As palavras desta página que o usuário sustentou, e que a lista não tem.
+
+    **Silêncio não é confirmação**, a regra da F8.3: entra a palavra que tem pelo
+    menos um box digitado à mão, não a que passou batido. É o que separa
+    `Nimzowitsch` — que o revisor leu, corrigiu e sustenta — de `Kdinovsb`, que o
+    OCR inventou e ninguém olhou. Sem essa regra, aprender a página inteira
+    ensinaria o dicionário a calar justamente os erros que ele existe para
+    apontar.
+
+    As outras duas condições saem do mesmo raciocínio:
+
+    - **Nenhum box vazio dentro da palavra.** Box sem caractere não vira símbolo
+      em `notacao._palavras_da_linha`, então a palavra chega aqui já remontada
+      sem ele: `Kalinovsky` com um buraco vira `Kalinvsky`, que entraria na
+      lista e calaria `Kalinvsky` para sempre. Quem acha o buraco é a geometria
+      (`_tem_buraco`), porque o texto já não o mostra.
+
+      **Isso recusa também o box esvaziado de propósito**, e é escolha, não
+      descuido: esvaziar é como a correção remove um glifo fantasma, e
+      `apply_char` grava `source=""` nos dois casos — o box apagado a mão e o
+      nunca tocado são indistinguíveis. Entre não aprender uma palavra boa e
+      aprender uma furada, o barato é o primeiro: a palavra volta a aparecer na
+      página seguinte, e a lista errada não avisa que está errada.
+    - **Núcleo alfabético**, que é o que `Lexico.acrescentar` já cobra: `p1ay`
+      com o `1` no meio é o erro canônico da fase, e blindá-lo seria o oposto do
+      que a lista faz.
+
+    Devolve os núcleos na ordem da página, sem repetir. Quem grava é o chamador.
+
+    Sem a lista geral não recolhe nada (`Lexico.sinaliza`): não havendo com que
+    comparar, `the` e `with` também seriam "palavras que a lista não tem", e o
+    vocabulário do livro nasceria cheio de idioma.
+    """
+    vistas, saida = set(), []
+    if not lex.sinaliza:
+        return saida
+
+    vazios = [b for b in boxes if not b.char]
+    for simbolos in _palavras_de_prosa(boxes):
+        indices = [i for _c, i in simbolos]
+        if not any(getattr(boxes[i], "source", "") == ORIGEM_MANUAL
+                   for i in indices):
+            continue
+        if _tem_buraco([boxes[i] for i in indices], vazios):
+            continue
+
+        nuc, _ = boxes_do_nucleo(simbolos)
+        chave = nuc.lower()
+        if len(nuc) < MIN_PARTE or not nuc.isalpha() or chave in vistas:
+            continue
+        if lex.conhece(nuc):
+            continue
+        vistas.add(chave)
+        saida.append(nuc)
+    return saida
+
+
+def aprender_da_pagina(boxes: Sequence, lex: Lexico,
+                       caminho: Optional[str] = None) -> List[str]:
+    """
+    Recolhe as palavras confirmadas, põe no léxico e grava. Devolve as novas.
+
+    Grava a lista **inteira** a cada vez, e não só o acréscimo: o arquivo é a
+    verdade, e reescrevê-lo ordenado é o que permite ao usuário editá-lo à mão
+    entre uma página e outra sem que o programa desfaça a edição.
+    """
+    novas = [p for p in palavras_confirmadas(boxes, lex) if lex.acrescentar(p)]
+    if novas and caminho:
+        salvar_do_usuario(caminho, lex.do_usuario)
+    return novas
