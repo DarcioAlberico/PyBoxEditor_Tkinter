@@ -39,8 +39,9 @@ def _estados(boxes):
 # ----------------------------------------------------------------------
 
 def test_as_state_leva_todos_os_campos():
-    b = BoxEntry("fi", 1, 2, 3, 4, confidence=0.75, source="lote", angulo=90)
-    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90)
+    b = BoxEntry("fi", 1, 2, 3, 4, confidence=0.75, source="lote", angulo=90,
+                 negativo=True)
+    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True)
 
 
 def test_from_state_desfaz_as_state():

@@ -33,6 +33,11 @@ class BoxEntry:
     # essa volta num lugar só.
     angulo: int = 0
 
+    # O glifo está impresso claro sobre escuro — o nome dos jogadores na tarja
+    # preta (F10). Quem classifica precisa dele escuro sobre claro, e
+    # `core.negativo.positivar` faz essa volta no mesmo funil do ângulo.
+    negativo: bool = False
+
     def as_tuple(self):
         return (self.char, self.x1, self.y1, self.x2, self.y2)
 
@@ -42,13 +47,15 @@ class BoxEntry:
 
         Não é o `as_tuple`, e a diferença importa: aquele devolve só caractere e
         coordenadas, para quem desenha e mede. Este serve para guardar e
-        restaurar **sem perder nada** — confiança, origem e ângulo inclusive.
+        restaurar **sem perder nada** — confiança, origem, ângulo e polaridade
+        inclusive.
 
-        Estado gravado antes da F8.1 tem sete campos e continua carregando: o
-        `angulo` fica no valor padrão, que é o que aquele box queria dizer.
+        Estado gravado antes da F8.1 tem sete campos e continua carregando; o
+        de antes da F10 tem oito. Os campos que faltam ficam no valor padrão,
+        que é o que aquele box queria dizer.
         """
         return (self.char, self.x1, self.y1, self.x2, self.y2,
-                self.confidence, self.source, self.angulo)
+                self.confidence, self.source, self.angulo, self.negativo)
 
     @classmethod
     def from_state(cls, estado) -> "BoxEntry":

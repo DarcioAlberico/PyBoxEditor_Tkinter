@@ -131,10 +131,20 @@ def endireitar(recorte: np.ndarray, angulo: int) -> np.ndarray:
 
 
 def recorte_de_pe(imagem, box: BoxEntry) -> np.ndarray:
-    """O recorte do box na página, já endireitado pelo ângulo do box."""
+    """
+    O recorte do box na página, pronto para o classificador.
+
+    Endireita pelo ângulo (F8.1) e positiva o que estiver impresso em negativo
+    (F10). É o funil das duas voltas: quem classifica pede o glifo como o
+    modelo o viu no treino, e não como ele está na página.
+    """
+    from core import negativo
+
     arr = np.asarray(imagem)
-    return endireitar(arr[box.y1:box.y2, box.x1:box.x2],
-                      getattr(box, "angulo", 0))
+    recorte = arr[box.y1:box.y2, box.x1:box.x2]
+    if getattr(box, "negativo", False):
+        recorte = negativo.positivar(recorte)
+    return endireitar(recorte, getattr(box, "angulo", 0))
 
 
 # ----------------------------------------------------------------------
@@ -469,9 +479,10 @@ def fundir_pingos(pilha: Sequence[BoxEntry]) -> List[BoxEntry]:
     # transposto quem manda é a geometria, e ela já está no eixo certo.
     angulo = getattr(pilha[0], "angulo", 0)
     transposto = [BoxEntry(b.char, b.y1, b.x1, b.y2, b.x2,
-                           b.confidence, b.source)
+                           b.confidence, b.source,
+                           negativo=getattr(b, "negativo", False))
                   for b in pilha]
     fundidos = BoxService.merge_vertical_boxes(transposto)
     return [BoxEntry(b.char, b.y1, b.x1, b.y2, b.x2,
-                     b.confidence, b.source, angulo)
+                     b.confidence, b.source, angulo, b.negativo)
             for b in fundidos]

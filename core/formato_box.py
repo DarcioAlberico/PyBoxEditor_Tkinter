@@ -35,6 +35,13 @@ Um box de texto vertical guarda o ângulo num **sétimo campo**, depois do núme
 da página. Ele só é escrito quando o ângulo não é zero: uma página sem texto
 girado continua gravando o arquivo byte a byte igual ao de antes, e quem lê só
 os seis campos do Tesseract não vê diferença nenhuma.
+
+## O oitavo campo, do texto em negativo (F10)
+
+Mesma regra, um campo adiante: `1` quando o glifo está impresso claro sobre
+escuro, e nada quando não está. Escrever o oitavo obriga a escrever o sétimo —
+um `0` de ângulo aparece nessa linha para o campo seguinte ter onde ficar, e é
+a única situação em que ele é gravado.
 """
 
 from typing import List, Optional, Sequence
@@ -86,6 +93,8 @@ def formatar_linha(box: BoxEntry, altura: int, pagina: int = 0) -> str:
     linha = (f"{codificar_char(box.char)} {box.x1} {altura - box.y2} "
              f"{box.x2} {altura - box.y1} {pagina}")
     angulo = getattr(box, "angulo", 0) % 360
+    if getattr(box, "negativo", False):
+        return f"{linha} {angulo} 1"
     return f"{linha} {angulo}" if angulo else linha
 
 
@@ -98,16 +107,18 @@ def analisar_linha(linha: str, altura: int,
     literal — é como o Tesseract grava o caractere espaço. Antes a linha era
     descartada e o box sumia.
 
-    O sétimo campo, quando existe, é o ângulo do texto girado (F8.1). Um valor
-    que não seja 0, 90, 180 ou 270 é ignorado em vez de rejeitar a linha: o
-    campo é uma extensão nossa, e um arquivo de terceiro pode usá-lo para
-    outra coisa — perder o ângulo custa menos do que perder o box.
+    O sétimo campo, quando existe, é o ângulo do texto girado (F8.1), e o
+    oitavo é a polaridade do texto em negativo (F10). Um valor que não seja 0,
+    90, 180 ou 270 no sétimo — ou que não seja `1` no oitavo — é ignorado em vez
+    de rejeitar a linha: os campos são extensão nossa, e um arquivo de terceiro
+    pode usá-los para outra coisa. Perder o ângulo custa menos do que perder o
+    box.
     """
     campos = linha.strip().split()
     if not campos:
         return None
 
-    angulo = 0
+    angulo, negativo = 0, False
     if len(campos) >= 6:
         char, coords = decodificar_char(campos[0]), campos[1:5]
         if len(campos) >= 7:
@@ -116,6 +127,8 @@ def analisar_linha(linha: str, altura: int,
             except ValueError:
                 candidato = 0
             angulo = candidato if candidato in (0, 90, 180, 270) else 0
+        if len(campos) >= 8:
+            negativo = campos[7] == "1"
     elif len(campos) == 5:
         char, coords = " ", campos[0:4]
     else:
@@ -128,7 +141,7 @@ def analisar_linha(linha: str, altura: int,
 
     if origem_inferior:
         y1, y2 = altura - y2, altura - y1
-    return BoxEntry(char, x1, y1, x2, y2, angulo=angulo)
+    return BoxEntry(char, x1, y1, x2, y2, angulo=angulo, negativo=negativo)
 
 
 def ler(caminho: str, altura: int,

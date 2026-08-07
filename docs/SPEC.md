@@ -2,8 +2,8 @@
 
 Versão: 2.0
 Data: 2026-08-03
-Status: **implementado até a F8** (ver ressalvas abaixo); a §5.8 é planejada e não está
-feita — atualizado em 2026-08-06
+Status: **implementado até a F8**, mais a §5.8 (F9.1) e a §5.9 (F10) — ver ressalvas
+abaixo; a F9.2 é planejada e não está feita — atualizado em 2026-08-06
 Substitui parcialmente: [`Substituição de Glifos de Xadrez.md`](../Substituição%20de%20Glifos%20de%20Xadrez.md) (v1.0)
 Companheiro: [`ROADMAP.md`](../ROADMAP.md)
 
@@ -127,6 +127,14 @@ recorte, na convenção do PDF: `0` normal, `90` o texto sobe (lê-se de baixo p
 o rascunho de autosave e o `.box` (§2.3), porque um ângulo perdido devolve o box à
 leitura errada de antes — 8,4% de acerto contra 94,4%.
 
+**`negativo: bool = False` — [feito, F10].** O glifo está impresso **claro sobre
+escuro**: o nome dos jogadores na tarja preta do Yusupov, o título de seção na tarja
+cinza do Kasparov. Mesma escolha do `angulo`, e pelo mesmo motivo — quem classifica quer
+o glifo como o modelo o viu no treino, e `core.negativo.positivar` é a volta. As duas
+voltas moram no mesmo funil, `vertical.recorte_de_pe`, e compõem: um rótulo girado
+dentro de uma tarja sai de pé e positivado. O campo atravessa `as_state`, o autosave e o
+`.box` (§2.3).
+
 **Invariantes** (validar ao construir e após qualquer mutação):
 
 - `x1 < x2` e `y1 < y2`
@@ -184,6 +192,12 @@ Regras:
 > Na leitura, um sétimo campo que não seja 0, 90, 180 ou 270 é ignorado em vez de
 > derrubar a linha: o campo é extensão nossa, e perder o ângulo custa menos que perder o
 > box.
+
+> **O oitavo campo, da F10.** Mesma regra, um campo adiante: `1` quando o glifo está
+> impresso claro sobre escuro, nada quando não está. Escrever o oitavo obriga a escrever
+> o sétimo — um `0` de ângulo aparece nessa linha para o campo seguinte ter onde ficar, e
+> é a única situação em que ele é gravado. Oitavo campo que não seja `1` é lido como
+> "não é negativo", pelo mesmo motivo do sétimo.
 
 ---
 
@@ -853,6 +867,47 @@ visíveis ao léxico; `,`↔`'`, `.`↔`-` e `✝`↔`+` não são, porque pontu
 de palavra. E palavra partida por hífen no fim da linha só existe depois da ordenação de
 leitura (ROADMAP F1.6).
 
+### 5.9 Texto em negativo — [feito, F10, em `core/negativo.py`]
+
+Nome dos jogadores em branco sobre tarja preta (Yusupov), título de seção em branco sobre
+tarja cinza (Kasparov). Não estava na spec, e o custo de não tratá-lo é **perda total**,
+não erro: `binarize` deixa a tinta em branco, a tarja inteira vira um borrão, o
+RETR_EXTERNAL devolve **um** box e os caracteres de dentro não chegam a existir. Medido
+na página 33 do *Chess Evolution 1*: 6 tarjas, 6 boxes, zero caracteres.
+
+O contrato, todo ele vindo de medição:
+
+1. **A polaridade é do box, não da página.** `BoxEntry.negativo` (§2.1) e
+   `negativo.positivar` no funil da §5.7. Inverter a página inteira seria mais simples e
+   está descartado: o usuário confere o box contra a página impressa, e mexer no que ele
+   vê para consertar o que o modelo lê troca um problema de leitura por um de revisão.
+2. **A geometria propõe, o conteúdo dispõe** — o padrão da §3 e da §5.7, com o árbitro
+   trocado pelo teste de resultado de `preprocess.tinta_plausivel`: inverte-se a faixa e
+   pergunta-se se o que apareceu tem tamanho de caractere *em relação à altura dela*.
+   Foto, logotipo e bloco de ruído caem aqui.
+3. **Duas réguas separam tarja de palavra em negrito**, e ambas saem de tabela: proporção
+   ≥ 4:1 (tarja 5,34–13,70; palavra sublinhada 3,00–4,72) e altura ≥ 2 caracteres
+   medianos da página (tarja 2,57–28,50; palavra 0,41–1,21). O risco que elas cobrem é o
+   pior da fase: aceitar uma palavra sublinhada **substituiria por lixo um texto que o
+   caminho normal já lia certo**.
+4. **A faixa é aparada antes de ser lida.** Tira decorativa hachurada encosta no topo das
+   letras e funde meia linha num componente só — 88 componentes numa tarja de 20
+   caracteres, dois deles com metade da tarja cada. Aparar **não** é condição de aceite:
+   tarja de tom fraco não tem linha cheia nenhuma, e exigi-la perdia tarja legível. Onde
+   a apara não pega — tira escura, 3 das 438 tarjas do Yusupov — a rede é `na_linha`: os
+   componentes que já se sabe serem caractere dizem onde está a linha, e o que cai fora
+   dela é decoração.
+5. **O que sai da faixa é box comum**, e passa por tudo que box passa — merge do pingo
+   do 'i', corte de glifo colado (com o `th` da faixa invertido, senão o vale entre duas
+   letras é um pico), ordem de leitura. Filtrar ali seria refazer, pior, o que o pipeline
+   já faz.
+6. **A lista volta ordenada por (y1, x1).** `merge_vertical_boxes` aceita distância
+   vertical negativa; fora de ordem, uma letra da tarja casa com um box do outro lado da
+   página e a caixa resultante absorve a coluna inteira — medido, 1.889 boxes viraram 27.
+
+`medir_negativo.py` refaz as medições da fase, e aceita `--imagens` para rodar sobre
+scans em vez de PDF.
+
 ---
 
 ## 6. Aplicação
@@ -1317,10 +1372,12 @@ PyBoxEditor_Tkinter/
 ├── appy.py                    ← ponto de entrada (o nome é histórico)
 ├── calibrar_modelo.py         ← ferramentas de medição; produzem os
 ├── medir_paginas.py             números do ROADMAP
+├── medir_negativo.py
 ├── pytest.ini  requirements.txt  requirements-dev.txt
 ├── config/{settings.py, profiles/}
 ├── core/
 │   ├── box_model.py  formato_box.py  preprocess.py  semelhanca.py
+│   ├── vertical.py  negativo.py  lexico.py  nags.py
 │   ├── notacao.py  calibracao.py  perfis.py
 │   ├── avaliacao.py  avaliacao_pagina.py  dataset_check.py
 │   ├── neural_model.py  neural_trainer.py  learner.py

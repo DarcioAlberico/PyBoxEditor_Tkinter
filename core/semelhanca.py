@@ -146,9 +146,22 @@ def encontrar_semelhantes(imagem, boxes: Sequence[BoxEntry], indice: int,
 
 
 def _recortar(arr: np.ndarray, b: BoxEntry) -> np.ndarray:
+    """
+    O recorte do box, positivado quando ele é de tarja (F10).
+
+    O descritor é a imagem redimensionada, então polaridade trocada é distância
+    máxima: sem positivar, o 'A' da tarja nunca casaria com o 'A' do texto
+    corrido, que é exatamente o que este diálogo existe para achar.
+    """
+    from core import negativo
+
     h, w = arr.shape[:2]
     y1, y2 = max(0, b.y1), min(h, b.y2)
     x1, x2 = max(0, b.x1), min(w, b.x2)
     if y2 <= y1 or x2 <= x1:
         return np.empty((0, 0), dtype=arr.dtype)
-    return arr[y1:y2, x1:x2]
+
+    recorte = arr[y1:y2, x1:x2]
+    if getattr(b, "negativo", False):
+        return negativo.positivar(recorte)
+    return recorte

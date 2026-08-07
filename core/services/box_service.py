@@ -3,7 +3,7 @@ import numpy as np
 from typing import List, Optional, Set, Tuple
 from PIL import Image
 
-from core import preprocess, vertical
+from core import negativo, preprocess, vertical
 from core.box_model import BoxEntry
 
 
@@ -51,6 +51,11 @@ class BoxService:
             boxes.append(BoxEntry("", x, y, x + w, y + h))
 
         boxes.sort(key=lambda b: (b.y1, b.x1))
+        # Antes de tudo o que mede caractere: a tarja preta é um box só, e os
+        # caracteres de dentro dela ainda não existem (F10). O `th` volta com
+        # as tarjas invertidas, para o separador de colados ver o perfil de
+        # tinta do texto e não o do fundo.
+        boxes, th, _faixas = negativo.aplicar(img_cv, th, boxes)
         # Antes do merge, e não depois: o merge vertical cola exatamente o que
         # numa pilha girada são letras vizinhas — medido, uma linha real de 17
         # caracteres saía como 7 caixas (F8.1). Quem sai daqui marcado fica
@@ -171,16 +176,28 @@ class BoxService:
         partes. A menor, e não a média: basta um pedaço sem sentido para o
         corte ter sido estrago, e a média deixaria um pedaço bom encobrir o
         outro.
+
+        Box em negativo é positivado antes de chegar ao árbitro (F10): aqui o
+        recorte sai da página em tom de cinza, e branco sobre preto é o que o
+        modelo lê pior — o árbitro recusaria todo corte de tarja pelo motivo
+        errado.
         """
-        recorte = imagem_cinza[box.y1:box.y2, box.x1:box.x2]
+        def recorte_de(ini, fim):
+            pedaco = imagem_cinza[box.y1:box.y2, box.x1 + ini:box.x1 + fim]
+            if pedaco.size and getattr(box, "negativo", False):
+                return negativo.positivar(pedaco)
+            return pedaco
+
+        largura = box.x2 - box.x1
+        recorte = recorte_de(0, largura)
         if recorte.size == 0:
             return []
         _, p_inteiro = arbitro(recorte)
 
-        limites = [0] + list(cortes) + [box.x2 - box.x1]
+        limites = [0] + list(cortes) + [largura]
         menor = 1.0
         for ini, fim in zip(limites, limites[1:]):
-            pedaco = imagem_cinza[box.y1:box.y2, box.x1 + ini:box.x1 + fim]
+            pedaco = recorte_de(ini, fim)
             if pedaco.size == 0:
                 return []
             menor = min(menor, float(arbitro(pedaco)[1]))
@@ -311,7 +328,8 @@ class BoxService:
 
             limites = [0] + cortes + [b.x2 - b.x1]
             for ini, fim in zip(limites, limites[1:]):
-                saida.append(BoxEntry(b.char, b.x1 + ini, b.y1, b.x1 + fim, b.y2))
+                saida.append(BoxEntry(b.char, b.x1 + ini, b.y1, b.x1 + fim,
+                                      b.y2, negativo=b.negativo))
 
         return saida
 
@@ -596,7 +614,8 @@ class BoxService:
 
             b1 = boxes[i]
             current_merged = BoxEntry(
-                b1.char, b1.x1, b1.y1, b1.x2, b1.y2
+                b1.char, b1.x1, b1.y1, b1.x2, b1.y2,
+                negativo=getattr(b1, "negativo", False)
             )
             used_indices.add(i)
 
@@ -661,23 +680,25 @@ class BoxService:
         Divide um box ao meio. Se for mais largo que alto, divide em X.
         Caso contrário, divide em Y. Retorna 2 boxes com char vazio.
 
-        As metades herdam o ângulo (F8.1): quem parte um box de rótulo vertical
-        em dois quer dois pedaços do mesmo rótulo, não dois boxes normais.
+        As metades herdam o ângulo (F8.1) e a polaridade (F10): quem parte um
+        box de rótulo vertical — ou de tarja preta — em dois quer dois pedaços
+        do mesmo rótulo, não dois boxes normais.
         """
         x1, y1, x2, y2 = box.x1, box.y1, box.x2, box.y2
         angulo = getattr(box, "angulo", 0)
+        neg = getattr(box, "negativo", False)
 
         if (x2 - x1) > (y2 - y1):
             mx = (x1 + x2) // 2
             return [
-                BoxEntry("", x1, y1, mx, y2, angulo=angulo),
-                BoxEntry("", mx, y1, x2, y2, angulo=angulo),
+                BoxEntry("", x1, y1, mx, y2, angulo=angulo, negativo=neg),
+                BoxEntry("", mx, y1, x2, y2, angulo=angulo, negativo=neg),
             ]
         else:
             my = (y1 + y2) // 2
             return [
-                BoxEntry("", x1, y1, x2, my, angulo=angulo),
-                BoxEntry("", x1, my, x2, y2, angulo=angulo),
+                BoxEntry("", x1, y1, x2, my, angulo=angulo, negativo=neg),
+                BoxEntry("", x1, my, x2, y2, angulo=angulo, negativo=neg),
             ]
 
     @staticmethod
@@ -692,4 +713,5 @@ class BoxService:
             confidence=box.confidence,
             source=box.source,
             angulo=getattr(box, "angulo", 0),
+            negativo=getattr(box, "negativo", False),
         )

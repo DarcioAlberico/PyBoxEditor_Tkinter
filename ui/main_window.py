@@ -1810,7 +1810,9 @@ class MainWindow(tk.Frame):
             return
 
         b = self.boxes[self.selected_index]
-        crop = self.image.crop((b.x1, b.y1, b.x2, b.y2))
+        # Pelo funil, e não por `self.image.crop`: o Tesseract quer o glifo de
+        # pé (F8.1) e escuro sobre claro (F10), como qualquer classificador.
+        crop = Image.fromarray(vertical.recorte_de_pe(np.array(self.image), b))
         ch = self.ocr_service.tesseract_ocr(crop)
 
         if not ch:

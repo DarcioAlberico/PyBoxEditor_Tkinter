@@ -32,6 +32,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
 | **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
 | **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **F9.1 feita**; F9.2 planejada |
+| **F10** | Texto em negativo | O nome dos jogadores na tarja preta deixa de ser um borrão e vira texto | **concluída** (F10.1) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -49,7 +50,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **836 testes**, `pytest` na raiz.
+Cobertura: **919 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -3041,6 +3042,153 @@ pontuação, que é metade das confusões medidas. E não ataca o gargalo: na ú
 pipeline (2026-08-04, 9 páginas rotuladas) a distância entre os 93,8 de F1 e os 99,83% do
 classificador em recorte já segmentado continua sendo **segmentação**, e nenhum dicionário
 a conserta.
+
+---
+
+## F10 — Texto em negativo — CONCLUÍDA
+
+### F10.1 — Ler o texto da tarja preta ou colorida — CONCLUÍDA
+
+**Concluída em 2026-08-06.** `core/negativo.py`, `BoxEntry.negativo`, e a troca entra
+sozinha na geração de boxes — sem depender de modelo carregado, ao contrário da F8.1.
+
+**Aqui o programa não lia errado: não lia.** O cabeçalho da partida vem numa tarja —
+*"J.Bolbochan – L.Pachman"* em branco sobre preto no Yusupov, *"Section 1 – 9.♘f3"* em
+branco sobre cinza no Kasparov. `binarize` deixa a tinta em branco, então a tarja inteira
+vira um borrão de tinta, `findContours` com RETR_EXTERNAL devolve **um** box e os
+caracteres de dentro não chegam a existir. Medido na página 33 do *Chess Evolution 1*,
+antes da fase:
+
+| | antes | depois |
+|---|---:|---:|
+| tarjas na página | 6 | 6 |
+| boxes dentro delas | **6** (um por tarja, 663x55) | **115** |
+| caracteres lidos | **0** | 6 nomes de jogador |
+
+Não é caso raro: são 264 páginas com tarja em quase toda partida e todo exercício, e o
+nome do jogador é justamente o que a F9.2 quer no dicionário do usuário.
+
+#### O que o classificador lê lá dentro
+
+Seis tarjas conferidas caractere a caractere contra a imagem (a camada de texto do PDF
+"editable" **não serve de verdade** — ela própria traz `Boibochan` e `Stefnit`):
+
+| lido | impresso | acerto |
+|---|---|---:|
+| `K.Emmrich-B.Moritz` | K.Emmrich – B.Moritz | 18/18 |
+| `-J.Bolb0chan-L.Pachman` | J.Bolbochan – L.Pachman | 20/21 |
+| `Em.Lanker-WSteinitz` | Em.Lasker – W.Steinitz | 18/20 |
+| `S.Tarrasch-S.Tart@0wer` | S.Tarrasch – S.Tartakower | 20/23 |
+| `M.Td-Miller` | M.Tal – Miller | 10/12 |
+| `S.Urusov-Kdinovsb` | S.Urusov – Kalinovsky | 15/19 |
+| **total** | | **101/113 = 89,4%** |
+
+Contra 0% antes, e os erros que sobram têm dois nomes: `o`→`0` (o modelo viu pouca
+serifa em negrito) e letras coladas que viram uma só (`al`→`d` em *Tal*, *Salwe*,
+*Kalinovsky*). O segundo é o defeito da F1.5b, agora alcançável — antes não havia box
+para o separador cortar.
+
+#### O livro inteiro, e as três tarjas que a apara não pegou
+
+As 264 páginas do *Chess Evolution 1*: **438 faixas propostas, 438 aceitas**, e todas as
+438 são tarja de verdade — auditadas pelo tamanho (a tarja de coluna deste livro mede
+660, 670, 775 ou 790 px de largura) e visualmente nas três que fogem disso, que são
+*G.Kasparov – I.Smirin*, *T.Barnes – P.Morphy* e *Y.Averbakh & V.Chekhover*.
+
+Essas três fogem por um motivo, e ele valeu uma correção: nelas a tira decorativa é
+**escura** o bastante para que suas linhas passem de `SOLIDO`, a apara para na primeira
+linha da *tira* em vez da tarja, e a hachura entra no recorte — 119, 112 e 22 boxes para
+nomes de ~20 caracteres. A rede que faltava é `na_linha`: os componentes que já se sabe
+serem caractere dizem onde está a linha de texto, e o que cai fora dela é decoração.
+Depois dela, 21, 55 e 19. Nas outras 435 tarjas e nas 19 do Kasparov, nada muda.
+
+#### Falso positivo: zero em 588 páginas, e não foi de graça
+
+O risco desta fase não é deixar de ler; é **inventar**. Faixa cheia também é foto,
+logotipo e — o caso perigoso — palavra em negrito com sublinhado, onde o sublinhado gruda
+as letras num componente cheio e largo. Aceitá-la substituiria por lixo um texto que o
+caminho normal já lia certo.
+
+Varredura das 324 páginas do Kasparov (scan real) com auditoria visual de tudo que foi
+aceito:
+
+| versão | propostas | aceitas | falsos positivos |
+|---|---:|---:|---:|
+| só apara + conteúdo | 66 | 17 | 0, mas **2 tarjas perdidas** |
+| sem a apara como condição | 66 | 39 | **22** (palavra sublinhada) |
+| com as duas réguas | 25 | **19** | **0** |
+
+As duas réguas saíram de tabela, não de escolha, e as populações não se tocam:
+
+| | proporção (larg/alt) | altura (em caracteres medianos) |
+|---|---|---|
+| tarja de verdade | 5,34 – 13,70 | 2,57 – 28,50 |
+| palavra sublinhada | 3,00 – 4,72 | 0,41 – 1,21 |
+| **limiar** | **4,0** | **2,0** |
+
+**Uma régua não bastou, e as duas se cobrem.** A mediana de altura da página afunda onde
+há pontilhado de sumário — na página 6 do Kasparov ela cai a 8 px com a letra medindo 22,
+e o fragmento `ening` do título em negrito chega a 2,75 alturas. Quem o recusa é a
+proporção (3,09). O caminho oposto — trocar a mediana pelo percentil 75 — resolvia esse
+caso e criava outro pior: nas páginas de exercício do Yusupov o percentil 75 vai a 30 px,
+o piso passa a 60, e as tarjas de 55 px que são o alvo da fase eram todas recusadas.
+
+#### Três decisões que a medição forçou
+
+**1. A polaridade é do box, e a página não se mexe.** `BoxEntry.negativo` é a mesma
+escolha do `angulo` da F8.1: quem classifica quer o glifo como o modelo o viu no treino,
+e `vertical.recorte_de_pe` é o funil das duas voltas. Inverter a região na página seria
+mais simples e está descartado de propósito — o usuário confere o box contra a página
+impressa, e mexer no que ele vê para consertar o que o modelo lê troca um problema de
+leitura por um de revisão.
+
+**2. Aparar a faixa é obrigatório; exigir que a apara funcione, não.** Acima da tarja do
+Yusupov há uma tira decorativa hachurada, clara o bastante para virar tinta na inversão:
+ela encosta no topo das letras e funde meia linha num componente só — 88 componentes numa
+tarja de 20 caracteres, dois deles com metade da tarja cada. A apara acha o retângulo
+cheio pelas bordas (linha de tarja tem ~100% de tinta, linha de hachura tem 55%–75%). Mas
+**a primeira versão recusava a faixa que não tinha borda cheia**, e isso custou a tarja
+*"6...♘bd7"* da página 264 do Kasparov: cinza-clara, legível, nove caracteres, e a
+binarização marcando só 60%–87% dela. Hoje, faixa sem borda cheia volta inteira e quem
+julga é o conteúdo.
+
+**3. A lista tem de voltar ordenada por (y1, x1).** Foi o defeito mais caro da fase e
+nenhum teste o anteciparia: `merge_vertical_boxes` mede a distância vertical como
+`b2.y1 - b1.y2` e **aceita valor negativo**. Devolvendo as caixas novas no fim da lista,
+uma letra da tarja casa com um box do outro lado da página, a caixa resultante atravessa
+tudo e passa a absorver a coluna inteira — os 1.889 boxes da página 33 saíram do merge
+como **27**. `test_a_lista_volta_ordenada` guarda essa porta.
+
+#### O que esta fase não entrega
+
+**Tarja mais curta que 4:1 não é vista.** Um rótulo colorido de uma palavra só fica
+abaixo do limiar de proporção, onde ele é indistinguível de uma palavra em negrito com
+sublinhado — e essa palavra o caminho normal já lê certo. O preço está medido e é este.
+
+**Tarja de três linhas não é vista.** O glifo é medido contra a altura da faixa, então a
+razão cai a cada linha a mais: a de duas linhas do Kasparov passa em 0,31 contra um piso
+de 0,30 — raspando. A correção óbvia (deduzir a altura da linha agrupando os próprios
+componentes) é a mesma que aceitaria a palavra sublinhada, cujos vazados se agrupam tão
+bem quanto letras; por isso o limite ficou registrado em vez de corrigido.
+
+**Não há árbitro, e a diferença para a F8.1 é deliberada.** Lá, marcar ângulo por
+geometria pura mexeria em texto que já estava certo, e por isso o classificador vota.
+Aqui a faixa recusada continua rendendo o que rendia antes da fase — nada —, e o risco de
+inventar está coberto por duas réguas medidas em 588 páginas. Se aparecer material em que
+elas não bastem, o padrão do árbitro está pronto para ser aplicado.
+
+**Fundo colorido é lido como fundo escuro, não como cor.** A página chega em tom de
+cinza; uma tarja azul ou vinho vira um retângulo cinza-escuro e entra pelo mesmo caminho.
+Tarja de tom **claro** com texto escuro não é caso desta fase — ali o texto é tinta, e o
+caminho normal já o lê.
+
+**O custo é de 0,4 ms por página** no scan do Kasparov (2,9 ms a 300 dpi no Yusupov),
+contra 267 ms da página inteira. Ele é pago em toda página, inclusive nas que não têm
+tarja: o que roda sempre é uma varredura de caixas cheias e largas, e a inversão só
+acontece em candidato.
+
+Cobertura: `tests/test_f10_negativo.py`, 31 testes. `medir_negativo.py` refaz as medições
+acima — com `--imagens` para scans, com o caminho de um PDF para o resto.
 
 ---
 
