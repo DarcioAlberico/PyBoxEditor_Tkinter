@@ -264,6 +264,15 @@ profundidade partiria a coroa da dama, que tem vales fundos entre as pontas.
 Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
 literal deve sobrar no código.
 
+> **O corte de linha, da F12.** `BoxService.dividir_linhas_coladas` parte o box cuja
+> altura passa de 1,6 escala — dois caracteres de linhas diferentes que se tocaram no
+> papel. É o corte da §3/F1.5b transposto (`_cortes_do_perfil` sobre o recorte
+> transposto), e tem duas diferenças que foram medidas, não escolhidas: **a lasca da
+> linha vizinha é descartada** (pedaço menor que uma escala não vira box — emiti-lo
+> custa 2,2 espúrios por caractere recuperado e derruba o F1 de 94,48 para 93,95), e
+> **não há árbitro** (com ele, 94,06 contra 94,48 sem — a lasca pontua baixo e a regra
+> da menor parte recusa o corte certo). No pipeline completo: F1 de 94,1 para 94,4.
+>
 > **A régua da página, da F11.** `escala_de_texto(img_bin)` é a altura de caractere
 > medida por **massa de tinta**, e ela existe porque a mediana simples das alturas não
 > sobrevive a uma trama de meio-tom: no quadro de pontuação da página 18 do Yusupov,

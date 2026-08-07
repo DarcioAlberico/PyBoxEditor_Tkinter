@@ -76,6 +76,9 @@ class BoxService:
         # respingos sobram soltos — na página 0108, 11 boxes espúrios viram 29.
         if descartar_nao_texto:
             boxes = BoxService.descartar_blocos_nao_texto(boxes, escala=escala)
+        # Antes do corte de glifo colado, e não depois: partir a linha primeiro
+        # deixa cada metade com a largura certa para o separador da F1.5b medir.
+        boxes = BoxService.dividir_linhas_coladas(boxes, th, escala)
         if separar_colados is True or (separar_colados == "auto"
                                        and arbitro is not None):
             # Depois do merge vertical: fundir o pingo do 'i' primeiro evita
@@ -348,6 +351,104 @@ class BoxService:
             for ini, fim in zip(limites, limites[1:]):
                 saida.append(BoxEntry(b.char, b.x1 + ini, b.y1, b.x1 + fim,
                                       b.y2, negativo=b.negativo))
+
+        return saida
+
+    #: Altura, em escalas de texto, acima da qual um box não é um caractere e
+    #: sim duas linhas grudadas. Medido nas 10 páginas rotuladas: 109 boxes
+    #: passam de 1,6 escalas, e o corte por vale de linha acha **todos** os 71
+    #: que cobrem rótulos de duas linhas — nenhum escapa.
+    ALTURA_DUAS_LINHAS = 1.6
+
+    #: Teto: acima disto é bloco (diagrama, painel, moldura) e não é assunto
+    #: deste corte. `descartar_blocos_nao_texto` usa 4,0 para o mesmo fim.
+    ALTURA_MAXIMA_DE_CORTE = 6.0
+
+    #: Pedaço menor que isto, em escalas, não vira box: é a **lasca** que sobra
+    #: da linha vizinha, e é ela que decide se a fase paga. Medido nas 10
+    #: páginas rotuladas, com o resto do pipeline igual:
+    #:
+    #:     lasca vira box       recall 94,96  precisão 92,96   F1 93,95   (pior)
+    #:     descarta abaixo 0,8  recall 94,84  precisão 93,93   F1 94,38
+    #:     descarta abaixo 0,9  recall 94,81  precisão 94,13   F1 94,47
+    #:     descarta abaixo 1,0  recall 94,80  precisão 94,17   F1 94,48
+    #:     descarta abaixo 1,2  recall 94,74  precisão 94,24   F1 94,49
+    #:     sem cortar (antes)   recall 94,50  precisão 93,66   F1 94,08
+    #:
+    #: Emitir a lasca **piora** o F1: cada caractere recuperado custa 2,2 boxes
+    #: espúrios. O valor é 1,0 por ficar no meio do platô 0,9–1,2 e por ser o que
+    #: dá para dizer em voz alta: pedaço mais curto que um caractere não é
+    #: caractere.
+    PECA_MINIMA_DE_LINHA = 1.0
+
+    @staticmethod
+    def dividir_linhas_coladas(boxes: List[BoxEntry], imagem_bin: np.ndarray,
+                               escala: int,
+                               razao_vale: float = 0.30) -> List[BoxEntry]:
+        """
+        Parte o box que engoliu duas linhas de texto.
+
+        **É o corte da F1.5b transposto**, e o defeito que ele ataca é o
+        simétrico daquele: lá dois glifos vizinhos se tocam na horizontal e o
+        contorno sai largo; aqui o descendente de uma linha ('y', 'g', 'p')
+        encosta na linha de baixo e o contorno sai **alto**. Medido nas 10
+        páginas rotuladas, 231 caracteres ficam sem box por estarem colados a um
+        vizinho, e 71 boxes cobrem rótulos de duas linhas ao mesmo tempo.
+
+        **Nem todos nascem no merge, e isso mudou o desenho.** Dos 131 boxes
+        altos das páginas rotuladas, só 29 são criados por
+        `merge_vertical_boxes`; os outros 102 já vêm assim do `findContours`,
+        porque os glifos se tocam de verdade no papel. Proibir o merge não
+        resolveria — é preciso cortar.
+
+        O critério é o vale do perfil de tinta **por linha**, e a transposição
+        é literal: `_cortes_do_perfil` já sabe achar vale numa direção, e
+        passar o recorte transposto o faz olhar na outra. É a manobra de
+        `vertical.fundir_pingos`.
+
+        **Sem árbitro, ao contrário da F1.5b, e isso foi medido nas duas
+        posições.** Lá o classificador é o que salva o corte, porque box largo é
+        comum e o perfil sozinho acerta 28,6%. Aqui a geometria já é decisiva —
+        um box 1,6 vez mais alto que um caractere é anômalo por construção, e
+        são 109 em 10 páginas —, e submeter o corte ao árbitro **derruba** o
+        ganho: F1 94,06 com ele contra 94,48 sem. O que ele recusa é justamente
+        o corte certo, porque a lasca da linha vizinha pontua baixo.
+        """
+        if not boxes or imagem_bin is None or escala <= 0:
+            return boxes
+
+        piso = escala * BoxService.ALTURA_DUAS_LINHAS
+        teto = escala * BoxService.ALTURA_MAXIMA_DE_CORTE
+        vale_minimo = max(3, int(escala * 0.4))
+        peca_minima = escala * BoxService.PECA_MINIMA_DE_LINHA
+
+        saida = []
+        for b in boxes:
+            # Box girado fica de fora pelo mesmo motivo da F8.1: numa pilha
+            # vertical as linhas correm no outro eixo.
+            if getattr(b, "angulo", 0) or not (piso < b.height <= teto):
+                saida.append(b)
+                continue
+
+            recorte = imagem_bin[b.y1:b.y2, b.x1:b.x2]
+            cortes = BoxService._cortes_do_perfil(
+                np.ascontiguousarray(recorte.T), razao_vale, 2, vale_minimo)
+            if not cortes:
+                saida.append(b)
+                continue
+
+            limites = [0] + list(cortes) + [b.height]
+            pedacos = [(ini, fim) for ini, fim in zip(limites, limites[1:])
+                       if fim - ini >= peca_minima]
+            if not pedacos:
+                # Nenhum pedaço tem tamanho de caractere: o box não era duas
+                # linhas, era outra coisa alta. Fica como estava.
+                saida.append(b)
+                continue
+
+            for ini, fim in pedacos:
+                saida.append(BoxEntry(b.char, b.x1, b.y1 + ini, b.x2, b.y1 + fim,
+                                      negativo=b.negativo))
 
         return saida
 

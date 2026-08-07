@@ -268,11 +268,21 @@ def test_snapshot_de_pagina_grande_e_rapido():
     h = HistoryManager()
     h.snapshot(boxes, 0)                      # aquece
 
+    # **O melhor de 10, e não a média.** Com a média este teste falhava uma
+    # execução em três da suíte cheia e passava sozinho toda vez: o que ele
+    # mede junto é o escalonador, não o snapshot (0,41 ms medido, limite 5,0).
+    # O mínimo é imune a isso e continua pegando o que o teste existe para
+    # pegar — a volta de uma cópia profunda custaria ~15 ms em *toda* chamada.
+    melhor = min(_uma_medida(h, boxes) for _ in range(10))
+    assert melhor < 5.0, f"snapshot custou {melhor:.2f} ms por chamada"
+
+
+def _uma_medida(h, boxes):
+    import time
+
     inicio = time.perf_counter()
-    for _ in range(10):
-        h.snapshot(boxes, 0)
-    ms = (time.perf_counter() - inicio) / 10 * 1000
-    assert ms < 5.0, f"snapshot custou {ms:.2f} ms por chamada"
+    h.snapshot(boxes, 0)
+    return (time.perf_counter() - inicio) * 1000
 
 
 if __name__ == "__main__":

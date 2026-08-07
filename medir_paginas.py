@@ -73,6 +73,10 @@ def segmentar(imagem, modo, arbitro=None, margem=None):
     # espelha `generate_boxes_opencv`: o diagrama sai DEPOIS do merge (F1.8)
     pais = BoxService.descartar_blocos_nao_texto(
         BoxService.merge_vertical_boxes(brutos), escala=escala)
+    # Fora do `if`, e antes dele: o corte de linha (F12) não é um dos modos —
+    # é parte do pipeline em todos eles. Os modos comparam o separador de
+    # **glifo**, e deixá-lo só num deles compararia duas coisas de uma vez.
+    pais = BoxService.dividir_linhas_coladas(pais, th, escala)
 
     if modo == "off":
         return pais, BoxService.sort_boxes_reading_order(list(pais))

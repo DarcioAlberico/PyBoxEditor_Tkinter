@@ -34,6 +34,12 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **concluída** (F9.1, F9.2) |
 | **F10** | Texto em negativo | O nome dos jogadores na tarja preta deixa de ser um borrão e vira texto | **concluída** (F10.1) |
 | **F11** | Texto sobre trama | O quadro de pontuação deixa de apagar o texto da página; a régua da página para de desabar | **concluída** (F11.1) |
+| **F12** | Duas linhas num box | O descendente que encosta na linha de baixo deixa de engolir um caractere | **concluída** (F12.1) |
+
+> **Re-medido em 2026-08-07, com a F12.** Nas 10 páginas rotuladas o pipeline dá **94,4
+> de F1** (94,9% de recall, 94,0% de precisão, 323 boxes espúrios), contra 94,1 antes. O
+> ganho é do corte de linha, e a conta de onde vem o que ainda falta está na F12.1: 231
+> caracteres colados na horizontal, 348 lidos errado com o box certo.
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -51,7 +57,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **963 testes**, `pytest` na raiz.
+Cobertura: **975 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1978,7 +1984,7 @@ do treino e fora do repositório. Detalhes na SPEC §5.2.
 
 ## Ordem de execução
 
-**Todos os itens de F0 a F11 estão concluídos** — a F9 fechou em 2026-08-06 com a F9.2, e
+**Todos os itens de F0 a F12 estão concluídos** — a F9 fechou em 2026-08-06 com a F9.2, e
 a F10 (texto em negativo) e a F11 (texto sobre trama) no mesmo dia. A ordem dentro da F9 foi a que o item mandava:
 mediu-se primeiro quanto do erro era alcançável, e a contagem não encerrou a fase, mas
 dimensionou-a — o dicionário do livro apaga 9,2% do alarme falso, não a maioria dele.
@@ -3373,6 +3379,103 @@ que não entrou:
 Cobertura: `tests/test_f11_trama.py`, 15 testes. Metade cobra o que **não** pode mudar: o
 diagrama continua um bloco descartado, a pontuação escura sobrevive à limpeza, e a página
 sem trama sai byte a byte igual.
+
+---
+
+## F12 — O box que engoliu duas linhas — CONCLUÍDA
+
+### F12.1 — Partir o box que cobre duas linhas — CONCLUÍDA
+
+**Concluída em 2026-08-07.** `BoxService.dividir_linhas_coladas`, no pipeline entre o
+descarte de bloco e o separador de glifo colado.
+
+**A fase começou por uma medição, não por uma ideia.** Com F0–F11 fechadas, o gargalo
+declarado continuava sendo segmentação — 94,1 de F1 no pipeline contra 99,83% do
+classificador em recorte já segmentado. Faltava saber *de que* é feita essa distância, e
+a conta é esta, nas 10 páginas rotuladas (10.613 caracteres):
+
+| o que falta para 100% de recall | |
+|---|---:|
+| **colado com o vizinho** (o caractere não ganhou box) | **231** |
+| box desalinhado | 5 |
+| lido errado (o box estava certo, o modelo errou) | 348 |
+
+| os 331 boxes espúrios | |
+|---|---:|
+| **sobra perto do texto** | **243** |
+| respingo | 45 |
+| pedaço de glifo partido | 33 |
+| fora do texto | 10 |
+
+O que fez a fase existir foi o *formato* das sobras: `'g' 21x71`, `'♗x' 73x86`, `'♖' 22x71`
+— altura 71 e 86 onde a mediana de caractere é 34. **São dois caracteres de linhas
+diferentes num box só**: o descendente de uma linha ('y', 'g', 'p') encosta na de baixo.
+
+É o defeito simétrico ao da F1.5b — lá dois vizinhos horizontais se tocam e o contorno sai
+largo; aqui o toque é vertical e o contorno sai alto. Só que este não tinha tratamento
+nenhum.
+
+#### Proibir o merge não resolveria
+
+Dos 131 boxes altos das páginas rotuladas, só **29** nascem em `merge_vertical_boxes`; os
+outros 102 já vêm assim do `findContours`, porque os glifos se tocam de verdade no papel.
+É preciso cortar, e o corte é o da F1.5b transposto: `_cortes_do_perfil` já acha vale numa
+direção, e passar o recorte transposto o faz olhar na outra — a manobra de
+`vertical.fundir_pingos`.
+
+O corte acha **todos os 71** boxes que cobrem rótulos de duas linhas. Nenhum escapa.
+
+#### A lasca é o que decide se a fase paga
+
+Cortar e emitir os dois pedaços **piora** o resultado. Medido com o resto do pipeline
+idêntico:
+
+| | recall | precisão | F1 | espúrios |
+|---|---:|---:|---:|---:|
+| sem cortar (antes da fase) | 94,50% | 93,66% | 94,08 | 331 |
+| cortar e emitir os dois pedaços | 94,96% | 92,96% | **93,95** | 441 |
+| cortar, descartar pedaço < 0,8 escala | 94,84% | 93,93% | 94,38 | 333 |
+| cortar, descartar pedaço < 0,9 escala | 94,81% | 94,13% | 94,47 | 320 |
+| **cortar, descartar pedaço < 1,0 escala** | 94,80% | 94,17% | **94,48** | 319 |
+| cortar, descartar pedaço < 1,2 escala | 94,74% | 94,24% | 94,49 | 317 |
+
+Emitir a lasca — o pedaço curto que sobra da linha vizinha — custa 2,2 boxes espúrios por
+caractere recuperado. Descartá-la converte o mesmo corte em ganho dos dois lados. O valor
+é **1,0** por estar no meio do platô 0,9–1,2 (não numa quina) e por caber numa frase:
+pedaço mais curto que um caractere não é caractere.
+
+**No pipeline completo, o F1 vai de 94,1 para 94,4** (recall 94,5% → 94,9%, precisão
+93,7% → 94,0%, espúrios 331 → 323).
+
+#### Sem árbitro, e a diferença para a F1.5b foi medida
+
+Na F1.5b o classificador é o que salva o corte: box largo é comum e o perfil sozinho
+acerta 28,6%. Aqui a geometria já é decisiva — box 1,6 vez mais alto que um caractere é
+anômalo por construção, são 109 em 10 páginas — e submeter o corte ao árbitro **derruba** o
+ganho:
+
+| | F1 | espúrios |
+|---|---:|---:|
+| corte sem árbitro | **94,48** | 319 |
+| corte com árbitro (margem 0,30) | 94,06 | 337 |
+
+O que o árbitro recusa é justamente o corte certo, porque a lasca da linha vizinha pontua
+baixo e a regra dele olha a **menor** parte. Ele não entrou no código: a medida está aqui
+e o código fica sem a configuração reprovada.
+
+#### O que esta fase não alcança
+
+**Os 231 colados na horizontal continuam lá**, e são o dobro do que esta fase ataca. O
+separador da F1.5b já considera 143 deles (são largos o bastante para virar candidato) e
+os recusa; os outros 88 são estreitos demais para ele sequer olhar. Melhorá-lo é mexer no
+árbitro, cuja margem já foi varrida e fixada por F1 na própria F1.5b — é pesquisa, não
+ajuste, e fica registrada como o próximo alvo natural.
+
+**E 348 caracteres são lidos errado com o box certo** — esses não são segmentação, são
+modelo, e nenhum corte os alcança.
+
+Cobertura: `tests/test_f12_linhas.py`, 12 testes. Um terço é sobre a lasca, que é a
+metade não óbvia da fase.
 
 ---
 
