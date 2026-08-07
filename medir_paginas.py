@@ -59,6 +59,9 @@ def segmentar(imagem, modo, arbitro=None, margem=None):
     """(boxes antes do corte, boxes depois) para o modo pedido."""
     arr = np.array(imagem)
     th = preprocess.binarize(arr, "auto")
+    # Espelha `generate_boxes_opencv` também aqui: a trama sai antes de medir.
+    th = preprocess.remover_textura(arr, th)
+    escala = preprocess.escala_de_texto(th)
     contornos, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     brutos = []
@@ -69,7 +72,7 @@ def segmentar(imagem, modo, arbitro=None, margem=None):
     brutos.sort(key=lambda b: (b.y1, b.x1))
     # espelha `generate_boxes_opencv`: o diagrama sai DEPOIS do merge (F1.8)
     pais = BoxService.descartar_blocos_nao_texto(
-        BoxService.merge_vertical_boxes(brutos))
+        BoxService.merge_vertical_boxes(brutos), escala=escala)
 
     if modo == "off":
         return pais, BoxService.sort_boxes_reading_order(list(pais))

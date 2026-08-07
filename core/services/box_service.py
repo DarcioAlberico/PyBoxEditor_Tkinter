@@ -3,7 +3,7 @@ import numpy as np
 from typing import List, Optional, Set, Tuple
 from PIL import Image
 
-from core import negativo, preprocess, vertical
+from core import negativo, preprocess, trama, vertical
 from core.box_model import BoxEntry
 
 
@@ -40,6 +40,11 @@ class BoxService:
         """
         img_cv = np.array(image)
         th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
+        # A trama de meio-tom sai antes de qualquer coisa medir caractere: ela
+        # é 95,8% dos contornos da página 18 do Yusupov e envenena toda régua
+        # relativa do pipeline.
+        th = preprocess.remover_textura(img_cv, th)
+        escala = preprocess.escala_de_texto(th)
 
         contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -56,6 +61,9 @@ class BoxService:
         # as tarjas invertidas, para o separador de colados ver o perfil de
         # tinta do texto e não o do fundo.
         boxes, th, _faixas = negativo.aplicar(img_cv, th, boxes)
+        # E antes de o descarte jogar fora o bloco grande: dentro dele pode
+        # haver uma linha de texto que a trama soldou ao fundo (F11).
+        boxes, _blocos = trama.aplicar(img_cv, boxes, escala)
         # Antes do merge, e não depois: o merge vertical cola exatamente o que
         # numa pilha girada são letras vizinhas — medido, uma linha real de 17
         # caracteres saía como 7 caixas (F8.1). Quem sai daqui marcado fica
@@ -67,7 +75,7 @@ class BoxService:
         # descartá-lo depois leva esse lixo junto. Descartando antes, os
         # respingos sobram soltos — na página 0108, 11 boxes espúrios viram 29.
         if descartar_nao_texto:
-            boxes = BoxService.descartar_blocos_nao_texto(boxes)
+            boxes = BoxService.descartar_blocos_nao_texto(boxes, escala=escala)
         if separar_colados is True or (separar_colados == "auto"
                                        and arbitro is not None):
             # Depois do merge vertical: fundir o pingo do 'i' primeiro evita
@@ -90,9 +98,18 @@ class BoxService:
 
     @staticmethod
     def descartar_blocos_nao_texto(boxes: List[BoxEntry],
-                                   fator: float = None) -> List[BoxEntry]:
+                                   fator: float = None,
+                                   escala: int = None) -> List[BoxEntry]:
         """
         Remove contornos grandes demais para serem caractere — o diagrama.
+
+        **`escala` é a altura de caractere da página, e omiti-la é perigoso numa
+        página com trama.** Sem ela, a referência é a mediana das alturas dos
+        próprios boxes; no painel de meio-tom da página 18 do Yusupov essa
+        mediana é **2 px**, o limite vira 8, e o que esta função descarta deixa
+        de ser o diagrama e passa a ser *o texto* — medido, o painel inteiro
+        saiu sem um box. Quem tem a imagem passa `preprocess.escala_de_texto`,
+        que pesa por tinta e não desaba (31–43 px nas mesmas páginas).
 
         **O problema aqui é menor do que o roadmap supunha, e isso foi medido.**
         A F1.8 previa que "em página escaneada o tabuleiro vira milhares de boxes
@@ -117,9 +134,10 @@ class BoxService:
         if len(boxes) < BoxService.MIN_BOXES_PARA_DESCARTE:
             return boxes
 
-        alturas = sorted(b.y2 - b.y1 for b in boxes)
-        mediana = alturas[len(alturas) // 2] or 1
-        limite = mediana * fator
+        if not escala:
+            alturas = sorted(b.y2 - b.y1 for b in boxes)
+            escala = alturas[len(alturas) // 2]
+        limite = (escala or 1) * fator
 
         return [b for b in boxes
                 if (b.y2 - b.y1) <= limite or (b.x2 - b.x1) <= limite]

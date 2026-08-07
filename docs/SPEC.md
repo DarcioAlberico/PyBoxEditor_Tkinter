@@ -264,6 +264,19 @@ profundidade partiria a coroa da dama, que tem vales fundos entre as pontas.
 Toda a detecção de boxes passa a consumir `preprocess.binarize`. Nenhum threshold
 literal deve sobrar no código.
 
+> **A régua da página, da F11.** `escala_de_texto(img_bin)` é a altura de caractere
+> medida por **massa de tinta**, e ela existe porque a mediana simples das alturas não
+> sobrevive a uma trama de meio-tom: no quadro de pontuação da página 18 do Yusupov,
+> 95,8% dos contornos têm 6x6 px ou menos e a mediana cai para **2**, o que faz o
+> descarte de bloco não-texto jogar fora os caracteres. Ponderada, a mesma página dá 25.
+> Mede sobre componentes conexos (nos contornos externos o diagrama leva toda a tinta) e
+> ignora componente cuja caixa passe de 1% da página, porque caractere não ocupa isso.
+>
+> `remover_textura(img, img_bin)` apaga o componente que é **pequeno e claro** — as duas
+> coisas: pequeno sozinho comeria o ponto final, que mede o mesmo e é escuro (tom 6–29
+> contra 77–112 da trama). Quem tem a imagem passa a escala adiante:
+> `descartar_blocos_nao_texto(boxes, escala=...)`.
+
 ---
 
 ## 4. Processamento de PDF
@@ -928,6 +941,32 @@ O contrato, todo ele vindo de medição:
 
 `medir_negativo.py` refaz as medições da fase, e aceita `--imagens` para rodar sobre
 scans em vez de PDF.
+
+### 5.10 Texto sobre trama — [feito, F11, em `core/trama.py`]
+
+O quadro de pontuação que fecha cada capítulo do Yusupov é um painel chapado que o
+escaneamento devolve como nuvem de pontos. O custo é perda total, como na §5.9, mas por
+dois caminhos: a trama **envenena a régua** da página (§3) e **solda** o texto ao fundo —
+o painel sai como um contorno de 1049x390 e o que está escrito nele não vira box.
+
+O contrato:
+
+1. **Rebinarizar o recorte desfaz a solda**, e é a manobra da §5.9 com a polaridade
+   normal. Na página inteira o papel domina e o Otsu global corta abaixo da trama; dentro
+   do painel sobram trama (tom ~99) e texto (tom ~5), e o Otsu local corta em 143 — acima
+   da trama. Medido: 71 componentes de tamanho de caractere onde havia zero.
+2. **Tabuleiro é quadrado; painel é largo.** É o que impede o diagrama de virar uma caixa
+   por peça, contra o que a F1.8 fixou. Medido: diagramas em 1,00–1,01 de proporção,
+   painel em 2,69; o limiar é 1,5 e o vão entre as populações é inteiro.
+3. **Só se olha dentro de bloco que o descarte ia jogar fora**, o que torna a fase segura
+   por construção — o pior caso é o estado anterior a ela.
+4. **A régua dos glifos de dentro é a da página**, não a do bloco: o painel tem 390 px de
+   altura para texto de 30, e medir contra ele recusaria tudo. É a diferença para a §5.9,
+   onde a tarja tem a altura de uma linha.
+
+Não entrega palavra separada em caracteres dentro do painel — a trama liga letra a letra
+e o que sai são caixas de palavra. Três discriminadores alternativos foram medidos e
+recusados (densidade de vizinhos, porosidade, segundo Otsu global); estão na ROADMAP F11.
 
 ---
 

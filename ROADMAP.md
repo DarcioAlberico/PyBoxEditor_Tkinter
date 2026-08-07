@@ -33,6 +33,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
 | **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **concluída** (F9.1, F9.2) |
 | **F10** | Texto em negativo | O nome dos jogadores na tarja preta deixa de ser um borrão e vira texto | **concluída** (F10.1) |
+| **F11** | Texto sobre trama | O quadro de pontuação deixa de apagar o texto da página; a régua da página para de desabar | **concluída** (F11.1) |
 
 **Onde o projeto ficou, em números medidos e não estimados.** Nas 9 páginas rotuladas
 à mão (7 do Kasparov + 2 do Aagaard, ~9.400 caracteres), o pipeline completo dá
@@ -50,7 +51,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **946 testes**, `pytest` na raiz.
+Cobertura: **963 testes**, `pytest` na raiz.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1977,8 +1978,8 @@ do treino e fora do repositório. Detalhes na SPEC §5.2.
 
 ## Ordem de execução
 
-**Todos os itens de F0 a F10 estão concluídos** — a F9 fechou em 2026-08-06 com a F9.2, e
-a F10 (texto em negativo) no mesmo dia. A ordem dentro da F9 foi a que o item mandava:
+**Todos os itens de F0 a F11 estão concluídos** — a F9 fechou em 2026-08-06 com a F9.2, e
+a F10 (texto em negativo) e a F11 (texto sobre trama) no mesmo dia. A ordem dentro da F9 foi a que o item mandava:
 mediu-se primeiro quanto do erro era alcançável, e a contagem não encerrou a fase, mas
 dimensionou-a — o dicionário do livro apaga 9,2% do alarme falso, não a maioria dele.
 
@@ -3270,6 +3271,108 @@ acontece em candidato.
 
 Cobertura: `tests/test_f10_negativo.py`, 31 testes. `medir_negativo.py` refaz as medições
 acima — com `--imagens` para scans, com o caminho de um PDF para o resto.
+
+---
+
+## F11 — Texto sobre trama de meio-tom — CONCLUÍDA
+
+### F11.1 — O quadro de pontuação deixa de ser um borrão — CONCLUÍDA
+
+**Concluída em 2026-08-06.** `core/trama.py`, mais `preprocess.escala_de_texto` e
+`preprocess.remover_textura`.
+
+O quadro *"Scoring"* que fecha cada capítulo do Yusupov é um painel chapado, e o
+escaneamento o devolve como uma nuvem de pontos. O estrago é em dois tempos, e nenhum
+deles aparece como erro — aparece como texto que não existe.
+
+**1. A trama envenena a régua.** Medido na página 18:
+
+| | |
+|---|---:|
+| contornos na página | 6.765 |
+| deles com 6x6 px ou menos | **95,8%** |
+| mediana das alturas | **2 px** |
+
+Com mediana 2, o limite de `descartar_blocos_nao_texto` fica em 8 px, e o que ele
+descarta deixa de ser o diagrama e passa a ser **o texto**. A página saía com o título e
+o parágrafo em pedaços e o painel inteiro vazio.
+
+**2. A trama solda.** Os pontos encostam nas letras e as letras umas nas outras: o painel
+sai como **um** contorno de 1049x390, e o que estava escrito dentro dele não chega a
+existir como box.
+
+#### A régua que não desaba
+
+`escala_de_texto` mede a altura de caractere **por massa de tinta**: o ponto de trama tem
+~4 px de tinta e uma letra tem ~200. Medido em 6 páginas:
+
+| página | 17 | 35 | 30 | 33 | 42 | 31 |
+|---|---:|---:|---:|---:|---:|---:|
+| mediana simples | 2 | 2 | 18 | 18 | 19 | 4 |
+| **ponderada por tinta** | **25** | **27** | **34** | **37** | **36** | **57** |
+
+Duas correções que a medição obrigou, e as duas são sobre *qual população medir*:
+
+- **Componentes conexos, não contornos externos.** Naquela população o diagrama é um
+  componente só com dezenas de milhares de pixels de tinta, e a mediana ponderada
+  aterrissa nele — 390 e 579 px, medido.
+- **Bloco fica de fora**, pela regra de que caractere não ocupa 1% de uma página. Sem
+  isso a ponderação tem um furo que uma montagem de teste expôs: uma trama que soldou
+  numa malha só é *um* componente enorme e vira ela própria a mediana (250 px). Nas
+  páginas reais o texto em volta ainda pesava mais, mas depender disso é depender de a
+  página ter texto suficiente.
+
+#### Rebinarizar o recorte é o que desfaz a solda
+
+É a manobra da F10 com a polaridade normal, e o motivo é o histograma: na página inteira
+o papel branco domina e o Otsu global corta abaixo da trama, que vira tinta e gruda em
+tudo. Dentro do painel o papel some da conta e sobram duas populações — trama (tom ~99) e
+texto (tom ~5). Ali o Otsu corta em **143**, acima da trama: medido, **71 componentes com
+tamanho de caractere onde antes havia zero**.
+
+**O que impede o diagrama de virar 32 boxes de peça** é uma peneira do domínio, com
+margem larga: *tabuleiro é quadrado*. Os seis diagramas das páginas 30 e 31 medem
+578x579, 579x579 e 580x584 — proporção 1,00 a 1,01. O painel mede 1049x390 — 2,69. O
+limiar é 1,5, e nada no material cai entre 1,3 e 2,6. A cobertura por células diria o
+mesmo com margem estreita (99,9% no painel contra 82%–91% nos diagramas) e por isso não
+é usada.
+
+E a fase é **segura por construção**: só olha dentro de bloco que o descarte ia jogar
+fora de qualquer jeito. O pior caso é continuar sem o texto.
+
+#### Não regrediu nada, e isso foi medido no mesmo processo
+
+| | recall | precisão | F1 | espúrios |
+|---|---:|---:|---:|---:|
+| antes (F11 desligada no mesmo processo) | 94,5% | 93,7% | 94,1 | 332 |
+| **depois** | 94,5% | 93,7% | **94,1** | **331** |
+
+As tarjas da F10 continuam em 19 nas 324 páginas do Kasparov, e nas páginas com diagrama
+`trama.candidatos` devolve **zero**.
+
+#### O que esta fase não entrega
+
+**A palavra do painel sai colada.** A trama liga letra a letra dentro da palavra, e o
+Otsu local não desfaz isso — o que sai são caixas de palavra, não de caractere. É box
+utilizável para revisão, e é menos do que a página limpa dá.
+
+**A trama solta continua virando box.** `remover_textura` apaga o componente que é
+pequeno **e** claro — as duas coisas, porque pequeno sozinho comeria o ponto final (que
+mede o mesmo e é escuro: tom 6–29 contra 77–112 da trama). Na página 18 isso leva os
+boxes de 6.765 para 3.117, e sobram ~390 minúsculos que o revisor ainda vê.
+
+**Três discriminadores foram medidos e recusados**, e o registro vale mais que o código
+que não entrou:
+
+| ideia | por que não |
+|---|---|
+| densidade de vizinhos pequenos | não separa: 78%–84% dos pequenos das páginas *limpas* também têm 4+ vizinhos |
+| porosidade (papel na janela) | tarja chapada do Kasparov dá 0,36–0,48, trama do Yusupov 0,45–0,69 — sobrepostas |
+| segundo Otsu na página toda | corta em ~50 em **toda** página e comeria o contorno anti-serrilhado de todo glifo |
+
+Cobertura: `tests/test_f11_trama.py`, 15 testes. Metade cobra o que **não** pode mudar: o
+diagrama continua um bloco descartado, a pontuação escura sobrevive à limpeza, e a página
+sem trama sai byte a byte igual.
 
 ---
 

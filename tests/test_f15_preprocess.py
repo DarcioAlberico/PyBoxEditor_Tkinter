@@ -462,8 +462,11 @@ def test_descarte_acontece_depois_do_merge():
     import inspect
 
     fonte = inspect.getsource(BoxService.generate_boxes_opencv)
+    # Pelo nome da função, e não pela chamada inteira: a assinatura ganhou
+    # `escala` na F11 e o teste quebrou sem que a ordem — que é o que ele cobra
+    # — tivesse mudado.
     pos_merge = fonte.index("merge_vertical_boxes(boxes)")
-    pos_descarte = fonte.index("descartar_blocos_nao_texto(boxes)")
+    pos_descarte = fonte.index("descartar_blocos_nao_texto(")
     assert pos_merge < pos_descarte, \
         "o descarte voltou para antes do merge — ver a medição na docstring"
 
