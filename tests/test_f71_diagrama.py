@@ -370,14 +370,42 @@ def test_ler_pagina_encadeia_localizar_e_ler():
 def test_o_modelo_existe_e_cobre_as_doze_pecas():
     if not os.path.isfile(diagrama.CAMINHO_MODELO):
         pytest.skip("modelo não construído (rode treinar_diagrama.py)")
-    d = np.load(diagrama.CAMINHO_MODELO, allow_pickle=False)
-    assert set(str(s) for s in d["simbolos"]) == set("PNBRQKpnbrqk")
-    assert d["amostras"].shape[0] == len(d["simbolos"])
+    import torch
+    d = torch.load(diagrama.CAMINHO_MODELO, map_location="cpu", weights_only=True)
+    assert set(d["simbolos"]) == set("PNBRQKpnbrqk")
+    # A última camada tem de ter uma saída por símbolo declarado: se as duas
+    # listas se descasarem, a leitura troca as peças sem erro nenhum aparecer.
+    assert d["pesos"]["fc.weight"].shape[0] == len(d["simbolos"])
+
+
+def test_o_modelo_embarcado_cabe_no_repositorio():
+    """
+    O `.gitignore` manda `*.pth` para fora, e este tem exceção nominal (F7.4).
+
+    A exceção só se justifica enquanto o arquivo for pequeno: é ele que faz um
+    clone novo ler diagramas sem baixar nada. O banco de vizinhos que ele
+    substituiu tinha 231 KB.
+    """
+    if not os.path.isfile(diagrama.CAMINHO_MODELO):
+        pytest.skip("modelo não construído (rode treinar_diagrama.py)")
+    assert os.path.getsize(diagrama.CAMINHO_MODELO) < 300_000
+
+
+def test_o_modelo_embarcado_le_uma_peca():
+    """Carrega, roda e devolve 12 colunas — o funil inteiro, sem página."""
+    if not os.path.isfile(diagrama.CAMINHO_MODELO):
+        pytest.skip("modelo não construído (rode treinar_diagrama.py)")
+    residuo = np.zeros((diagrama.LADO, diagrama.LADO), np.float32)
+    residuo[12:36, 16:32] = 90
+    pontos = diagrama._pontuar([residuo])
+    assert pontos.shape == (1, 12)
+    # Probabilidades, não votos: é o que `ler` divide para achar a confiança.
+    assert 0.99 < float(pontos.sum()) < 1.01
 
 
 def test_modelo_ausente_levanta_erro_com_a_receita():
     guardado, diagrama._modelo = diagrama._modelo, None
-    caminho, diagrama.CAMINHO_MODELO = diagrama.CAMINHO_MODELO, "nao_existe.npz"
+    caminho, diagrama.CAMINHO_MODELO = diagrama.CAMINHO_MODELO, "nao_existe.pth"
     try:
         with pytest.raises(diagrama.ModeloAusente, match="treinar_diagrama"):
             diagrama._carregar_modelo()

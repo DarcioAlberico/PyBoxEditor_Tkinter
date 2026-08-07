@@ -1380,15 +1380,76 @@ O ciclo que faltava: corrijo, guardo, treino, melhora.
 3. **O nome carrega a procedência e é determinístico.** Regravar substitui, e gravar
    numa classe apaga a mesma procedência das outras — senão a mesma imagem ficaria
    rotulada duas vezes (F1.4).
-4. **O progresso é leave-one-out**, com o mesmo voto de 3 vizinhos da leitura, e o
-   relatório diz que o número é otimista (PCA com todas as amostras; amostras quase
-   idênticas se ajudam).
-5. **Uma correção é um voto em três.** Medido: a amostra nova é o vizinho mais
-   próximo e ainda assim perde para dois antigos; duas correções viram a leitura. O
-   relatório avisa, porque é aí que a expectativa se forma.
-6. **O `.npz` guarda a impressão da base** que o gerou (F7.3 aplicada aqui), e treinar
+4. **O progresso é medido em diagramas que ficaram fora do treino** (F7.4). Era
+   leave-one-out, e a §7.12 mostra o quanto aquilo inflava: 20% dos **diagramas** vão
+   para o teste, duas redes são treinadas por rodada — a que mede não viu o teste, a
+   que fica viu tudo —, e o relatório continua declarando o que o número não cobre.
+5. **O relatório diz o que uma correção faz, e isso mudou junto com o classificador.**
+   Com o k-NN era aritmética: uma correção não virava a casa, duas viravam. Com a rede
+   uma amostra entre centenas é diluída, e o que move o ponteiro é conferir diagramas
+   inteiros. O aviso vem junto do número porque é aí que a expectativa se forma.
+6. **O `.pth` guarda a impressão da base** que o gerou (F7.3 aplicada aqui), e treinar
    faz o leitor esquecer o modelo em memória — senão o treino não valeria até
    reiniciar o programa.
+
+### 7.12 A rede que lê as peças — [feito, F7.4, em `core/neural_model.RedeDiagrama`]
+
+Era HOG + PCA para 32 dimensões + voto dos 3 vizinhos mais próximos. O argumento
+contra a rede estava escrito no `treinar_diagrama.py` — "são poucas centenas de
+amostras de dois livros, e uma rede treinada nisso decoraria" — e a medição o
+desmentiu.
+
+**Três protocolos, e a distância entre eles é a lição:**
+
+| protocolo | k-NN | rede |
+|---|---:|---:|
+| leave-one-out solto (o que o relatório mostrava) | 93,5% | — |
+| 5 folds agrupados por diagrama | 93,8% | 98,8% |
+| **um livro inteiro deixado de fora** | **86,9%** | **98,0%** |
+
+A vantagem da rede **cresce** no teste difícil (+5,0 → +11,1 pontos), que é o
+contrário do que a decoreba produziria. E não era o PCA: com 256 componentes, ou sem
+PCA nenhuma sobre o HOG cru e um vizinho só, o melhor que o k-NN faz num livro novo é
+89,2%. O que ele errava eram as peças de desenho detalhado — dama 80,8%, cavalo
+83,7% —, exatamente o que uma silhueta de gradientes borra.
+
+**A rede foi dimensionada pelo arquivo, e isso é decisão de produto.** O `.gitignore`
+manda `*.pth` para fora porque o modelo de caracteres tem 2,6 MB; o banco de vizinhos
+que a rede substitui tinha 231 KB e vinha no repositório, então um clone novo lia
+diagramas sem baixar nada. Medido, a `SimpleCNN` de 126 classes (2.423 KB) faz 97,8%
+e uma rede de 35.820 parâmetros (140 KB) faz 98,0% — a camada densa grande daquela
+não paga aqui. A exceção nominal no `.gitignore` é o que mantém a propriedade.
+
+**Trocar o achatamento por média global custa 16,6 pontos** (98,0% → 81,4%), e é a
+variante que ensina o porquê: onde a tinta está dentro da casa é informação.
+
+**Três consequências que não estavam no pedido e vieram junto:**
+
+1. **A temperatura da F1.9 passou a valer aqui.** A rede acerta 98% e diz 99,9% de
+   confiança em quase tudo, e é dessa confiança que a janela tira o laranja de
+   "duvidoso". A temperatura é ajustada nos diagramas de teste (1,41 na base atual) e
+   viaja no `.pth`. Não muda leitura nenhuma — divide todos os logitos —, muda o
+   número exibido.
+2. **O árbitro da legalidade passou a custar em logaritmo.** "Quanto custa trocar esta
+   casa" é razão entre evidências, não diferença: com a rede confiante,
+   `0,9999 − 0,0000001` empata com `0,999 − 0,001` em ponto flutuante e o "mais
+   barato" viraria o primeiro índice da lista.
+3. **O treino passou de 2 s para ~40 s**, e o comando da janela ganhou progresso.
+   Quarenta segundos sem sinal de vida parecem travamento.
+
+**O que a troca não conserta, e o número que prova.** Nas 11 páginas rotuladas, 25
+diagramas: 15 saem com posição possível **antes** do árbitro (o k-NN fazia 17, e a
+diferença é ruído em 25) e 25 depois (o k-NN fazia 23). A legalidade mede sobretudo a
+decisão vazia/ocupada — um rei que o Otsu não viu quebra a posição por mais certo que
+o classificador esteja —, e essa decisão é a mesma de antes. O ganho da rede está em
+qual peça é, não em se há peça.
+
+Um caso conferido à mão fecha o argumento e reforça a §7.9: o primeiro diagrama da
+página 0013 do Kasparov sai com FEN legal, sem nenhuma casa arbitrada, e tem duas casas
+erradas — um peão branco em f5 que a leitura não viu (casa clara, peça vazada) e um peão
+que ela inventou em h2. As provas passaram porque a omissão e o falso positivo se
+compensam na contagem. **Passar nas provas não é prova de estar certo**, e o próximo
+ganho está no Otsu de ocupação, não no classificador.
 
 ### 7.11 O corte do Ctrl+D e a seta da lista — [feito, F4.7]
 

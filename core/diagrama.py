@@ -33,16 +33,32 @@ mediana inclui ~40% de peças.
 
 ## A classificação
 
-HOG sobre o resíduo, PCA para 32 dimensões, voto dos 3 vizinhos mais próximos
-entre 361 amostras rotuladas à mão (`training_data_diagrama/`, construídas por
-agrupamento e inspeção). Ver `treinar_diagrama.py`.
+Uma rede convolucional pequena sobre o resíduo (`core.neural_model.RedeDiagrama`),
+treinada nas amostras rotuladas de `training_data_diagrama/`. Ver
+`core/treino_diagrama.py`.
 
-**Duas correções que pareciam óbvias e pioraram**, medidas contra 128 casas
-transcritas à mão:
+**Era HOG + PCA para 32 dimensões + voto dos 3 vizinhos mais próximos, e a troca
+foi medida (F7.4).** Deixando um livro inteiro de fora do treino — que é a
+pergunta que o programa faz na prática, "abro um PDF novo, ele lê?":
+
+| protocolo | k-NN (antes) | rede |
+|---|---:|---:|
+| leave-one-out solto | 93,5% | — |
+| 5 folds agrupados por diagrama | 93,8% | 98,8% |
+| **um livro inteiro de fora** | **86,9%** | **98,0%** |
+
+A vantagem da rede **cresce** no teste difícil, que é o contrário do que se veria
+se fosse sobreajuste. E o gargalo não era o PCA: com 256 componentes, ou sem PCA
+nenhuma sobre o HOG cru e um vizinho só, o melhor que o k-NN faz num livro novo
+é 89,2%. O que ele errava eram as peças de desenho detalhado — dama 80,8%,
+cavalo 83,7% —, exatamente o que uma silhueta de gradientes borra.
+
+**Duas correções que pareciam óbvias e pioraram**, medidas na época do k-NN
+contra 128 casas transcritas à mão:
 
 | variante | acerto por casa |
 |---|---:|
-| resíduo + HOG (o de hoje) | **94,5%** |
+| resíduo + HOG | **94,5%** |
 | \\+ canal de sinal para a cor da peça | 90,6% |
 | detecção por energia de borda | 93,0% |
 
@@ -51,6 +67,10 @@ logo descarta o sinal, e torre branca virava torre preta. Dar-lhe o sinal por
 fora **subiu** os erros de cor de 3 para 5. A segunda também: peça branca em casa
 clara quase some no resíduo (é branca por dentro, traço fino em volta) e a borda
 a acha — mas troca 3 omissões por 4 falsos positivos.
+
+A segunda continua valendo depois da troca, e é o limite dela: **a rede só
+decide qual peça é, não se a casa está ocupada.** Essa decisão é o Otsu de
+`_residuos`, e as omissões que ela produz sobrevivem a qualquer classificador.
 
 ## A legalidade arbitra, como na F1.7
 
@@ -65,14 +85,15 @@ pontuação da leitura atual e a da leitura que resolve o problema. Medido, leva
 
 ## O que este módulo NÃO entrega
 
-**94,5% por casa são ~3,5 casas erradas em 64.** Uma posição com três casas
-erradas é uma posição errada. Isto é um **rascunho para conferir**, não um
-extrator com autoridade — e a interface tem de mostrar assim, do mesmo jeito que
-a F3.6 mostra o lote antes de aplicar.
+**Continua sendo um rascunho para conferir, e a F7.4 não muda isso.** Os 98,0%
+da rede são da *identificação da peça* numa casa que já se sabe ocupada — o
+número por casa da página inteira é menor, porque a decisão vazia/ocupada e a
+localização do tabuleiro erram por conta própria. A interface tem de mostrar
+assim, do mesmo jeito que a F3.6 mostra o lote antes de aplicar.
 
 Passar nas provas de legalidade **não é prova de estar certo**: elas contam
-peças, não reconhecem bispo lido como peão. Por isso o número que vale é o das
-128 casas transcritas à mão, e não os 23/25.
+peças, não reconhecem bispo lido como peão. Por isso o número que vale é o de
+casas transcritas à mão, e não os 23/25.
 
 Lado a jogar, roque e en passant **não estão no diagrama** e não são deduzíveis
 dele. `fen()` assume brancas a jogar, sem roque e sem en passant, e diz isso.
@@ -100,15 +121,18 @@ TOLERANCIA_QUADRADO = 1.12
 #: Os diagramas medidos têm ~480 px contra ~19 px de caractere, isto é, 25x.
 MINIMO_EM_CARACTERES = 6.0
 
-CAMINHO_MODELO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "dados", "diagrama_modelo.npz")
+#: Lado da entrada da rede. Menor que `LADO` de propósito: a amostra é gravada
+#: em 48 px para poder ser olhada, e a rede lê 32 — foi o tamanho medido.
+LADO_REDE = 32
 
-_HOG = cv2.HOGDescriptor((LADO, LADO), (12, 12), (6, 6), (6, 6), 9)
+CAMINHO_MODELO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "dados", "diagrama_modelo.pth")
+
 _modelo = None
 
 
 class ModeloAusente(RuntimeError):
-    """O banco de peças não foi encontrado. Rode `treinar_diagrama.py`."""
+    """O modelo das peças não foi encontrado. Rode `treinar_diagrama.py`."""
 
 
 # ----------------------------------------------------------------------
@@ -293,14 +317,23 @@ def residuos(imagem, caixa: Optional[Tuple[int, int, int, int]] = None
 
 
 def _carregar_modelo():
+    """(rede pronta para ler, símbolos na ordem das saídas dela, temperatura)."""
     global _modelo
     if _modelo is None:
         if not os.path.isfile(CAMINHO_MODELO):
             raise ModeloAusente(
                 f"{CAMINHO_MODELO} não existe. Rode `python treinar_diagrama.py`.")
-        d = np.load(CAMINHO_MODELO, allow_pickle=False)
-        _modelo = (d["media"], d["base"], d["amostras"],
-                   [str(s) for s in d["simbolos"]])
+        import torch
+        from core.neural_model import RedeDiagrama
+
+        # `weights_only=True` é o carregamento seguro: um `.pth` é um pickle, e
+        # sem isso abrir um arquivo de terceiro executa o que estiver dentro.
+        d = torch.load(CAMINHO_MODELO, map_location="cpu", weights_only=True)
+        simbolos = tuple(str(s) for s in d["simbolos"])
+        rede = RedeDiagrama(len(simbolos))
+        rede.load_state_dict(d["pesos"])
+        rede.eval()
+        _modelo = (rede, simbolos, float(d.get("temperatura", 1.0)) or 1.0)
     return _modelo
 
 
@@ -309,57 +342,80 @@ def esquecer_modelo() -> None:
     Larga o modelo em memória, para a próxima leitura reler o arquivo (F8.3).
 
     Existe porque agora dá para treinar sem fechar o programa: sem isto, o
-    treino gravaria um `.npz` novo e as leituras seguintes continuariam usando
-    o banco velho, em silêncio, até alguém reiniciar.
+    treino gravaria um `.pth` novo e as leituras seguintes continuariam usando
+    a rede velha, em silêncio, até alguém reiniciar.
     """
     global _modelo
     _modelo = None
 
 
 def impressao_do_modelo() -> str:
-    """A impressão da base com que o `.npz` foi treinado, ou '' se ele não a traz."""
+    """A impressão da base com que o modelo foi treinado, ou '' se não a traz."""
     try:
-        d = np.load(CAMINHO_MODELO, allow_pickle=False)
-        return str(d["impressao"]) if "impressao" in d.files else ""
-    except (OSError, ValueError):
+        import torch
+        d = torch.load(CAMINHO_MODELO, map_location="cpu", weights_only=True)
+        return str(d.get("impressao", ""))
+    except Exception:
+        # Arquivo ausente, truncado, de outra versão do torch ou de outro
+        # formato: para quem só quer a impressão, tudo isso é "não tem".
+        # Quem precisa da rede chama `_carregar_modelo`, que levanta.
         return ""
 
 
-def descritor(residuo: np.ndarray) -> np.ndarray:
+def entrada_da_rede(residuos: Sequence[np.ndarray]):
     """
-    Resíduo da casa -> vetor HOG normalizado.
+    Resíduos das casas -> lote `(n, 1, 32, 32)` para a rede.
 
-    **Um lugar só, e isso importa** (F8.3). O treino tinha uma cópia desta
-    função; duas implementações do mesmo descritor é a família de defeito da
-    F5.2 — o dia em que uma muda, o modelo passa a ser treinado num espaço e
-    consultado noutro, sem erro nenhum aparecendo.
+    **Um lugar só, e isso importa** (F8.3). O treino já teve uma cópia da
+    preparação da amostra; duas implementações da mesma conta é a família de
+    defeito da F5.2 — o dia em que uma muda, o modelo passa a ser treinado num
+    espaço e consultado noutro, sem erro nenhum aparecendo.
+
+    A divisão por 128 e não uma normalização por casa: o resíduo **já** é
+    centrado em zero por construção (casa menos fundo), e reescalar cada casa
+    pelo próprio máximo apagaria o quanto de tinta ela tem — que é justamente o
+    que separa peça cheia de peça vazada.
     """
-    if residuo.shape[:2] != (LADO, LADO):
-        residuo = cv2.resize(residuo, (LADO, LADO), interpolation=cv2.INTER_AREA)
-    normal = cv2.normalize(residuo, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    v = _HOG.compute(normal).ravel()
-    return v / (np.linalg.norm(v) + 1e-6)
+    import torch
 
-
-#: Nome antigo, mantido para quem já importava.
-_descritor = descritor
+    lote = []
+    for r in residuos:
+        if r.shape[:2] != (LADO_REDE, LADO_REDE):
+            r = cv2.resize(np.asarray(r, dtype=np.float32),
+                           (LADO_REDE, LADO_REDE), interpolation=cv2.INTER_AREA)
+        lote.append(np.asarray(r, dtype=np.float32) / 128.0)
+    return torch.from_numpy(np.stack(lote)).unsqueeze(1)
 
 
 SIMBOLOS = tuple("BKNPQRbknpqr")
 
 
-def _pontuar(residuos: List[np.ndarray], vizinhos: int = 3) -> np.ndarray:
-    """Matriz (casas x 12) com o voto dos `vizinhos` mais próximos."""
-    media, base, amostras, rotulos = _carregar_modelo()
-    X = np.stack([_descritor(r) for r in residuos])
-    X = (X - media) @ base.T
-    X /= np.linalg.norm(X, axis=1, keepdims=True) + 1e-6
+def _pontuar(residuos: List[np.ndarray]) -> np.ndarray:
+    """
+    Matriz (casas x 12) com a probabilidade de cada peça.
 
-    similaridade = X @ amostras.T
+    As colunas vêm do `simbolos` gravado no modelo, e não da ordem em que a rede
+    devolve: um modelo treinado numa base sem dama saía com 11 saídas, e ler a
+    coluna 4 como se fosse sempre 'Q' trocaria as peças em silêncio. Classe que
+    o modelo não conhece fica em zero, que é o que ela vale.
+
+    **A temperatura entra aqui, e é a F1.9 aplicada a esta base.** Ela divide os
+    logitos antes do softmax: não muda nenhuma leitura — a ordem das classes é a
+    mesma —, muda o número que a janela de diagramas mostra e usa para pintar de
+    laranja o que ficou em dúvida. Sem ela a rede diria 99,9% em quase tudo,
+    inclusive no que errou, e o laranja pararia de aparecer.
+    """
+    import torch
+
+    rede, simbolos, temperatura = _carregar_modelo()
+    with torch.no_grad():
+        logitos = rede(entrada_da_rede(residuos)) / temperatura
+        p = torch.softmax(logitos, dim=1).numpy()
+
     pontos = np.zeros((len(residuos), len(SIMBOLOS)), np.float32)
-    for i in range(len(residuos)):
-        for j in np.argsort(similaridade[i])[::-1][:vizinhos]:
-            pontos[i, SIMBOLOS.index(rotulos[j])] += max(0.0, float(similaridade[i, j]))
+    for j, s in enumerate(simbolos):
+        if s in SIMBOLOS:
+            pontos[:, SIMBOLOS.index(s)] = p[:, j]
     return pontos
 
 
@@ -401,9 +457,16 @@ def _arbitrar(pontos: np.ndarray, casas: Sequence[Tuple[int, int]]
     mexidas = [False] * len(lidos)
     travadas = set()
 
+    # Em logaritmo, e não na probabilidade crua (F7.4). "Quanto custa trocar
+    # esta casa" é uma razão entre evidências, não uma diferença: com a rede
+    # confiante, `0,9999 - 0,0000001` empata com `0,999 - 0,001` em ponto
+    # flutuante e o "mais barato" passaria a ser o primeiro índice da lista.
+    # A diferença dos logaritmos separa os dois casos por uma ordem de grandeza.
+    log_pontos = np.log(np.maximum(pontos, 1e-12))
+
     def custo(i: int, alvo: str) -> float:
-        return float(pontos[i, SIMBOLOS.index(lidos[i])]
-                     - pontos[i, SIMBOLOS.index(alvo)])
+        return float(log_pontos[i, SIMBOLOS.index(lidos[i])]
+                     - log_pontos[i, SIMBOLOS.index(alvo)])
 
     def alternativa(i: int, proibidos) -> str:
         for j in np.argsort(pontos[i])[::-1]:

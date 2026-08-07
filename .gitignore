@@ -21,6 +21,12 @@ training_data_2_organizado/
 *.pth
 *.onnx
 
+# ...menos o das peças do diagrama, que tem 140 KB e é o que faz um clone novo
+# ler diagramas sem baixar nada. Antes da F7.4 ele era um `.npz` de 231 KB e
+# vinha junto; a rede que o substituiu foi dimensionada para caber aqui (ver
+# `core/neural_model.RedeDiagrama`).
+!core/dados/diagrama_modelo.pth
+
 # Saída do treino (F1.3) — gerada a cada rodada, com caminhos absolutos dentro
 relatorio_treino.txt
 relatorio_treino.json

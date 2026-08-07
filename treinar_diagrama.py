@@ -1,19 +1,25 @@
 """
-Constrói o modelo que lê as peças dos diagramas (F7.1, F8.3).
+Constrói o modelo que lê as peças dos diagramas (F7.1, F8.3, F7.4).
 
     python treinar_diagrama.py
     python treinar_diagrama.py --conferir      # só a conferência da base
-    python treinar_diagrama.py --rapido        # sem o leave-one-out
+    python treinar_diagrama.py --rapido        # sem medir (uma rede em vez de duas)
 
 Lê as amostras rotuladas de `training_data_diagrama/` e grava
-`core/dados/diagrama_modelo.npz`. As amostras são **resíduos** — a casa menos o
+`core/dados/diagrama_modelo.pth`. As amostras são **resíduos** — a casa menos o
 fundo estimado daquele diagrama —, gravadas deslocadas de 128 para poderem ser
 olhadas como imagem. Ver `core/diagrama.py` para o porquê do resíduo.
 
-O modelo é um banco de vizinhos, não uma rede: são poucas centenas de amostras
-de dois livros, e uma rede treinada nisso decoraria. O HOG descreve a silhueta,
-o PCA corta a dimensão de 1.764 para 32 sem perder acerto (medido: 94,5% nas
-duas), e a classificação é o voto dos 3 vizinhos mais próximos.
+**Era um banco de vizinhos, e virou uma rede na F7.4.** O argumento contra a
+rede estava escrito aqui — "são poucas centenas de amostras de dois livros, e
+uma rede treinada nisso decoraria" — e a medição o desmentiu: deixando um livro
+inteiro de fora do treino, o banco de vizinhos faz 86,9% e a rede 98,0%. A
+vantagem **cresce** no teste difícil, que é o contrário do que a decoreba
+produziria.
+
+Demora ~40 s em CPU, contra os ~2 s do banco de vizinhos, e a maior parte disso
+é a segunda rede — a que mede. Com `--rapido` cai pela metade e o relatório diz
+que não mediu.
 
 **A implementação mora em `core/treino_diagrama.py`**, e não aqui: desde a F8.3
 o programa também treina de dentro (Ferramentas → "Treinar modelo de
@@ -33,7 +39,7 @@ def main(argv=None):
     p.add_argument("--conferir", action="store_true",
                    help="só confere a base, sem treinar")
     p.add_argument("--rapido", action="store_true",
-                   help="pula o leave-one-out")
+                   help="pula a medição (treina uma rede em vez de duas)")
     args = p.parse_args(argv)
 
     try:
@@ -49,8 +55,8 @@ def main(argv=None):
             print("base sem problemas")
         return 1 if any(p.grave for p in problemas) else 0
 
-    relatorio = treino_diagrama.treinar(args.pasta,
-                                        avaliar_loo=not args.rapido)
+    relatorio = treino_diagrama.treinar(args.pasta, medir=not args.rapido,
+                                        progresso=lambda m: print(m, flush=True))
     if not relatorio.total:
         print(f"nenhuma amostra em {args.pasta}/")
         return 1

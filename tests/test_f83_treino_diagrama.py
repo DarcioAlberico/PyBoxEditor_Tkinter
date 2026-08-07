@@ -274,61 +274,128 @@ def test_base_vazia_nao_quebra(tmp_path):
 def test_treinar_grava_o_modelo(tmp_path):
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBRQK")})
-    destino = str(tmp_path / "modelo.npz")
-    relatorio = treino_diagrama.treinar(pasta, destino)
+    destino = str(tmp_path / "modelo.pth")
+    relatorio = treino_diagrama.treinar(pasta, destino, medir=False)
     assert os.path.isfile(destino)
     assert relatorio.total == 36
     assert relatorio.contagem["P"] == 6
 
 
 def test_base_vazia_nao_grava_modelo(tmp_path):
-    destino = str(tmp_path / "modelo.npz")
+    destino = str(tmp_path / "modelo.pth")
     relatorio = treino_diagrama.treinar(str(tmp_path / "nada"), destino)
     assert relatorio.total == 0
     assert not os.path.isfile(destino)
 
 
-def test_o_modelo_treinado_e_lido_pelo_leitor(tmp_path):
-    """O `.npz` novo tem de servir para `core/diagrama`, e não só para o treino."""
+def test_o_modelo_treinado_e_lido_pelo_leitor(tmp_path, monkeypatch):
+    """O `.pth` novo tem de servir para `core/diagrama`, e não só para o treino."""
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBRQK")})
-    destino = str(tmp_path / "modelo.npz")
-    treino_diagrama.treinar(pasta, destino)
+    destino = str(tmp_path / "modelo.pth")
+    treino_diagrama.treinar(pasta, destino, medir=False)
 
-    d = np.load(destino, allow_pickle=False)
-    assert set(["media", "base", "amostras", "simbolos"]) <= set(d.files)
-    assert d["amostras"].shape[0] == 36
-    assert d["base"].shape[0] == treino_diagrama.COMPONENTES
+    monkeypatch.setattr(diagrama, "CAMINHO_MODELO", destino)
+    diagrama.esquecer_modelo()
+    pontos = diagrama._pontuar([_residuo(30), _residuo(90)])
+    assert pontos.shape == (2, len(diagrama.SIMBOLOS))
+    assert 0.99 < float(pontos[0].sum()) < 1.01
 
 
-def test_o_leave_one_out_separa_familias(tmp_path):
+def test_a_ordem_das_classes_viaja_no_arquivo(tmp_path, monkeypatch):
+    """
+    Base sem dama: a rede tem 4 saídas e as 12 colunas continuam significando
+    o que significavam.
+
+    Sem o `simbolos` gravado, a coluna 3 de uma rede de 4 saídas seria lida
+    como a quarta peça de `SIMBOLOS` — e a leitura trocaria as peças sem erro
+    nenhum no caminho.
+    """
+    pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
+                             for i, s in enumerate("PNBR")})
+    destino = str(tmp_path / "m.pth")
+    treino_diagrama.treinar(pasta, destino, medir=False)
+
+    monkeypatch.setattr(diagrama, "CAMINHO_MODELO", destino)
+    diagrama.esquecer_modelo()
+    pontos = diagrama._pontuar([_residuo(30)])
+    ausentes = [s for s in diagrama.SIMBOLOS if s not in "PNBR"]
+    for s in ausentes:
+        assert pontos[0, diagrama.SIMBOLOS.index(s)] == 0.0
+
+
+def test_a_medicao_separa_diagramas_inteiros(tmp_path):
+    """
+    Nenhuma casa de um diagrama de teste pode ter entrado no treino.
+
+    É o defeito que a F7.4 mediu: duas casas do mesmo diagrama saíram do mesmo
+    recorte, e deixar uma de cada lado mede memorização — 93,8% contra 86,9%
+    para o mesmo classificador, só mudando o protocolo.
+    """
+    caminhos = [f"livro_{m:06x}_{casa}.png"
+                for m in range(10) for casa in ("a1", "b2", "c3")]
+    treino, teste = treino_diagrama.separar_por_diagrama(caminhos)
+
+    grupos = treino_diagrama.grupo_da_amostra
+    assert not ({grupos(caminhos[i]) for i in treino}
+                & {grupos(caminhos[i]) for i in teste})
+    assert len(teste) == 6          # 20% de 10 diagramas, 3 casas cada
+
+
+def test_o_grupo_sai_dos_dois_formatos_de_nome():
+    """A base tem duas gerações de nome, e as duas têm de agrupar."""
+    g = treino_diagrama.grupo_da_amostra
+    assert g("diag_07_c1.png") == g("diag_07_h8.png") == "diag_07"
+    assert g("Yusupov_34ba23_f4.png") == g("Yusupov_34ba23_b2.png") == "34ba23"
+    # Nome que não bate com nenhum formato vira grupo de um: nunca junta o que
+    # devia estar separado.
+    assert g("qualquer_coisa.png") != g("outra_coisa.png")
+
+
+def test_base_pequena_demais_nao_finge_ter_medido(tmp_path):
+    """
+    Com poucos diagramas não há teste que se sustente, e o relatório diz isso.
+
+    É a lição da F1.3: a acurácia que engana é pior que a que falta.
+    """
+    treino, teste = treino_diagrama.separar_por_diagrama(
+        ["livro_000001_a1.png", "livro_000002_a1.png"])
+    assert (treino, teste) == ([], [])
+
+
+def test_a_medicao_separa_familias(tmp_path):
     """Famílias bem distintas têm de dar acerto alto; é o piso de sanidade."""
     pasta = _base(tmp_path, {s: _familia(s, 8, i * 40 + 10)
                              for i, s in enumerate("PNBR")})
-    relatorio = treino_diagrama.treinar(pasta, str(tmp_path / "m.npz"))
+    relatorio = treino_diagrama.treinar(pasta, str(tmp_path / "m.pth"))
     assert relatorio.acerto > 0.8
-    assert set(relatorio.acerto_por_classe) == set("PNBR")
+    assert relatorio.casas_de_teste > 0
+    assert set(relatorio.acerto_por_classe) <= set("PNBR")
 
 
 def test_o_relatorio_avisa_das_classes_magras(tmp_path):
     pasta = _base(tmp_path, {"P": _familia("P", 12, 3), "N": _familia("N", 4, 90)})
-    relatorio = treino_diagrama.treinar(pasta, str(tmp_path / "m.npz"))
+    relatorio = treino_diagrama.treinar(pasta, str(tmp_path / "m.pth"),
+                                        medir=False)
     assert "N" in relatorio.magras and "P" not in relatorio.magras
-    assert "leave-one-out" in relatorio.texto()
+    assert "classes com menos de" in relatorio.texto()
 
 
-def test_o_relatorio_avisa_que_uma_correcao_nao_vira_uma_casa(tmp_path):
+def test_o_relatorio_diz_o_que_uma_correcao_faz(tmp_path):
     """
     Sem este aviso o usuário corrige, retreina, relê e conclui que não funciona.
 
-    Medido numa página real: a amostra nova vira o vizinho mais próximo
-    (0,990) e mesmo assim perde para dois vizinhos antigos (1,876), porque o
-    voto soma os três. Com duas correções parecidas, vira.
+    Com o k-NN a resposta era aritmética — uma correção não virava a casa, duas
+    viravam. Com a rede é outra, e o relatório tem de dizer a nova, não repetir
+    a velha: o gradiente de uma amostra entre centenas é diluído, e o que move o
+    ponteiro é conferir diagramas inteiros.
     """
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBR")})
-    texto = treino_diagrama.treinar(pasta, str(tmp_path / "m.npz")).texto()
-    assert "3 vizinhos" in texto and "duas viram" in texto
+    texto = treino_diagrama.treinar(pasta, str(tmp_path / "m.pth"),
+                                    medir=False).texto()
+    assert "diagramas inteiros" in texto
+    assert "3 vizinhos" not in texto, "o aviso do k-NN sobreviveu à troca"
 
 
 def test_o_relatorio_diz_que_o_numero_e_otimista(tmp_path):
@@ -336,28 +403,21 @@ def test_o_relatorio_diz_que_o_numero_e_otimista(tmp_path):
     O número não pode passar por promessa de acerto em livro novo.
 
     É a lição da F1.3: a acurácia que não diz em que dados foi medida vale
-    zero, e a que engana é pior que a que falta.
+    zero, e a que engana é pior que a que falta. E aqui há o que declarar mesmo
+    depois da F7.4 separar diagramas: os de teste são do mesmo livro.
     """
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBR")})
-    texto = treino_diagrama.treinar(pasta, str(tmp_path / "m.npz")).texto()
+    texto = treino_diagrama.treinar(pasta, str(tmp_path / "m.pth")).texto()
     assert "otimista" in texto
 
 
-def test_a_avaliacao_usa_o_mesmo_voto_da_leitura(tmp_path):
-    """
-    Medir com outro critério mediria outro classificador.
-
-    Duas amostras iguais de classes diferentes: o voto de 3 vizinhos não tem
-    como acertar as duas, e o acerto tem de cair — se subisse, a avaliação
-    estaria usando outra regra.
-    """
-    reduzido = np.array([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 1.0]],
-                        np.float32)
-    acerto, _ = treino_diagrama.avaliar(reduzido, ["P", "P", "N", "N"])
-    assert acerto == 1.0
-    acerto_ruim, _ = treino_diagrama.avaliar(reduzido, ["P", "N", "P", "N"])
-    assert acerto_ruim < 1.0
+def test_o_relatorio_sem_medicao_nao_mostra_acerto(tmp_path):
+    pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
+                             for i, s in enumerate("PNBR")})
+    texto = treino_diagrama.treinar(pasta, str(tmp_path / "m.pth"),
+                                    medir=False).texto()
+    assert "acerto" not in texto
 
 
 # ----------------------------------------------------------------------
@@ -372,13 +432,15 @@ def test_a_impressao_muda_quando_a_base_muda(tmp_path):
 
 
 def test_o_modelo_guarda_a_impressao_da_base(tmp_path):
+    import torch
+
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBR")})
-    destino = str(tmp_path / "m.npz")
-    treino_diagrama.treinar(pasta, destino)
-    d = np.load(destino, allow_pickle=False)
-    assert str(d["impressao"]) == treino_diagrama.impressao(pasta)
-    assert str(d["treinado_em"])
+    destino = str(tmp_path / "m.pth")
+    treino_diagrama.treinar(pasta, destino, medir=False)
+    d = torch.load(destino, map_location="cpu", weights_only=True)
+    assert d["impressao"] == treino_diagrama.impressao(pasta)
+    assert d["treinado_em"]
 
 
 def test_modelo_desatualizado_pega_a_amostra_nova(tmp_path, monkeypatch):
@@ -390,9 +452,9 @@ def test_modelo_desatualizado_pega_a_amostra_nova(tmp_path, monkeypatch):
     """
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBR")})
-    destino = str(tmp_path / "m.npz")
+    destino = str(tmp_path / "m.pth")
     monkeypatch.setattr(diagrama, "CAMINHO_MODELO", destino)
-    treino_diagrama.treinar(pasta, destino)
+    treino_diagrama.treinar(pasta, destino, medir=False)
     assert not treino_diagrama.modelo_desatualizado(pasta)
 
     treino_diagrama.gravar(_residuo(80), "P", "nova", "d4", pasta)
@@ -401,12 +463,27 @@ def test_modelo_desatualizado_pega_a_amostra_nova(tmp_path, monkeypatch):
 
 def test_modelo_sem_impressao_nao_e_dado_como_desatualizado(tmp_path, monkeypatch):
     """Modelo anterior a esta fase carrega e não acusa nada — como na F7.3."""
-    destino = str(tmp_path / "velho.npz")
-    np.savez_compressed(destino, media=np.zeros(3, np.float32),
-                        base=np.zeros((1, 3), np.float32),
-                        amostras=np.zeros((1, 1), np.float32),
-                        simbolos=np.array(["P"]))
+    import torch
+
+    destino = str(tmp_path / "velho.pth")
+    torch.save({"pesos": {}, "simbolos": ["P"]}, destino)
     monkeypatch.setattr(diagrama, "CAMINHO_MODELO", destino)
+    assert not treino_diagrama.modelo_desatualizado(str(tmp_path / "d"))
+
+
+def test_modelo_de_outro_formato_nao_derruba_a_leitura_da_impressao(
+        tmp_path, monkeypatch):
+    """
+    O `.npz` da F7.1 ainda pode estar no disco de quem atualizou (F7.4).
+
+    Lido como `.pth` ele não abre — e "não abre" tem de virar "não tem
+    impressão", não uma exceção no caminho de quem só queria saber se o modelo
+    está velho.
+    """
+    destino = str(tmp_path / "antigo.npz")
+    np.savez_compressed(destino, media=np.zeros(3, np.float32))
+    monkeypatch.setattr(diagrama, "CAMINHO_MODELO", destino)
+    assert diagrama.impressao_do_modelo() == ""
     assert not treino_diagrama.modelo_desatualizado(str(tmp_path / "d"))
 
 
@@ -414,15 +491,15 @@ def test_treinar_faz_o_leitor_esquecer_o_modelo_em_memoria(tmp_path, monkeypatch
     """
     Sem isto, treinar sem fechar o programa não mudaria nada, em silêncio.
 
-    O `.npz` novo ficaria no disco e as leituras seguintes continuariam com o
-    banco velho até alguém reiniciar.
+    O `.pth` novo ficaria no disco e as leituras seguintes continuariam com a
+    rede velha até alguém reiniciar.
     """
     pasta = _base(tmp_path, {s: _familia(s, 6, i * 11 + 2)
                              for i, s in enumerate("PNBR")})
-    destino = str(tmp_path / "m.npz")
+    destino = str(tmp_path / "m.pth")
     monkeypatch.setattr(diagrama, "CAMINHO_MODELO", destino)
     diagrama._modelo = ("velho",)
-    treino_diagrama.treinar(pasta, destino)
+    treino_diagrama.treinar(pasta, destino, medir=False)
     assert diagrama._modelo is None
 
 

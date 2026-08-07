@@ -2549,17 +2549,18 @@ class MainWindow(tk.Frame):
 
     def treinar_modelo_diagramas(self):
         """
-        Refaz o banco de peças dos diagramas com as amostras de hoje (F8.3).
+        Refaz o modelo das peças dos diagramas com as amostras de hoje (F8.3).
 
-        Roda em thread porque lê e descreve a base inteira; é rápido (0,3 s
-        para 357 amostras), mas o custo cresce com o que o usuário for
-        conferindo, e travar a UI por isso seria um defeito plantado.
+        Roda em thread, e desde a F7.4 isso deixou de ser precaução: eram 0,3 s
+        para 357 amostras com o banco de vizinhos, e são ~40 s para treinar as
+        duas redes — a que mede e a que fica. Daí o `progresso` chegar ao log da
+        janela: quarenta segundos sem sinal de vida parecem travamento.
         """
         from core import treino_diagrama
 
         def trabalho(h):
             h.log("Lendo as amostras...")
-            return treino_diagrama.treinar()
+            return treino_diagrama.treinar(progresso=h.log)
 
         def concluir(relatorio):
             if not relatorio.total:
@@ -2575,8 +2576,11 @@ class MainWindow(tk.Frame):
                 relatorio.texto()
                 + ("\n\nCorrija os erros acima: eles vão para o modelo."
                    if graves else ""))
-            self.status.set(f"Modelo de diagramas: {relatorio.total} amostras, "
-                            f"{relatorio.acerto:.1%} em leave-one-out.")
+            medido = (f"{relatorio.acerto:.1%} em {relatorio.diagramas_de_teste} "
+                      f"diagramas fora do treino" if relatorio.casas_de_teste
+                      else "sem medição (base pequena demais para separar teste)")
+            self.status.set(
+                f"Modelo de diagramas: {relatorio.total} amostras, {medido}.")
 
         self._run_task("Treinar modelo de diagramas", trabalho, concluir,
                        indeterminado=True)

@@ -2393,6 +2393,132 @@ de glifos por projeção (F1.5b) e do canal de sinal para a cor da peça (F7.1).
 registrado para ninguém tentar de novo pelo mesmo caminho: **quem separa linha de
 variante não é a tipografia.**
 
+### F7.4 — O banco de vizinhos vira rede — CONCLUÍDA
+
+Proposto pelo usuário: *"acho que pytorch pth é mais eficiente para reconhecer os
+diagramas de xadrez"*. **Concluída em 2026-08-07.** O argumento contra estava escrito
+no cabeçalho do `treinar_diagrama.py`, e é do tipo que se escreve sem medir:
+
+> O modelo é um banco de vizinhos, não uma rede: são poucas centenas de amostras de
+> dois livros, e uma rede treinada nisso decoraria.
+
+#### O protocolo primeiro, porque é ele que muda a resposta
+
+A base tem 833 amostras rotuladas em 90 diagramas de quatro procedências. Duas casas do
+mesmo diagrama saíram do mesmo recorte, com a mesma fonte, a mesma digitalização e o
+mesmo fundo estimado — deixar uma no treino e a outra no teste mede memorização, e é o
+que o leave-one-out da F8.3 fazia. Ele mesmo avisava; **esta fase mediu o quanto**:
+
+| protocolo | k-NN | rede |
+|---|---:|---:|
+| leave-one-out solto (o do relatório) | 93,5% | — |
+| 5 folds agrupados por diagrama | 93,8% | 98,8% |
+| **um livro inteiro deixado de fora** | **86,9%** | **98,0%** |
+
+A terceira linha é a pergunta que o programa faz na prática: abro um PDF novo, ele lê?
+
+**A vantagem da rede cresce no teste difícil**, de +5,0 para +11,1 pontos. É o contrário
+do que a decoreba produziria — o argumento de 2026 estava exatamente ao contrário do que
+os dados dizem.
+
+Por livro:
+
+| livro deixado de fora | n | k-NN | rede |
+|---|---:|---:|---:|
+| Yusupov, *Chess Evolution 1* | 345 | 83,5% | 97,7% |
+| Aagaard, *GrandMaster Preparation* | 84 | 96,4% | 100,0% |
+| Kasparov, *Dynamic Benko Gambit* | 47 | 78,7% | 97,9% |
+| base original da F7.1 | 357 | 89,1% | 97,5% |
+
+#### Não era o PCA, e isso foi verificado antes de trocar
+
+Antes de propor um classificador novo, a pergunta barata: dá para tirar isso do k-NN
+mexendo só nele? No mesmo protocolo de livro deixado de fora —
+
+| variante do k-NN | livro novo |
+|---|---:|
+| PCA 32, k=3 (o de produção) | 86,9% |
+| PCA 128, k=3 | 88,2% |
+| PCA 256, k=3 | 88,5% |
+| sem PCA, sobre o HOG cru, k=1 | **89,2%** |
+
+O teto é 89,2%. O gargalo não é a redução de dimensão, é HOG mais vizinho mais próximo
+como representação. O que o k-NN errava eram as peças de desenho detalhado — dama 80,8%,
+cavalo 83,7%, dama preta 86,5% —, exatamente o que uma silhueta de gradientes borra.
+
+#### A rede foi dimensionada pelo tamanho do arquivo
+
+Decisão de produto, não de modelagem: o `.gitignore` manda `*.pth` para fora porque o
+modelo de caracteres tem 2,6 MB, e o banco de vizinhos que a rede substitui tinha 231 KB
+e **vinha versionado** — um clone novo lia diagramas sem baixar nada.
+
+| rede | parâmetros | arquivo | livro novo |
+|---|---:|---:|---:|
+| `SimpleCNN` (a de 126 caracteres) | 620.300 | 2.423 KB | 97,8% |
+| `RedeDiagrama` | 35.820 | 140 KB | **98,0%** |
+| `RedeDiagrama` com média global | 24.300 | 95 KB | 81,4% |
+| `RedeDiagrama` com metade dos canais | 12.156 | 47 KB | 96,0% |
+
+A camada densa de 2.048 para 256 da `SimpleCNN` é 85% dos parâmetros dela e não paga em
+12 classes de glifo impresso. A exceção nominal no `.gitignore` é o que mantém a
+propriedade — o modelo gravado tem 152 KB.
+
+**A terceira linha é a que ensina alguma coisa.** Trocar o achatamento por média global
+economiza 11 mil parâmetros e derruba 16,6 pontos: onde a tinta está dentro da casa é
+informação, e a média joga fora exatamente isso.
+
+#### Três consequências que não estavam no pedido
+
+1. **A temperatura da F1.9 passou a valer aqui.** A rede acerta 98% e diz 99,9% em quase
+   tudo, e é dessa confiança que a janela de diagramas tira o laranja de "duvidoso" —
+   sem calibrar, o laranja pararia de aparecer justamente quando fosse útil. Ajustada
+   nos diagramas de teste (1,41 na base atual) e gravada no `.pth`. Não muda leitura
+   nenhuma; muda o número exibido. Com ela, 6,6% das casas lidas ficam abaixo de 0,80.
+2. **O árbitro da legalidade passou a custar em logaritmo.** "Quanto custa trocar esta
+   casa" é razão entre evidências, não diferença: com a rede confiante, `0,9999 −
+   0,0000001` empata com `0,999 − 0,001` em ponto flutuante e o "mais barato" viraria o
+   primeiro índice da lista.
+3. **O treino passou de ~2 s para ~40 s**, porque são duas redes por rodada — a que
+   mede não vê os diagramas de teste, a que fica vê tudo. Medir na segunda seria medir a
+   memória dela. O comando da janela ganhou progresso: quarenta segundos sem sinal de
+   vida parecem travamento.
+
+#### O que a troca NÃO conserta, e o número que prova
+
+Nas 11 páginas rotuladas, 25 diagramas: **15** saem com posição possível antes do árbitro
+(o k-NN fazia 17, e a diferença é ruído em 25) e **25** depois (o k-NN fazia 23).
+
+A legalidade mede sobretudo a decisão vazia/ocupada, que é o Otsu de `_residuos` e não
+mudou: um rei que ele não viu quebra a posição por mais certo que o classificador esteja.
+O ganho da rede está em **qual peça é**, não em **se há peça** — e os 94,5% por casa da
+F7.1 incluem as duas coisas, então não viram 98% por troca de classificador.
+
+**Um caso conferido à mão, porque ele mostra o defeito inteiro.** O primeiro diagrama da
+página 0013 do Kasparov sai com FEN legal, aceito pelo `python-chess`, sem nenhuma casa
+arbitrada — e tem **duas casas erradas**, nenhuma delas do classificador:
+
+- **f5 tem um peão branco e a leitura diz vazia.** Peão branco em casa clara é o caso
+  que a F7.1 já registrava: é branco por dentro, traço fino em volta, e quase some no
+  resíduo.
+- **h2 está vazia e a leitura põe um peão.** O falso positivo simétrico, na casa escura.
+
+É a demonstração mais limpa que este projeto tem do aviso da F7.1: **passar nas provas de
+legalidade não é prova de estar certo.** Aqui as provas passaram todas — um rei de cada
+cor, contagem plausível, nenhum peão na ponta — porque a omissão e o falso positivo se
+compensam na contagem. Quem quiser o próximo ganho de verdade ataca o Otsu de ocupação,
+não o classificador.
+
+#### O que muda no relatório de treino
+
+O aviso "uma correção é um voto em três; com duas a casa vira" era a aritmética do k-NN,
+medida numa página real. Com a rede não há vizinho: o gradiente de uma amostra entre 833
+é diluído por 80 épocas de todas as outras. O relatório passou a dizer o que vale agora —
+uma correção isolada só muda a leitura de uma casa que já estava em dúvida, e o que move
+o ponteiro é conferir diagramas inteiros das classes magras. Um teste reprova se o texto
+do k-NN sobreviver à troca.
+
+Cobertura: `tests/test_f71_diagrama.py` e `tests/test_f83_treino_diagrama.py`, 92 testes.
+
 ---
 
 ## F8 — Texto girado e diagramas conferíveis
