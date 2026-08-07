@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.box_model import BoxEntry
 from ui import confidence as conf_ui
+from ui.main_window import MainWindow
 
 
 class ListboxDublê:
@@ -74,6 +75,10 @@ class JanelaFalsa:
     construir a janela inteira: subir o Tk de verdade traria menu, canvas e
     threads para um teste que é sobre contagem de operações de lista.
     """
+
+    # Atributo de classe da janela real, e não uma cópia: a seta desenhada aqui
+    # tem de ser a mesma que o usuário vê (F4.7).
+    SETA_SELECAO = MainWindow.SETA_SELECAO
 
     def __init__(self, boxes):
         self.boxes = boxes
@@ -138,8 +143,13 @@ def test_primeira_montagem_desenha_tudo():
 
 def test_navegar_nao_refaz_a_lista():
     """
-    O defeito: cada seta refazia 2.000 linhas. Trocar a seleção não muda o
-    conteúdo, então o custo tem de ser ZERO operação de lista.
+    O defeito: cada seta refazia 2.000 linhas.
+
+    **Custa duas linhas por tecla, e não zero como na primeira versão da F4.4.**
+    A seta de seleção (F4.7) mora no texto da linha, então trocar a seleção
+    reescreve a que perdeu a seta e a que ganhou — `delete`, `insert` e
+    `itemconfig` em cada uma, seis operações. O que a fase existe para impedir é
+    a outra ordem de grandeza, e ela continua impedida.
     """
     j = _janela(2000)
     j.update_sidebar()
@@ -149,9 +159,24 @@ def test_navegar_nao_refaz_a_lista():
         j.selected_index = i
         j.update_sidebar()
 
-    assert j.listbox.operacoes == 0, \
+    assert j.listbox.operacoes <= 10 * 6, \
         f"navegar custou {j.listbox.operacoes} operações de lista"
     assert len(j.listbox.itens) == 2000, "a lista foi corrompida"
+
+
+def test_a_seta_da_selecao_e_a_unica_linha_reescrita():
+    """A que perdeu a seta e a que ganhou — mais nenhuma."""
+    j = _janela(200)
+    j.selected_index = 10
+    j.update_sidebar()
+    j.listbox.zerar()
+
+    j.selected_index = 11
+    j.update_sidebar()
+
+    assert j.listbox.deletes == 2 and j.listbox.inserts == 2
+    assert j.listbox.itens[10][0] == " "
+    assert j.listbox.itens[11][0] == MainWindow.SETA_SELECAO
 
 
 def test_editar_um_caractere_toca_so_uma_linha():
@@ -228,8 +253,9 @@ def test_filtro_nao_confunde_linha_com_indice_de_box():
     j.update_sidebar()
 
     assert j.listbox.itens, "o filtro não deixou nada"
-    # A primeira coluna é a marca do léxico (F9); o índice vem depois dela.
-    assert j.listbox.itens[0].lstrip("* ").startswith(f"{j._visiveis[0]:04d}")
+    # Duas colunas antes do índice: a seta da seleção (F4.7) e a marca do
+    # léxico (F9).
+    assert j.listbox.itens[0][2:6] == f"{j._visiveis[0]:04d}"
 
 
 def test_marca_do_lexico_e_uma_coluna_e_nao_a_cor():
@@ -245,7 +271,8 @@ def test_marca_do_lexico_e_uma_coluna_e_nao_a_cor():
     j.suspeitos = {2, 3}
     j.update_sidebar()
 
-    marcados = [t[0] for t in j.listbox.itens]
+    # Coluna 1, não 0: a 0 é a seta da seleção (F4.7).
+    marcados = [t[1] for t in j.listbox.itens]
     assert marcados == [" ", " ", "*", "*", " ", " "]
     # Todas com confiança 0,95: a cor continua a mesma nas seis.
     cores = {j._linha_da_lista(i, j.suspeitos)[1] for i in range(6)}

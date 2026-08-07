@@ -713,6 +713,10 @@ class MainWindow(tk.Frame):
         # antigo só testava tk.Entry e não cobria ttk.Entry nem Combobox.)
         root.bind("<Control-d>", self._on_key_split_safe)
         root.bind("<Control-D>", self._on_key_split_safe)
+        # E no campo do caractere, que é a exceção do guard: ver
+        # `_on_key_split_no_campo` para por que a binding é do widget.
+        self.char_entry.bind("<Control-d>", self._on_key_split_no_campo)
+        self.char_entry.bind("<Control-D>", self._on_key_split_no_campo)
         root.bind("<Control-b>", lambda e: self.salvar_rascunho_agora())
         root.bind("<Control-e>", lambda e: (self.aplicar_aos_semelhantes(),
                                             "break")[1])
@@ -1568,17 +1572,34 @@ class MainWindow(tk.Frame):
         if self.var_origem.get() not in valores:
             self.var_origem.set(self.ORIGEM_TODAS)
 
+    #: A seta do "você está aqui" na lista. `►` (U+25BA) e não `▶` (U+25B6),
+    #: que é o desenho óbvio e **não existe na Consolas** — medido: o Tk cairia
+    #: numa fonte de reserva não monoespaçada e a coluna sairia do prumo.
+    SETA_SELECAO = "►"
+
     def _linha_da_lista(self, i, suspeitos=()):
         """(texto, cor) de um box na lista lateral.
 
-        O léxico entra como uma coluna à esquerda, e não como cor: a cor já é a
-        confiança, e são dois eixos diferentes. Uma coluna fixa de um caractere
-        mantém o resto da linha alinhado com as vizinhas.
+        Três colunas fixas antes do índice, e a ordem é a da pergunta que cada
+        uma responde: onde estou (a seta), a palavra está no dicionário (F9), e
+        só então o box. Largura fixa mantém o resto da linha alinhado com as
+        vizinhas — sem isso a lista fica em zigue-zague ao rolar.
+
+        **A seta não é enfeite do realce do Listbox: é o que sobra dele.** O
+        `tk.Listbox` nasce com `exportselection` ligado, então o realce da linha
+        some assim que outro widget toma a seleção do sistema — e é o que
+        acontece a cada `char_entry.select_range`, isto é, a cada Tab e a cada
+        Enter do fluxo de revisão. Quem estava digitando ficava sem saber qual
+        caractere estava editando.
+
+        O léxico entra como coluna, e não como cor: a cor já é a confiança, e
+        são dois eixos diferentes.
         """
         b = self.boxes[i]
         disp_ch = b.char if b.char else "?"
+        seta = self.SETA_SELECAO if i == self.selected_index else " "
         marca = "*" if i in suspeitos else " "
-        return (f"{marca}{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})",
+        return (f"{seta}{marca}{i:04d} {conf_ui.rotulo(b)} '{disp_ch}' ({b.x1},{b.y1})",
                 # A mesma escala do canvas, para o olho não ter que traduzir.
                 conf_ui.cor_do_box(b))
 
@@ -1590,13 +1611,18 @@ class MainWindow(tk.Frame):
         `select_box` chama isto a cada seleção: com 2.000 boxes, cada seta
         pressionada refazia 2.000 linhas e a digitação engasgava.
 
-        O ponto é que navegar não muda o conteúdo da lista, só qual linha está
-        marcada. Guardando o que foi desenhado dá para comparar e não fazer nada
-        — o caminho da seta passa a custar zero operação de lista. Quando o
-        conteúdo muda de verdade (um caractere digitado, um filtro), só as linhas
-        diferentes são reescritas; quando o *tamanho* muda (box criado,
+        O ponto é que navegar quase não muda o conteúdo da lista. Guardando o
+        que foi desenhado dá para comparar e reescrever só o que ficou
+        diferente: quando o conteúdo muda de verdade (um caractere digitado, um
+        filtro), são as linhas mudadas; quando o *tamanho* muda (box criado,
         excluído, filtro que corta), aí sim vale refazer tudo, que é raro e
         simples.
+
+        **Andar de box custa duas linhas, e não zero como na F4.4 original.** É
+        o preço da seta de seleção (`_linha_da_lista`): ela mora no texto da
+        linha, então trocar a seleção reescreve a que perdeu a seta e a que
+        ganhou. Duas linhas por tecla, não duas mil — o defeito que a F4.4
+        existe para não deixar voltar continua fechado.
         """
         self._atualizar_origens()
         self._visiveis = self.boxes_visiveis()
@@ -2080,11 +2106,19 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def split_selected_box(self):
+        """
+        Ctrl+D: parte o box selecionado em dois.
+
+        A página vai junto porque o corte olha a tinta (ver `split_box`): sem
+        ela sobra a regra da proporção, que devolve as metades uma embaixo da
+        outra sempre que o box tem uma letra alta ao lado de uma baixa.
+        """
         if self.selected_index < 0 or self.selected_index >= len(self.boxes):
             return
 
         b = self.boxes[self.selected_index]
-        b1, b2 = self.box_service.split_box(b)
+        pagina = np.array(self.image) if self.image is not None else None
+        b1, b2 = self.box_service.split_box(b, pagina)
 
         self.boxes.pop(self.selected_index)
         self.boxes.insert(self.selected_index, b2)
@@ -2224,6 +2258,30 @@ class MainWindow(tk.Frame):
         if self._foco_em_campo_de_texto():
             return
         self.split_selected_box()
+
+    def _on_key_split_no_campo(self, event):
+        """
+        Ctrl+D com o foco no campo do caractere — o único que também divide.
+
+        O guard acima cala o atalho em todo campo de texto, e para a busca e o
+        número da página isso está certo: eles não têm box nenhum por trás. O
+        campo do caractere é o oposto — ele *é* o box selecionado, e é onde o
+        revisor está com as mãos quando descobre que a caixa tem duas letras.
+
+        **Ligado no widget, e não na janela, porque a ordem das bindings do Tk
+        importa aqui.** A tecla passa pelo widget, depois pela classe, depois
+        pelo toplevel: se a janela tratasse o caso, a binding de classe do
+        `Entry` já teria rodado antes — e nela `Control-d` apaga o caractere à
+        direita do cursor. O `"break"` daqui é o que impede as duas.
+
+        O foco fica onde estava, com a primeira metade selecionada e o campo
+        vazio: dividir 'ba' e digitar 'b', Enter, 'a', Enter é o ciclo inteiro
+        sem tirar a mão do teclado.
+        """
+        self.split_selected_box()
+        self.char_entry.focus_set()
+        self.char_entry.select_range(0, "end")
+        return "break"
 
     def _on_key_zoom(self, event):
         """F4 enquadra o box selecionado (F4.3).

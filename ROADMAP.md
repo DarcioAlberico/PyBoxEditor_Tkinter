@@ -1833,6 +1833,83 @@ reprova se alguém escrever um `isinstance` de foco por fora.
 Ele também trata o `KeyError` que `focus_get()` levanta quando o foco está noutra
 aplicação: sem isso o atalho morreria com exceção em vez de simplesmente disparar.
 
+### F4.7 — O Ctrl+D parte 'ba' de cima a baixo — CONCLUÍDA
+
+Relatado pelo usuário: num box com duas letras de alturas diferentes — `ba`, `it`, `ll` —
+o Ctrl+D devolve as metades **uma embaixo da outra**. Junto vieram dois pedidos: que o
+atalho valha também com o foco no campo do caractere, e que a lista da direita mostre
+qual caractere está selecionado.
+
+**Concluída em 2026-08-07.**
+
+#### O corte
+
+A regra era a proporção do box: mais largo que alto corta em X, senão em Y, sempre no
+meio. O `b` tem ascendente e o `a` não, então a união das duas sai mais **alta** que
+larga — e a regra manda cortar no eixo errado. Não é um caso de canto: são as letras
+estreitas e altas do inglês corrido, e elas estão em toda linha de texto.
+
+**A medição.** As 9 páginas rotuladas dão a população de graça: unindo cada par de
+caracteres vizinhos da verdade rotulada num box só, sai exatamente o box que o usuário
+manda dividir — 5.747 pares lado a lado e 57 empilhados. "Corte bom" é cair a menos de
+10% do lado do box da fronteira verdadeira.
+
+| regra | H: eixo errado | H: corte bom | V: eixo errado | V: corte bom |
+|---|---|---|---|---|
+| geometria (antes) | 534 (9,3%) | 61,6% | 0 (0,0%) | 94,7% |
+| vale de tinta | 15 (0,3%) | 98,6% | 0 (0,0%) | 94,7% |
+
+Os 534 têm cara: `it` (72), `is` (47), `ti` (43), `le` (23), `la` (21), `ll` (20). É a
+lista de sintomas que o relato descreve.
+
+**A coluna dos empilhados é a que impede a troca de um erro por outro.** Seria fácil
+"consertar" cortando sempre em X e nunca mais errar o caso relatado; a coluna V mostra
+que o eixo Y continua sendo escolhido onde ele é o certo, com o mesmo acerto de antes.
+
+**O que faz funcionar não é olhar a tinta, é como medir o vale.** A fundura de um vale é
+medida contra o **menor dos dois picos que o ladeiam**, e não contra o pico geral do
+perfil. Sem isso o perfil por linha de `ba` — pouca tinta na faixa do ascendente, muita
+embaixo — pontuaria como vale fundo, que é a mesma resposta errada de antes com mais
+aritmética. Comparado com o pico de cima, que é o próprio ascendente, pontua zero.
+
+Duas escolhas menores, ambas medidas: a margem que protege as pontas do box tem platô
+entre 0,10 e 0,20 e piora a partir de 0,25 (fixada em 0,15); e binarizar o **recorte**
+com Otsu sai igual a binarizar a página (15 erros contra 17) e poupa a folha inteira a
+cada tecla.
+
+O que sobra de erro é o pingo do `i` sobre o braço do `w`: em `wi` e `vi` há um vale
+horizontal real embaixo do pingo. Quinze casos em 5.747.
+
+#### O atalho no campo do caractere
+
+O guard da F4.6 cala o Ctrl+D em todo campo de texto, e para a busca e o número da página
+isso está certo — não há box por trás deles. O campo do caractere é o oposto: ele *é* o
+box selecionado.
+
+**A binding é do widget, não da janela, e isso não é estilo.** A tecla passa pelo widget,
+pela classe e só então pelo toplevel, e a binding de classe do `Entry` trata `Control-d`
+apagando o caractere à direita do cursor. Tratado na janela, o atalho dividiria o box **e**
+comeria o que estava escrito, porque a de classe já teria rodado. No widget, com `"break"`,
+nenhuma das outras roda.
+
+#### A seta da lista
+
+`►` numa coluna fixa, à esquerda da marca do léxico. **Não é enfeite do realce do
+Listbox: é o que sobra dele.** O `tk.Listbox` nasce com `exportselection` ligado, então o
+realce da linha some assim que outro widget toma a seleção do sistema — e é o que acontece
+a cada `char_entry.select_range`, isto é, a cada Tab e a cada Enter do fluxo de revisão.
+Quem estava digitando ficava sem saber qual caractere estava editando.
+
+`▶` (U+25B6) é o desenho óbvio e **não existe na Consolas** — medido, não suposto: o Tk
+não avisa, cai numa fonte de reserva que não é monoespaçada, e a coluna sai do prumo.
+`►` (U+25BA) está lá. É o mesmo defeito do `·` da SPEC §4.2 e dos NAGs que nenhuma fonte
+desenha (SPEC §7.1), e o teste que o trava mede a fonte em vez de decorar a resposta.
+
+**O custo, dito sem enfeite: a F4.4 deixa de valer zero.** A seta mora no texto da linha,
+então andar de box reescreve a linha que perdeu a seta e a que ganhou — seis operações de
+lista por tecla, contra as 2.000 que a F4.4 existe para não deixar voltar. O teste que
+afirmava "zero" passou a afirmar o teto novo, com o número escrito.
+
 ---
 
 ## F5 — Higiene do código

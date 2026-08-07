@@ -858,7 +858,7 @@ O sinal aparece em três lugares, e em nenhum deles rouba a cor da §7.2:
 | onde | como |
 |---|---|
 | canvas | sublinhado roxo sob o box, como corretor ortográfico |
-| lista lateral | uma coluna `*` à esquerda, largura fixa |
+| lista lateral | uma coluna `*` à esquerda, largura fixa — a segunda, depois da seta de seleção da §7.11 |
 | contador | "N fora do dicionário" — palavras, não boxes |
 
 **A cor do contorno continua sendo só a confiança**, porque os dois eixos são
@@ -1303,6 +1303,15 @@ de produtividade do roadmap.
 (`_on_key_split_safe`) só testa `tk.Entry` e não cobre `ttk.Entry`, `Text` ou
 `Spinbox`, então digitar "d" no widget errado divide um box.
 
+**O campo do caractere é a exceção do guard — [feito, F4.7].** Calar o atalho em todo
+campo de texto está certo para a busca e o número da página, que não têm box por trás;
+o campo do caractere é o oposto — ele *é* o box selecionado, e é onde a mão do revisor
+está quando ele descobre que a caixa tem duas letras. A binding é do **widget**, não da
+janela, e devolve `"break"`: a tecla passa pelo widget, pela classe e só então pelo
+toplevel, e a binding de classe do `Entry` trata `Control-d` apagando o caractere à
+direita do cursor. Tratado só na janela, o atalho dividiria o box **e** comeria o que
+estava escrito.
+
 > **Duas teclas mudaram em relação ao que está escrito acima**, e pelo mesmo motivo: com
 > o modo digitação da §7.3, **tecla nua não pode ser comando** — ela precisa poder virar
 > o caractere do box. Por isso o zoom é `F4` e não `Z` (F4.6). E `Ctrl+Shift+A` virou
@@ -1329,6 +1338,11 @@ nível de zoom. Zoom explícito só com `Z` ou duplo-clique. Configurável por
 Com 2.000 boxes, cada seta reconstrói 2.000 linhas e a digitação engasga.
 
 Migrar para `ttk.Treeview` e atualizar **só as linhas alteradas**.
+
+> **Andar de box custa duas linhas, e não zero — [F4.7].** A seta de seleção da §7.11
+> mora no texto da linha, então trocar a seleção reescreve a que perdeu a seta e a que
+> ganhou: seis operações de lista por tecla, contra as 2.000 que esta seção existe para
+> não deixar voltar. O teste da F4.4 que afirmava "zero" passou a afirmar esse teto.
 
 ### 7.9 Tabuleiro editável — [feito, F8.2, em `core/tabuleiro_edicao.py`]
 
@@ -1375,6 +1389,45 @@ O ciclo que faltava: corrijo, guardo, treino, melhora.
 6. **O `.npz` guarda a impressão da base** que o gerou (F7.3 aplicada aqui), e treinar
    faz o leitor esquecer o modelo em memória — senão o treino não valeria até
    reiniciar o programa.
+
+### 7.11 O corte do Ctrl+D e a seta da lista — [feito, F4.7]
+
+**O corte olha a tinta, não a proporção do box.** A regra antiga era "mais largo que
+alto corta em X, senão em Y, sempre no meio", e num box com `ba`, `it`, `is` ou `ll` —
+letra alta ao lado de letra baixa — a caixa sai mais **alta** que larga: as duas metades
+vinham uma embaixo da outra. Agora `BoxService.split_box` mede o perfil de tinta nos dois
+eixos, procura o vale mais nítido de cada um e corta no do eixo vencedor; sem imagem, ou
+sem vale em eixo nenhum, vale a regra antiga.
+
+**A fundura do vale é medida contra o menor dos dois picos que o ladeiam**, e é isso que
+distingue um vale de uma descida — o perfil por linha de `ba` cai na faixa do ascendente
+do `b`, e comparado com o pico geral aquilo pontuaria como vale fundo.
+
+Medido nas 9 páginas rotuladas, unindo cada par de caracteres vizinhos da verdade
+rotulada num box só — que é exatamente o box que o usuário manda dividir. "Corte bom" é
+cair a menos de 10% do lado do box da fronteira verdadeira:
+
+| regra | lado a lado (n=5.747) | | empilhados (n=57) | |
+|---|---|---|---|---|
+| | eixo errado | corte bom | eixo errado | corte bom |
+| geometria | 9,3% | 61,6% | 0,0% | 94,7% |
+| vale de tinta | 0,3% | 98,6% | 0,0% | 94,7% |
+
+A coluna dos empilhados é a que prova que não houve troca de um erro por outro: o eixo Y
+continua sendo escolhido onde ele é o certo.
+
+**A lista lateral ganha uma seta na linha selecionada**, `►` (U+25BA) numa coluna fixa à
+esquerda da marca do léxico. Não é enfeite do realce do Listbox: é o que sobra dele. O
+`tk.Listbox` nasce com `exportselection` ligado, então o realce some assim que outro
+widget toma a seleção do sistema — e é o que acontece a cada `char_entry.select_range`,
+isto é, a cada Tab e a cada Enter do fluxo de revisão.
+
+`▶` (U+25B6) é o desenho óbvio e **não existe na Consolas**: o Tk cairia numa fonte de
+reserva não monoespaçada e a coluna sairia do prumo. Medido, não suposto — é a mesma
+disciplina do `·` da §4.2 e dos NAGs sem fonte da §7.1.
+
+O preço está na §7.8: andar de box passa a reescrever duas linhas em vez de zero, porque
+a seta mora no texto da linha. Duas, não duas mil.
 
 ---
 

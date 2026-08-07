@@ -793,11 +793,101 @@ class BoxService:
 
         return merged_boxes
 
+    #: O corte manual procura o vale só no miolo do box: perto da borda todo
+    #: perfil de tinta desce, e cortar ali devolve uma lasca em vez de um
+    #: caractere. É a fração descartada de **cada** ponta. Medido nos 5.747
+    #: pares descritos em `split_box`, tem platô entre 0,10 e 0,20 (0,3% de eixo
+    #: errado) e piora a partir de 0,25 (0,6%).
+    MARGEM_DO_CORTE = 0.15
+
+    #: Fundura mínima para o vale mandar no lugar da geometria. A população
+    #: medida é **insensível** a este número — de 0,00 a 0,50 o resultado não
+    #: muda —, porque par de caracteres vizinhos sempre tem vale de verdade. Ele
+    #: existe para o caso que a medição não tem: o box sem vale nenhum (um glifo
+    #: só, um box vazio), onde a resposta certa é "não sei, corte no meio".
+    MIN_FUNDURA_DO_VALE = 0.25
+
     @staticmethod
-    def split_box(box: BoxEntry) -> List[BoxEntry]:
+    def _vale_mais_fundo(perfil: np.ndarray, margem: float):
         """
-        Divide um box ao meio. Se for mais largo que alto, divide em X.
-        Caso contrário, divide em Y. Retorna 2 boxes com char vazio.
+        `(posição, fundura)` do vale interno mais nítido de um perfil de tinta.
+
+        **A fundura é medida contra o menor dos dois picos que ladeiam o vale**,
+        e é isso que distingue um vale de uma descida. Num box com 'ba' o perfil
+        por linha *cai* na faixa do ascendente do 'b' — pouca tinta lá em cima,
+        muita embaixo, onde estão as duas letras. Comparado com o pico geral
+        aquilo pontua como vale fundo; comparado com o pico *de cima*, que é o
+        próprio ascendente, pontua zero, que é o que ele é.
+
+        Devolve `None` quando não há vale interno — perfil curto demais, sem
+        tinta, ou monotônico.
+        """
+        perfil = np.asarray(perfil, dtype=float)
+        n = len(perfil)
+        if n < 3:
+            return None
+
+        ini = max(1, int(round(n * margem)))
+        fim = n - ini
+        if fim <= ini:
+            return None
+
+        # Pico acumulado de cada lado: `pico_esq[i]` é o máximo de tudo até `i`,
+        # `pico_dir[i]` o de tudo a partir de `i`. Com eles o vale largo sai de
+        # graça — o flanco de uma posição no meio do vão ainda é o pico da letra.
+        pico_esq = np.maximum.accumulate(perfil)
+        pico_dir = np.maximum.accumulate(perfil[::-1])[::-1]
+
+        pos = np.arange(ini, fim)
+        flanco = np.minimum(pico_esq[pos - 1], pico_dir[pos + 1])
+        fundura = np.where(flanco > 0, 1.0 - perfil[pos] / np.maximum(flanco, 1e-9), 0.0)
+
+        melhor = float(fundura.max())
+        if melhor <= 0:
+            return None
+        # Empate resolve pelo mais central: num vão de várias colunas todas
+        # empatam em zero de tinta, e o meio do vão é o corte que o olho espera.
+        centro = (n - 1) / 2.0
+        escolhida = min(pos[fundura >= melhor - 1e-9], key=lambda p: abs(p - centro))
+        return int(escolhida), melhor
+
+    @staticmethod
+    def split_box(box: BoxEntry, imagem_cinza: np.ndarray = None) -> List[BoxEntry]:
+        """
+        Divide um box em dois, **no vão entre os glifos**. Char vazio nos dois.
+
+        **A regra antiga era a proporção do box, e ela erra o eixo em 9,3% dos
+        casos.** "Mais largo que alto corta em X, senão em Y, sempre no meio":
+        num box com 'it', 'is', 'ba' ou 'll' — letra alta ao lado de letra baixa
+        — a caixa sai mais alta que larga, e o Ctrl+D devolvia as duas metades
+        *uma embaixo da outra*. Era o defeito relatado, e ele tem nome: as letras
+        estreitas e altas do inglês corrido.
+
+        **O que decide agora é onde a tinta abre.** Perfil de tinta nos dois
+        eixos, vale mais nítido de cada um (`_vale_mais_fundo`), e ganha o eixo
+        com o vale mais fundo. Sem imagem, ou sem vale em eixo nenhum, vale a
+        regra antiga — que é a resposta honesta para um box onde não há vão.
+
+        **Medido nas 9 páginas rotuladas**, unindo cada par de caracteres
+        vizinhos da verdade rotulada num box só — que é exatamente o box que o
+        usuário manda dividir. 5.747 pares lado a lado e 57 empilhados; "corte
+        bom" é cair a menos de 10% do lado do box da fronteira verdadeira:
+
+            regra        lado a lado (n=5.747)      empilhados (n=57)
+                         eixo errado  corte bom   eixo errado  corte bom
+            geometria       9,3%        61,6%        0,0%       94,7%
+            vale de tinta   0,3%        98,6%        0,0%       94,7%
+
+        **A coluna dos empilhados é a que prova que não houve troca de um erro
+        por outro.** O eixo Y continua sendo escolhido onde ele é o certo — o
+        vale por linha existe de verdade ali —, com o mesmo acerto de antes.
+
+        O que sobra de erro é o pingo do 'i' sobre o braço do 'w': em 'wi' e 'vi'
+        há um vale horizontal real embaixo do pingo, e ele ganha do vertical.
+        Quinze casos em 5.747.
+
+        A binarização é a do **recorte**, com Otsu, e não a da página: sai igual
+        (15 erros contra 17) e poupa binarizar a folha inteira a cada Ctrl+D.
 
         As metades herdam o ângulo (F8.1) e a polaridade (F10): quem parte um
         box de rótulo vertical — ou de tarja preta — em dois quer dois pedaços
@@ -807,18 +897,45 @@ class BoxService:
         angulo = getattr(box, "angulo", 0)
         neg = getattr(box, "negativo", False)
 
+        def em_x(corte):
+            return [BoxEntry("", x1, y1, corte, y2, angulo=angulo, negativo=neg),
+                    BoxEntry("", corte, y1, x2, y2, angulo=angulo, negativo=neg)]
+
+        def em_y(corte):
+            return [BoxEntry("", x1, y1, x2, corte, angulo=angulo, negativo=neg),
+                    BoxEntry("", x1, corte, x2, y2, angulo=angulo, negativo=neg)]
+
+        tinta = BoxService._tinta_do_box(box, imagem_cinza)
+        if tinta is not None:
+            margem = BoxService.MARGEM_DO_CORTE
+            vx = BoxService._vale_mais_fundo(tinta.sum(axis=0), margem)
+            vy = BoxService._vale_mais_fundo(tinta.sum(axis=1), margem)
+            fx = vx[1] if vx else 0.0
+            fy = vy[1] if vy else 0.0
+            if max(fx, fy) >= BoxService.MIN_FUNDURA_DO_VALE:
+                return em_x(x1 + vx[0]) if fx >= fy else em_y(y1 + vy[0])
+
+        # Sem imagem ou sem vão: o meio geométrico, como sempre foi.
         if (x2 - x1) > (y2 - y1):
-            mx = (x1 + x2) // 2
-            return [
-                BoxEntry("", x1, y1, mx, y2, angulo=angulo, negativo=neg),
-                BoxEntry("", mx, y1, x2, y2, angulo=angulo, negativo=neg),
-            ]
-        else:
-            my = (y1 + y2) // 2
-            return [
-                BoxEntry("", x1, y1, x2, my, angulo=angulo, negativo=neg),
-                BoxEntry("", x1, my, x2, y2, angulo=angulo, negativo=neg),
-            ]
+            return em_x((x1 + x2) // 2)
+        return em_y((y1 + y2) // 2)
+
+    @staticmethod
+    def _tinta_do_box(box: BoxEntry, imagem_cinza: np.ndarray):
+        """Máscara booleana da tinta dentro do box, ou `None` se não der."""
+        if imagem_cinza is None:
+            return None
+        recorte = imagem_cinza[max(0, box.y1):box.y2, max(0, box.x1):box.x2]
+        if recorte.size == 0 or min(recorte.shape[:2]) < 3:
+            return None
+        if getattr(box, "negativo", False):
+            # Tarja preta (F10): sem positivar, o perfil mediria o fundo e o
+            # vale cairia no meio da letra em vez de no vão entre duas.
+            recorte = negativo.positivar(recorte)
+        # Otsu e não "auto": recorte de caractere é bimodal por construção, e o
+        # `auto` cairia no adaptativo — que numa área do tamanho de duas letras
+        # não tem vizinhança suficiente para estimar fundo nenhum.
+        return preprocess.binarize(recorte, "otsu") > 0
 
     @staticmethod
     def clamp_box(box: BoxEntry, max_w: int, max_h: int) -> BoxEntry:
