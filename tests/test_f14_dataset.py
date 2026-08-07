@@ -354,7 +354,16 @@ def test_alfabeto_de_figurinas_tem_cinco():
 
 
 def test_modelo_emite_exatamente_essas_figurinas():
-    """O filtro tem que bater com o que o modelo treinado realmente produz."""
+    """
+    O filtro tem que bater com o que o modelo treinado realmente produz.
+
+    **A conta é por caractere, não por classe**, e a diferença custou uma
+    falha: com as ligaduras da SPEC §5.2 item 6 o modelo passou a emitir a
+    classe `♗x`, que não é figurina nenhuma como string — mas contém uma. Ler
+    classe a classe fazia o teste acusar um filtro incompleto que estava certo,
+    e escondia o defeito verdadeiro, que era `searchable_pdf` pular a captura de
+    bispo no modo "replace" (ver `tem_peca`).
+    """
     from core.searchable_pdf import PECAS
     meta_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "model_meta.json")
@@ -363,9 +372,21 @@ def test_modelo_emite_exatamente_essas_figurinas():
     with open(meta_path, encoding="utf-8") as f:
         emitiveis = set(json.load(f)["idx_to_char"].values())
 
-    figurinas = {c for c in emitiveis if "♔" <= c <= "♟"}
+    figurinas = {c for classe in emitiveis for c in classe if "♔" <= c <= "♟"}
     assert figurinas == PECAS, (
         f"o modelo emite {sorted(figurinas)} mas o filtro espera {sorted(PECAS)}")
+
+
+def test_ligadura_com_figurina_conta_como_peca():
+    """
+    `♗x` é peça para o modo "replace", e é o caso comum: numa captura de bispo o
+    glifo encosta no `x` e os dois saem num box só.
+    """
+    from core.searchable_pdf import PECAS, tem_peca
+
+    assert tem_peca("♗x") and tem_peca("♘")
+    assert not tem_peca("fi") and not tem_peca("e4") and not tem_peca("")
+    assert all(tem_peca(p) for p in PECAS)
 
 
 # ----------------------------------------------------------------------

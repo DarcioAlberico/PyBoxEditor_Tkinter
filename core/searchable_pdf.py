@@ -42,12 +42,25 @@ FONTE_PECAS = "pyboxchess"
 #      não existem como desenho próprio.
 #
 # Sobram exatamente K, Q, R, B, N — as únicas peças que ganham letra na
-# notação, e exatamente as classes que o modelo aprendeu.
+# notação, e exatamente as figurinas que o modelo aprendeu.
 #
 # Decidir se um ♘ reconhecido é peça branca ou preta é **visualmente
 # impossível**: depende da paridade do número do lance. Isso é trabalho da
 # F1.7 (validação com python-chess), não do reconhecimento de imagem.
 PECAS = set(CHESS_UNICODE[:5])   # ♔♕♖♗♘
+
+
+def tem_peca(char: str) -> bool:
+    """
+    A leitura deste box contém figurina? **Contém, não é.**
+
+    A diferença passou a existir com as classes de ligadura da SPEC §5.2 item 6:
+    o modelo emite `♗x`, porque numa captura de bispo o glifo e o `x` se tocam e
+    `findContours` devolve os dois num box só. Com o teste antigo (`char in
+    PECAS`) esse box não era peça, e o modo "replace" **pulava calado** justamente
+    a captura de bispo — que não é caso raro em livro de xadrez.
+    """
+    return any(c in PECAS for c in char)
 
 
 def _pagina_tem_texto(page: fitz.Page, minimo: int = 12) -> bool:
@@ -183,7 +196,11 @@ def gerar_pdf_pesquisavel(
                 char, conf = reconhecer(recorte)
                 if not char or conf < conf_minima:
                     continue
-                if not fonte.has_glyph(ord(char[0])):
+                # Todos os caracteres, e não só `char[0]`: uma classe de
+                # ligadura escreve dois glifos, e conferir o primeiro deixaria o
+                # segundo virar retângulo vazio no PDF — o defeito do `·` da
+                # SPEC §4.2, que aparece só quando o arquivo já está pronto.
+                if not all(fonte.has_glyph(ord(c)) for c in char):
                     resumo["sem_glifo"] += 1
                     continue
 
@@ -213,7 +230,7 @@ def gerar_pdf_pesquisavel(
                     )
 
                 if (modo in ("replace", "both")
-                        and char in PECAS and conf >= conf_minima_pecas):
+                        and tem_peca(char) and conf >= conf_minima_pecas):
                     # Desenha na própria página, sem rasterizar: cobre o glifo
                     # original e escreve o símbolo Unicode por cima.
                     page.draw_rect(fitz.Rect(x1, y1, x2, y2),

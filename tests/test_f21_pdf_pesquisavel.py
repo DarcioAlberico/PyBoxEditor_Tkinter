@@ -170,6 +170,27 @@ def test_modo_replace_desenha_pecas():
         assert a.samples != b.samples, "o modo replace não mexeu na página"
 
 
+def test_modo_replace_alcanca_a_ligadura_com_figurina():
+    """
+    `♗x` tem de ser substituída como qualquer peça.
+
+    Antes de `tem_peca`, o filtro era `char in PECAS` e a captura de bispo — que
+    o modelo lê numa classe só desde as ligaduras da SPEC §5.2 item 6 — passava
+    batida, deixando o glifo original na página sem contar em `sem_glifo` nem em
+    lugar nenhum do resumo.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = _pdf_escaneado(os.path.join(tmp, "in.pdf"))
+        saida = os.path.join(tmp, "out.pdf")
+
+        resumo = gerar_pdf_pesquisavel(
+            entrada, saida, reconhecer=_reconhecedor("♗x"),
+            dpi=150, modo="both")
+
+        assert resumo["pecas_substituidas"] > 0
+        assert "♗x" in _texto(saida)
+
+
 def test_modo_both_faz_as_duas_coisas():
     with tempfile.TemporaryDirectory() as tmp:
         entrada = _pdf_escaneado(os.path.join(tmp, "in.pdf"))
