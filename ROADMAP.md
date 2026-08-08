@@ -2669,6 +2669,34 @@ inventava 38 peças e perdia 86, e nenhuma dessas 124 correções chegava a mode
 nenhum. Agora o "conferi este diagrama inteiro" grava as 64 casas na base de
 ocupação, ocupadas e vazias.
 
+#### A guarda da base parava de valer no primeiro diagrama conferido
+
+A base de verdade precisa de guarda contra o que a própria suíte pode escrever
+nela sem querer: um teste de diálogo que esquecia de apontar `PASTA_OCUPACAO`
+para uma pasta temporária gravava 64 casas sintéticas a cada execução, e nada
+acusava — amostra a mais não quebra treino nenhum, só envenena o modelo devagar.
+É o defeito da F1.4 na forma que esta fase podia criá-lo.
+
+**A guarda existia e estava escrita como contagem fixa, `(400, 387)`.** É a
+medida errada, e o parágrafo acima diz por quê: a base **cresce de propósito**, a
+cada diagrama que o usuário confere. Com 25 diagramas conferidos ela já não é
+787, e a suíte reprovava por trabalho bem feito. Pior: o conserto de rotina
+virava "atualizar o número", que é justamente o gesto que deixaria passar a
+gravação acidental. Aconteceu — 1.720 vazias e 1.116 ocupadas contra as 787
+congeladas, todas de páginas de verdade.
+
+**O que a guarda passa a comparar é a sessão consigo mesma**: os nomes de
+arquivo que a suíte encontrou ao começar contra os que deixou no fim. Nomes, e
+não contagem, porque gravar uma amostra e apagar outra fecharia a conta.
+
+**Ela mora no `conftest`, e não num teste, por causa da ordem.** O pytest roda
+os arquivos em ordem alfabética, e quem mais mexe na base —
+`test_f83_treino_diagrama.py` — vem depois do `test_f75_ocupacao.py`. Um teste
+no meio da fila só cobriria a parte da suíte que já passou. O teste continua
+existindo, com o nome que se procura, como sinal cedo; quem fecha a conta é a
+sessão. Conferido plantando uma amostra a partir de um teste: a guarda reprova e
+diz o nome do arquivo.
+
 #### O resultado, ponta a ponta
 
 | | antes (F7.4) | agora |

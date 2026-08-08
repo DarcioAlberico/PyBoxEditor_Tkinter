@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pytest
 
+from conftest import mexeu_na_ocupacao
 from core import diagrama, treino_diagrama
 
 
@@ -182,18 +183,27 @@ def test_a_base_de_ocupacao_e_separada_da_de_pecas():
 
 def test_a_base_de_ocupacao_esta_intacta():
     """
-    Trava o tamanho da base contra o que a suíte pode escrever nela sem querer.
+    A suíte não escreve na base de verdade — conferido até este ponto da fila.
 
-    Não é zelo: aconteceu. Um teste de diálogo que esquecia de apontar
-    `PASTA_OCUPACAO` para uma pasta temporária gravava 64 casas sintéticas na
-    base de verdade a cada execução — e nada acusava, porque amostra a mais não
-    quebra treino nenhum, só envenena o modelo devagar. É o defeito da F1.4 na
-    forma que esta fase podia criá-lo.
+    **O que mudou, e por quê.** Isto era uma contagem fixa, `(400, 387)`, e a
+    contagem estava errada como instrumento: a base **cresce de propósito**, a
+    cada diagrama que o usuário confere (F8.3). Quando esta linha foi trocada
+    eram 1.720 casas vazias e 1.116 ocupadas, todas de páginas de verdade —
+    Aagaard, Kasparov — e amanhã são mais. Congelar o tamanho fazia a suíte
+    reprovar por trabalho bem feito, e o conserto de rotina virava "atualizar o
+    número", que é justamente o gesto que deixaria passar a gravação acidental
+    contra a qual o teste existe.
+
+    O que não pode mudar é a base **durante a sessão**: o que a suíte encontrou
+    ao começar é o que ela tem de deixar no fim. A guarda que cobre a suíte
+    inteira está no `conftest`, porque o `test_f83_treino_diagrama.py` roda
+    depois deste arquivo; aqui fica o sinal cedo, com o nome que se procura.
     """
     if not os.path.isdir(treino_diagrama.PASTA_OCUPACAO):
         pytest.skip("base de ocupação não instalada")
-    conta = treino_diagrama.contagem(treino_diagrama.PASTA_OCUPACAO)
-    assert (conta[diagrama.VAZIA], conta[diagrama.OCUPADA]) == (400, 387)
+    gravados, apagados = mexeu_na_ocupacao()
+    assert not (gravados or apagados), (
+        f"gravados: {gravados}\napagados: {apagados}")
 
 
 def test_as_classes_da_ocupacao_nao_tem_cor(tmp_path):
