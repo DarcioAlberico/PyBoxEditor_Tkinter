@@ -2732,6 +2732,15 @@ congeladas, todas de páginas de verdade.
 arquivo que a suíte encontrou ao começar contra os que deixou no fim. Nomes, e
 não contagem, porque gravar uma amostra e apagar outra fecharia a conta.
 
+> **Esta versão durou uma execução, e o defeito dela é instrutivo.** Ela reprovou
+> na primeira suíte rodada com o **app aberto**: o usuário conferiu dois diagramas
+> do Yusupov enquanto os testes rodavam, 128 casas foram para a base, e a guarda
+> apontou para trabalho legítimo feito noutro processo. Comparar a pasta não
+> distingue quem escreveu. A guarda de hoje embrulha `treino_diagrama.gravar`
+> durante a sessão e **recusa** quem tenta escrever na base de verdade — vigia o
+> processo, não o disco, e protege o dado em vez de relatar o estrago depois de
+> feito. Só passa por esse caminho quem esqueceu de redirecionar a pasta.
+
 **Ela mora no `conftest`, e não num teste, por causa da ordem.** O pytest roda
 os arquivos em ordem alfabética, e quem mais mexe na base —
 `test_f83_treino_diagrama.py` — vem depois do `test_f75_ocupacao.py`. Um teste
@@ -3919,6 +3928,94 @@ modelo, e nenhum corte os alcança.
 
 Cobertura: `tests/test_f12_linhas.py`, 12 testes. Um terço é sobre a lasca, que é a
 metade não óbvia da fase.
+
+---
+
+## F13 — Os colados na horizontal — MEDIDA, sem implementação
+
+A F12 fechou apontando o alvo: *"os 231 colados na horizontal continuam lá, e são o dobro
+do que esta fase ataca"*. Esta fase foi medi-los antes de propor corte nenhum, que é como
+a F12 e a F1.5b começaram. **A medição desaconselhou o caminho óbvio**, e é isso que fica
+registrado.
+
+`medir_colados.py` classifica cada rótulo que não ganhou box, e a divisão é a que importa.
+
+#### Primeiro: são 153, não 231
+
+| o que falta para 100% de recall | F12 (registrado) | hoje |
+|---|---:|---:|
+| colado com o vizinho | 231 | **153** |
+| box desalinhado | 5 | 10 |
+| sem box nenhum (sumiu na binarização) | — | 52 |
+
+A explicação mais provável é o **árbitro**, que é o próprio classificador: o modelo foi de
+119 para 143 classes em 07/08, e as classes novas são justamente ligaduras e colagens
+(`ff`, `ffl`, `+-`, `♗x`). Um árbitro que conhece a colagem pontua diferente e endossa
+cortes que antes recusava. Não está verificado — o modelo de 119 classes não existe mais
+no disco —, e por isso fica como explicação e não como conclusão.
+
+A linha "sem box nenhum" não existia na conta da F12; são 52 caracteres que a binarização
+perde inteiros, e não é assunto de corte.
+
+#### A divisão que decide o ataque
+
+| dos 153 colados | |
+|---|---:|
+| o separador da F1.5b **olha e recusa** | 104 |
+| **estreito demais para ele olhar** | 49 |
+
+O separador só considera box mais largo que `fator_largo` (1,6) vezes a largura de
+referência da linha. Os 49 nunca chegam ao árbitro — nenhum ajuste de margem os alcança.
+
+E o formato deles é o achado: **caractere fino grudado em largo.** Os pares mais
+frequentes entre os estreitos são `.R` (5), `,h`, `,b`, `.K`, `ik`, `if`, `is`, `,n`,
+`,,`, `''`. Um ponto colado num `R` acrescenta uns poucos pixels a um box de 20 — a razão
+fica em 1,2 e o box nunca vira candidato. A largura é o gatilho errado para esta família.
+
+| largura do pai, em referências da linha | colados |
+|---|---:|
+| abaixo de 1,0 | 4 |
+| 1,0 a 1,2 | 14 |
+| 1,2 a 1,4 | 13 |
+| 1,4 a 1,6 | 15 |
+| 1,6 a 2,0 (candidato) | 43 |
+| 2,0 a 3,0 (candidato) | 59 |
+| acima de 3,0 (candidato) | 5 |
+
+#### Baixar o limiar de candidatura não paga, e está medido
+
+O caminho óbvio é abrir a candidatura para alcançar os 49. Varrido com
+`medir_paginas.py --fatores`, resto do pipeline idêntico:
+
+| `fator_largo` | recall | precisão | F1 | espúrios | cortes bons | cortes falsos |
+|---|---:|---:|---:|---:|---:|---:|
+| **1,60 (hoje)** | 95,0% | 93,9% | **94,4** | 338 | 21 | 6 |
+| 1,40 | 95,0% | 93,9% | 94,5 | 338 | 23 | 6 |
+| 1,20 | 95,1% | 93,9% | 94,5 | 344 | 27 | 9 |
+| 1,10 | 95,1% | 93,8% | 94,4 | 350 | 28 | 9 |
+| 1,00 | 95,1% | 93,8% | 94,4 | 352 | 28 | 11 |
+
+**O ganho máximo é 0,1 de F1, e some abaixo de 1,2.** Recall sobe um décimo — meia dúzia
+de caracteres em 10.613 — e os espúrios sobem junto. Não é o platô da F12 (0,9 a 1,2, com
+0,4 de F1 em jogo); é ruído em volta do valor atual. **O código fica com 1,6**, e a
+varredura fica aqui para não ser refeita.
+
+O que isto diz é que os 49 não são um problema de *limiar*: eles precisariam de um gatilho
+que não seja a largura do box — um apêndice fino na borda tem assinatura própria no perfil
+de tinta, e é outra fase, com outra medição, se algum dia pagar.
+
+#### O que sobra, em ordem de tamanho
+
+| | quantos |
+|---|---:|
+| lido errado com o box certo (modelo, não segmentação) | ~348 |
+| colado que o árbitro olha e recusa | 104 |
+| sem box nenhum (binarização) | 52 |
+| colado estreito demais para o separador olhar | 49 |
+
+O maior alvo deixou de ser segmentação. `medir_colados.py` e o `--fatores` de
+`medir_paginas.py` ficam no repositório: a conta se refaz sozinha depois de cada retreino,
+e ela mudou uma vez sem que ninguém percebesse.
 
 ---
 

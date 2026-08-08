@@ -55,8 +55,17 @@ def paginas_rotuladas():
     return achados
 
 
-def segmentar(imagem, modo, arbitro=None, margem=None):
-    """(boxes antes do corte, boxes depois) para o modo pedido."""
+def segmentar(imagem, modo, arbitro=None, margem=None, fator=None):
+    """
+    (boxes antes do corte, boxes depois) para o modo pedido.
+
+    `fator` é o `fator_largo` de `dividir_glifos_colados` — a largura, em
+    larguras de referência da linha, acima da qual um box vira candidato a
+    corte. Existe como parâmetro por causa da F13: os colados que sobram são
+    caractere fino grudado em largo (`.R`, `,h`, `il`), e num par desses a
+    largura do box mal se mexe. Varrer o fator é o que diz se baixar a
+    candidatura alcança esses casos ou só fabrica candidato.
+    """
     arr = np.array(imagem)
     th = preprocess.binarize(arr, "auto")
     # Espelha `generate_boxes_opencv` também aqui: a trama sai antes de medir.
@@ -84,10 +93,11 @@ def segmentar(imagem, modo, arbitro=None, margem=None):
     if modo in ("local", "arbitrado"):
         # O código de verdade, não uma cópia dele: foi uma cópia divergente
         # que deixou a F1.5 medir uma coisa e a aplicação fazer outra.
+        extra = {} if fator is None else {"fator_largo": fator}
         filhos = BoxService.dividir_glifos_colados(
             pais, th,
             arbitro=(arbitro if modo == "arbitrado" else None),
-            imagem_cinza=arr, margem=margem)
+            imagem_cinza=arr, margem=margem, **extra)
         return pais, BoxService.sort_boxes_reading_order(filhos)
 
     # 'global': a escala pré-F1.7, mantida só como linha de base histórica.
@@ -118,6 +128,8 @@ def main():
                     help="só conta cortes bons e falsos; não carrega a rede")
     ap.add_argument("--margens", type=float, nargs="*", default=None,
                     help="varre margens do árbitro (F1.5b) em vez dos modos")
+    ap.add_argument("--fatores", type=float, nargs="*", default=None,
+                    help="varre o fator_largo da candidatura (F13)")
     args = ap.parse_args()
 
     predizer = None
@@ -138,16 +150,25 @@ def main():
         print("a varredura de margens precisa do modelo")
         return 1
 
-    if args.margens is not None:
-        # Cada margem vira um "modo" próprio, para a tabela sair comparável.
-        execucoes = ([("off", None), ("local", None)]
-                     + [(f"arb {m:+.2f}", m) for m in args.margens])
-    else:
-        execucoes = [("off", None), ("global", None), ("local", None)]
-        if predizer is not None:
-            execucoes.append(("arbitrado", None))
+    if args.fatores is not None and predizer is None:
+        print("a varredura de fatores precisa do modelo")
+        return 1
 
-    modos = [nome for nome, _ in execucoes]
+    if args.fatores is not None:
+        # Só o fator muda; o árbitro fica no valor de produção, senão a tabela
+        # compararia duas coisas de uma vez.
+        execucoes = [(f"fator {f:.2f}", None, f) for f in args.fatores]
+    elif args.margens is not None:
+        # Cada margem vira um "modo" próprio, para a tabela sair comparável.
+        execucoes = ([("off", None, None), ("local", None, None)]
+                     + [(f"arb {m:+.2f}", m, None) for m in args.margens])
+    else:
+        execucoes = [("off", None, None), ("global", None, None),
+                     ("local", None, None)]
+        if predizer is not None:
+            execucoes.append(("arbitrado", None, None))
+
+    modos = [nome for nome, _, _ in execucoes]
     total = {m: dict(certos=0, gerados=0, rotulados=0, espurios=0,
                      bons=0, falsos=0) for m in modos}
 
@@ -159,9 +180,12 @@ def main():
         arr = np.array(img)
         print(f"\n=== {os.path.basename(imagem)}  ({len(rotulados)} rotulados)")
 
-        for modo, margem in execucoes:
-            base = "arbitrado" if modo.startswith("arb ") else modo
-            pais, filhos = segmentar(img, base, arbitro=predizer, margem=margem)
+        for modo, margem, fator in execucoes:
+            base = modo
+            if modo.startswith("arb ") or modo.startswith("fator "):
+                base = "arbitrado"
+            pais, filhos = segmentar(img, base, arbitro=predizer,
+                                     margem=margem, fator=fator)
             if predizer:
                 for b in filhos:
                     b.char, b.confidence = predizer(arr[b.y1:b.y2, b.x1:b.x2])

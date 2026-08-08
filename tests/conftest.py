@@ -78,46 +78,23 @@ def _fecha_a_raiz_no_fim():
 # A base de ocupação de verdade não é rascunho de teste
 # ----------------------------------------------------------------------
 
-def amostras_da_ocupacao():
-    """
-    `{classe: {nomes de arquivo}}` da base de ocupação de verdade.
+#: Onde mora a base de verdade, resolvido na importação do conftest — antes de
+#: qualquer teste apontar `PASTA_OCUPACAO` para uma pasta temporária.
+_BASE_DE_OCUPACAO = os.path.abspath(treino_diagrama.PASTA_OCUPACAO)
 
-    Nomes, e não contagem: um teste que gravasse uma amostra e apagasse outra
-    fecharia a conta e passaria batido. Conteúdo não entra — regravar o mesmo
-    nome com outra imagem exige a mesma procedência e a mesma casa, que é o que
-    `treino_diagrama._nome_de_arquivo` garante ser difícil de fazer sem querer.
-    """
-    saida = {}
-    for simbolo in (diagrama.VAZIA, diagrama.OCUPADA):
-        pasta = treino_diagrama._pasta_da_classe(
-            treino_diagrama.PASTA_OCUPACAO, simbolo)
-        if os.path.isdir(pasta):
-            saida[simbolo] = {n for n in os.listdir(pasta)
-                              if n.endswith(".png")}
-    return saida
+#: O que a suíte tentou gravar lá. Ver `gravacoes_indevidas`.
+_INDEVIDAS = []
 
 
-#: Como a base estava quando a sessão começou — lido na importação do conftest,
-#: que o pytest faz antes de coletar o primeiro teste.
-_OCUPACAO_NO_INICIO = amostras_da_ocupacao()
-
-
-def mexeu_na_ocupacao():
-    """`(gravados, apagados)` na base de verdade desde o início da sessão."""
-    agora = amostras_da_ocupacao()
-    gravados, apagados = [], []
-    for simbolo in sorted(set(agora) | set(_OCUPACAO_NO_INICIO)):
-        antes = _OCUPACAO_NO_INICIO.get(simbolo, set())
-        depois = agora.get(simbolo, set())
-        gravados += [f"{simbolo}/{n}" for n in sorted(depois - antes)]
-        apagados += [f"{simbolo}/{n}" for n in sorted(antes - depois)]
-    return gravados, apagados
+def gravacoes_indevidas():
+    """As gravações que **esta sessão** tentou fazer na base de verdade."""
+    return list(_INDEVIDAS)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _a_suite_nao_escreve_na_base_de_ocupacao():
     """
-    A base tem de terminar a sessão como começou.
+    Nenhum teste grava na base de ocupação de verdade — e se tentar, não grava.
 
     **Não é zelo: aconteceu.** Um teste de diálogo que esquecia de apontar
     `PASTA_OCUPACAO` para uma pasta temporária gravava 64 casas sintéticas na
@@ -125,18 +102,44 @@ def _a_suite_nao_escreve_na_base_de_ocupacao():
     quebra treino nenhum, só envenena o modelo devagar. É o defeito da F1.4 na
     forma que a F7.5 podia criá-lo.
 
+    **Vigia o processo, não a pasta**, e a diferença não é sutil. A primeira
+    versão desta guarda fotografava a base no início da sessão e comparava no
+    fim; reprovou na primeira execução em que o usuário estava **usando o app
+    enquanto os testes rodavam** — dois diagramas conferidos, 128 casas
+    gravadas, e a guarda apontando para trabalho legítimo feito noutro
+    processo. Comparar pasta não distingue quem escreveu.
+
+    Aqui `treino_diagrama.gravar` é embrulhado durante a sessão: se o destino
+    resolvido for a base de verdade, a gravação é **recusada** e anotada. Só
+    passa por esse caminho quem esqueceu de redirecionar a pasta, então recusar
+    não atrapalha teste correto nenhum — e protege o dado em vez de só relatar
+    o estrago depois de feito.
+
     **A guarda é de sessão, e não um teste, por causa da ordem.** O pytest roda
     os arquivos em ordem alfabética, e quem mais mexe na base —
     `test_f83_treino_diagrama.py` — vem depois do `test_f75_ocupacao.py`. Um
     teste no meio da fila só cobriria a parte da suíte que já passou.
 
     O que ela **não** trava é o tamanho da base: ele cresce de propósito, a cada
-    diagrama que o usuário confere (F8.3). Era o que a versão anterior fazia, e
-    reprovava por trabalho bem feito.
+    diagrama que o usuário confere (F8.3).
     """
-    yield
-    gravados, apagados = mexeu_na_ocupacao()
-    assert not (gravados or apagados), (
-        "a suíte mexeu na base de ocupação de verdade — algum teste esqueceu de "
-        "apontar PASTA_OCUPACAO para uma pasta temporária.\n"
-        f"  gravados: {gravados}\n  apagados: {apagados}")
+    original = treino_diagrama.gravar
+
+    def vigiado(residuo, simbolo, origem="", casa="", pasta=None):
+        alvo = treino_diagrama.PASTA_PADRAO if pasta is None else pasta
+        if os.path.abspath(alvo) == _BASE_DE_OCUPACAO:
+            _INDEVIDAS.append(f"{simbolo!r} de origem={origem!r} casa={casa!r}")
+            return None
+        return original(residuo, simbolo, origem, casa, pasta)
+
+    treino_diagrama.gravar = vigiado
+    try:
+        yield
+    finally:
+        treino_diagrama.gravar = original
+
+    assert not _INDEVIDAS, (
+        "a suíte tentou gravar na base de ocupação de verdade — algum teste "
+        "esqueceu de apontar PASTA_OCUPACAO para uma pasta temporária "
+        "(a gravação foi recusada, a base está intacta):\n  "
+        + "\n  ".join(_INDEVIDAS))

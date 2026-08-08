@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pytest
 
-from conftest import mexeu_na_ocupacao
+from conftest import gravacoes_indevidas
 from core import diagrama, treino_diagrama
 
 
@@ -183,27 +183,30 @@ def test_a_base_de_ocupacao_e_separada_da_de_pecas():
 
 def test_a_base_de_ocupacao_esta_intacta():
     """
-    A suíte não escreve na base de verdade — conferido até este ponto da fila.
+    A suíte não gravou na base de verdade — conferido até este ponto da fila.
 
-    **O que mudou, e por quê.** Isto era uma contagem fixa, `(400, 387)`, e a
-    contagem estava errada como instrumento: a base **cresce de propósito**, a
-    cada diagrama que o usuário confere (F8.3). Quando esta linha foi trocada
-    eram 1.720 casas vazias e 1.116 ocupadas, todas de páginas de verdade —
-    Aagaard, Kasparov — e amanhã são mais. Congelar o tamanho fazia a suíte
-    reprovar por trabalho bem feito, e o conserto de rotina virava "atualizar o
-    número", que é justamente o gesto que deixaria passar a gravação acidental
-    contra a qual o teste existe.
+    **Duas versões anteriores erraram o instrumento, e as duas do mesmo jeito:
+    mediram o disco em vez de medir quem escreveu.**
 
-    O que não pode mudar é a base **durante a sessão**: o que a suíte encontrou
-    ao começar é o que ela tem de deixar no fim. A guarda que cobre a suíte
-    inteira está no `conftest`, porque o `test_f83_treino_diagrama.py` roda
+    A primeira congelava o tamanho, `(400, 387)`. A base **cresce de
+    propósito**, a cada diagrama que o usuário confere (F8.3), então a suíte
+    reprovava por trabalho bem feito e o conserto virava "atualizar o número" —
+    o gesto que deixaria passar a gravação acidental contra a qual o teste
+    existe.
+
+    A segunda fotografava a base no início da sessão e comparava no fim.
+    Reprovou na primeira execução em que o usuário estava **usando o app
+    enquanto os testes rodavam**: dois diagramas do Yusupov conferidos, 128
+    casas gravadas, e a guarda apontando para trabalho legítimo de outro
+    processo.
+
+    A guarda de hoje embrulha `treino_diagrama.gravar` durante a sessão e
+    recusa quem tenta escrever na base de verdade — vigia o processo, não a
+    pasta. Ela mora no `conftest` porque o `test_f83_treino_diagrama.py` roda
     depois deste arquivo; aqui fica o sinal cedo, com o nome que se procura.
     """
-    if not os.path.isdir(treino_diagrama.PASTA_OCUPACAO):
-        pytest.skip("base de ocupação não instalada")
-    gravados, apagados = mexeu_na_ocupacao()
-    assert not (gravados or apagados), (
-        f"gravados: {gravados}\napagados: {apagados}")
+    indevidas = gravacoes_indevidas()
+    assert not indevidas, "\n  ".join(["gravações recusadas:"] + indevidas)
 
 
 def test_as_classes_da_ocupacao_nao_tem_cor(tmp_path):
