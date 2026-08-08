@@ -4019,6 +4019,83 @@ e ela mudou uma vez sem que ninguém percebesse.
 
 ---
 
+## F14 — Os lidos errado com o box certo — MEDIDA
+
+A F13 terminou dizendo que o maior alvo deixou de ser segmentação. `medir_confusao.py`
+é a matriz de confusão **na página real**, que é o que faltava para saber onde mexer.
+
+**Não serve a matriz do treino.** `core.avaliacao` já produz uma, e ela mede outra coisa:
+recorte já segmentado, limpo, da mesma base em que o modelo treinou — ali o número é
+99,8%. Na página o mesmo modelo dá 96,95%, e a diferença é justamente o assunto.
+
+#### A conta
+
+Nas 10 páginas rotuladas, 10.398 boxes casaram com um rótulo:
+
+| | |
+|---|---:|
+| lidos certo | 10.081 (96,95%) |
+| **lidos errado** | **317** |
+| — confusão (a classe existe no modelo) | 313 |
+| — classe que o modelo não tem | 4 |
+
+São 317, e não os ~348 da F12 — mesma deriva dos colados, e a mesma explicação
+provável: o modelo mudou de 119 para 143 classes em 07/08. **Só 4 são classe faltando**
+(`◼`, `d6`, `ar`, e um vazio), então o alvo é confusão de verdade, não vocabulário.
+
+#### As seis famílias
+
+313 pares soltos não dizem o que fazer; seis famílias dizem.
+
+| família | erros | | exemplos |
+|---|---:|---:|---|
+| **resto** | 130 | 41,5% | `R`→`;` (6), `?`→`t` (6), `u`→`d` (6) |
+| **ligadura disparada** | 41 | 13,1% | `T`→`Th` (5), `f`→`f2` (4), `f`→`fi` (4), `4`→`e4` (4) |
+| **ligadura (outra)** | 40 | 12,8% | `m`→`an` (9), `B`→`♗x` (7), `s`→`an` (3) |
+| **homóglifo** | 37 | 11,8% | `9`→`g` (8), `0`→`o` (8), `1`→`i` (8), `i`→`1` (7) |
+| **caixa alta/baixa** | 35 | 11,2% | `P`→`p` (6), `B`→`b` (5), `s`→`S` (4), `C`→`c` (4) |
+| **pontuação** | 30 | 9,6% | `.`→`-` (18), `'`→`,` (5), `½`→`/` (4) |
+
+**As ligaduras somam 81 — 26% dos erros, e é a maior família nomeável.** São as classes
+acrescentadas no retreino de 07/08 competindo com o caractere isolado: o modelo vê um `T`
+e emite `Th`, vê um `f` e emite `f2`. **É candidato a regressão do próprio retreino**, e
+uma que teria passado despercebida: o mesmo retreino provavelmente melhorou a segmentação,
+porque o árbitro do separador é este modelo (F13). O saldo entre as duas coisas não está
+medido, e não dá para medir — o modelo de 119 classes não existe mais no disco.
+
+**Homóglifo mais caixa somam 72 (23%), e não são erro de treino: são o mesmo desenho.**
+Um `0` e um `o` da mesma fonte diferem em altura, não em traço; `P` e `p` também. O
+recorte de 32x32 que o classificador recebe é normalizado em escala, então a informação
+que separaria os dois **foi jogada fora antes de ele ver**. Nenhuma quantidade de amostra
+conserta isso — é altura relativa à linha, e ela não está na entrada.
+
+O maior par isolado é `.`→`-` (18), e essa é a pior classe do lote junto de `P` (41,7% de
+recall, 5/12) e `?` (50,0%, 18/36).
+
+#### O que a confiança já denuncia hoje
+
+| corte | erros pegos | acertos revisados à toa | erros que escapam |
+|---:|---:|---:|---:|
+| 0,500 | 41 | 10 | 276 |
+| 0,700 | 98 | 123 | 219 |
+| 0,900 | 175 | 816 | 142 |
+| 0,990 | 229 | 2.834 | 88 |
+| 0,999 | 260 | 4.410 | 57 |
+
+Confiança mediana de um erro: **0,8587**. De um acerto: **0,9994**. O corte de 0,700 é o
+melhor negócio da tabela — 98 erros por 123 falsos alarmes — e já está disponível pelo
+filtro da barra lateral.
+
+#### O que esta medição não decide
+
+Ela não escolhe o remédio, e de propósito. As três famílias grandes pedem coisas
+diferentes: ligadura pede rever se as classes novas se pagam (e a medição do saldo exige
+guardar o modelo anterior, coisa que o `.gitignore` impede hoje); homóglifo e caixa pedem
+**entrada nova** — altura relativa à linha junto do recorte —, que é mudar a arquitetura;
+e os 130 do "resto" pedem olhar um a um antes de qualquer teoria.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
