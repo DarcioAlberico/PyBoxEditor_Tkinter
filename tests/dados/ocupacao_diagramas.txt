@@ -1,0 +1,40 @@
+# Gabarito de OCUPAÇÃO dos 25 diagramas das páginas rotuladas (F7.5).
+#
+# Transcrito à mão, casa por casa, com a grade de coordenadas desenhada por cima
+# do recorte ampliado — o mesmo método que a F7.1 usou para as 128 casas dela.
+# Aqui são 1.600 casas, e a pergunta é só uma: **há peça nesta casa?** A peça em
+# si não entra, porque quem a mede é `training_data_diagrama/`; o que faltava ao
+# projeto era gabarito para a decisão vazia/ocupada, que nenhum número cobria.
+#
+# Formato: <chave da página>#<índice do diagrama na página> = 8 fileiras da 8ª
+# para a 1ª, separadas por '/', com '#' para casa ocupada e '.' para vazia.
+#
+# As imagens moram em `ilovepdf_pages-to-jpg/` e `Box/`; a primeira é ignorada
+# pelo git (scans com copyright), então quem não as tiver simplesmente pula a
+# medição — é o que `medir_paginas.py` já faz.
+
+Kasparov - The Dynamic Benko Gambit (2012)_page-0013#0 = ......../.#..#..#/...#.#../..#..#../......../.#.#.#.#/.....##./....#...
+Kasparov - The Dynamic Benko Gambit (2012)_page-0013#1 = .#....#./....####/#..#..#./..##..../....#.../..##..#./####.###/...#....
+Kasparov - The Dynamic Benko Gambit (2012)_page-0014#0 = ......../....##.#/...#..#./..##..../......../......../##..####/........
+Kasparov - The Dynamic Benko Gambit (2012)_page-0014#1 = #.....#./....####/#..#..#./#.##..../..#.#.../..#..#.#/###.###./..##..#.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0014#2 = ##.#.##./....####/#..#..#./.###..../....#.../..#.##../##..#.##/#....##.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0014#3 = ......#./....##../...#..#./..##..../...##..#/.....#.#/#.....#./....#..#
+Kasparov - The Dynamic Benko Gambit (2012)_page-0020#0 = ......../....##../...#.##./.#.#...#/.......#/.#..#.#./#....##./.#....#.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0020#1 = #....##./...#####/#..#.##./#.##..../......../.##...##/#...####/##.#.##.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0020#2 = #......./..#.####/#..#.##./...#..../......../.##..##./#.#.##.#/..##..#.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0022#0 = ######.#/...#####/#....#../.###..../......../......../##..####/########
+Kasparov - The Dynamic Benko Gambit (2012)_page-0033#0 = ..#...#./#...##.#/#..#..##/...#..../.#....#./#..#####/...#.###/.#.#..#.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0033#1 = ##....../#..#####/...#..#./...#..../#.#..##./.#...###/#.#....#/.#.#..#.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0057#0 = ##.#.##./....####/#..#.##./..##..../....#.../..#...#./##.#.###/.###.##.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0057#1 = ......../.....##./......#./...##.../....#.#./.#....../#......#/.....##.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0057#2 = ##.##..#/...#####/#..#..#./..##..../......../..#..##./##..####/#.###..#
+Kasparov - The Dynamic Benko Gambit (2012)_page-0128#0 = .#...##./#..##..#/##.#..#./######../..#.#.../...#..../.#...###/#.#..##.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0128#1 = ...####./..#..#.#/#..#..#./#.##..../.##..#../.##...../...#.###/#....##.
+Kasparov - The Dynamic Benko Gambit (2012)_page-0128#2 = .#...##./#.....##/##.#..#./#.##.#../...#.#../......../.#....##/#.##.##.
+AAGAARD - Practical Chess Defence_pg11#0 = ......../#....#.#/....###./....#.../#......./.......#/#....##./.......#
+Kasparov - The Dynamic Benko Gambit (2012)_page-0108#0 = .....##./....#..#/...#..#./#..###../..#....#/..#..###/###..##./..#.....
+Kasparov - The Dynamic Benko Gambit (2012)_page-0108#1 = #....##./...#.###/...#..#./#.##..../.....##./..#..###/##...###/#..##...
+Kasparov - The Dynamic Benko Gambit (2012)_page-0108#2 = .....##./....#.../...#..#./...#.#.#/.....#.#/.##...#./#.#..##./..#.....
+boxes#0 = .#...###/#.....##/......../...#..../.#...#../#...#.../..#..###/.....##.
+boxes#1 = ......#./#....#.#/...#.#../..#.#.../..#####./#......#/.#.#.##./...#.##.
+boxes#2 = ......#./.....##./......../.....#../#......#/.#...#.#/...#####/......#.

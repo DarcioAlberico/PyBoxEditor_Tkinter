@@ -14,6 +14,7 @@ correção.
 Rodar sem pytest:      python tests/test_f83_treino_diagrama.py
 """
 
+import collections
 import os
 import sys
 
@@ -156,7 +157,9 @@ def test_corrigir_de_novo_nao_deixa_o_rotulo_antigo(tmp_path):
 # ----------------------------------------------------------------------
 
 def _colheita(tmp_path, corrigir=None, tudo=False):
+    """(pasta das peças, pasta da ocupação, caminhos gravados)."""
     pasta = str(tmp_path / "d")
+    ocupacao = str(tmp_path / "o")
     pecas = {(0, 4): "k", (7, 4): "K", (3, 3): "P"}
     imagem = _tabuleiro_sintetico(pecas.keys())
     leitura = _leitura(pecas)
@@ -165,8 +168,9 @@ def _colheita(tmp_path, corrigir=None, tudo=False):
         for (linha, coluna), simbolo in corrigir.items():
             tabuleiro.colocar(linha, coluna, simbolo)
     caminhos = treino_diagrama.colher(imagem, leitura, tabuleiro,
-                                      origem="pag1", tudo=tudo, pasta=pasta)
-    return pasta, caminhos
+                                      origem="pag1", tudo=tudo, pasta=pasta,
+                                      pasta_ocupacao=ocupacao)
+    return pasta, ocupacao, caminhos
 
 
 def test_sem_correcao_e_sem_conferir_nao_guarda_nada(tmp_path):
@@ -176,33 +180,54 @@ def test_sem_correcao_e_sem_conferir_nao_guarda_nada(tmp_path):
     Sem isso a base cresceria enviesada para o que o modelo já acerta — as
     casas que ele erra são exatamente as que o usuário mexe.
     """
-    _, caminhos = _colheita(tmp_path)
+    _, _, caminhos = _colheita(tmp_path)
     assert caminhos == []
 
 
 def test_so_a_correcao_vira_amostra(tmp_path):
-    pasta, caminhos = _colheita(tmp_path, corrigir={(3, 3): "B"})
-    assert len(caminhos) == 1
+    pasta, _, _ = _colheita(tmp_path, corrigir={(3, 3): "B"})
     assert [s for s, _, _ in treino_diagrama.carregar_amostras(pasta)] == ["B"]
 
 
 def test_conferir_o_diagrama_inteiro_guarda_as_ocupadas(tmp_path):
-    pasta, caminhos = _colheita(tmp_path, tudo=True)
-    assert len(caminhos) == 3
+    pasta, _, _ = _colheita(tmp_path, tudo=True)
     assert sorted(s for s, _, _ in treino_diagrama.carregar_amostras(pasta)) == \
         ["K", "P", "k"]
 
 
-def test_casa_esvaziada_nao_vira_amostra(tmp_path):
+def test_conferir_o_diagrama_inteiro_guarda_as_64_casas_na_ocupacao(tmp_path):
     """
-    Não é esquecimento: o modelo tem 12 classes de peça e nenhuma de vazia.
+    A base de ocupação precisa do tabuleiro **inteiro**, e é isso que a separa
+    da de identidade (F7.5).
 
-    Quem decide vazia/ocupada é o limiar de Otsu da F7.1, antes do
-    classificador. Corrigir um falso positivo conserta o FEN e não tem onde
-    ser aprendido.
+    Medido: treinar a rede de ocupação com as peças da base de identidade dá
+    91,88% — quase o Otsu que ela substitui —, porque aquelas peças são
+    justamente as que o Otsu já achava fáceis. Com as 64 casas conferidas de
+    cada diagrama, 99,31%. A rede só aprende a achar o que o leitor perde se
+    vir as casas que ele perdeu.
     """
-    pasta, caminhos = _colheita(tmp_path, corrigir={(3, 3): None})
-    assert caminhos == []
+    _, ocupacao, _ = _colheita(tmp_path, tudo=True)
+    achadas = collections.Counter(
+        s for s, _, _ in treino_diagrama.carregar_amostras(ocupacao))
+    assert achadas[diagrama.OCUPADA] == 3
+    assert achadas[diagrama.VAZIA] == 61
+
+
+def test_casa_esvaziada_vira_amostra_de_ocupacao(tmp_path):
+    """
+    Era o buraco mais caro do ciclo da F8.3, e a F7.5 fechou.
+
+    O motivo de não ser está registrado e deixou de valer: "o modelo tem 12
+    classes de peça e nenhuma de casa vazia; corrigir um falso positivo conserta
+    o FEN e não tem onde ser aprendido". Agora tem — apagar uma peça que a rede
+    inventou é exatamente o exemplo de que a rede de ocupação precisa, e o Otsu
+    inventava 38 em 1.600 casas.
+    """
+    pasta, ocupacao, caminhos = _colheita(tmp_path, corrigir={(3, 3): None})
+    assert caminhos, "esvaziar uma casa não gravou nada"
+    assert [s for s, _, _ in treino_diagrama.carregar_amostras(pasta)] == []
+    assert [s for s, _, _ in treino_diagrama.carregar_amostras(ocupacao)] == \
+        [diagrama.VAZIA]
 
 
 def test_a_amostra_colhida_e_o_residuo_e_nao_o_recorte(tmp_path):
@@ -212,7 +237,7 @@ def test_a_amostra_colhida_e_o_residuo_e_nao_o_recorte(tmp_path):
     O teste compara o que foi para o disco com o resíduo que o próprio
     `diagrama` calcula para aquela casa — tem de ser o mesmo.
     """
-    pasta, caminhos = _colheita(tmp_path, corrigir={(3, 3): "B"})
+    pasta, _, caminhos = _colheita(tmp_path, corrigir={(3, 3): "B"})
     guardado = cv2.imread(caminhos[0], cv2.IMREAD_GRAYSCALE).astype(np.float32) - 128.0
 
     pecas = {(0, 4): "k", (7, 4): "K", (3, 3): "P"}
@@ -554,15 +579,19 @@ def test_marcar_conferido_liga_o_botao_sem_correcao(tmp_path):
 
 
 def test_guardar_pela_janela_grava_na_base(tmp_path, monkeypatch):
+    """As duas bases saem do mesmo gesto: 3 peças e as 64 casas da ocupação."""
     pasta = str(tmp_path / "base")
+    ocupacao = str(tmp_path / "ocupacao")
     monkeypatch.setattr(treino_diagrama, "PASTA_PADRAO", pasta)
+    monkeypatch.setattr(treino_diagrama, "PASTA_OCUPACAO", ocupacao)
     dlg, raiz = _dialogo(tmp_path)
     try:
         dlg.var_conferido.set(True)
         dlg._guardar_amostras()
-        assert dlg.guardadas[0] == 3
         assert len(treino_diagrama.carregar_amostras(pasta)) == 3
-        assert "3 amostra" in dlg.lbl_amostras.cget("text")
+        assert len(treino_diagrama.carregar_amostras(ocupacao)) == 64
+        assert dlg.guardadas[0] == 67
+        assert "67 amostra" in dlg.lbl_amostras.cget("text")
     finally:
         raiz.destroy()
 

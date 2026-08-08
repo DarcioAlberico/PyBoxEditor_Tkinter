@@ -17,6 +17,25 @@ cores do tabuleiro é conhecido de antemão — a casa (linha+coluna) par é cla
 e nos 25 diagramas o padrão observado bate com o esperado. Uma grade deslocada
 quebraria esse xadrez imediatamente.
 
+## Vazia ou ocupada — a decisão que vem antes de tudo
+
+Era um limiar de Otsu sobre a "força" do resíduo, por diagrama e por cor de
+casa. **Era o gargalo da leitura, e por seis anos não havia número que o
+dissesse** — os 94,5% da F7.1 misturavam esta decisão com a identificação da
+peça, e a F7.4 melhorou só a segunda.
+
+A F7.5 transcreveu à mão as 1.600 casas dos 25 diagramas rotulados
+(`tests/dados/ocupacao_diagramas.txt`) e mediu:
+
+| decisão | omissões | falsos+ | acerto |
+|---|---:|---:|---:|
+| Otsu (F7.1) | 86 | 38 | 92,25% |
+| melhor limiar possível, com o gabarito na mão | — | — | 98,25% |
+| rede dedicada | 6 | 5 | **99,31%** |
+
+A linha do meio é a que mandou trocar de abordagem em vez de afinar a que havia.
+Ver `ocupadas`.
+
 ## O fundo, e por que a leitura é do resíduo
 
 A casa pode ser clara ou escura, e **escura tem dois desenhos diferentes** nestes
@@ -68,9 +87,9 @@ fora **subiu** os erros de cor de 3 para 5. A segunda também: peça branca em c
 clara quase some no resíduo (é branca por dentro, traço fino em volta) e a borda
 a acha — mas troca 3 omissões por 4 falsos positivos.
 
-A segunda continua valendo depois da troca, e é o limite dela: **a rede só
-decide qual peça é, não se a casa está ocupada.** Essa decisão é o Otsu de
-`_residuos`, e as omissões que ela produz sobrevivem a qualquer classificador.
+A segunda apontava para o limite da F7.4 — **a rede das peças só decide qual
+peça é, não se a casa está ocupada** —, e é justamente o que a F7.5 foi
+atacar. As omissões que ela descreve saíram de 86 para 6.
 
 ## A legalidade arbitra, como na F1.7
 
@@ -85,15 +104,16 @@ pontuação da leitura atual e a da leitura que resolve o problema. Medido, leva
 
 ## O que este módulo NÃO entrega
 
-**Continua sendo um rascunho para conferir, e a F7.4 não muda isso.** Os 98,0%
-da rede são da *identificação da peça* numa casa que já se sabe ocupada — o
-número por casa da página inteira é menor, porque a decisão vazia/ocupada e a
-localização do tabuleiro erram por conta própria. A interface tem de mostrar
-assim, do mesmo jeito que a F3.6 mostra o lote antes de aplicar.
+**Continua sendo um rascunho para conferir.** As duas redes cobrem as duas
+perguntas de dentro do tabuleiro — 99,3% de ocupação e 98,0% de identidade, cada
+uma medida em diagramas que ficaram fora do treino —, mas a localização do
+tabuleiro na página erra por conta própria, e um livro novo traz fonte nova de
+peças. A interface tem de mostrar assim, do mesmo jeito que a F3.6 mostra o lote
+antes de aplicar.
 
 Passar nas provas de legalidade **não é prova de estar certo**: elas contam
 peças, não reconhecem bispo lido como peão. Por isso o número que vale é o de
-casas transcritas à mão, e não os 23/25.
+casas transcritas à mão, e não os 25/25.
 
 Lado a jogar, roque e en passant **não estão no diagrama** e não são deduzíveis
 dele. `fen()` assume brancas a jogar, sem roque e sem en passant, e diz isso.
@@ -125,10 +145,19 @@ MINIMO_EM_CARACTERES = 6.0
 #: em 48 px para poder ser olhada, e a rede lê 32 — foi o tamanho medido.
 LADO_REDE = 32
 
-CAMINHO_MODELO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "dados", "diagrama_modelo.pth")
+_DADOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dados")
+
+CAMINHO_MODELO = os.path.join(_DADOS, "diagrama_modelo.pth")
+
+#: A rede que decide vazia/ocupada (F7.5). **Separada da das peças, e a medição
+#: é que separou**: as duas perguntas juntas numa rede de 13 classes fazem 97,8%
+#: de ocupação, contra 99,3% da rede dedicada — três vezes mais erro. As bases
+#: também são diferentes na origem: ocupação vem de tabuleiro inteiro
+#: transcrito, identidade vem do fluxo de correção da F8.3.
+CAMINHO_OCUPACAO = os.path.join(_DADOS, "ocupacao_modelo.pth")
 
 _modelo = None
+_modelo_ocupacao = None
 
 
 class ModeloAusente(RuntimeError):
@@ -263,17 +292,21 @@ def _otsu(valores) -> float:
     return float(v.min() + t / 255.0 * (v.max() - v.min()))
 
 
-def _residuos(quadros: dict) -> Tuple[dict, dict]:
+def _residuos(quadros: dict) -> dict:
     """
-    (resíduo por casa, ocupada?) — o fundo é a mediana das casas da mesma cor.
+    Resíduo por casa — o fundo é a mediana das casas da mesma cor.
 
-    O limiar entre vazia e ocupada é de Otsu **por diagrama e por cor de casa**.
-    Um limiar global não serve: nos diagramas de casa hachurada o resíduo de uma
-    casa vazia chega a 60, acima do resíduo de peça dos diagramas de casa
-    chapada. Com o limiar local, a contagem de peças ficou entre 12 e 28 nos 25
-    diagramas — nenhuma impossível.
+    **O Otsu que sobrou aqui não decide nada sobre a leitura** (F7.5). Ele serve
+    a uma pergunta interna e tolerante: quais casas usar para *reestimar o
+    fundo*. A primeira mediana inclui ~40% de peças e enviesa o modelo; refazê-la
+    com as casas de resíduo baixo limpa o fundo, e errar algumas nessa triagem
+    quase não move uma mediana de 32 amostras.
+
+    Quem decide vazia/ocupada é a rede, em `_ocupadas`. Era este mesmo Otsu, e
+    era ele o gargalo: medido nas 1.600 casas transcritas do gabarito, 86
+    omissões e 38 falsos positivos — 92,25%.
     """
-    residuo, ocupada = {}, {}
+    residuo = {}
     for paridade in (0, 1):
         chaves = [(r, c) for r in range(8) for c in range(8)
                   if (r + c) % 2 == paridade]
@@ -281,18 +314,13 @@ def _residuos(quadros: dict) -> Tuple[dict, dict]:
         fundo = np.median(pilha, axis=0)
         forca = {k: float(np.abs(quadros[k] - fundo).mean()) for k in chaves}
 
-        # Segunda passada: a mediana acima inclui ~40% de peças e enviesa o
-        # fundo. Refazê-la só com as vazias limpa o modelo.
         vazias = [k for k in chaves if forca[k] <= _otsu(list(forca.values()))]
         if len(vazias) >= 4:
             fundo = np.median(np.stack([quadros[k] for k in vazias]), axis=0)
-            forca = {k: float(np.abs(quadros[k] - fundo).mean()) for k in chaves}
 
-        limiar = _otsu(list(forca.values()))
         for k in chaves:
             residuo[k] = quadros[k] - fundo
-            ocupada[k] = forca[k] > limiar
-    return residuo, ocupada
+    return residuo
 
 
 def residuos(imagem, caixa: Optional[Tuple[int, int, int, int]] = None
@@ -303,6 +331,9 @@ def residuos(imagem, caixa: Optional[Tuple[int, int, int, int]] = None
     É a mesma conta que `ler` faz, exposta porque a amostra de treino tem de
     ser **o resíduo**, e não o recorte cru: guardar a casa como ela sai da
     página traria o fundo do livro junto, e o modelo aprenderia o papel.
+
+    A ocupação sai da rede desde a F7.5, e por isso esta função passou a
+    precisar do modelo. Quem chama já veio de uma leitura bem-sucedida.
     """
     arr = np.asarray(imagem)
     if arr.ndim == 3:
@@ -313,40 +344,102 @@ def residuos(imagem, caixa: Optional[Tuple[int, int, int, int]] = None
     recorte = arr[max(0, y1):y2, max(0, x1):x2]
     if recorte.size == 0 or min(recorte.shape[:2]) < 16:
         return {}, {}
-    return _residuos(_casas_do_recorte(recorte))
+    residuo = _residuos(_casas_do_recorte(recorte))
+    return residuo, _ocupadas(residuo)
+
+
+def ocupadas(residuo: dict) -> dict:
+    """
+    `{casa: há peça?}` — a decisão de ocupação, pela rede (F7.5).
+
+    **Era um limiar de Otsu sobre a força do resíduo, e ele era o gargalo da
+    leitura.** Medido nas 1.600 casas do gabarito transcrito à mão
+    (`tests/dados/ocupacao_diagramas.txt`):
+
+        decisão                     omissões  falsos+   acerto
+        Otsu (F7.1)                    86       38      92,25%
+        melhor limiar possível          —        —      98,25%
+        rede dedicada                   6        5      99,31%
+
+    A linha do meio é a que mandou trocar de abordagem em vez de afinar a que
+    havia: o **oráculo** — o melhor limiar por diagrama e cor de casa, escolhido
+    com o gabarito na mão — já ficava a 6 pontos do Otsu. A medida não era o
+    problema; achar o corte sem rótulo era. Nenhuma regra sem supervisão
+    (logaritmo, mediana + MAD, maior salto relativo, limiar fixo sobre medida
+    adimensional) passou de 93,6%.
+
+    Uma regressão logística sobre cinco medidas dessas chega a 97,8%. A rede
+    sobre o resíduo chega a 99,3% — 11 casas erradas em 1.600, contra 124.
+    """
+    import torch
+
+    chaves = sorted(residuo)
+    rede, coluna, temperatura = _carregar_ocupacao()
+    with torch.no_grad():
+        p = torch.softmax(rede(entrada_da_rede([residuo[k] for k in chaves]))
+                          / temperatura, dim=1).numpy()
+    return {k: bool(p[i, coluna] >= 0.5) for i, k in enumerate(chaves)}
+
+
+#: Nome interno antigo, mantido para quem já importava.
+_ocupadas = ocupadas
+
+
+def _carregar(caminho):
+    """(rede, símbolos, temperatura) — o carregamento seguro, num lugar só."""
+    if not os.path.isfile(caminho):
+        raise ModeloAusente(
+            f"{caminho} não existe. Rode `python treinar_diagrama.py`.")
+    import torch
+    from core.neural_model import RedeDiagrama
+
+    # `weights_only=True` é o carregamento seguro: um `.pth` é um pickle, e sem
+    # isso abrir um arquivo de terceiro executa o que estiver dentro.
+    d = torch.load(caminho, map_location="cpu", weights_only=True)
+    simbolos = tuple(str(s) for s in d["simbolos"])
+    rede = RedeDiagrama(len(simbolos))
+    rede.load_state_dict(d["pesos"])
+    rede.eval()
+    return rede, simbolos, float(d.get("temperatura", 1.0)) or 1.0
 
 
 def _carregar_modelo():
-    """(rede pronta para ler, símbolos na ordem das saídas dela, temperatura)."""
+    """(rede das peças, símbolos na ordem das saídas dela, temperatura)."""
     global _modelo
     if _modelo is None:
-        if not os.path.isfile(CAMINHO_MODELO):
-            raise ModeloAusente(
-                f"{CAMINHO_MODELO} não existe. Rode `python treinar_diagrama.py`.")
-        import torch
-        from core.neural_model import RedeDiagrama
-
-        # `weights_only=True` é o carregamento seguro: um `.pth` é um pickle, e
-        # sem isso abrir um arquivo de terceiro executa o que estiver dentro.
-        d = torch.load(CAMINHO_MODELO, map_location="cpu", weights_only=True)
-        simbolos = tuple(str(s) for s in d["simbolos"])
-        rede = RedeDiagrama(len(simbolos))
-        rede.load_state_dict(d["pesos"])
-        rede.eval()
-        _modelo = (rede, simbolos, float(d.get("temperatura", 1.0)) or 1.0)
+        _modelo = _carregar(CAMINHO_MODELO)
     return _modelo
+
+
+def _carregar_ocupacao():
+    """
+    (rede da ocupação, coluna do 'tem peça', temperatura).
+
+    A coluna sai do arquivo e não é fixada em 1: é a mesma disciplina do
+    `simbolos` da rede das peças. Trocar a ordem das duas classes num treino
+    futuro inverteria a leitura inteira sem erro nenhum aparecer.
+    """
+    global _modelo_ocupacao
+    if _modelo_ocupacao is None:
+        rede, simbolos, temperatura = _carregar(CAMINHO_OCUPACAO)
+        if OCUPADA not in simbolos:
+            raise ModeloAusente(
+                f"{CAMINHO_OCUPACAO} não é um modelo de ocupação: as classes "
+                f"dele são {simbolos!r}.")
+        _modelo_ocupacao = (rede, simbolos.index(OCUPADA), temperatura)
+    return _modelo_ocupacao
 
 
 def esquecer_modelo() -> None:
     """
-    Larga o modelo em memória, para a próxima leitura reler o arquivo (F8.3).
+    Larga os modelos em memória, para a próxima leitura reler os arquivos (F8.3).
 
     Existe porque agora dá para treinar sem fechar o programa: sem isto, o
     treino gravaria um `.pth` novo e as leituras seguintes continuariam usando
     a rede velha, em silêncio, até alguém reiniciar.
     """
-    global _modelo
-    _modelo = None
+    global _modelo, _modelo_ocupacao
+    _modelo = _modelo_ocupacao = None
 
 
 def impressao_do_modelo() -> str:
@@ -388,6 +481,19 @@ def entrada_da_rede(residuos: Sequence[np.ndarray]):
 
 
 SIMBOLOS = tuple("BKNPQRbknpqr")
+
+#: O rótulo da casa vazia na base de amostras (F7.5). Não é peça, e por isso não
+#: entra em `SIMBOLOS` — quem lê um símbolo espera algo que caiba num FEN.
+VAZIA = "."
+
+#: As classes da **base de amostras**, que são treze. Não é a saída de nenhuma
+#: das duas redes — a das peças tem doze saídas, a da ocupação tem duas —, e a
+#: distinção evita o defeito de ler coluna de rede com índice de pasta.
+CLASSES = SIMBOLOS + (VAZIA,)
+
+#: O outro rótulo da rede de ocupação: "tem peça, qualquer que seja". Não é
+#: classe da base — nasce no treino, juntando as doze de peça numa só.
+OCUPADA = "#"
 
 
 def _pontuar(residuos: List[np.ndarray]) -> np.ndarray:
@@ -542,7 +648,10 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None) -> Leitura:
         "Lado a jogar, roque e en passant não estão no diagrama; o FEN assume "
         "brancas a jogar, sem roque.")
 
-    residuo, ocupada = _residuos(_casas_do_recorte(recorte))
+    # Duas redes, em ordem: a da ocupação diz quais casas têm peça (F7.5), a das
+    # peças diz qual é (F7.4). Era um limiar de Otsu no lugar da primeira.
+    residuo = _residuos(_casas_do_recorte(recorte))
+    ocupada = ocupadas(residuo)
     chaves = [k for k in sorted(residuo) if ocupada[k]]
 
     if not chaves:

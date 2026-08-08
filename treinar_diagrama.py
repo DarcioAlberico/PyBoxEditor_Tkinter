@@ -1,14 +1,18 @@
 """
-Constrói o modelo que lê as peças dos diagramas (F7.1, F8.3, F7.4).
+Constrói os modelos que leem os diagramas (F7.1, F8.3, F7.4, F7.5).
 
     python treinar_diagrama.py
     python treinar_diagrama.py --conferir      # só a conferência da base
     python treinar_diagrama.py --rapido        # sem medir (uma rede em vez de duas)
 
-Lê as amostras rotuladas de `training_data_diagrama/` e grava
-`core/dados/diagrama_modelo.pth`. As amostras são **resíduos** — a casa menos o
-fundo estimado daquele diagrama —, gravadas deslocadas de 128 para poderem ser
-olhadas como imagem. Ver `core/diagrama.py` para o porquê do resíduo.
+**São dois modelos, de duas bases**, e a separação foi medida:
+
+    training_data_diagrama/  ->  diagrama_modelo.pth   qual peça é (F7.4)
+    training_data_ocupacao/  ->  ocupacao_modelo.pth   há peça?    (F7.5)
+
+As amostras são **resíduos** — a casa menos o fundo estimado daquele diagrama —,
+gravadas deslocadas de 128 para poderem ser olhadas como imagem. Ver
+`core/diagrama.py` para o porquê do resíduo.
 
 **Era um banco de vizinhos, e virou uma rede na F7.4.** O argumento contra a
 rede estava escrito aqui — "são poucas centenas de amostras de dois livros, e
@@ -36,6 +40,12 @@ from core import treino_diagrama
 def main(argv=None):
     p = argparse.ArgumentParser(description="Treina o modelo de diagramas.")
     p.add_argument("--pasta", default=treino_diagrama.PASTA_PADRAO)
+    # As duas bases andam juntas aqui e separadas no `treinar`: apontar uma sem
+    # a outra desliga a segunda, para um teste com base própria não regravar o
+    # modelo de verdade. Da linha de comando, quem aponta uma quase sempre quer
+    # as duas, então o padrão as mantém emparelhadas.
+    p.add_argument("--pasta-ocupacao", dest="pasta_ocupacao",
+                   default=treino_diagrama.PASTA_OCUPACAO)
     p.add_argument("--conferir", action="store_true",
                    help="só confere a base, sem treinar")
     p.add_argument("--rapido", action="store_true",
@@ -56,7 +66,8 @@ def main(argv=None):
         return 1 if any(p.grave for p in problemas) else 0
 
     relatorio = treino_diagrama.treinar(args.pasta, medir=not args.rapido,
-                                        progresso=lambda m: print(m, flush=True))
+                                        progresso=lambda m: print(m, flush=True),
+                                        pasta_ocupacao=args.pasta_ocupacao)
     if not relatorio.total:
         print(f"nenhuma amostra em {args.pasta}/")
         return 1

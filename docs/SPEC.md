@@ -1449,7 +1449,46 @@ página 0013 do Kasparov sai com FEN legal, sem nenhuma casa arbitrada, e tem du
 erradas — um peão branco em f5 que a leitura não viu (casa clara, peça vazada) e um peão
 que ela inventou em h2. As provas passaram porque a omissão e o falso positivo se
 compensam na contagem. **Passar nas provas não é prova de estar certo**, e o próximo
-ganho está no Otsu de ocupação, não no classificador.
+ganho está no Otsu de ocupação, não no classificador. *(Foi o que a §7.13 fez: as duas
+casas saem certas agora.)*
+
+### 7.13 A ocupação deixa de ser um limiar — [feito, F7.5]
+
+Quem decide se a casa tem peça era o Otsu de `_residuos`, intacto desde a F7.1, e
+**nenhum número media essa decisão** — os 94,5% por casa da §7.9 misturavam ocupação e
+identidade, e a §7.12 melhorou só a segunda.
+
+**A fase começa por um gabarito, e ele é o entregável duradouro.** As 1.600 casas dos 25
+diagramas rotulados, transcritas à mão em `tests/dados/ocupacao_diagramas.txt`, 25 linhas
+de 64 caracteres. A transcrição foi cruzada com a base da F7.1 — que, descobriu-se, cobre
+estes mesmos 25 diagramas — e as duas se corrigiram: três erros de digitação meus e um
+falso positivo do Otsu que estava rotulado como peão numa casa vazia.
+
+| decisão | omissões | falsos+ | acerto |
+|---|---:|---:|---:|
+| Otsu (F7.1) | 86 | 38 | 92,25% |
+| **melhor limiar possível, com o gabarito na mão** | — | — | **98,25%** |
+| rede dedicada | 6 | 5 | **99,31%** |
+
+**A linha do meio é o achado metodológico.** O oráculo já ficava 6 pontos acima do Otsu:
+a *medida* não era o problema, achar o corte **sem rótulo** era. Nenhuma regra sem
+supervisão passa de 93,6% (Otsu no log, mediana + MAD, maior salto relativo, limiar fixo
+sobre medida adimensional), e nenhuma das nove medidas alternativas testadas fecha a
+distância.
+
+**Duas redes e duas bases, e as duas separações foram medidas.** Uma classe "vazia" a
+mais na rede das peças dá 97,81% contra 99,31% da rede dedicada. E treinar a rede de
+ocupação com as amostras de peça que já existiam dá **91,88%** — quase o Otsu de volta —
+porque aquelas peças são justamente as que o Otsu já achava. A rede só aprende a achar o
+que o leitor perde se vir as casas que ele perdeu, e é por isso que a base de ocupação
+guarda **tabuleiro inteiro conferido**, não recorte de peça.
+
+Consequência no ciclo da §7.10: `colher` passa a gravar as 64 casas na base de ocupação.
+O contrato "casa esvaziada não vira amostra" caiu — era o buraco mais caro que o ciclo
+tinha, porque nenhuma das 124 correções de ocupação chegava a modelo nenhum.
+
+Ponta a ponta, nos 25 diagramas: **posição possível sem o árbitro vai de 15/25 para
+23/25**, e é essa linha que diz que a leitura melhorou, não que o árbitro remendou mais.
 
 ### 7.11 O corte do Ctrl+D e a seta da lista — [feito, F4.7]
 

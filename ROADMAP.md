@@ -2519,6 +2519,131 @@ do k-NN sobreviver à troca.
 
 Cobertura: `tests/test_f71_diagrama.py` e `tests/test_f83_treino_diagrama.py`, 92 testes.
 
+### F7.5 — O Otsu de ocupação — CONCLUÍDA
+
+A F7.4 terminou dizendo onde estava o próximo ganho, e o usuário mandou ir:
+**quem decide se a casa tem peça não é classificador nenhum, é um limiar de
+Otsu sobre a força do resíduo.** Ele sobreviveu intacto desde a F7.1.
+
+**Concluída em 2026-08-07.**
+
+#### O que faltava era gabarito, não ideia
+
+Seis anos de fase e nenhum número media essa decisão. Os 94,5% por casa da F7.1
+misturavam ocupação e identidade; a F7.4 melhorou só a segunda e disse isso.
+Sem separar as duas, qualquer conserto aqui seria palpite.
+
+Então a primeira metade desta fase foi transcrever à mão as **1.600 casas** dos
+25 diagramas rotulados, com a grade de coordenadas desenhada por cima do recorte
+ampliado — o método da F7.1, em 25 diagramas em vez de 2. Está em
+`tests/dados/ocupacao_diagramas.txt`, 25 linhas de 64 caracteres, e é o primeiro
+gabarito de ocupação que este projeto tem.
+
+**A transcrição foi conferida contra uma segunda opinião, e as duas se
+corrigiram.** Ao resolver os conflitos que `conferir` levantou, descobriu-se que
+os arquivos `diag_NN_casa.png` da base da F7.1 são **estes mesmos 25 diagramas**,
+numerados na mesma ordem — isto é, uma rotulagem independente das mesmas casas.
+Cruzando:
+
+- 4 conflitos, todos reais. Três eram erros de digitação meus (um `.` no lugar de
+  um `#`, que desloca a fileira inteira); um era da base — `diag_13_b2.png`
+  rotulado `P` numa casa que está **vazia à vista**, um falso positivo do Otsu
+  que o "conferi este diagrama inteiro" gravou como peça.
+- Depois das correções, **zero** casas em que a F7.1 diz ocupada e a transcrição
+  diz vazia. E 195 no sentido contrário — peças que nunca viraram amostra.
+
+#### A medição, e a linha que mudou o rumo
+
+| decisão | omissões | falsos+ | acerto |
+|---|---:|---:|---:|
+| Otsu (F7.1) | 86 | 38 | 92,25% |
+| **melhor limiar possível, com o gabarito na mão** | — | — | **98,25%** |
+| rede dedicada | 6 | 5 | **99,31%** |
+
+**A linha do meio é a que mandou trocar de abordagem em vez de afinar a que
+havia.** O oráculo — o melhor corte por diagrama e cor de casa, escolhido com os
+rótulos — já ficava 6 pontos acima do Otsu. A *medida* não era o problema; achar
+o corte **sem rótulo** era. Foi o que evitou a semana que se gastaria inventando
+uma força de resíduo melhor.
+
+Nenhuma regra sem supervisão fecha essa distância:
+
+| regra de limiar, sobre a mesma medida | acerto |
+|---|---:|
+| Otsu (o de hoje) | 92,25% |
+| Otsu no logaritmo | 92,06% |
+| mediana + 2 MAD | 93,06% |
+| maior salto relativo | 93,56% |
+| limiar fixo sobre medida adimensional (força/contraste) | 93,44% |
+
+E trocar a medida também não: das nove testadas (força central, tinta aberta,
+maior componente conexo, desvio, tinta preenchida, mínimo…), a melhor tem AUROC
+0,9598 contra 0,9338 da atual — nada perto do que falta. Uma regressão logística
+sobre cinco delas chega a 97,8%. A rede sobre o resíduo chega a 99,3%.
+
+**Os piores diagramas são os de hachura**, e a explicação fecha: o tracejado
+diagonal corre contínuo pelo tabuleiro, então cada casa o pega numa fase
+diferente, a mediana das 32 sai borrada e toda casa vazia tem resíduo alto.
+
+#### Duas redes, e a medição é que separou
+
+A primeira tentativa foi uma classe a mais na rede da F7.4 — "vazia" como
+décima terceira. Medido na mesma população e no mesmo protocolo agrupado por
+diagrama:
+
+| desenho | omissões | falsos+ | acerto |
+|---|---:|---:|---:|
+| 13 classes (peças + vazia) | 13 | 22 | 97,81% |
+| **rede binária dedicada** | 6 | 5 | **99,31%** |
+
+Três vezes mais erro na versão "simples". Duas redes, então — e as bases também
+são duas, o que **não** é arrumação:
+
+| base de treino da rede de ocupação | acerto |
+|---|---:|
+| casas transcritas (vazias e ocupadas do mesmo tabuleiro) | **99,31%** |
+| casas vazias + as 833 amostras de peça que já existiam | 91,88% |
+
+Quase o Otsu de volta. O motivo é o que torna esta fase generalizável: **as peças
+da base de identidade são justamente as que o Otsu já achava.** Treinar nelas
+ensina a rede a concordar com o limiar que ela veio substituir. A rede só aprende
+a achar o que o leitor perde se vir as casas que o leitor **perdeu** — e é por
+isso que a base de ocupação precisa de tabuleiro inteiro conferido, não de
+recortes de peça.
+
+Tamanho da base, medido: o platô começa em 16 amostras por classe por diagrama
+(634 amostras, 99,31%), e abaixo disso cai — 6+6 dá 99,06%. A base foi aparada
+para 787 amostras, 3,8 MB, escolhidas espaçadamente na ordem das casas (as
+primeiras seriam as fileiras de trás, que são as mais limpas).
+
+#### O ciclo da F8.3 ganha o que lhe faltava
+
+`colher` gravava só casa ocupada, e o motivo estava escrito: *"o modelo tem 12
+classes de peça e nenhuma de casa vazia; corrigir um falso positivo conserta o
+FEN e não tem onde ser aprendido"*. Era o **buraco mais caro do ciclo** — o Otsu
+inventava 38 peças e perdia 86, e nenhuma dessas 124 correções chegava a modelo
+nenhum. Agora o "conferi este diagrama inteiro" grava as 64 casas na base de
+ocupação, ocupadas e vazias.
+
+#### O resultado, ponta a ponta
+
+| | antes (F7.4) | agora |
+|---|---:|---:|
+| ocupação, em diagrama fora do treino | 92,25% | **99,31%** |
+| posição possível **sem** o árbitro | 15/25 | **23/25** |
+| posição possível com o árbitro | 25/25 | 25/25 |
+
+**A linha do meio é a que diz que a leitura melhorou de verdade**, e não que o
+árbitro passou a remendar mais. E o caso concreto que a F7.4 registrou como o
+limite dela — o primeiro diagrama da página 0013, com um peão branco em f5 que a
+leitura não via e um que ela inventava em h2 — sai agora com as duas casas
+certas, e sem nenhuma arbitrada.
+
+O que sobra naquele diagrama é uma torre preta em e1 lida como branca: erro de
+**identidade**, que é a outra rede.
+
+Cobertura: `tests/test_f75_ocupacao.py`, 16 testes.
+
 ---
 
 ## F8 — Texto girado e diagramas conferíveis
