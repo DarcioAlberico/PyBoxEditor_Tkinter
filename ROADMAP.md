@@ -1910,6 +1910,50 @@ então andar de box reescreve a linha que perdeu a seta e a que ganhou — seis 
 lista por tecla, contra as 2.000 que a F4.4 existe para não deixar voltar. O teste que
 afirmava "zero" passou a afirmar o teto novo, com o número escrito.
 
+### F4.8 — O rótulo do box responde `?` ao `⩲` — CONCLUÍDA
+
+Relatado pelo usuário: digitado o `⩲` no box, o retângulo amarelo logo abaixo dele — o
+rótulo que mostra o caractere lido — exibe uma interrogação. Em toda a volta o símbolo
+aparece certo: na lista lateral, no campo Caractere, no botão da barra rápida.
+
+**Concluída em 2026-08-07.**
+
+#### Não era o caractere: era o negrito
+
+A primeira suspeita — o `⩲` não estar chegando ao box — se descarta em uma linha: o
+`canvas_view` só escreve `?` quando `b.char` está vazio, e nesse caminho ele está com o
+U+2A72 gravado. O que a tela desenha é outra coisa: **o retângulo com "?" dentro, que é
+como o Tk mostra glifo ausente**. Parece um ponto de interrogação a 12 pt.
+
+E aí vem o que faz o defeito ser só deste rótulo. O Tk tem fonte de reserva: pedir `Arial`
+e mandar desenhar um `⩲` normalmente funciona, porque ele procura o glifo em outra
+família. **No peso negrito ele desiste.** Medido dentro do app, num `Canvas` e num `Label`,
+com o mesmo tamanho e as mesmas famílias:
+
+| família | peso normal | negrito |
+|---|---|---|
+| Arial | `⩲` | retângulo |
+| Consolas | `⩲` | retângulo |
+| Segoe UI | `⩲` | retângulo |
+| Segoe UI Symbol | `⩲` | `⩲` |
+
+São seis dos 23 da barra rápida que caem assim: `⩲`, `⩱`, `∓`, `⇄`, `⌓` e `⨀` — os que só
+uma fonte de símbolos desenha. Os outros 17, `±` e `∞` inclusive, a `Arial` tem por conta
+própria e nunca dependeram da reserva. É por isso que a lista lateral (`Consolas 9`), os
+botões e o campo Caractere sempre mostraram o símbolo certo: são todos peso normal. O
+rótulo do box era o único negrito da interface que mostra um NAG.
+
+#### O conserto
+
+`canvas_view.FONTE_ROTULO` passa a pedir `Segoe UI Symbol` — a mesma família que o
+`dialogo_diagrama` usa nas peças e que `resolve_chess_font` escolhe para o PDF, e a única
+das quatro que atravessa o negrito. O tamanho e o peso do rótulo não mudam.
+
+O teste mede em vez de decorar, como o dos NAGs e o do `►` da F4.7: pega a família que
+`FONTE_ROTULO` declara, acha o arquivo dela no disco e pergunta ao `missing_glyphs` se ela
+cobre os 23 símbolos da barra. Família nova sem medição é falha com o motivo escrito, não
+caixa vazia descoberta pelo usuário — o defeito do `·` da SPEC §4.2 outra vez.
+
 ---
 
 ## F5 — Higiene do código

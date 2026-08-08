@@ -81,6 +81,40 @@ def test_a_fonte_do_pdf_desenha_todos_os_simbolos():
     pytest.fail("nenhuma fonte desenha todos os NAGs: %s" % faltas)
 
 
+#: A família que a tela pede ao Tk pelo nome, e o arquivo dela no disco — o Tk
+#: aceita o nome, `missing_glyphs` precisa do arquivo. Família nova aqui é linha
+#: nova neste dicionário, e é de propósito: é a conferência que a SPEC §7.1
+#: exige antes de trocar a fonte de qualquer coisa que mostre um NAG.
+ARQUIVO_DA_FAMILIA = {
+    "Segoe UI Symbol": r"C:\Windows\Fonts\seguisym.ttf",
+}
+
+
+def test_a_fonte_do_rotulo_do_box_desenha_todos_os_simbolos():
+    """
+    O rótulo amarelo sob o box selecionado mostra o caractere lido, e mostra em
+    **negrito** — é aí que mora a diferença. Medido: no peso normal o Tk ainda
+    encontra o glifo ausente numa fonte de reserva, e por isso a lista lateral e
+    os botões de NAG nunca sofreram disto; no negrito ele desiste e desenha o
+    retângulo com "?" dentro.
+
+    Com `Arial`, que era a fonte deste rótulo, isso atingia `⩲`, `⩱`, `∓`, `⇄`,
+    `⌓` e `⨀`: o usuário digitava o símbolo e o rótulo respondia interrogação.
+    """
+    from ui.canvas_view import FONTE_ROTULO
+
+    familia = FONTE_ROTULO[0]
+    caminho = ARQUIVO_DA_FAMILIA.get(familia)
+    assert caminho, (
+        f"{familia!r} virou a fonte do rótulo sem passar pela medição: "
+        "acrescente o arquivo dela em ARQUIVO_DA_FAMILIA")
+    if not os.path.exists(caminho):
+        pytest.skip(f"{familia} não instalada neste sistema")
+
+    alvo = "".join(sorted({c for s, _ in NAGS for c in s}))
+    assert missing_glyphs(caminho, alvo) == []
+
+
 # ----------------------------------------------------------------------
 # A tabela do padrão PGN (core/nags.py), que alimenta o menu Notação
 # ----------------------------------------------------------------------

@@ -1156,6 +1156,16 @@ Símbolo novo na tabela **tem de ser conferido contra a fonte** (`missing_glyphs
 cadeia — não tem `⩲`, `⩱`, `⌓` nem `⨀`. Glifo ausente vira caixa vazia sem erro
 nenhum, que é o defeito do `·` da §4.2. `tests/test_nags.py` trava isso.
 
+**A regra vale para a tela, e o negrito é onde ela morde.** O Tk tem fonte de
+reserva: pedir `Arial` e mandar desenhar um `⩲` normalmente funciona, porque ele
+procura o glifo em outra família. **No peso negrito ele desiste** e desenha o
+retângulo com "?" — medido dentro do app, em `Arial`, `Consolas` e `Segoe UI`, para
+`⩲`, `⩱`, `∓`, `⇄`, `⌓` e `⨀`. Por isso a lista lateral (`Consolas 9`), os botões
+de NAG e o campo Caractere nunca sofreram disto, e o **rótulo do box** — o retângulo
+amarelo sob o box selecionado, que é negrito — sofria: digitar `⩲` devolvia uma
+interrogação. Quem desenha símbolo em negrito pede a família que tem o glifo de
+verdade (`canvas_view.FONTE_ROTULO`), não a que a reserva salvaria.
+
 Uma aproximação registrada: `≡` (com compensação) não é o símbolo do Informator, que
 não tem ponto de código próprio em Unicode — três barras é como estes livros o
 imprimem.

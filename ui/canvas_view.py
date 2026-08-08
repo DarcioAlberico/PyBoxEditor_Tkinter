@@ -8,6 +8,22 @@ from ui.confidence import cor_do_box, COR_LEXICO, COR_SELECAO
 #: Marca do lado que é o topo do glifo num box de texto girado (F8.1).
 COR_GIRADO = "#8E24AA"
 
+#: A fonte do rótulo do box, e **não é escolha de estilo**. Em `Arial` o `⩲`
+#: (U+2A72) saía como o retângulo com "?" do glifo ausente, e com ele `⩱`, `∓`,
+#: `⇄`, `⌓` e `⨀` — seis dos 23 da barra rápida, que é onde eles são digitados.
+#:
+#: O que fazia o defeito aparecer **só aqui** é o negrito. Medido dentro do app:
+#: no peso normal o Tk ainda encontra o glifo numa fonte de reserva, e por isso
+#: a lista lateral (`Consolas 9`), os botões de NAG e o campo Caractere mostram
+#: o `⩲` sem problema; no negrito ele desiste e desenha o retângulo. Só a
+#: família que tem o glifo de verdade atravessa os dois pesos — a mesma
+#: `Segoe UI Symbol` que o `dialogo_diagrama` usa nas peças e que
+#: `chess_pdf_processor.resolve_chess_font` escolhe para o PDF.
+#:
+#: Trocar a família aqui pede a mesma conferência da SPEC §7.1: fonte que não
+#: cobre a tabela não avisa, só desenha a caixa. `tests/test_nags.py` trava.
+FONTE_ROTULO = ("Segoe UI Symbol", 12, "bold")
+
 
 class CanvasView(tk.Canvas):
     """
@@ -567,7 +583,7 @@ class CanvasView(tk.Canvas):
                     cx, (py1 + py2)/2,
                     text=char_text,
                     fill="black",
-                    font=("Arial", 12, "bold")
+                    font=FONTE_ROTULO
                 )
 
         # preview do novo box
