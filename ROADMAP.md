@@ -26,10 +26,10 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9, F1.5b) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.9) |
-| **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.6) |
+| **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.8) |
 | **F5** | Higiene | Dependências corretas, código morto removido, testes | **concluída** (F5.1–F5.4) |
 | **F6** | Saída de partidas | A notação lida vira `.pgn` que abre num programa de xadrez | **concluída** (F6.1) |
-| **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.3) |
+| **F7** | Diagramas, desempenho e integridade | Posição impressa vira FEN; o k-NN sai do caminho; o modelo não se descasa | **concluída** (F7.1–F7.5) |
 | **F8** | Texto girado e diagramas conferíveis | O rótulo vertical é lido; o diagrama vira tabuleiro editável que alimenta o treino | **concluída** (F8.1–F8.3) |
 | **F9** | Léxico do texto corrido | Palavra fora do dicionário é sinalizada para revisão; o usuário acrescenta as suas | **concluída** (F9.1, F9.2) |
 | **F10** | Texto em negativo | O nome dos jogadores na tarja preta deixa de ser um borrão e vira texto | **concluída** (F10.1) |
@@ -57,7 +57,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **975 testes**, `pytest` na raiz.
+Cobertura: **1.031 testes**, `pytest` na raiz, 72 segundos.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -1145,15 +1145,47 @@ memória de antes.
 
 Cobertura: `tests/test_f19_calibracao.py`, 21 testes.
 
-### F1.6 — Ordenação de leitura ignora colunas
+### F1.6 — Ordenação de leitura ignora colunas — CONCLUÍDA
 
-`sort_boxes_reading_order` (`box_service.py:36`) agrupa por sobreposição vertical.
-Livros de xadrez são fortemente diagramados, muitos em duas colunas. O algoritmo vai
-intercalar as colunas linha a linha, produzindo texto embaralhado.
+`sort_boxes_reading_order` (`box_service.py:36`) agrupava por sobreposição vertical.
+Livros de xadrez são fortemente diagramados, muitos em duas colunas. O algoritmo
+intercalava as colunas linha a linha, produzindo texto embaralhado — numa página real do
+Kasparov a partida saltava do lance 19 para o 43 e voltava para o 20.
 
 O DocuVision confirma que o problema é real, mas a solução dele não vale a cópia: mede a
 brancura de uma faixa fixa (42%–58% da largura) e assume duas colunas iguais. Um perfil de
 projeção vertical acha as calhas em qualquer posição e com qualquer número de colunas.
+
+**Concluída em 2026-08-03** (`f2b3990`). Esta seção ficou sem a marca até 2026-08-08, e o
+resto dela é o registro que faltava.
+
+**O perfil é dos boxes, não dos pixels.** `detectar_colunas` projeta a ocupação das caixas
+no eixo X e procura vãos sem conteúdo nenhum. O vão que interessa é onde não há
+*caractere*, e medir assim funciona igual em página escaneada e em imagem já limpa — o
+perfil de tinta veria a trama de fundo e a sujeira de borda.
+
+**O limiar é relativo à largura mediana de caractere** (`3x`, com piso de 2% da largura da
+página e de 4 px), e não absoluto: uma calha de verdade é muito mais larga que o espaço
+entre palavras. É o que separa "duas colunas" de "um parágrafo justificado com vãos
+grandes", e o teste que trava isso monta as duas situações.
+
+**Elemento que atravessa a calha não pertence a coluna nenhuma.** Título, diagrama largo,
+tarja de nome: viram separador horizontal — o que está acima é lido coluna a coluna,
+depois vem ele, depois o que está abaixo. Sem essa regra o título entraria no meio de uma
+das colunas e levaria a outra metade da página junto.
+
+**Uma pilha de texto girado é um elemento só** (F8.1, que veio depois e mexeu aqui). Cada
+letra dela cai numa linha de texto diferente; sem o tratamento, o rótulo vertical ao lado
+do diagrama entrava letra a letra no meio de seis linhas do parágrafo vizinho.
+`_ordenar_com_pilhas` troca a pilha por uma caixa que a representa, ordena a página com o
+algoritmo de sempre e desfaz a troca no fim — a pilha entra pelo lugar que ocupa, sem que
+a ordem precise saber que ela existe.
+
+Medido na página 0021 do Kasparov, que é de duas colunas: **9 saltos entre colunas antes,
+1 depois** — e 1 é o certo, que é a passagem da coluna da esquerda para a da direita.
+
+Cobertura: `tests/test_f16_colunas.py`, 14 testes. O último roda sobre a página real e é
+pulado em clone sem as digitalizações.
 
 ---
 
@@ -2030,14 +2062,25 @@ retroativamente — só deixa de ser criada daqui em diante.
 Cobertura: `tests/test_f52_formato_box.py`, 64 testes, quase todos na forma
 `ler(escrever(x)) == x`.
 
-### F5.3 — Sem testes
+### F5.3 — Sem testes — CONCLUÍDA
 
-Nenhum teste automatizado. `test_chess_pdf.py` é um stub que imprime "a sintaxe está
-correta" e não testa nada — a função de teste está comentada. `test_draw.py` e
-`test_fonts.py` são scripts manuais.
+Nenhum teste automatizado. `test_chess_pdf.py` era um stub que imprimia "a sintaxe está
+correta" e não testava nada — a função de teste estava comentada. `test_draw.py` e
+`test_fonts.py` eram scripts manuais.
 
 Os quatro bugs de F0.1 seriam pegos por um único teste que constrói um `BoxEntry` e
 chama `update_sidebar`.
+
+**Fechada pelas próprias fases, e não por um mutirão de testes.** Cada uma trouxe o
+arquivo que trava o que ela decidiu — `test_f0_smoke.py` nasceu com 11 testes, dos quais 9
+reprovavam na baseline, e daí em diante nenhuma fase entrou sem cobertura. São **1.031
+testes** em 2026-08-08, `pytest` na raiz, 72 segundos. Os scripts manuais saíram na F5.4.
+
+O padrão que se firmou no caminho vale mais que o número: **teste que mede em vez de
+decorar**. `missing_glyphs` pergunta à fonte se ela desenha o símbolo em vez de guardar a
+resposta (F4.8), `nags.sem_glifo` mede a cobertura na montagem do menu, e a guarda da base
+de ocupação compara a sessão consigo mesma em vez de congelar um tamanho que cresce de
+propósito (F7.5). Número congelado num teste vira ritual de atualizar número.
 
 ### F5.4 — Arquivos de desenvolvimento no repositório — CONCLUÍDA
 
