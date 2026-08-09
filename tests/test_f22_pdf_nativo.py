@@ -168,19 +168,19 @@ def test_load_page_devolve_grayscale():
     assert img.mode == "L", f"esperava grayscale, veio {img.mode}"
 
 
-def test_load_page_usa_200_dpi():
+def test_load_page_usa_300_dpi():
     """
-    72 pt = 1 polegada. Uma página de 300x400 pt a 200 dpi dá ~833x1111 px.
+    72 pt = 1 polegada. Uma página de 300x400 pt a 300 dpi dá 1250x1667 px.
 
-    Não é preciosismo: os limiares da F1.5 são relativos à largura mediana de
-    caractere, medida nesta escala.
+    Não é preciosismo: era 200 dpi, e subir para 300 vale **+2,0 de F1** nas 10
+    páginas rotuladas (93,3 → 95,3). A tabela inteira está no `pdf_service`.
     """
     svc = PDFService()
     svc.load_pdf(_pdf_de_teste(largura=300, altura=400))
     img = svc.load_page(0)
 
-    assert DPI_PADRAO == 200
-    esperado = (round(300 * 200 / 72), round(400 * 200 / 72))
+    assert DPI_PADRAO == 300
+    esperado = (round(300 * 300 / 72), round(400 * 300 / 72))
     assert abs(img.size[0] - esperado[0]) <= 2, f"{img.size} != ~{esperado}"
     assert abs(img.size[1] - esperado[1]) <= 2, f"{img.size} != ~{esperado}"
 

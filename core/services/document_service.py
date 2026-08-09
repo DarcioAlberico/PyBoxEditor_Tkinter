@@ -11,6 +11,16 @@ from core.box_model import BoxEntry
 SIDECAR_SUFIXO = ".pyboxsession.json"
 SCHEMA = 1
 
+#: Em que dpi um rascunho **sem** o campo `dpi` foi gravado.
+#:
+#: O sidecar guarda coordenadas em pixels da renderização, e até a mudança de
+#: `DPI_PADRAO` para 300 existiu um único valor possível: 200. Rascunho antigo
+#: não diz em que escala está justamente porque não havia escolha, e assumir
+#: 200 é o que reposiciona os boxes dele no lugar certo. Sem isto a mudança de
+#: dpi devolveria todo rascunho anterior com os boxes a dois terços da posição,
+#: em silêncio — e o autosave é restaurado sem o usuário escolher nada.
+DPI_LEGADO = 200
+
 
 def caminho_sidecar(documento: str) -> str:
     """Arquivo de rascunho ao lado do documento."""
@@ -91,10 +101,16 @@ class DocumentSession:
     reatribui `self.boxes` chame `store()` em seguida.
     """
 
-    def __init__(self, path: str, num_pages: int = 1, is_pdf: bool = False):
+    def __init__(self, path: str, num_pages: int = 1, is_pdf: bool = False,
+                 dpi: int = 0):
         self.path = path
         self.num_pages = max(1, num_pages)
         self.is_pdf = is_pdf
+        # Em que escala estão as coordenadas desta sessão. A sessão não escolhe
+        # o dpi — quem renderiza escolhe —, ela só registra qual foi, para o
+        # rascunho poder ser relido depois que esse valor mudar. Zero quer dizer
+        # "não informado", e aí nada é reescalado.
+        self.dpi = int(dpi or 0)
 
         self._pages: Dict[int, List[BoxEntry]] = {}
         self._dirty: Set[int] = set()
@@ -176,6 +192,11 @@ class DocumentSession:
             "gravado_em": datetime.datetime.now().isoformat(timespec="seconds"),
             "is_pdf": self.is_pdf,
             "num_pages": self.num_pages,
+            # A escala em que estas coordenadas foram feitas. Campo novo, e o
+            # `schema` continua 1 de propósito: subi-lo faria `ler_autosave`
+            # recusar todo rascunho anterior, que é a perda de trabalho que o
+            # autosave existe para evitar. O ausente é tratado por `DPI_LEGADO`.
+            "dpi": self.dpi,
             "sujas": self.dirty_pages(),
             "paginas": paginas,
         }
@@ -197,9 +218,32 @@ class DocumentSession:
         except OSError:
             pass
 
+    def fator_de_escala(self, payload: dict) -> float:
+        """
+        Quanto reescalar as coordenadas de um rascunho gravado noutro dpi.
+
+        Devolve 1.0 quando não há o que fazer — sessão sem dpi informado, ou
+        rascunho da mesma escala.
+        """
+        if not self.dpi:
+            return 1.0
+        try:
+            gravado = int(payload.get("dpi") or DPI_LEGADO)
+        except (TypeError, ValueError):
+            gravado = DPI_LEGADO
+        if gravado <= 0 or gravado == self.dpi:
+            return 1.0
+        return self.dpi / gravado
+
     def aplicar_payload(self, payload: dict) -> int:
         """Restaura páginas e marcações a partir de um rascunho. Devolve
-        quantas páginas foram recuperadas."""
+        quantas páginas foram recuperadas.
+
+        **Reescala se o rascunho é de outro dpi.** As coordenadas são pixels da
+        renderização, e o `DPI_PADRAO` mudou de 200 para 300: sem isto o
+        trabalho de antes voltaria com cada box a dois terços da posição.
+        """
+        f = self.fator_de_escala(payload)
         paginas = payload.get("paginas", {}) or {}
         for chave, itens in paginas.items():
             try:
@@ -217,6 +261,9 @@ class DocumentSession:
                     angulo = int(it[7]) if len(it) > 7 else 0
                 except (TypeError, ValueError, IndexError):
                     continue
+                if f != 1.0:
+                    x1, y1 = int(round(x1 * f)), int(round(y1 * f))
+                    x2, y2 = int(round(x2 * f)), int(round(y2 * f))
                 boxes.append(BoxEntry(char, x1, y1, x2, y2,
                                       confidence=conf, source=origem or "",
                                       angulo=angulo if angulo in (0, 90, 180, 270) else 0))

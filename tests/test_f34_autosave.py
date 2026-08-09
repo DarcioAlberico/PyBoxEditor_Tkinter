@@ -108,6 +108,62 @@ def test_ida_e_volta_do_payload():
     assert destino.boxes_for(4)[1].char == ""
 
 
+def test_rascunho_de_outro_dpi_volta_reescalado():
+    """
+    O sidecar guarda pixels da renderização, e o `DPI_PADRAO` mudou de 200 para
+    300. Rascunho de 200 relido numa sessão de 300 tem de voltar 1,5x maior — do
+    contrário cada box aparece a dois terços da posição, e em silêncio.
+    """
+    origem = DocumentSession("/tmp/livro.pdf", num_pages=3, is_pdf=True, dpi=200)
+    origem.store(1, [BoxEntry("a", 100, 200, 130, 240, confidence=0.9)])
+
+    destino = DocumentSession("/tmp/livro.pdf", num_pages=3, is_pdf=True, dpi=300)
+    destino.aplicar_payload(origem.montar_payload())
+
+    b = destino.boxes_for(1)[0]
+    assert (b.x1, b.y1, b.x2, b.y2) == (150, 300, 195, 360)
+    assert b.char == "a" and b.confidence == 0.9
+
+
+def test_rascunho_sem_dpi_e_tratado_como_200():
+    """
+    O campo `dpi` é novo, e todo rascunho gravado antes dele está em 200 —
+    o único valor que existiu. Assumir isso é o que recupera esse trabalho.
+    """
+    destino = DocumentSession("/tmp/livro.pdf", num_pages=2, is_pdf=True, dpi=300)
+    antigo = {"schema": 1, "documento": "livro.pdf", "is_pdf": True,
+              "num_pages": 2, "sujas": [0],
+              "paginas": {"0": [("z", 10, 20, 20, 40, 0.5, "neural", 0)]}}
+
+    assert destino.fator_de_escala(antigo) == 1.5
+    destino.aplicar_payload(antigo)
+    b = destino.boxes_for(0)[0]
+    assert (b.x1, b.y1, b.x2, b.y2) == (15, 30, 30, 60)
+
+
+def test_rascunho_do_mesmo_dpi_nao_e_tocado():
+    origem = DocumentSession("/tmp/livro.pdf", num_pages=2, is_pdf=True, dpi=300)
+    origem.store(0, [BoxEntry("q", 7, 9, 11, 13)])
+
+    destino = DocumentSession("/tmp/livro.pdf", num_pages=2, is_pdf=True, dpi=300)
+    payload = origem.montar_payload()
+    assert payload["dpi"] == 300
+    assert destino.fator_de_escala(payload) == 1.0
+    destino.aplicar_payload(payload)
+    b = destino.boxes_for(0)[0]
+    assert (b.x1, b.y1, b.x2, b.y2) == (7, 9, 11, 13)
+
+
+def test_sessao_de_imagem_nao_reescala():
+    """
+    Imagem solta é aberta na resolução do arquivo — não há dpi de renderização,
+    e reescalar por um seria estragar coordenadas corretas.
+    """
+    sessao = DocumentSession("/tmp/pagina.png", is_pdf=False)
+    assert sessao.dpi == 0
+    assert sessao.fator_de_escala({"dpi": 200}) == 1.0
+
+
 def test_rascunho_ilegivel_nao_derruba_a_abertura():
     """Um rascunho corrompido não pode impedir o usuário de abrir o arquivo."""
     with tempfile.TemporaryDirectory() as tmp:

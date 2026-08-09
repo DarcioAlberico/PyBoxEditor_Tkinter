@@ -23,10 +23,31 @@ import fitz  # PyMuPDF
 from PIL import Image
 
 
-# O `pdf2image.convert_from_bytes` usava 200 dpi por omissão, e a segmentação da
-# F1.5 foi calibrada em cima disso (largura mediana de caractere ~17 px). Mudar
-# aqui mudaria silenciosamente todos os limiares relativos.
-DPI_PADRAO = 200
+# **Lido de uma tabela, e a tabela contradiz o comentário que estava aqui.**
+#
+# Este valor era 200 porque o `pdf2image.convert_from_bytes` usava 200 por
+# omissão, e o comentário anterior avisava que mexer nele "mudaria
+# silenciosamente todos os limiares relativos" da F1.5. Mudaria — para melhor.
+# Medido nas 10 páginas rotuladas (~12.000 caracteres), F1 do pipeline inteiro:
+#
+#     dpi   recall   precisão     F1   espúrios
+#     150    87,9%      89,1%   88,5        438
+#     200    93,5%      93,2%   93,3        310
+#     250    94,8%      94,3%   94,6        312
+#     300    95,8%      94,8%   95,3        321
+#
+# São **+2,0 de F1** contra os 200 de antes, e o ganho aparece em todas as sete
+# páginas do Kasparov (+2,0 a +4,1 cada, sem exceção) — o livro cuja
+# digitalização tem 300 dpi de verdade. A 200 dpi o render jogava fora um terço
+# da resolução que estava no arquivo.
+#
+# **Ampliar além do nativo não custa nada, e foi medido.** As três páginas do
+# Aagaard vêm de uma imagem embutida de ~152 dpi: a 300 elas vão igual ou
+# ligeiramente melhor que a 200 (+0,2 +0,3 +0,2), e a 150 — praticamente o
+# nativo delas — perdem de 2,4 a 4,0. Por isso o valor é fixo e alto, e não
+# "o nativo de cada documento": o nativo só diz onde há ganho a colher, não
+# onde parar.
+DPI_PADRAO = 300
 
 
 def _para_pil(pagina: "fitz.Page", dpi: int, cinza: bool) -> Image.Image:

@@ -35,6 +35,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | **F10** | Texto em negativo | O nome dos jogadores na tarja preta deixa de ser um borrão e vira texto | **concluída** (F10.1) |
 | **F11** | Texto sobre trama | O quadro de pontuação deixa de apagar o texto da página; a régua da página para de desabar | **concluída** (F11.1) |
 | **F12** | Duas linhas num box | O descendente que encosta na linha de baixo deixa de engolir um caractere | **concluída** (F12.1) |
+| **F15** | O dpi da renderização | O render para de jogar fora a resolução que está no arquivo | **concluída** (F15.1) |
 
 > **Re-medido em 2026-08-07, com a F12.** Nas 10 páginas rotuladas o pipeline dá **94,4
 > de F1** (94,9% de recall, 94,0% de precisão, 323 boxes espúrios), contra 94,1 antes. O
@@ -57,7 +58,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **1.031 testes**, `pytest` na raiz, 72 segundos.
+Cobertura: **1.035 testes**, `pytest` na raiz, 78 segundos.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -4093,6 +4094,107 @@ diferentes: ligadura pede rever se as classes novas se pagam (e a medição do s
 guardar o modelo anterior, coisa que o `.gitignore` impede hoje); homóglifo e caixa pedem
 **entrada nova** — altura relativa à linha junto do recorte —, que é mudar a arquitetura;
 e os 130 do "resto" pedem olhar um a um antes de qualquer teoria.
+
+---
+
+## F15 — O dpi que jogava fora um terço da página — CONCLUÍDA
+
+A pergunta que abriu esta fase era outra: **o que dá para fazer com a imagem antes do
+reconhecimento** — tirar ruído, melhorar nitidez. A resposta acabou não sendo um filtro
+novo, e sim que o pipeline descartava resolução que já estava no arquivo.
+
+### O que os PDFs são
+
+| Livro | imagem embutida | dpi nativo | renderizado a 200 |
+|---|---|---:|---|
+| Yusupov, *Chess Evolution 1* | PNG **1 bit** | ~282 | reduz para 71% |
+| Aagaard, *Attacking Manual I* | JPEG cor, 8 bit | ~152 | **amplia** para 132% |
+| Yusupov_Complete | PNG 1 bit | ~180 | reduz para 90% |
+
+O `DPI_PADRAO = 200` não veio de medição: veio de o `pdf2image` usar 200 por omissão
+(F2.2). O comentário que ficou no lugar avisava que mexer nele "mudaria silenciosamente
+todos os limiares relativos" da F1.5, e por isso ninguém mexeu.
+
+### F15.1 — Renderizar a 300 — FEITA
+
+Nas 10 páginas rotuladas (~12.000 caracteres), F1 do pipeline inteiro com o modelo de
+produção:
+
+| dpi | recall | precisão | F1 | espúrios |
+|---:|---:|---:|---:|---:|
+| 150 | 87,9% | 89,1% | 88,5 | 438 |
+| **200** *(o de antes)* | 93,5% | 93,2% | **93,3** | 310 |
+| 250 | 94,8% | 94,3% | 94,6 | 312 |
+| **300** *(o de agora)* | 95,8% | 94,8% | **95,3** | 321 |
+
+**+2,0 de F1.** Para escala: a F12 inteira valeu 0,3.
+
+O ganho é de resolução real, e aparece em **todas** as sete páginas do Kasparov, cuja
+digitalização tem 300 dpi de verdade: +4,1 +3,6 +3,1 +2,8 +2,9 +2,0 +2,0. Nenhuma exceção.
+
+**Ampliar além do nativo não custa nada, e isso corrigiu a hipótese de partida.** A
+proposta era "renderizar no nativo de cada documento e não passar disso". Errado: as três
+páginas do Aagaard vêm de uma imagem de ~152 dpi e a 300 vão igual ou melhor que a 200
+(+0,2 +0,3 +0,2), enquanto a 150 — praticamente o nativo delas — perdem de 2,4 a 4,0. O
+nativo diz onde há ganho a colher, não onde parar. Por isso o valor é fixo e alto, e não
+por documento.
+
+Também responde à ressalva que estava no `pdf_service`: os limiares relativos da F1.5 e da
+F1.7 aguentam a mudança de escala, e o F1 sobe monotonicamente de 150 a 300.
+
+**Nenhum retreino foi preciso.** A tabela acima é do modelo atual classificando recortes de
+300 dpi — o ganho já está líquido da diferença de escala contra a base de treino.
+
+#### O rascunho de autosave precisou de migração
+
+O `.pyboxsession.json` guarda coordenadas em **pixels da renderização** e é restaurado
+sozinho na abertura. Trocar o dpi sem mais nada devolveria todo rascunho anterior com cada
+box a dois terços da posição, em silêncio. O sidecar passou a registrar o dpi e a
+reescalar na leitura; rascunho sem o campo é assumido em 200, que é o único valor que
+existiu. O `schema` **continua 1**: subi-lo faria `ler_autosave` recusar exatamente os
+rascunhos que ele existe para salvar.
+
+Cobertura: `tests/test_f34_autosave.py`, 4 testes novos.
+
+### O que esta fase deixou aberto
+
+**O risco que a medição não pega, e é o mais importante desta seção.** Nenhuma página do
+Yusupov está entre as 10 rotuladas, e é justamente ela que piora a 300 dpi. O livro é um
+PNG de **1 bit**: o pontilhado de meio-tom, que a 200 dpi virava cinza na média do
+downsample, na resolução cheia volta a ser ponto separado. Medido na página 18:
+
+| dpi | contornos de lixo |
+|---:|---:|
+| 200 | 139 |
+| 282 | 4.970 |
+| 300 | 5.973 |
+
+Pior, o **tom** de que `preprocess.remover_textura` depende é fabricado por aquele
+downsample. A folga entre o tom da trama e o do texto cai de 103 (a 200 dpi) para 6 (a
+300), abaixo do `TEXTURA_FOLGA_DE_TOM = 40` — a F11 deixa de disparar. Os +2,0 de F1 são
+reais nos livros medidos; **num livro 1-bit com painel de meio-tom o saldo desta fase não
+está medido, e provavelmente é negativo.**
+
+**O remédio existe em protótipo e não entrou.** Um descreening explícito, aplicado só na
+região de trama, leva o lixo da página 18 de 4.970 para 433 a 282 dpi e para 168 a 400,
+preservando o texto — e não encosta em página limpa: em 40 combinações de página e dpi das
+rotuladas, o resultado sai byte a byte igual. A região é achada por densidade de componente
+minúsculo com histerese (semente 0,10, crescimento 0,03, lidos de tabela: a densidade
+máxima numa página limpa é 0,078 e a da página 18 é 0,149–0,195), e o período do
+pontilhado é medido **dentro** da região — medi-lo na página inteira devolve o passo do
+caractere e o filtro come o texto (medido: numa página limpa o lixo subiu de 14 para 437).
+
+Não entrou porque **não tem uma única medição de F1 que o justifique**: as páginas onde ele
+age não estão rotuladas. Rotular uma página do Yusupov com painel de pontuação é o que
+destrava tanto medir o risco acima quanto aprovar o remédio.
+
+**O `.box` antigo carregado à mão.** `save_all_pages` grava `.box` e `.png` em par, então
+os pares seguem coerentes. Mas um `.box` de 200 dpi carregado pelo menu sobre uma página
+renderizada a 300 fica 1,5x fora de lugar, e o formato do Tesseract não tem onde dizer a
+escala. O risco já existia — um `.box` só vale contra a imagem dele — mas ficou provável.
+
+**Custo.** 2,25x os pixels por página; renderização, segmentação e classificação sobem
+juntas.
 
 ---
 

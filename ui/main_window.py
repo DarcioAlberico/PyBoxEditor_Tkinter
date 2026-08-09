@@ -12,7 +12,7 @@ from core.searchable_pdf import gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService
 from core.services.ocr_service import OCRService
-from core.services.pdf_service import PDFService
+from core.services.pdf_service import DPI_PADRAO, PDFService
 from core.services.learning_service import LearningService
 from core.services.history_service import HistoryManager
 from core.services.document_service import DocumentSession, _GravadorAssincrono
@@ -956,7 +956,8 @@ class MainWindow(tk.Frame):
 
         # A sessão nova precisa existir antes de carregar a página, e a página
         # atual não deve ser arquivada na sessão nova (ela é do documento antigo).
-        self.session = DocumentSession(path, num_pages=num_pages, is_pdf=True)
+        self.session = DocumentSession(path, num_pages=num_pages, is_pdf=True,
+                                       dpi=DPI_PADRAO)
         self._esquecer_lexico()
         self.boxes = []
         self.current_pdf_page = 0
@@ -2760,7 +2761,11 @@ class MainWindow(tk.Frame):
                     # renderizado pelo PyMuPDF, que não depende de binário
                     # externo. O que sobrar aqui é erro no arquivo, e a mensagem
                     # do próprio PyMuPDF diz mais que um texto genérico.
-                    pages = self.pdf_service.convert_pdf_to_images(fpath, dpi=200)
+                    # O mesmo dpi de `load_page`, e não um 200 solto: este
+                    # caminho alimenta o treino, e treinar numa escala e
+                    # reconhecer noutra é descasar as duas.
+                    pages = self.pdf_service.convert_pdf_to_images(
+                        fpath, dpi=DPI_PADRAO)
                     for i, page in enumerate(pages):
                         images.append((f"{os.path.basename(fpath)}_pg{i+1}", page))
                 else:
