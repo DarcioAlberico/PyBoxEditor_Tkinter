@@ -692,6 +692,25 @@ class BoxService:
             saida.extend(substitutos.get(id(b), [b]))
         return saida
 
+    #: Folga vertical máxima para colar um pedaço curto num glifo **alto** —
+    #: o pingo do 'i' e do 'j', o ponto do '?' e do '!', o acento. Em alturas
+    #: medianas de box.
+    #:
+    #: Medido nas 11 páginas rotuladas, a folga do diacrítico de verdade é bem
+    #: menor que 0,30: 'i' (386 casos) vai a 0,23, '?' e '!' a 0,23, 'j' a 0,25,
+    #: '±' a 0,17. Do outro lado do vale, a pontuação da **linha de cima** colada
+    #: num glifo alto começa em 0,55 (',' e 'P') e vai a 0,79. Nada da população
+    #: medida cai entre 0,25 e 0,55.
+    FOLGA_DE_DIACRITICO = 0.30
+
+    #: A mesma folga quando os **dois** pedaços são curtos: ':' e ';', que são
+    #: dois pontos separados por meia altura de x e por isso precisam de mais
+    #: espaço que um pingo. Medido, ':' fica em 0,45 e ';' em 0,43.
+    #:
+    #: São duas folgas e não uma porque a maior delas, aplicada ao par
+    #: curto+alto, é justamente o que deixa o ponto da linha de cima entrar.
+    FOLGA_DE_PONTUACAO = 0.50
+
     @staticmethod
     def merge_vertical_boxes(boxes: List[BoxEntry]) -> List[BoxEntry]:
         """
@@ -703,6 +722,13 @@ class BoxService:
         linha real de 17 caracteres colada girada saía como 7 boxes. O
         diacrítico de um glifo girado fica ao lado, não em cima, e quem o funde
         é `vertical.fundir_pingos`, no eixo certo.
+
+        **A folga depende de quem está sendo colado** (F3.11). A régua única de
+        antes — `max(10, min(30, mediana * 0,8))` — media 0,8 alturas medianas
+        nas páginas medidas, e o ponto final da linha de cima está a 0,55–0,79
+        de um glifo alto da linha de baixo: cabia inteiro dentro dela. Como o
+        laço refaz a busca com a caixa já crescida, o primeiro ponto engolido
+        abria caminho para os vizinhos, e um '...' entrava com os três.
         """
         if not boxes:
             return []
@@ -721,7 +747,6 @@ class BoxService:
             median_h = 10
 
         SHORT_THRESH = median_h * 0.6
-        DEFAULT_MAX_VERT = max(10, min(30, median_h * 0.8))
         MIN_HORIZ_OVERLAP_RATIO = 0.3
 
         merged_boxes = []
@@ -757,8 +782,12 @@ class BoxService:
 
                     if is_tall_1 and is_tall_2:
                         max_vert_dist = 2
+                    elif is_tall_1 or is_tall_2:
+                        # curto + alto: diacrítico. É o par que o ponto da linha
+                        # de cima imita, e por isso o mais apertado dos três.
+                        max_vert_dist = median_h * BoxService.FOLGA_DE_DIACRITICO
                     else:
-                        max_vert_dist = DEFAULT_MAX_VERT
+                        max_vert_dist = median_h * BoxService.FOLGA_DE_PONTUACAO
 
                     if dist_vert > max_vert_dist:
                         continue

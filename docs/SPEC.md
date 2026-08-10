@@ -1584,7 +1584,11 @@ def test_box_roundtrip():
 
 ### 8.2 Cobertura seguinte
 
-- `merge_vertical_boxes`: `i`, `j`, `:`, `;`, `?`, `!` fundem corretamente
+- [feito] `merge_vertical_boxes`: `i`, `j`, `:`, `;`, `?`, `!` fundem corretamente —
+  `tests/test_f311_merge.py`. A cobertura veio junto com a F3.11, que descobriu o outro
+  lado da mesma régua: a folga era única e larga o bastante para o ponto da **linha de
+  cima** entrar num glifo alto da linha de baixo. São duas folgas agora, curto+alto
+  (0,30 da altura mediana) e curto+curto (0,50, que é o que `:` e `;` precisam)
 - [feito] `sort_boxes_reading_order`: coluna única, duas colunas, com diagrama no
   meio. `detectar_colunas()` projeta a ocupação dos **boxes** no eixo X e acha as
   calhas em qualquer posição e em qualquer número — a abordagem do DocuVision, que

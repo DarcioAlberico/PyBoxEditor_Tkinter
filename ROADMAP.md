@@ -1410,6 +1410,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.8 | ~~Snapshot do histórico a cada tecla~~ — **CONCLUÍDA** | 15,8 ms por tecla viram 0,24 |
 | F3.9 | ~~Ir direto para uma página; o botão que sumia~~ — **CONCLUÍDA** | A janela cabe na tela e os botões param de ser empurrados para fora |
 | F3.10 | ~~O diálogo de salvar propunha o nome errado~~ — **CONCLUÍDA** | Toda página do livro propunha `livro.box` |
+| F3.11 | ~~O merge vertical atravessava a linha de texto~~ — **CONCLUÍDA** | +1,2 de recall e +0,7 de F1, em todas as páginas |
 
 **F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
 `fallback_chain` e a descartava (`char, source, _`). Agora `BoxEntry` guarda
@@ -1755,6 +1756,68 @@ página passam a compartilhar o radical.
 Cobertura: `tests/test_f37_paginas.py` e `tests/test_f61_pgn.py`, 3 testes novos — um
 deles confere que o nome proposto pelo Ctrl+S é exatamente o que "Salvar todas as
 páginas" gravaria, que é o acoplamento que se quer manter.
+
+### F3.11 — O merge vertical atravessava a linha de texto — CONCLUÍDA
+
+**Concluída em 2026-08-10.** Relato do usuário: *"o glifo do rei sempre gera o box com o
+. da linha acima, e se tiver ... pega os 3"*. Está certo, e o rei não tem nada de
+especial: é só o glifo alto que a notação de xadrez põe logo depois de um ponto.
+
+**Medido antes de mexer.** Nas 11 páginas rotuladas, **66 boxes** saíam do
+`merge_vertical_boxes` cobrindo caracteres rotulados de **duas linhas diferentes**. As
+figurinas são ~1,5% dos glifos da base e respondiam por ~23% desses casos.
+
+`merge_vertical_boxes` tinha uma régua de folga só, `max(10, min(30, mediana * 0,8))`, e
+ela vale para o par que justifica a função — o pingo do 'i'. Medida a folga de verdade,
+em alturas medianas de box:
+
+| par | folga medida | n |
+|---|---:|---:|
+| pingo do 'i' | até 0,23 | 386 |
+| ponto do '?' e do '!' | até 0,23 | 27 |
+| pingo do 'j' | 0,25 | 2 |
+| acento, `±`, `∓`, `²` | até 0,17 | 12 |
+| **`:` e `;`** | **0,43–0,45** | 9 |
+| **pontuação da linha de cima** | **0,55–0,79** | 66 |
+
+Há um vale limpo: **nada da população medida cai entre 0,25 e 0,55**, e a régua antiga
+valia ~0,80 — do lado errado dele. Por isso são **duas** folgas agora, e não uma menor:
+
+- curto + alto (o diacrítico, e o par que o ponto da linha de cima imita): **0,30**
+- curto + curto (`:` e `;`, dois pontos separados por meia altura de x): **0,50**
+- alto + alto: 2 px, inalterado
+
+**A vítima é a altura, não o desenho.** A folga vai da base da linha de cima ao **topo**
+do glifo de baixo: num `a` de x-height ela mede 37 px e nunca chegou perto da régua; num
+`♔`, `B`, `d` ou dígito, 22. Daí a lista de atingidos ser ♔♕♖♗♘, B, R, K, Q, d, f, h, b e
+os dígitos, e nunca `a`, `e`, `o`. E como o laço refaz a busca com a caixa já crescida,
+bastava o primeiro ponto entrar para os vizinhos virem atrás: era assim que um `...`
+entrava com os três.
+
+**A régua antiga também não era relativa de verdade.** O `max(10, min(30, ...))` prendia
+o limiar entre 10 e 30 **pixels**, então ele significava coisas diferentes conforme a
+escala da página — e a contagem do defeito seguia a mediana da página sem exceção:
+mediana 29 → 36 casos, 27 → 22, 23 → 11, 22 → de 1 a 3. A página mais atingida é a de
+maior mediana, onde a régua abria mais. Piso e teto saíram.
+
+**Resultado, em `medir_paginas.py`:**
+
+| modo | recall | precisão | F1 |
+|---|---|---|---|
+| off | 94,5% → **95,7%** | 93,9% → **94,1%** | 94,2 → **94,9** |
+| arbitrado | 94,6% → **95,8%** | 93,9% → **94,1%** | 94,3 → **94,9** |
+
+**As 10 páginas melhoram e nenhuma piora**, nos dois modos. O ganho é maior exatamente
+onde a medição do defeito era maior: a página 0020 (36 casos) sobe +2,7 de F1 e +4,5 de
+recall, a 0057 (22 casos) sobe +1,0. Depois da correção, os merges que cobrem dois
+rotulados são **100% da mesma linha** — o que sobra são glifos que já vinham colados num
+contorno só, que é assunto da F13.
+
+Nenhum diacrítico foi perdido: os merges de `i` até subiram de 386 para 397, porque o
+laço guloso não gasta mais o pingo dentro de uma caixa errada.
+
+Cobertura: `tests/test_f311_merge.py`, 11 testes — a cobertura do merge que a seção 8.2
+do SPEC listava como pendente desde a F5.3. Dois deles falham no código anterior.
 
 ---
 
