@@ -2186,6 +2186,17 @@ class MainWindow(tk.Frame):
         A página vai junto porque o corte olha a tinta (ver `split_box`): sem
         ela sobra a regra da proporção, que devolve as metades uma embaixo da
         outra sempre que o box tem uma letra alta ao lado de uma baixa.
+
+        **O foco vai para o campo do caractere** (F4.9). `split_box` devolve as
+        duas metades **sem char nenhum**, então o passo seguinte a dividir é
+        sempre digitar — e antes disso o revisor tinha de ir ao mouse buscar o
+        campo, no meio de um fluxo que existe para não precisar dele.
+
+        Isto mora na ação e não na binding: o Ctrl+D vem do canvas, da lista ou
+        do menu "Dividir box selecionado", e as três rotas devem terminar com o
+        cursor no mesmo lugar. No modo digitação o foco não se mexe, pela mesma
+        razão do Tab — lá quem recebe as teclas é a janela, e roubá-lo
+        desligaria o modo na prática.
         """
         if self.selected_index < 0 or self.selected_index >= len(self.boxes):
             return
@@ -2200,6 +2211,9 @@ class MainWindow(tk.Frame):
         self._commit_change()
 
         self.select_box(self.selected_index)
+        if not self.modo_digitacao:
+            self.char_entry.focus_set()
+            self.char_entry.select_range(0, "end")
 
     def delete_selected_box(self):
         if self.selected_index < 0 or self.selected_index >= len(self.boxes):
@@ -2350,11 +2364,10 @@ class MainWindow(tk.Frame):
 
         O foco fica onde estava, com a primeira metade selecionada e o campo
         vazio: dividir 'ba' e digitar 'b', Enter, 'a', Enter é o ciclo inteiro
-        sem tirar a mão do teclado.
+        sem tirar a mão do teclado. Quem o põe ali é `split_selected_box`, desde
+        a F4.9 — as outras rotas do comando precisavam do mesmo.
         """
         self.split_selected_box()
-        self.char_entry.focus_set()
-        self.char_entry.select_range(0, "end")
         return "break"
 
     def _on_key_zoom(self, event):

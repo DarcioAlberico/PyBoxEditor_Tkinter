@@ -1332,6 +1332,14 @@ toplevel, e a binding de classe do `Entry` trata `Control-d` apagando o caracter
 direita do cursor. Tratado só na janela, o atalho dividiria o box **e** comeria o que
 estava escrito.
 
+**Quem divide leva o cursor junto — [feito, F4.9].** As duas metades saem sem char nenhum,
+então o passo seguinte a dividir é sempre digitar; sem o foco no campo, o atalho que
+existe para não tirar a mão do teclado terminava obrigando ao mouse. A F4.7 já fazia isso,
+mas na binding do campo — de onde partia só uma das três rotas do comando. Passou para
+`split_selected_box`, a ação, de modo que canvas, campo e o item de menu "Dividir box
+selecionado" terminam no mesmo lugar. No modo digitação o foco não se mexe, pela regra da
+§7.3: lá quem recebe as teclas é a janela.
+
 > **Duas teclas mudaram em relação ao que está escrito acima**, e pelo mesmo motivo: com
 > o modo digitação da §7.3, **tecla nua não pode ser comando** — ela precisa poder virar
 > o caractere do box. Por isso o zoom é `F4` e não `Z` (F4.6). E `Ctrl+Shift+A` virou

@@ -337,6 +337,83 @@ def test_ctrl_d_continua_calado_na_busca():
 
 
 # ----------------------------------------------------------------------
+# F4.9 — depois de dividir, o cursor já está no campo
+# ----------------------------------------------------------------------
+
+def test_ctrl_d_fora_do_campo_tambem_deixa_o_foco_pronto(monkeypatch):
+    """
+    O relato: dividir e ter de ir ao mouse buscar o campo para digitar a letra.
+
+    Era só metade do caminho — o foco ia para o campo quando o Ctrl+D partia
+    **de dentro** dele, e não quando partia do canvas ou da lista, que é onde a
+    mão está depois de escolher o box.
+    """
+    with _App() as app:
+        w = app.win
+        w.parent.focus_get = lambda: w.canvas       # foco fora de campo de texto
+        pediu = []
+        monkeypatch.setattr(w.char_entry, "focus_set",
+                            lambda: pediu.append(True))
+
+        w._on_key_split_safe(None)
+
+        assert len(w.boxes) == 2, "não dividiu"
+        assert pediu == [True], "o foco não foi para o campo do caractere"
+
+
+def test_dividir_pelo_menu_deixa_o_foco_pronto(monkeypatch):
+    """
+    'Dividir box selecionado' é a mesma ação, e termina no mesmo lugar.
+
+    O foco mora em `split_selected_box` e não na binding justamente por isto:
+    as três rotas do comando — canvas, campo e menu — têm de deixar o cursor
+    pronto, e pendurá-lo na tecla deixaria o menu de fora.
+    """
+    with _App() as app:
+        w = app.win
+        pediu = []
+        monkeypatch.setattr(w.char_entry, "focus_set",
+                            lambda: pediu.append(True))
+
+        w.split_selected_box()                      # o que o menu chama
+
+        assert len(w.boxes) == 2
+        assert pediu == [True]
+
+
+def test_dividir_no_modo_digitacao_nao_rouba_o_foco(monkeypatch):
+    """
+    Mesma regra do Tab: lá quem recebe as teclas é a janela, e tirar o foco do
+    canvas desligaria o modo na prática — o oposto do que o pedido queria.
+    """
+    with _App() as app:
+        w = app.win
+        w.alternar_modo_digitacao(True)
+        pediu = []
+        monkeypatch.setattr(w.char_entry, "focus_set",
+                            lambda: pediu.append(True))
+
+        w.split_selected_box()
+
+        assert len(w.boxes) == 2, "no modo digitação o Ctrl+D deve dividir igual"
+        assert pediu == []
+
+
+def test_dividir_sem_box_selecionado_nao_mexe_no_foco(monkeypatch):
+    """Sem box não há o que dividir nem o que digitar."""
+    with _App() as app:
+        w = app.win
+        w.select_box(-1)
+        pediu = []
+        monkeypatch.setattr(w.char_entry, "focus_set",
+                            lambda: pediu.append(True))
+
+        w.split_selected_box()
+
+        assert pediu == []
+
+
+# ----------------------------------------------------------------------
 # A seta na lista lateral
 # ----------------------------------------------------------------------
 

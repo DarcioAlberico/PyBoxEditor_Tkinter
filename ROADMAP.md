@@ -2079,6 +2079,34 @@ O teste mede em vez de decorar, como o dos NAGs e o do `►` da F4.7: pega a fam
 cobre os 23 símbolos da barra. Família nova sem medição é falha com o motivo escrito, não
 caixa vazia descoberta pelo usuário — o defeito do `·` da SPEC §4.2 outra vez.
 
+### F4.9 — Depois do Ctrl+D, o cursor não estava no campo — CONCLUÍDA
+
+**Concluída em 2026-08-10.** Pedido do usuário: *"quando uso Ctrl+D para dividir um box
+seria interessante que a caixa de caracteres receba o foco, assim posso digitar a letra
+imediatamente sem ter que fazer clique de mouse"*.
+
+`split_box` devolve as duas metades **sem char nenhum** — o passo seguinte a dividir é
+sempre digitar. O atalho existe para não tirar a mão do teclado, e terminava obrigando ao
+mouse.
+
+**Metade já estava feita, e é o que explica o defeito.** A F4.7 pôs o foco no campo, mas
+na *binding* `_on_key_split_no_campo` — o Ctrl+D disparado **de dentro** do campo. A
+outra rota, `_on_key_split_safe`, é a do canvas e da lista, que é justamente onde a mão
+está depois de escolher o box; e a terceira, o item de menu "Dividir box selecionado",
+não passava por binding nenhuma. Três rotas para a mesma ação, uma delas com o foco certo.
+
+O foco passou para `split_selected_box`, que é a ação: quem divide leva o cursor junto,
+venha o comando de onde vier. A binding do campo ficou só com o `"break"`, que continua
+sendo a razão de ela existir — sem ele a binding de classe do `Entry` apagaria o
+caractere à direita do cursor além de dividir.
+
+**No modo digitação o foco não se mexe**, pela mesma regra do Tab (F3.5): lá quem recebe
+as teclas é a janela, e tirar o foco do canvas desligaria o modo na prática — o oposto do
+que o pedido queria.
+
+Cobertura: `tests/test_f47_corte.py`, 4 testes novos, 2 deles falham no código anterior.
+Os outros dois guardam o modo digitação e o caso sem box selecionado.
+
 ---
 
 ## F5 — Higiene do código
