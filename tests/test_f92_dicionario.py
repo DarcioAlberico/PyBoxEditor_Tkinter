@@ -353,5 +353,148 @@ def test_aprender_pela_janela_grava_e_para_de_acender(tmp_path):
         _fechar(raiz, originais)
 
 
+# ----------------------------------------------------------------------
+# F9.3 — salvar a página é o outro "terminei com ela"
+# ----------------------------------------------------------------------
+
+def _sessao_de_uma_pagina(win, tmp_path, nome="livro.pdf", e_pdf=True):
+    """Janela com documento aberto, léxico de contraste e uma imagem qualquer."""
+    from PIL import Image
+    from core.services.document_service import DocumentSession
+
+    win.session = DocumentSession(str(tmp_path / nome), num_pages=1, is_pdf=e_pdf)
+    win._esquecer_lexico()
+    win._lexico = lexico.Lexico(palavras={"the", "with"})
+    win.image = Image.new("L", (400, 60), color=255)
+    # Do próprio programa: num PDF a lista é `livro.lexico.txt`, e numa imagem
+    # solta é `lexico.txt` na pasta. Repetir a regra aqui seria testar a cópia.
+    return win._caminho_do_lexico()
+
+
+def test_salvar_a_pagina_recolhe_as_palavras(tmp_path):
+    """
+    O pedido: 'assim que terminar a revisão de uma página, acrescentar as
+    palavras novas no dicionário'. Salvar é o ato explícito de terminar com ela
+    — e é o obrigatório, enquanto 'Aprender com Página Atual' é opcional.
+    """
+    win, raiz, originais = _janela()
+    if win is None:
+        pytest.skip("sem display")
+    try:
+        destino_lex = _sessao_de_uma_pagina(win, tmp_path)
+        win.boxes = _pagina(("Benko", 0))
+        assert [s.palavra for s in win.suspeitas()] == ["Benko"]
+
+        win._save_box_to_path(str(tmp_path / "livro_pg001.box"))
+
+        assert open(destino_lex, encoding="utf-8").read().split() == ["benko"]
+        assert win.suspeitas() == [], "a palavra aprendida ainda acende"
+    finally:
+        _fechar(raiz, originais)
+
+
+def test_salvar_nao_aprende_o_que_ninguem_sustentou(tmp_path):
+    """
+    'Silêncio não é confirmação' vale igual no gatilho novo: salvar uma página
+    que o usuário só folheou não pode ensinar o OCR a calar os próprios erros.
+    Sem esta regra, salvar — que é rotina — envenenaria a lista sozinho.
+    """
+    win, raiz, originais = _janela()
+    if win is None:
+        pytest.skip("sem display")
+    try:
+        destino_lex = _sessao_de_uma_pagina(win, tmp_path)
+        win.boxes = _pagina(("Kdinovsb", None))       # nenhum box digitado à mão
+
+        win._save_box_to_path(str(tmp_path / "livro_pg001.box"))
+
+        assert not os.path.exists(destino_lex), "gravou palavra não sustentada"
+    finally:
+        _fechar(raiz, originais)
+
+
+def test_salvar_sem_lista_geral_nao_recolhe_nada(tmp_path):
+    """
+    `Lexico.sinaliza`: sem a lista do idioma, 'the' e 'with' também seriam
+    palavras desconhecidas e o vocabulário do livro nasceria cheio de idioma.
+    """
+    win, raiz, originais = _janela()
+    if win is None:
+        pytest.skip("sem display")
+    try:
+        destino_lex = _sessao_de_uma_pagina(win, tmp_path)
+        win._lexico = lexico.Lexico()                 # sem lista geral
+        win.boxes = _pagina(("Benko", 0))
+
+        win._save_box_to_path(str(tmp_path / "livro_pg001.box"))
+
+        assert not os.path.exists(destino_lex)
+    finally:
+        _fechar(raiz, originais)
+
+
+def test_varias_paginas_gravam_a_lista_uma_vez_so(tmp_path):
+    """
+    'Salvar todas as páginas' recolhe de todas, e escreve o arquivo **uma** vez.
+    Reescrever por página desfaria N vezes a edição de quem mexe no arquivo à
+    mão, que é justamente o que `salvar_do_usuario` promete respeitar.
+    """
+    win, raiz, originais = _janela()
+    if win is None:
+        pytest.skip("sem display")
+    try:
+        destino_lex = _sessao_de_uma_pagina(win, tmp_path)
+        gravacoes = []
+        original = lexico.salvar_do_usuario
+        lexico.salvar_do_usuario = lambda c, p: (gravacoes.append(sorted(p)),
+                                                 original(c, p))[1]
+        try:
+            novas = win.aprender_palavras_das_paginas(
+                [_pagina(("Benko", 0)), _pagina(("Najdorf", 0)),
+                 _pagina(("Benko", 0))])          # repetida: não conta de novo
+        finally:
+            lexico.salvar_do_usuario = original
+
+        assert novas == ["Benko", "Najdorf"]
+        assert len(gravacoes) == 1, f"gravou {len(gravacoes)} vezes"
+        assert open(destino_lex, encoding="utf-8").read().split() == \
+            ["benko", "najdorf"]
+    finally:
+        _fechar(raiz, originais)
+
+
+def test_salvar_todas_as_paginas_alimenta_o_dicionario(tmp_path):
+    """A fiação de ponta a ponta, pelo comando que roda em thread."""
+    import time
+
+    win, raiz, originais = _janela()
+    if win is None:
+        pytest.skip("sem display")
+    try:
+        # Sessão de imagem: 'salvar todas' não precisa então renderizar página
+        # nenhuma, e o que se quer medir aqui é a fiação, não o PDF.
+        destino_lex = _sessao_de_uma_pagina(win, tmp_path, "livro.png", e_pdf=False)
+        win.boxes = _pagina(("Benko", 0))
+        win.session.store(0, win.boxes)
+        win.session.mark_dirty(0)
+
+        win.save_all_pages()
+        fim = time.time() + 30
+        raiz.update()
+        while win.task.is_running() and time.time() < fim:
+            raiz.update()
+            time.sleep(0.01)
+        raiz.update()
+
+        assert os.path.exists(str(tmp_path / "livro.box")), "nem salvou"
+        assert open(destino_lex, encoding="utf-8").read().split() == ["benko"]
+    finally:
+        try:
+            win.task.shutdown()
+        except Exception:
+            pass
+        _fechar(raiz, originais)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

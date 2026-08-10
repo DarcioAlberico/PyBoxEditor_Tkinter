@@ -3221,7 +3221,7 @@ Cobertura: `tests/test_f83_treino_diagrama.py`, 37 testes.
 
 ---
 
-## F9 — Léxico do texto corrido — F9.1 FEITA, F9.2 PLANEJADA
+## F9 — Léxico do texto corrido — CONCLUÍDA (F9.1, F9.2 e F9.3)
 
 > Ideia trazida pelo usuário em 2026-08-06: o ABBYY FineReader usa dicionário, e deixa
 > acrescentar palavras próprias. **Ajuda, sim** — reordenar hipóteses de palavra inteira
@@ -3661,6 +3661,52 @@ lista curta as deixa quietas em vez de barulhentas.
 
 Cobertura: `tests/test_f92_dicionario.py`, 25 testes, dos quais 10 são sobre o que **não**
 entra na lista.
+
+### F9.3 — Salvar a página também alimenta o dicionário — CONCLUÍDA
+
+**Concluída em 2026-08-10.** Pedido do usuário: *"seria possível, assim que terminar de
+fazer uma revisão dos boxes de uma página, o programa adicionar palavras novas no
+dicionário desta página?"*
+
+A coleta já existia inteira desde a F9.2 — `palavras_confirmadas` e `aprender_da_pagina`,
+com as quatro recusas acima. O que faltava era **quando**: ela rodava só dentro de
+"Aprender com Página Atual".
+
+**A F9.2 escolheu esse gatilho por um motivo que continua válido, e mesmo assim
+insuficiente.** O raciocínio registrado era: é a mesma confirmação sobre a mesma página, e
+um segundo item de menu pediria que o usuário se lembrasse de dois. Certo — mas
+"Aprender com Página Atual" é **opcional**, e quem revisa uma página e a salva sem mandar
+aprender não deixava nada para a página seguinte. O dicionário do livro só crescia para
+quem também estava alimentando o k-NN.
+
+Salvar é o outro momento em que o usuário declara ter terminado com a página, e é o
+**obrigatório** dos dois. Entrou nos dois caminhos: Ctrl+S e "Salvar todas as páginas".
+
+**Nenhuma regra de admissão mudou, e é isso que torna o gatilho novo seguro.** O filtro
+mora em `palavras_confirmadas`, não no comando: salvar uma página que o usuário só folheou
+não ensina nada, porque nenhuma palavra dela tem box digitado à mão. Sem essa separação, o
+gatilho novo — que agora é rotina, e não mais um ato deliberado — envenenaria a lista
+sozinho. Há teste para exatamente isso.
+
+Três decisões menores:
+
+- **Depois da gravação, não antes.** Se o `.box` não escreveu, o usuário não terminou com
+  a página coisa nenhuma, e o dicionário não deve ter aprendido dela.
+- **Uma escrita por comando, não por página.** "Salvar todas as páginas" recolhe de todas
+  e grava a lista uma vez só; reescrevê-la a cada página desfaria N vezes a edição de quem
+  mexe no arquivo à mão entre uma página e outra, que é o escape que `salvar_do_usuario`
+  existe para preservar.
+- **Na thread da UI.** O recolhimento roda no `concluir`, não no `trabalho`: léxico e cache
+  de suspeitas são estado da janela. É a mesma razão que já estava escrita em "Aprender com
+  Página Atual".
+
+O diálogo de sucesso passa a dizer quantas palavras entraram e lista as oito primeiras — o
+arquivo é o lugar do vocabulário, o diálogo é só o aviso de que algo mudou. E a lista
+lateral e o canvas são redesenhados na hora: a palavra aprendida deixa de acender ali
+mesmo, não na próxima vez que algo os redesenhasse.
+
+Cobertura: `tests/test_f92_dicionario.py`, 5 testes novos (30 no total), 3 deles falham no
+código anterior. Os outros dois guardam as recusas contra o gatilho novo.
 
 ### O que a F9 não promete
 

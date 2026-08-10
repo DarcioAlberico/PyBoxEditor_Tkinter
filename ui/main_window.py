@@ -1469,7 +1469,7 @@ class MainWindow(tk.Frame):
         self._lexico = None
         self._cache_suspeitas = (None, [])
 
-    def aprender_palavras_da_pagina(self):
+    def aprender_palavras_da_pagina(self, boxes=None):
         """
         Põe no dicionário do livro as palavras que o usuário sustentou.
 
@@ -1477,15 +1477,47 @@ class MainWindow(tk.Frame):
         a mesma confirmação, sobre a mesma página, e a F8.3 já estabeleceu que o
         que vira dado é o que o usuário sustenta explicitamente. Um segundo item
         de menu pediria que ele se lembrasse de dois.
+
+        Roda **também ao salvar** (F9.3), que é o outro momento em que o usuário
+        declara ter terminado com a página — e o mais frequente dos dois, porque
+        salvar é obrigatório e "aprender" é opcional.
+        """
+        return self.aprender_palavras_das_paginas(
+            [self.boxes if boxes is None else boxes])
+
+    def aprender_palavras_das_paginas(self, paginas):
+        """
+        O mesmo, para várias páginas de uma vez, gravando o arquivo uma só vez.
+
+        Existe por causa do "Salvar todas as páginas": chamar a versão de uma
+        página em laço reescreveria a lista inteira a cada página gravada, e a
+        lista é a verdade do arquivo — quem edita à mão entre uma página e outra
+        não deve ver o programa desfazendo a edição N vezes.
         """
         lex = self.lexico_da_sessao()
         caminho = self._caminho_do_lexico()
         if not lex.sinaliza or not caminho:
             return []
-        novas = lexico.aprender_da_pagina(self.boxes, lex, caminho)
+        novas = []
+        for boxes in paginas:
+            # Sem `caminho`: só mexe no léxico em memória. A gravação é uma só,
+            # depois do laço.
+            novas.extend(lexico.aprender_da_pagina(boxes, lex))
         if novas:
+            lexico.salvar_do_usuario(caminho, lex.do_usuario)
             self._cache_suspeitas = (None, [])
         return novas
+
+    def _frase_do_dicionario(self, palavras):
+        """A linha de relatório das palavras novas, ou string vazia."""
+        if not palavras:
+            return ""
+        # Só as primeiras: uma página pode render dezenas, e o diálogo não é o
+        # lugar de listar vocabulário — o arquivo é.
+        amostra = ", ".join(palavras[:8])
+        resto = f" (+{len(palavras) - 8})" if len(palavras) > 8 else ""
+        return (f"\n\n{len(palavras)} palavra(s) nova(s) no dicionário deste "
+                f"livro:\n{amostra}{resto}")
 
     def suspeitas(self):
         """
@@ -2048,12 +2080,21 @@ class MainWindow(tk.Frame):
                 self._descartar_rascunho()
             self._update_nav_controls()
             self._update_title()
-            self._relatar_salvamento([d for _, d in salvos], falhas)
+            # Aqui e não no `trabalho`: mexer no léxico e no cache de suspeitas
+            # é estado da UI, e a thread não pode tocá-los. Só as páginas que
+            # **gravaram** — quem falhou não terminou.
+            palavras = self.aprender_palavras_das_paginas(
+                [sessao.boxes_for(page) for page, _ in salvos])
+            self._relatar_salvamento([d for _, d in salvos], falhas, palavras)
+            if palavras:
+                self.update_sidebar()
+                self.update_canvas()
 
         self._run_task("Salvar todas as páginas", trabalho, concluir)
 
-    def _relatar_salvamento(self, salvos, falhas):
+    def _relatar_salvamento(self, salvos, falhas, palavras=()):
         resumo = f"{len(salvos)} página(s) salva(s) em:\n{os.path.dirname(self.session.path)}"
+        resumo += self._frase_do_dicionario(palavras)
         if falhas:
             messagebox.showerror("Salvo com erros", resumo + "\n\nFalhas:\n" + "\n".join(falhas))
         else:
@@ -2084,6 +2125,11 @@ class MainWindow(tk.Frame):
             self._update_nav_controls()
         self._update_title()
 
+        # Depois de gravar, e não antes: se a escrita falhar, o usuário não
+        # terminou com a página coisa nenhuma, e o dicionário não deve ter
+        # aprendido nada dela.
+        palavras = self.aprender_palavras_da_pagina()
+
         img_path = os.path.splitext(path)[0] + ".png"
         aviso = ""
         if self.session is not None and self.session.is_dirty():
@@ -2095,7 +2141,13 @@ class MainWindow(tk.Frame):
             "Sucesso",
             f"Salvo com sucesso:\n- {os.path.basename(path)}\n"
             f"- {os.path.basename(img_path)}{aviso}"
+            f"{self._frase_do_dicionario(palavras)}"
         )
+        if palavras:
+            # A palavra que entrou deixa de ser suspeita: a lista e o canvas
+            # mostram isso agora, não na próxima vez que algo os redesenhar.
+            self.update_sidebar()
+            self.update_canvas()
 
     def _load_box_from_path(self, path, marcar_sujo=True):
         if self.image is None:
@@ -2382,13 +2434,7 @@ class MainWindow(tk.Frame):
 
         def concluir(count):
             aviso = f"Aprendizado concluído.\n{count} novos modelos adicionados."
-            if palavras:
-                # Só as primeiras: uma página pode render dezenas, e o diálogo
-                # não é o lugar de listar vocabulário — o arquivo é.
-                amostra = ", ".join(palavras[:8])
-                resto = f" (+{len(palavras) - 8})" if len(palavras) > 8 else ""
-                aviso += (f"\n\n{len(palavras)} palavra(s) no dicionário deste "
-                          f"livro:\n{amostra}{resto}")
+            aviso += self._frase_do_dicionario(palavras)
             messagebox.showinfo("Sucesso", aviso)
             if palavras:
                 self.update_sidebar()

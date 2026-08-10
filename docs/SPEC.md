@@ -878,6 +878,16 @@ elas o sinal do contrato 5 acusa erro em toda página e o revisor aprende a igno
 lista cresce pela correção do usuário, como em §7.5 e §7.10 — com a regra da §7.10 valendo
 aqui também: **silêncio não é confirmação**, só entra a palavra digitada à mão.
 
+> **Quando ela cresce — [feito, F9.3].** A F9.2 pendurou a coleta em "Aprender com Página
+> Atual", que é **opcional**: quem revisava uma página e a salvava sem mandar aprender não
+> deixava nada para a página seguinte, e o dicionário do livro só crescia para quem também
+> estava alimentando o k-NN. Ela roda agora **também ao salvar** — Ctrl+S e "Salvar todas
+> as páginas" —, que é o outro momento em que o usuário declara ter terminado com a página
+> e o obrigatório dos dois. Nenhuma regra de admissão mudou, e é o que torna o gatilho novo
+> seguro: o filtro mora em `palavras_confirmadas` e não no comando, então salvar uma página
+> só folheada não ensina nada. "Salvar todas as páginas" grava a lista **uma** vez, não uma
+> por página, para não desfazer N vezes a edição manual do arquivo.
+
 > **Correção desta spec: não é por perfil, é por documento.** A §4.5 escolhe perfil por
 > **padrão de fonte**, não por livro — `perfis.escolher` casa `font_patterns` contra o nome
 > da fonte, e dois livros compostos na mesma fonte cairiam na mesma lista, que é o
