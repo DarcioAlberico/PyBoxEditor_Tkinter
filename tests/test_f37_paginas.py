@@ -318,6 +318,43 @@ def test_salvar_pagina_atual_nao_limpa_as_outras():
             assert w.parent.title().endswith("*")
 
 
+def test_o_dialogo_propoe_o_livro_e_a_pagina():
+    """
+    Era: o nome vinha de `image_path`, que num PDF é o rótulo `livro.pdf
+    [Pág 11]`. O `splitext` disso devolve 'livro' — a página sumia e todas as
+    páginas propunham `livro.box`, então salvar a segunda oferecia sobrescrever
+    a primeira (e o `.png` do par junto).
+    """
+    from tkinter import filedialog
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = _pdf_de_teste(os.path.join(tmp, "livro.pdf"), paginas=12)
+        salvo, visto = filedialog.asksaveasfilename, {}
+        filedialog.asksaveasfilename = lambda **k: (visto.update(k), "")[1]
+        try:
+            with _App() as app:
+                w = app.win
+                w.open_pdf(pdf)
+                app.aguardar()
+                w.ir_para_pagina(11)
+                app.aguardar()
+                w.boxes.append(BoxEntry("A", 10, 10, 20, 20))
+                w._commit_change()
+
+                w.save_box_file()
+
+                assert visto["initialfile"] == "livro_pg011.box", \
+                    f"propôs {visto.get('initialfile')!r}"
+                assert visto["initialdir"] == tmp, "abriu na pasta errada"
+
+                # O mesmo destino que 'Salvar todas as páginas' gravaria: as
+                # duas rotas não podem divergir de nome.
+                assert (os.path.join(visto["initialdir"], visto["initialfile"])
+                        == w.session.page_stem(w.current_pdf_page) + ".box")
+        finally:
+            filedialog.asksaveasfilename = salvo
+
+
 # ----------------------------------------------------------------------
 # Execução direta
 # ----------------------------------------------------------------------

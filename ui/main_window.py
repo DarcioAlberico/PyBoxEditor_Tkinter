@@ -1935,19 +1935,40 @@ class MainWindow(tk.Frame):
     # Salvar / carregar .box
     # -------------------------------------------------------
 
+    def _destino_sugerido(self, ext, padrao):
+        """
+        Pasta e nome que o diálogo de salvar propõe para a página atual.
+
+        Sai de `page_stem`, o mesmo lugar de onde 'Salvar todas as páginas' tira
+        o destino: com um PDF aberto, o Ctrl+S propõe exatamente o arquivo que o
+        salvamento em lote gravaria — `livro_pg011.box`, na pasta do PDF.
+
+        O `.box` antes tirava o nome de `image_path`, que numa sessão de PDF é o
+        rótulo da janela (`livro.pdf [Pág 11]`). O `splitext` disso devolve
+        'livro' — a página se perdia, e **toda** página do livro propunha o mesmo
+        nome: salvar a segunda oferecia sobrescrever a primeira, e o `.png` do
+        par ia junto. O PGN já numerava, mas com outra grafia (`_pg11`), o que
+        afastava o PGN do par `.box`/`.png` da mesma página na lista da pasta.
+        """
+        if self.session is not None:
+            base = self.session.page_stem(self.current_pdf_page)
+        elif self.image_path:
+            base = os.path.splitext(self.image_path)[0]
+        else:
+            base = padrao
+        return os.path.dirname(base), os.path.basename(base) + ext
+
     def save_box_file(self):
         if self.image is None or not self.boxes:
             messagebox.showinfo("Aviso", "Nada para salvar.")
             return
 
-        if self.image_path:
-            default = os.path.splitext(self.image_path)[0] + ".box"
-        else:
-            default = "boxes.box"
+        pasta, nome = self._destino_sugerido(".box", "boxes")
 
         path = filedialog.asksaveasfilename(
             defaultextension=".box",
-            initialfile=os.path.basename(default),
+            initialdir=pasta or None,
+            initialfile=nome,
             filetypes=[("Arquivos BOX", "*.box"), ("Todos", "*.*")]
         )
         if not path:
@@ -2615,15 +2636,10 @@ class MainWindow(tk.Frame):
                   "há posição de onde partir.")
             return
 
-        if self.session is not None:
-            padrao = os.path.splitext(os.path.basename(self.session.path))[0]
-            if self.session.is_pdf:
-                padrao += f"_pg{self.current_pdf_page + 1}"
-        else:
-            padrao = "partida"
+        pasta, nome = self._destino_sugerido(".pgn", "partida")
 
         caminho = filedialog.asksaveasfilename(
-            defaultextension=".pgn", initialfile=padrao + ".pgn",
+            defaultextension=".pgn", initialdir=pasta or None, initialfile=nome,
             filetypes=[("Arquivos PGN", "*.pgn"), ("Todos", "*.*")])
         if not caminho:
             return

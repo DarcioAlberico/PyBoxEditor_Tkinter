@@ -1409,6 +1409,7 @@ O gargalo real: uma página de livro tem ~2.000 caracteres. Hoje a revisão é
 | F3.7 | ~~Boxes persistem por página de PDF~~ — **CONCLUÍDA** | Evita perda silenciosa de trabalho |
 | F3.8 | ~~Snapshot do histórico a cada tecla~~ — **CONCLUÍDA** | 15,8 ms por tecla viram 0,24 |
 | F3.9 | ~~Ir direto para uma página; o botão que sumia~~ — **CONCLUÍDA** | A janela cabe na tela e os botões param de ser empurrados para fora |
+| F3.10 | ~~O diálogo de salvar propunha o nome errado~~ — **CONCLUÍDA** | Toda página do livro propunha `livro.box` |
 
 **F3.2 — concluída em 2026-08-03.** O pipeline já calculava a confiança em
 `fallback_chain` e a descartava (`char, source, _`). Agora `BoxEntry` guarda
@@ -1726,6 +1727,34 @@ Atual" opera sobre a página carregada, seja imagem ou PDF.
 
 Cobertura: `tests/test_f37_paginas.py`, 27 testes (17 novos), incluindo regressão
 para a janela caber na tela e para os controles de página serem o primeiro grupo da barra.
+
+### F3.10 — O diálogo de salvar propunha o nome errado — CONCLUÍDA
+
+**Concluída em 2026-08-10.** Pedido do usuário: *"quando for salvar o box seria
+interessante sugerir o nome do pdf e a página"*. O que o Ctrl+S propunha era pior que não
+propor nada.
+
+O nome saía de `image_path`, que numa sessão de PDF **não é um caminho**: é o rótulo da
+janela, `livro.pdf [Pág 11]`. O `os.path.splitext` disso devolve `('livro', '.pdf [Pág
+11]')` — a página se perde e sobra `livro.box`, na última pasta usada. As 120 páginas do
+livro propunham todas o mesmo nome, e salvar a segunda oferecia sobrescrever a primeira.
+Aceitar não estragava só o `.box`: `_save_box_to_path` grava o par, então o `.png` da
+página 1 era substituído pelo da 11 — o `.box` sobrevivente passa a apontar para a imagem
+errada, e um `.box` só vale contra a imagem dele.
+
+E o nome proposto **discordava do que o próprio programa grava**: "Salvar todas as
+páginas" usa `session.page_stem()` → `livro_pg011.box`, na pasta do PDF. As duas rotas de
+salvamento davam nomes diferentes para a mesma página. Agora as duas saem do mesmo
+`page_stem`, e o diálogo abre na pasta do documento em vez da última usada.
+
+**O PGN entrou junto porque tinha o mesmo defeito com outro sintoma.** Ele já numerava,
+mas sem os zeros: `livro_pg11.pgn`. Ordenado por nome isso não cai perto do
+`livro_pg011.box` que descreve — cai entre a página 109 e a 110. Os três arquivos de uma
+página passam a compartilhar o radical.
+
+Cobertura: `tests/test_f37_paginas.py` e `tests/test_f61_pgn.py`, 3 testes novos — um
+deles confere que o nome proposto pelo Ctrl+S é exatamente o que "Salvar todas as
+páginas" gravaria, que é o acoplamento que se quer manter.
 
 ---
 

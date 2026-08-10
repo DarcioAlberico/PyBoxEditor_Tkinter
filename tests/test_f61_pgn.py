@@ -296,9 +296,10 @@ class _App:
         self.avisos = []
         messagebox.showinfo = lambda t, m=None, **k: self.avisos.append(m or t)
         messagebox.showerror = lambda t, m=None, **k: self.avisos.append(m or t)
-        filedialog.asksaveasfilename = lambda **k: self.destino
+        filedialog.asksaveasfilename = self._asksave
 
         self.destino = ""
+        self.dialogo = {}       # o que o diálogo recebeu, para inspeção
         # `raiz_tk()` e não `tk.Tk()`: uma raiz por teste faz o Tcl reler os
         # temas do ttk do disco, e no Windows isso falha de vez em quando, num
         # teste diferente a cada execução. Ver tests/conftest.py.
@@ -306,6 +307,10 @@ class _App:
         self.win = MainWindow(self.root)
         self.win.image = Image.new("L", (600, 200), color=255)
         return self
+
+    def _asksave(self, **k):
+        self.dialogo = k
+        return self.destino
 
     def __exit__(self, *a):
         from tkinter import filedialog, messagebox
@@ -348,6 +353,37 @@ def test_cancelar_o_dialogo_nao_grava(tmp_path):
         app.win.boxes = boxes_de(ABERTURA)
         app.win.exportar_pgn()
         assert not list(tmp_path.iterdir())
+
+
+def test_o_dialogo_propoe_o_livro_e_a_pagina(tmp_path):
+    """
+    O PGN já numerava a página, mas com outra grafia (`livro_pg11`) que o par
+    `.box`/`.png` da mesma página (`livro_pg011`) — os três arquivos de uma
+    página ficavam separados na lista da pasta. Agora todos saem de `page_stem`.
+    """
+    from core.services.document_service import DocumentSession
+
+    with _App() as app:
+        app.win.session = DocumentSession(str(tmp_path / "livro.pdf"),
+                                          num_pages=20, is_pdf=True)
+        app.win.current_pdf_page = 10
+        app.destino = str(tmp_path / "saida.pgn")
+        app.win.boxes = boxes_de(ABERTURA)
+        app.win.exportar_pgn()
+
+        assert app.dialogo["initialfile"] == "livro_pg011.pgn"
+        assert app.dialogo["initialdir"] == str(tmp_path)
+
+
+def test_o_dialogo_sem_documento_ainda_propoe_um_nome():
+    """Sem sessão não há livro nem página — mas o diálogo não pode abrir vazio."""
+    with _App() as app:
+        app.destino = ""
+        app.win.boxes = boxes_de(ABERTURA)
+        app.win.exportar_pgn()
+
+        assert app.dialogo["initialfile"] == "partida.pgn"
+        assert app.dialogo["initialdir"] is None
 
 
 def test_comando_esta_no_menu():
