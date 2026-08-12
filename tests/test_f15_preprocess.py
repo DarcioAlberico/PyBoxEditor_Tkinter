@@ -461,11 +461,20 @@ def test_descarte_acontece_depois_do_merge():
     """
     import inspect
 
+    # A ordem passou a valer entre **duas** funções, e não dentro de uma: a F2.6
+    # extraiu do pipeline o trecho que vai até o merge, porque o
+    # `diagrama.localizar` precisa das caixas exatamente nesse estágio — o
+    # tabuleiro é o que o descarte joga fora. A propriedade é a mesma; o que
+    # mudou é onde ela se lê.
+    antes = inspect.getsource(BoxService.boxes_antes_do_descarte)
+    assert "merge_vertical_boxes(boxes)" in antes, \
+        "o merge saiu do estágio que termina antes do descarte"
+
     fonte = inspect.getsource(BoxService.generate_boxes_opencv)
     # Pelo nome da função, e não pela chamada inteira: a assinatura ganhou
     # `escala` na F11 e o teste quebrou sem que a ordem — que é o que ele cobra
     # — tivesse mudado.
-    pos_merge = fonte.index("merge_vertical_boxes(boxes)")
+    pos_merge = fonte.index("boxes_antes_do_descarte(")
     pos_descarte = fonte.index("descartar_blocos_nao_texto(")
     assert pos_merge < pos_descarte, \
         "o descarte voltou para antes do merge — ver a medição na docstring"

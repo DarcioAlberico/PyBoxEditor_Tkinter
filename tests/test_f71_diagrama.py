@@ -82,6 +82,74 @@ def test_quase_quadrado_passa():
 
 
 # ----------------------------------------------------------------------
+# F7.6 — a página que é quase só diagrama
+# ----------------------------------------------------------------------
+
+def _pagina_quase_so_diagrama():
+    """
+    Seis tabuleiros, quatro linhas de texto e o hachurado das casas.
+
+    É a página 221 do Yusupov reproduzida na forma que importa: os contornos
+    miúdos de dentro das casas são a **maioria** dos boxes, então a mediana das
+    alturas mede a trama e não o texto — 5 px contra 30 na página anterior.
+    """
+    boxes = []
+    for i in range(6):
+        x, y = 300 + (i % 2) * 840, 360 + (i // 2) * 800
+        boxes.append(BoxEntry("", x, y, x + 578, y + 579))
+        # o miudinho de dentro: 60 marcas de 5 px por tabuleiro
+        for k in range(60):
+            mx, my = x + 20 + (k % 10) * 55, y + 20 + (k // 10) * 90
+            boxes.append(BoxEntry("", mx, my, mx + 5, my + 5))
+    # o pouco texto que sobra na página, em caracteres de 30 px
+    for i in range(24):
+        boxes.append(BoxEntry("a", 200 + i * 22, 100, 200 + i * 22 + 20, 130))
+    return boxes
+
+
+def test_caractere_solto_vira_diagrama_sem_a_escala():
+    """
+    O defeito relatado, reproduzido: seis tabuleiros e o comando dizia doze.
+
+    Sem escala, o mínimo sai da mediana das alturas — que aqui é a trama de
+    dentro das casas — e cai a ponto de um caractere de 39 px passar por
+    tabuleiro.
+    """
+    boxes = _pagina_quase_so_diagrama()
+    boxes.append(BoxEntry("W", 100, 2600, 139, 2639))       # 39x39
+
+    assert len(diagrama.localizar(boxes)) > 6, \
+        "sem escala o mínimo deveria desabar — o teste não reproduz o defeito"
+
+
+def test_com_a_escala_da_pagina_so_os_tabuleiros_entram():
+    boxes = _pagina_quase_so_diagrama()
+    boxes.append(BoxEntry("W", 100, 2600, 139, 2639))
+
+    caixas = diagrama.localizar(boxes, escala=30)
+    assert len(caixas) == 6
+    assert all(c[2] - c[0] > 500 for c in caixas)
+
+
+def test_a_escala_nao_muda_a_pagina_de_texto():
+    """Onde a mediana já media o texto, passar a escala não pode mexer em nada."""
+    boxes = _pagina_de_texto()
+    boxes.append(BoxEntry("", 100, 200, 580, 679))
+    assert diagrama.localizar(boxes) == diagrama.localizar(boxes, escala=19)
+
+
+def test_ler_pagina_mede_a_escala_sozinha():
+    """
+    Quem tem a imagem passa a escala — é a regra que `descartar_blocos_nao_texto`
+    já documentava, e que `localizar` era o único a não seguir.
+    """
+    import inspect
+    fonte = inspect.getsource(diagrama.ler_pagina)
+    assert "escala_de_texto" in fonte
+    assert "escala=escala" in fonte
+
+
+# ----------------------------------------------------------------------
 # Leitura: a estrutura e o que ela promete
 # ----------------------------------------------------------------------
 

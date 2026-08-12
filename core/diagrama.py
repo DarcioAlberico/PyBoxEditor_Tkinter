@@ -237,7 +237,8 @@ class Leitura:
 # ----------------------------------------------------------------------
 
 def localizar(boxes: Sequence[BoxEntry],
-              descartados: Optional[Sequence[BoxEntry]] = None
+              descartados: Optional[Sequence[BoxEntry]] = None,
+              escala: Optional[int] = None
               ) -> List[Tuple[int, int, int, int]]:
     """
     As caixas de diagrama, a partir dos contornos da página.
@@ -246,17 +247,32 @@ def localizar(boxes: Sequence[BoxEntry],
     tirou; passando só `boxes`, o descarte é refeito aqui. O diagrama é o que
     caiu por ser grande **e** é quase quadrado: um travessão também é descartado
     por largura, e não é tabuleiro.
+
+    **`escala` é a altura de caractere da página, e é o que dá o tamanho mínimo**
+    (F7.6). Sem ela a referência é a mediana das alturas dos boxes — e numa
+    página que é quase só diagrama essa mediana não mede o texto, mede o
+    hachurado de dentro das casas. Medido na página 221 do Yusupov, que tem seis
+    diagramas e quatro linhas de texto: a mediana das alturas é **5 px** contra
+    30 na página anterior, o mínimo desaba de 114 px para 30, e seis caracteres
+    soltos entram na conta como diagrama — o comando dizia 12.
+
+    É a mesma armadilha que `descartar_blocos_nao_texto` documenta desde a F11,
+    com a mesma saída: quem tem a imagem passa `preprocess.escala_de_texto`, que
+    pesa por tinta e não desaba. `ler_pagina` passa.
     """
     from core.services.box_service import BoxService
 
     if descartados is None:
-        ficam = {id(b) for b in BoxService.descartar_blocos_nao_texto(list(boxes))}
+        ficam = {id(b) for b in BoxService.descartar_blocos_nao_texto(
+            list(boxes), escala=escala)}
         descartados = [b for b in boxes if id(b) not in ficam]
 
     if not boxes:
         return []
-    alturas = sorted(b.height for b in boxes)
-    minimo = max(1, alturas[len(alturas) // 2]) * MINIMO_EM_CARACTERES
+    if not escala:
+        alturas = sorted(b.height for b in boxes)
+        escala = alturas[len(alturas) // 2]
+    minimo = max(1, escala) * MINIMO_EM_CARACTERES
 
     saida = []
     for b in descartados:
@@ -684,5 +700,19 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None) -> Leitura:
 
 
 def ler_pagina(imagem, boxes: Sequence[BoxEntry]) -> List[Leitura]:
-    """Todos os diagramas de uma página, na ordem de leitura."""
-    return [ler(imagem, caixa) for caixa in localizar(boxes)]
+    """
+    Todos os diagramas de uma página, na ordem de leitura.
+
+    Mede a escala de texto e a entrega a `localizar` (F7.6). É o passo que
+    faltava: a mediana das alturas dos boxes, que `localizar` usava sozinha, não
+    mede o texto numa página que é quase só diagrama — ver o docstring de lá.
+    Custa uma binarização da página, e é o que separa 6 diagramas de 12.
+    """
+    from core import preprocess
+
+    arr = np.asarray(imagem)
+    if arr.ndim == 3:
+        arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    escala = preprocess.escala_de_texto(
+        preprocess.remover_textura(arr, preprocess.binarize(arr, "auto")))
+    return [ler(imagem, caixa) for caixa in localizar(boxes, escala=escala)]
