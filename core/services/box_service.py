@@ -38,38 +38,8 @@ class BoxService:
                              mantida para reproduzir as medições da F1.5)
             False            nunca separa
         """
-        img_cv = np.array(image)
-        th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
-        # A trama de meio-tom sai antes de qualquer coisa medir caractere: ela
-        # é 95,8% dos contornos da página 18 do Yusupov e envenena toda régua
-        # relativa do pipeline.
-        th = preprocess.remover_textura(img_cv, th)
-        escala = preprocess.escala_de_texto(th)
-
-        contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        boxes = []
-        for c in contours:
-            x, y, w, h = cv2.boundingRect(c)
-            if w < 2 or h < 2:
-                continue
-            boxes.append(BoxEntry("", x, y, x + w, y + h))
-
-        boxes.sort(key=lambda b: (b.y1, b.x1))
-        # Antes de tudo o que mede caractere: a tarja preta é um box só, e os
-        # caracteres de dentro dela ainda não existem (F10). O `th` volta com
-        # as tarjas invertidas, para o separador de colados ver o perfil de
-        # tinta do texto e não o do fundo.
-        boxes, th, _faixas = negativo.aplicar(img_cv, th, boxes)
-        # E antes de o descarte jogar fora o bloco grande: dentro dele pode
-        # haver uma linha de texto que a trama soldou ao fundo (F11).
-        boxes, _blocos = trama.aplicar(img_cv, boxes, escala)
-        # Antes do merge, e não depois: o merge vertical cola exatamente o que
-        # numa pilha girada são letras vizinhas — medido, uma linha real de 17
-        # caracteres saía como 7 caixas (F8.1). Quem sai daqui marcado fica
-        # fora dele.
-        boxes, _pilhas = vertical.aplicar(img_cv, boxes, arbitro)
-        boxes = BoxService.merge_vertical_boxes(boxes)
+        boxes, th, escala, img_cv = BoxService.boxes_antes_do_descarte(
+            image, threshold=threshold, method=method, arbitro=arbitro)
         # Depois do merge, não antes: medido, o box do diagrama absorve os
         # respingos em volta dele (borda serrilhada, legenda encostada), e
         # descartá-lo depois leva esse lixo junto. Descartando antes, os
@@ -87,6 +57,86 @@ class BoxService:
                 boxes, th, arbitro=arbitro, imagem_cinza=img_cv)
         boxes = BoxService.sort_boxes_reading_order(boxes)
         return boxes
+
+    #: Acima disto a página não é de texto, e não vale medi-la.
+    #:
+    #: **O custo é do `merge_vertical_boxes`, que é quadrático.** Medido nas
+    #: páginas do Yusupov a 300 dpi: a 11, de texto, dá 2.131 contornos e o
+    #: merge leva 0,4 s; a 8, que é quase toda imagem, dá **78.558** e o mesmo
+    #: merge leva **160 s** — 37× mais contorno, 400× mais tempo. O limiar fica
+    #: uma ordem de grandeza acima da página de texto mais carregada.
+    MAX_CONTORNOS_DE_TEXTO = 20000
+
+    @staticmethod
+    def boxes_antes_do_descarte(image: Image.Image, threshold: int = 180,
+                                method: str = "auto", arbitro=None,
+                                max_contornos: Optional[int] = None
+                                ) -> Tuple[List[BoxEntry], np.ndarray, int, np.ndarray]:
+        """
+        As caixas no estágio anterior ao descarte da F1.8, com `th`, escala e a
+        imagem em cinza. É o estágio que o `diagrama.localizar` espera.
+
+        **Existe porque não havia como pedir esse estágio.** O `localizar`
+        procura o contorno grande e quase quadrado do tabuleiro, e o descarte é
+        justamente quem o joga fora — então quem quer achar diagrama precisa
+        das caixas de antes. As duas saídas que havia para isso não servem:
+
+        - `generate_boxes_opencv(descartar_nao_texto=False)` **não para aqui**:
+          segue para `dividir_linhas_coladas`, que passa a medir perfil de
+          tinta dentro dos blocos grandes que o descarte teria tirado. Medido
+          na página 8 do Yusupov, **158 segundos** contra 1,4 do caminho
+          normal. É o que a leitura de diagramas da UI faz hoje
+          (`main_window.py`), e é o mesmo custo.
+        - refazer as etapas por fora, como um chamador tentou, dá 6 tabuleiros
+          onde há 2 assim que uma delas falta — e o texto da página some junto
+          com os retângulos falsos.
+
+        Devolver `th` e `escala` junto não é conveniência: são o mesmo `th`
+        **depois** da inversão das tarjas (F10) e a mesma escala que o resto do
+        pipeline usa, e recalculá-los por fora daria outros valores.
+
+        `max_contornos` devolve a lista **vazia** quando a página tem contorno
+        demais para ser texto — ver `MAX_CONTORNOS_DE_TEXTO`. Não é limite de
+        segurança inventado: é o que separa uma página de livro de uma página
+        que é uma fotografia, e sem ele a segunda custa três minutos para
+        devolver lixo. O padrão é `None`, sem limite, para não mudar o que os
+        chamadores de hoje recebem.
+        """
+        img_cv = np.array(image)
+        th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
+        # A trama de meio-tom sai antes de qualquer coisa medir caractere: ela
+        # é 95,8% dos contornos da página 18 do Yusupov e envenena toda régua
+        # relativa do pipeline.
+        th = preprocess.remover_textura(img_cv, th)
+        escala = preprocess.escala_de_texto(th)
+
+        contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        boxes = []
+        for c in contours:
+            x, y, w, h = cv2.boundingRect(c)
+            if w < 2 or h < 2:
+                continue
+            boxes.append(BoxEntry("", x, y, x + w, y + h))
+
+        if max_contornos is not None and len(boxes) > max_contornos:
+            return [], th, escala, img_cv
+
+        boxes.sort(key=lambda b: (b.y1, b.x1))
+        # Antes de tudo o que mede caractere: a tarja preta é um box só, e os
+        # caracteres de dentro dela ainda não existem (F10). O `th` volta com
+        # as tarjas invertidas, para o separador de colados ver o perfil de
+        # tinta do texto e não o do fundo.
+        boxes, th, _faixas = negativo.aplicar(img_cv, th, boxes)
+        # E antes de o descarte jogar fora o bloco grande: dentro dele pode
+        # haver uma linha de texto que a trama soldou ao fundo (F11).
+        boxes, _blocos = trama.aplicar(img_cv, boxes, escala)
+        # Antes do merge, e não depois: o merge vertical cola exatamente o que
+        # numa pilha girada são letras vizinhas — medido, uma linha real de 17
+        # caracteres saía como 7 caixas (F8.1). Quem sai daqui marcado fica
+        # fora dele.
+        boxes, _pilhas = vertical.aplicar(img_cv, boxes, arbitro)
+        return BoxService.merge_vertical_boxes(boxes), th, escala, img_cv
 
     # Abaixo disto a linha tem amostra pequena demais para uma mediana confiável
     # (número de página, cabeçalho de uma palavra) e volta a usar a da página.
