@@ -980,3 +980,64 @@ class BoxService:
             angulo=getattr(box, "angulo", 0),
             negativo=getattr(box, "negativo", False),
         )
+
+
+# ----------------------------------------------------------------------
+# A faixa vertical da linha (F14 — a caixa alta que a normalização apaga)
+# ----------------------------------------------------------------------
+
+#: Quanto dois boxes precisam se sobrepor em y, em frações da menor altura,
+#: para contarem como da mesma linha.
+SOBREPOSICAO_DE_LINHA = 0.5
+
+#: Altura máxima de um box, em medianas da página, para ele entrar na faixa.
+#: Um diagrama ou uma capitular esticaria a faixa até engolir a linha inteira.
+ALTURA_MAXIMA_DE_LINHA = 2.5
+
+
+def faixas_de_linha(boxes):
+    """
+    `(topo, base)` da linha de cada box, na ordem de `boxes`.
+
+    Existe para o último elo da cadeia de OCR. O recorte justo de um box é
+    normalizado em altura antes de chegar ao classificador, e isso apaga a
+    única coisa que separa `c` de `C` — o tamanho. Esticado até a faixa da
+    linha, o glifo mantém a altura relativa e a caixa volta a ser legível;
+    medido, 66,9% para 74,2% de acerto no EasyOCR.
+
+    **É vizinhança de um salto, não fecho transitivo.** Cada box olha quem se
+    sobrepõe a ele em y, e para. Encadear levaria uma faixa a atravessar a
+    página por uma corrente de sobreposições parciais.
+
+    **Box girado fica com a própria caixa.** Para texto vertical (F8.1) a faixa
+    da linha é horizontal, e `recorte_de_pe` ainda vai girar o recorte; misturar
+    as duas voltas aqui trocaria um ganho medido por um caso não medido. O box
+    girado devolve `(y1, y2)` dele mesmo e segue como estava.
+    """
+    if not boxes:
+        return []
+
+    alturas = sorted(b.y2 - b.y1 for b in boxes)
+    mediana = alturas[len(alturas) // 2] or 1
+    teto = mediana * ALTURA_MAXIMA_DE_LINHA
+    plausiveis = [b for b in boxes if (b.y2 - b.y1) <= teto
+                  and not getattr(b, "angulo", 0)]
+
+    saida = []
+    for b in boxes:
+        if getattr(b, "angulo", 0):
+            saida.append((b.y1, b.y2))
+            continue
+
+        topo, base = b.y1, b.y2
+        altura_b = max(b.y2 - b.y1, 1)
+        for outro in plausiveis:
+            cobertura = min(b.y2, outro.y2) - max(b.y1, outro.y1)
+            if cobertura <= 0:
+                continue
+            menor = min(altura_b, max(outro.y2 - outro.y1, 1))
+            if cobertura >= menor * SOBREPOSICAO_DE_LINHA:
+                topo = min(topo, outro.y1)
+                base = max(base, outro.y2)
+        saida.append((topo, base))
+    return saida

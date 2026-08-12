@@ -102,7 +102,7 @@ def test_fallback_chain_propaga_confianca():
         def predict(self, crop): return ("R", self.c)
 
     class _Reader:
-        def readtext(self, img, detail=1):
+        def recognize(self, img, horizontal_list=None, free_list=None, detail=1):
             return [([[0, 0]], "x", 0.42)]
 
     svc = OCRService()

@@ -27,11 +27,13 @@ def preprocess_for_easyocr(crop_np: np.ndarray, pad: int = 10, min_h: int = 64) 
 class OCRService:
     """
     Serviço puro para execução de OCR com Tesseract, EasyOCR e Rede Neural.
-    Mantém o reader do EasyOCR em cache (instância única).
+    Mantém os readers do EasyOCR em cache, um por (idiomas, gpu).
     """
 
     def __init__(self):
-        self._reader = None  # cache EasyOCR
+        # Um reader por (idiomas, gpu). Era um só, guardado sem chave: a segunda
+        # chamada com outro idioma recebia calada o reader da primeira.
+        self._readers = {}
 
     # ------------------------------------------------------------------
     # Tesseract
@@ -80,14 +82,34 @@ class OCRService:
     # EasyOCR
     # ------------------------------------------------------------------
     def _init_easyocr(self, languages: Tuple[str, ...] = ("en",), gpu: bool = False):
-        """Inicializa (e cacheia) o reader do EasyOCR."""
-        if self._reader is None:
+        """
+        Inicializa (e cacheia) o reader do EasyOCR.
+
+        `quantize=False` contraria o padrão da biblioteca, que quantiza o
+        reconhecedor em int8 na CPU. Medido nos 2.278 caracteres rotulados, a
+        quantização não paga o que cobra: 66,7% contra 66,9% sem ela — e neste
+        torch ela ainda saiu **duas vezes mais lenta** (30,5 contra 15,8 ms por
+        caractere), provavelmente caindo num kernel de referência.
+
+        **O remendo de SSL é restaurado.** Ele era global e permanente: a
+        primeira chamada de OCR desligava a verificação de certificado do
+        processo inteiro, para toda requisição HTTPS do programa, e nunca a
+        religava. Continua valendo onde era preciso — o download do modelo em
+        rede corporativa — e só ali.
+        """
+        chave = (tuple(languages), bool(gpu))
+        reader = self._readers.get(chave)
+        if reader is None:
             import ssl
-            # Bypass SSL — necessário em alguns ambientes Windows/Corp
-            ssl._create_default_https_context = ssl._create_unverified_context
             import easyocr
-            self._reader = easyocr.Reader(list(languages), gpu=gpu)
-        return self._reader
+            anterior = ssl._create_default_https_context
+            ssl._create_default_https_context = ssl._create_unverified_context
+            try:
+                reader = easyocr.Reader(list(languages), gpu=gpu, quantize=False)
+            finally:
+                ssl._create_default_https_context = anterior
+            self._readers[chave] = reader
+        return reader
 
     def easyocr_ocr(self, crop_np: np.ndarray, languages: Tuple[str, ...] = ("en",),
                     gpu: bool = False) -> str:
@@ -97,12 +119,12 @@ class OCRService:
     @staticmethod
     def _primeiro_char_easyocr(resultados) -> Tuple[str, float]:
         """
-        Extrai (char, confiança) de uma saída de readtext(detail=1).
+        Extrai (char, confiança) de uma saída de `recognize(detail=1)`.
 
         Cada item é (bbox, texto, confiança). A confiança era descartada, e o
         fallback_chain devolvia 0.0 fixo para tudo que viesse do EasyOCR — o
-        que apagava justamente o dado mais útil para revisão. Como o recorte é
-        de um caractere só, a confiança da detecção é a do caractere.
+        que apagava justamente o dado mais útil para revisão. Como se pede uma
+        caixa só, a confiança dela é a do caractere.
         """
         if not resultados:
             return "", 0.0
@@ -113,12 +135,55 @@ class OCRService:
         conf = float(item[2]) if len(item) > 2 else 0.0
         return texto[0], max(0.0, min(1.0, conf))
 
+    @staticmethod
+    def _cinza(img: np.ndarray) -> np.ndarray:
+        if img.ndim == 2:
+            return img
+        if img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
+        return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+    @classmethod
+    def _ler_easyocr(cls, reader, imagem: np.ndarray) -> Tuple[str, float]:
+        """
+        Reconhece **sem detectar**: o box já veio do OpenCV.
+
+        Era `readtext`, que roda o detector CRAFT antes de reconhecer. Pagava-se
+        a detecção duas vezes e a segunda só atrapalhava — o CRAFT é detector de
+        texto em cena e num recorte de um caractere ele frequentemente não acha
+        nada. Medido nos 2.278 caracteres rotulados, a tabela de confusão do
+        `readtext` era dominada por leitura **vazia**: `.` 123, `t` 81, `o` 64 e
+        `l` 51 lidos como nada — cerca de 410 casos, 18% da amostra, em que o
+        caractere estava lá e a resposta foi "não há texto aqui".
+
+        Dizer ao `recognize` que a caixa é a imagem inteira leva o acerto de
+        53,6% para 66,7% e corta o custo pela metade.
+        """
+        img = preprocess_for_easyocr(imagem)
+        cinza = cls._cinza(img)
+        h, w = cinza.shape[:2]
+        return cls._primeiro_char_easyocr(
+            reader.recognize(cinza, horizontal_list=[[0, w, 0, h]],
+                             free_list=[], detail=1))
+
     def easyocr_ocr_conf(self, crop_np: np.ndarray, languages: Tuple[str, ...] = ("en",),
-                         gpu: bool = False) -> Tuple[str, float]:
-        """Roda EasyOCR num recorte numpy. Retorna (char, confiança 0..1)."""
+                         gpu: bool = False,
+                         contexto: Optional[np.ndarray] = None) -> Tuple[str, float]:
+        """
+        Roda EasyOCR num recorte numpy. Retorna (char, confiança 0..1).
+
+        `contexto` é o mesmo box esticado até a **faixa vertical da linha**. Ele
+        existe por causa da F14: normalizar a altura do recorte apaga a
+        diferença entre `c` e `C`, que é de tamanho e não de traço, e o modelo
+        recebe as duas como a mesma imagem. Com a faixa da linha o glifo mantém
+        a altura *relativa* e a caixa volta a ser legível — medido, 66,9% para
+        74,2%, e as confusões `s` por `S` (79), `c` por `C` (40) e `w` por `W`
+        (25) somem da lista. Quem não tem a faixa passa `None` e fica como
+        estava.
+        """
         reader = self._init_easyocr(languages, gpu)
-        return self._primeiro_char_easyocr(
-            reader.readtext(preprocess_for_easyocr(crop_np), detail=1))
+        return self._ler_easyocr(
+            reader, crop_np if contexto is None else contexto)
 
     # ------------------------------------------------------------------
     # Neural (Custom CNN)
@@ -160,6 +225,7 @@ class OCRService:
         learner_threshold: float = 0.9,
         easyocr_languages: Tuple[str, ...] = ("en",),
         easyocr_gpu: bool = False,
+        contexto: Optional[np.ndarray] = None,
     ) -> Tuple[str, str, float]:
         """
         Executa a cadeia de fallback:
@@ -182,12 +248,14 @@ class OCRService:
             if conf > learner_threshold:
                 return char, "learner", conf
 
-        # 3. EasyOCR (último elo: aceita o que vier, com a confiança real)
+        # 3. EasyOCR (último elo: aceita o que vier, com a confiança real).
+        # A rede e o k-NN querem o recorte justo, em que foram treinados; só
+        # este elo se beneficia da faixa da linha (ver `easyocr_ocr_conf`).
         if reader is None:
             reader = self._init_easyocr(easyocr_languages, easyocr_gpu)
 
-        char, conf = self._primeiro_char_easyocr(
-            reader.readtext(preprocess_for_easyocr(crop_np), detail=1))
+        char, conf = self._ler_easyocr(
+            reader, crop_np if contexto is None else contexto)
         if char:
             return char, "easyocr", conf
 

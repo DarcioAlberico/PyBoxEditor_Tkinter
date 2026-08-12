@@ -4364,6 +4364,97 @@ juntas.
 
 ---
 
+## F16 — O EasyOCR usado como detector — CONCLUÍDA
+
+O último elo da cadeia acertava **53,6%**. Medido nos 2.278 caracteres das 10 páginas
+rotuladas, com o `.box` à mão como verdade e o recorte na **escala real da página** — e
+não nos 32x32 já normalizados da `training_data`, que medem outra coisa.
+
+### A conta
+
+| | acerto | ignorando caixa | custo |
+|---|---:|---:|---:|
+| como estava (`readtext`) | 53,6% | 64,3% | 61,9 ms |
+| `recognize()` no lugar de `readtext()` | 66,7% | 77,9% | 30,5 ms |
+| + `quantize=False` | 66,9% | 77,7% | 15,8 ms |
+| + `allowlist` | 66,9% | 77,7% | 15,4 ms |
+| **+ faixa vertical da linha** | **74,2%** | 78,9% | 16,3 ms |
+
+Conferido depois pelo caminho de produção (`OCRService` + `faixas_de_linha`, como a UI os
+chama): **74,9%**, e 3,5x mais rápido.
+
+### O CRAFT rodava de novo, e só atrapalhava — 13,1 pontos
+
+`readtext` detecta antes de reconhecer, e o box já viera do OpenCV: pagava-se a detecção
+duas vezes. O CRAFT é detector de texto **em cena**, e num recorte de um caractere ele
+frequentemente não acha nada — a tabela de confusão do baseline era dominada por leitura
+vazia (`.` 123, `t` 81, `o` 64, `l` 51 lidos como nada; ~410 casos, 18% da amostra). Com
+`recognize` e a caixa declarada como a imagem inteira, o detector sai do caminho.
+
+### Normalizar a altura apaga a caixa alta — 7,3 pontos
+
+É a F14 de novo, e agora no outro elo: `preprocess_for_easyocr` redimensiona todo recorte
+para 64 px, então `c` e `C` chegam ao modelo como **a mesma imagem**. Dando a faixa
+vertical da linha em vez do box justo, o glifo mantém a altura relativa: `s` por `S` (79),
+`c` por `C` (40) e `w` por `W` (25) somem da lista de confusões. A coluna "ignorando
+caixa" mal se move (77,7 para 78,9) — o ganho é caixa, e nada além disso.
+
+A faixa é **vizinhança de um salto** (`box_service.faixas_de_linha`): cada box olha quem
+se sobrepõe a ele em y e para. Fecho transitivo levaria a faixa a atravessar a página por
+uma corrente de sobreposições parciais. Bloco alto fica de fora, e box girado (F8.1) fica
+com a própria caixa — lá a faixa da linha é horizontal, e misturar as duas voltas trocaria
+um ganho medido por um caso não medido.
+
+### O que **não** rendeu
+
+- **`allowlist`: 0,0 ponto.** O alfabeto do livro é quase o charset inteiro do
+  `english_g2`. Só valeria com um subconjunto de verdade.
+- **Contraste agressivo (`contrast_ths=0.7`): -1,3 ponto.** Piora.
+- **`decoder="beamsearch"`: +0,6 ponto**, mas dispara `RuntimeWarning: overflow` dentro do
+  `easyocr/utils.py`. Ganho marginal em caminho barulhento; ficou de fora.
+
+### Dois defeitos que a medição não pega
+
+- **O cache do reader ignorava os argumentos** (`if self._reader is None`): a segunda
+  chamada com outro idioma ou com `gpu=True` recebia calada o reader da primeira. Agora a
+  chave é `(idiomas, gpu)`.
+- **A verificação de TLS era desligada no processo inteiro, para sempre.** A primeira
+  chamada de OCR fazia `ssl._create_default_https_context = ssl._create_unverified_context`
+  como efeito colateral, afetando toda requisição HTTPS do programa, e nunca religava.
+  Continua valendo onde era preciso — o download do modelo em rede corporativa — e é
+  restaurado no `finally`.
+
+### O que fica em aberto
+
+**Ler a linha inteira, e não o caractere.** O `english_g2` é um CRNN treinado em
+palavra/linha; usá-lo caractere a caractere descarta o modelo de linguagem implícito que é
+a força dele. Medido em 6.783 caracteres, com o espaço tirado dos dois lados (o `.box` não
+tem box de espaço, e sem isso cada um contaria como erro):
+
+| | CER | custo |
+|---|---:|---:|
+| por caractere (o melhor acima) | 27,3% | 16,0 ms/char |
+| **linha inteira** | **13,4%** | **2,1 ms/char** |
+
+Metade do erro e 7,6x mais rápido. O mecanismo aparece nos exemplos — `Bib1i0g[aPhY` vira
+`Bibliography`, `F0reW0rd` vira `Foreword` —, e são exatamente as confusões residuais que
+sobraram (`o` por `0` 92, `l` por `1` 53, `p` por `P` 26, `v` por `V` 17): as que só o
+contexto resolve, e por caractere não há contexto com que resolvê-las.
+
+**Duas ressalvas antes de fazer.** Cobre **81% das linhas / 76,4% dos caracteres** — as que
+estão inteiras no alfabeto do EasyOCR; as outras são as linhas de notação com figurinha
+(♗, ♘) e ligadura, que é o coração do livro e onde a rede própria já vai bem. E a linha
+devolve uma string onde o programa precisa de um caractere por box: dá para reaproveitar
+`notacao._alinhar`, aceitando a leitura só quando o comprimento bate com o número de boxes
+e caindo no modo por caractere quando não bate. Sem esse recuo, um caractere a menos
+desloca a linha inteira.
+
+**O `searchable_pdf` ainda não passa a faixa.** `gerar_pdf_pesquisavel` chama
+`fallback_chain` com o recorte justo, então o caminho de PDF inteiro tem os 13,1 pontos do
+`recognize` mas não os 7,3 da faixa.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

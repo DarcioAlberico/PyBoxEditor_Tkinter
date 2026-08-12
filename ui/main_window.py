@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+from dataclasses import replace
 from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
@@ -10,7 +11,7 @@ from core.chess_pdf_processor import analisar_substituicao, substitute_chess_gly
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
-from core.services.box_service import BoxService
+from core.services.box_service import BoxService, faixas_de_linha
 from core.services.ocr_service import OCRService
 from core.services.pdf_service import DPI_PADRAO, PDFService
 from core.services.learning_service import LearningService
@@ -1292,17 +1293,36 @@ class MainWindow(tk.Frame):
         buffer da própria PIL.Image, e aí os recortes voltariam a apontar para
         o objeto compartilhado — que é justamente o que este método existe
         para evitar. Uma cópia da página custa menos que milhares de recortes.
+
+        Devolve `(justo, com_a_faixa_da_linha)` por box. O justo é o que a rede
+        e o k-NN pedem — é nele que treinaram. O segundo é o mesmo box esticado
+        até a linha, e serve ao EasyOCR, que sem ele não distingue `c` de `C`
+        (ver `box_service.faixas_de_linha`). Sai pelo mesmo `recorte_de_pe`
+        para herdar o giro e a positivação do negativo.
         """
         pagina = np.array(self.image)
-        return [vertical.recorte_de_pe(pagina, b) for b in self.boxes]
+        faixas = faixas_de_linha(self.boxes)
+
+        pares = []
+        for b, (topo, base) in zip(self.boxes, faixas):
+            justo = vertical.recorte_de_pe(pagina, b)
+            if (topo, base) == (b.y1, b.y2):
+                pares.append((justo, justo))
+            else:
+                pares.append(
+                    (justo,
+                     vertical.recorte_de_pe(pagina, replace(b, y1=topo, y2=base))))
+        return pares
 
     def _preencher_boxes(self, titulo, preparar, resumo):
         """
         Preenche os caracteres de todos os boxes fora da thread da UI.
 
-        `preparar(h)` roda na thread e devolve `classificar(crop) -> (char, fonte)`;
-        é lá que a carga pesada acontece (o learner lê 127 mil imagens de
-        referência, o predictor carrega o modelo).
+        `preparar(h)` roda na thread e devolve
+        `classificar(justo, com_faixa) -> (char, fonte, confiança)`; é lá que a
+        carga pesada acontece (o learner lê 127 mil imagens de referência, o
+        predictor carrega o modelo). Os dois recortes chegam porque cada elo
+        quer um: ver `_recortes_dos_boxes`.
 
         Cancelar devolve o resultado parcial: o que já foi reconhecido é aplicado
         em vez de descartado.
@@ -1320,11 +1340,11 @@ class MainWindow(tk.Frame):
             classificar = preparar(h)
             resultados = []
             cancelado = False
-            for i, crop in enumerate(recortes):
+            for i, (justo, com_faixa) in enumerate(recortes):
                 if h.cancelled:
                     cancelado = True
                     break
-                resultados.append(classificar(crop))
+                resultados.append(classificar(justo, com_faixa))
                 if i % 5 == 0 or i == total - 1:
                     h.progress(i + 1, total, f"{i + 1}/{total}")
             return {"resultados": resultados, "cancelado": cancelado}
@@ -1354,9 +1374,9 @@ class MainWindow(tk.Frame):
         whitelist = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?+-=()#:/\'\""
 
         def preparar(h):
-            def classificar(crop):
+            def classificar(justo, _com_faixa):
                 ch, c = self.ocr_service.tesseract_ocr_conf(
-                    Image.fromarray(crop), whitelist)
+                    Image.fromarray(justo), whitelist)
                 return (ch, "tesseract" if ch else "vazio", c)
             return classificar
 
@@ -1367,8 +1387,9 @@ class MainWindow(tk.Frame):
 
     def auto_fill_characters_easyocr(self):
         def preparar(h):
-            def classificar(crop):
-                ch, c = self.ocr_service.easyocr_ocr_conf(crop)
+            def classificar(justo, com_faixa):
+                ch, c = self.ocr_service.easyocr_ocr_conf(
+                    justo, contexto=com_faixa)
                 return (ch, "easyocr" if ch else "vazio", c)
             return classificar
 
@@ -1392,9 +1413,9 @@ class MainWindow(tk.Frame):
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
 
-            def classificar(crop):
+            def classificar(justo, com_faixa):
                 char, fonte, c = self.ocr_service.fallback_chain(
-                    crop, learner=learner,
+                    justo, learner=learner, contexto=com_faixa,
                     neural_threshold=0.85, learner_threshold=0.85,
                 )
                 if fonte not in ("learner", "easyocr"):
@@ -1421,9 +1442,10 @@ class MainWindow(tk.Frame):
             learner = self.learning_service._get_learner()
             predictor = self.learning_service._predictor
 
-            def classificar(crop):
+            def classificar(justo, com_faixa):
                 char, fonte, c = self.ocr_service.fallback_chain(
-                    crop, predictor=predictor, learner=learner,
+                    justo, predictor=predictor, learner=learner,
+                    contexto=com_faixa,
                     neural_threshold=0.8, learner_threshold=0.9,
                 )
                 return (char, fonte, c)
