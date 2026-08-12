@@ -202,16 +202,29 @@ def ler_pagina(
     pagina: np.ndarray,
     linhas: Sequence[Sequence[BoxEntry]],
     ler_faixa: Callable[[np.ndarray], Tuple[str, float]],
-    ler_caractere: Callable[[BoxEntry], Tuple[str, float]],
+    ler_caractere: Callable[[BoxEntry], Tuple[str, float, str]],
     alfabeto: Optional[str] = None,
+    conf_maxima_para_trocar: Optional[float] = None,
     cancelado: Optional[Callable[[], bool]] = None,
     progresso: Optional[Callable[[int, int], None]] = None,
 ) -> List[Tuple[BoxEntry, str, float, str]]:
     """
     `(box, char, confiança, fonte)` para cada box de `linhas`, em ordem.
 
-    `fonte` é `easyocr_linha` quando a linha decidiu e `easyocr` quando a
-    leitura por caractere respondeu sozinha.
+    `ler_caractere(box) -> (char, confiança, fonte)` é a âncora: um item por
+    box, e é dela que sai a `fonte` de quem não foi trocado.
+
+    `fonte` sai `easyocr_linha` **só onde a linha trocou o caractere**. Quem ela
+    confirmou fica com a fonte de quem leu — foi a rede que respondeu aquele
+    box, e dizer `easyocr_linha` esconderia isso da revisão. Que a linha tenha
+    corroborado está na confiança, que sobe quando as duas concordam.
+
+    `conf_maxima_para_trocar` é a trava da F18, e o padrão `None` quer dizer
+    "sem trava" — a linha manda sempre, que é o certo quando a âncora é o
+    EasyOCR sozinho (F17: 72,9% para 89,5%). Com uma cadeia forte de âncora ela
+    é obrigatória: a rede acerta 97,6% e a linha 89,5%, então deixá-la mandar em
+    tudo **regride 7,3 pontos**. Passando `0.70`, ela só toca no que a cadeia
+    não soube responder.
     """
     saida = []
     for i, linha in enumerate(linhas):
@@ -219,8 +232,9 @@ def ler_pagina(
             break
 
         por_char = [ler_caractere(b) for b in linha]
-        chars = [c for c, _ in por_char]
-        confs = [f for _, f in por_char]
+        chars = [c for c, _cf, _fo in por_char]
+        confs = [cf for _c, cf, _fo in por_char]
+        fontes = [fo for _c, _cf, fo in por_char]
 
         texto, conf_linha = "", 0.0
         if em_bloco(linha, alfabeto):
@@ -229,15 +243,21 @@ def ler_pagina(
                 texto, conf_linha = ler_faixa(tira)
                 texto = texto.replace(" ", "")
 
-        if texto:
-            final = distribuir(chars, texto)
-            for b, ch, antes, cf in zip(linha, final, chars, confs):
-                saida.append((b, ch,
-                              confianca(ch == antes, conf_linha, cf),
-                              "easyocr_linha" if ch else "vazio"))
-        else:
-            for b, ch, cf in zip(linha, chars, confs):
-                saida.append((b, ch, cf, "easyocr" if ch else "vazio"))
+        final = distribuir(chars, texto) if texto else list(chars)
+        for b, sugerido, antes, cf, fonte in zip(linha, final, chars,
+                                                 confs, fontes):
+            travado = (conf_maxima_para_trocar is not None
+                       and cf >= conf_maxima_para_trocar)
+            trocou = bool(texto) and not travado and sugerido != antes
+            ch = sugerido if trocou else antes
+            if not ch:
+                saida.append((b, "", 0.0, "vazio"))
+            elif trocou:
+                saida.append((b, ch, confianca(False, conf_linha, cf),
+                              "easyocr_linha"))
+            else:
+                saida.append((b, ch, confianca(bool(texto), conf_linha, cf)
+                              if texto and not travado else cf, fonte))
 
         if progresso is not None:
             progresso(i + 1, len(linhas))

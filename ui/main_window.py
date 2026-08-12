@@ -26,6 +26,19 @@ from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
 
 
+#: Confiança da cadeia acima da qual a leitura por linha **não** encosta no box.
+#:
+#: A trava da F18, e sem ela a linha estraga mais do que conserta: a cadeia
+#: acerta 97,6% e a linha 89,5%, então deixá-la mandar em tudo regride 7,3
+#: pontos. Medido em 2.278 caracteres, este é o melhor corte da varredura
+#: (97,54% contra 97,50% sem a linha), e é o mesmo que a F14 apontou como o
+#: melhor negócio da triagem por confiança.
+#:
+#: **O ganho é pequeno por construção**, e é bom saber disso antes de mexer no
+#: número: a rede responde 98,9% dos boxes, então a linha tem 0,7% onde atuar.
+CONF_MAXIMA_PARA_A_LINHA = 0.70
+
+
 # Símbolos do "Key to symbols used" destes livros, por família. O agrupamento é o
 # da própria página do livro, e serve para achar o botão: numa fileira única de 23
 # o olho procura, em quatro grupos ele vai direto.
@@ -1422,7 +1435,43 @@ class MainWindow(tk.Frame):
         caractere que serve de âncora ao alinhamento. Ela é obrigatória: sem um
         item por box não há como distribuir a string pelos boxes.
         """
-        titulo = "OCR (EasyOCR por linha)"
+        def preparar(h, pagina, faixas):
+            def ler_caractere(b):
+                justo, contexto = self._recortes_do_box(pagina, b, faixas)
+                ch, cf = self.ocr_service.easyocr_ocr_conf(
+                    justo, contexto=contexto)
+                return ch, cf, "easyocr"
+            return ler_caractere
+
+        self._preencher_por_linha(
+            "OCR (EasyOCR por linha)", preparar,
+            lambda fontes: (
+                f"Decididos pela linha: {fontes.get('easyocr_linha', 0)}\n"
+                f"Só pelo caractere: {fontes.get('easyocr', 0)}"),
+        )
+
+    def _recortes_do_box(self, pagina, b, faixas):
+        """`(justo, com a faixa da linha)` — ver `_recortes_dos_boxes`."""
+        justo = vertical.recorte_de_pe(pagina, b)
+        topo, base = faixas[id(b)]
+        if (topo, base) == (b.y1, b.y2):
+            return justo, justo
+        return justo, vertical.recorte_de_pe(
+            pagina, replace(b, y1=topo, y2=base))
+
+    def _preencher_por_linha(self, titulo, preparar, resumo,
+                             conf_maxima_para_trocar=None):
+        """
+        Como `_preencher_boxes`, mas o laço é por **linha** e não por box.
+
+        `preparar(h, pagina, faixas)` devolve
+        `ler_caractere(box) -> (char, confiança, fonte)`, que é a âncora do
+        alinhamento. `conf_maxima_para_trocar` é a trava da F18 — ver
+        `leitura_de_linha.ler_pagina`.
+
+        Cancelar devolve o parcial por linha: o que já foi lido é aplicado, e o
+        resto dos boxes fica **como estava** em vez de ser esvaziado.
+        """
         if self.image is None or not self.boxes:
             messagebox.showinfo("Aviso", "Não há boxes para preencher.")
             return
@@ -1438,18 +1487,11 @@ class MainWindow(tk.Frame):
         total = sum(len(uma) for uma in linhas)
 
         def trabalho(h):
-            def ler_caractere(b):
-                justo = vertical.recorte_de_pe(pagina, b)
-                topo, base = faixas[id(b)]
-                contexto = (justo if (topo, base) == (b.y1, b.y2)
-                            else vertical.recorte_de_pe(
-                                pagina, replace(b, y1=topo, y2=base)))
-                return self.ocr_service.easyocr_ocr_conf(justo, contexto=contexto)
-
             lidos = leitura_de_linha.ler_pagina(
                 pagina, linhas,
                 ler_faixa=self.ocr_service.easyocr_linha_conf,
-                ler_caractere=ler_caractere,
+                ler_caractere=preparar(h, pagina, faixas),
+                conf_maxima_para_trocar=conf_maxima_para_trocar,
                 cancelado=lambda: h.cancelled,
                 progresso=lambda i, n: h.progress(i, n, f"linha {i}/{n}"),
             )
@@ -1468,9 +1510,7 @@ class MainWindow(tk.Frame):
             self.update_canvas()
 
             feitos = len(saida["lidos"])
-            texto = (f"Linhas: {len(linhas)}\n"
-                     f"Decididos pela linha: {fontes.get('easyocr_linha', 0)}\n"
-                     f"Só pelo caractere: {fontes.get('easyocr', 0)}")
+            texto = f"Linhas: {len(linhas)}\n" + resumo(fontes)
             if saida["cancelado"]:
                 texto += (f"\n\nCancelado: {feitos} de {total} boxes "
                           f"processados; o resto ficou como estava.")
@@ -1515,27 +1555,31 @@ class MainWindow(tk.Frame):
         if not self.boxes:
             return
 
-        def preparar(h):
+        def preparar(h, pagina, faixas):
             h.log("Carregando modelo neural...")
             self.learning_service.load_predictor()
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
             predictor = self.learning_service._predictor
 
-            def classificar(justo, com_faixa):
+            def ler_caractere(b):
+                justo, contexto = self._recortes_do_box(pagina, b, faixas)
                 char, fonte, c = self.ocr_service.fallback_chain(
                     justo, predictor=predictor, learner=learner,
-                    contexto=com_faixa,
+                    contexto=contexto,
                     neural_threshold=0.8, learner_threshold=0.9,
                 )
-                return (char, fonte, c)
-            return classificar
+                return (char, c, fonte)
+            return ler_caractere
 
-        self._preencher_boxes(
+        self._preencher_por_linha(
             "Detectar e preencher (Neural)", preparar,
-            lambda fontes, n: (f"Neural: {fontes.get('neural', 0)}\n"
-                               f"Referência: {fontes.get('learner', 0)}\n"
-                               f"EasyOCR: {fontes.get('easyocr', 0)}"),
+            lambda fontes: (f"Neural: {fontes.get('neural', 0)}\n"
+                            f"Referência: {fontes.get('learner', 0)}\n"
+                            f"EasyOCR: {fontes.get('easyocr', 0)}\n"
+                            f"Corrigidos pela linha: "
+                            f"{fontes.get('easyocr_linha', 0)}"),
+            conf_maxima_para_trocar=CONF_MAXIMA_PARA_A_LINHA,
         )
 
     # -------------------------------------------------------

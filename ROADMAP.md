@@ -4687,6 +4687,43 @@ Cobertura: `tests/test_f19_altura_relativa.py`, 18 testes.
 
 ---
 
+## F20 — A leitura por linha no «Detectar e Preencher (Neural)» — CONCLUÍDA
+
+Mesma pergunta da F18, no outro caminho que usa a cadeia inteira, e a mesma resposta.
+Medido nas páginas rotuladas, com a rede e o k-NN carregados:
+
+| | acerto | boxes trocados pela linha |
+|---|---:|---:|
+| como estava | 97,50% | — |
+| **com a linha, trava em 0,70** | **97,54%** | 1 |
+| com a linha, sem trava | **90,47%** | 173 |
+
+A trava não é cautela: sem ela a linha troca 173 boxes e derruba **7 pontos**, porque
+estaria pondo o EasyOCR (89,5%) por cima da rede (97,6%). Com ela, toca em 1.
+
+O limiar virou `CONF_MAXIMA_PARA_A_LINHA` em `ui/main_window.py`, um lugar só, com a
+tabela ao lado — inclusive a frase que importa para quem for mexer nele: **o ganho é
+pequeno por construção**, porque a rede responde 98,9% dos boxes e sobra 0,7% onde a linha
+tem o que dizer.
+
+### Duas mudanças de contrato
+
+**`ler_caractere` devolve `(char, confiança, fonte)`.** A âncora agora carrega quem
+respondeu, e sem isso não havia como preservar `neural` no box que a linha só confirmou.
+
+**`easyocr_linha` marca só o box que a linha trocou.** Antes, uma linha lida marcava todos
+os boxes dela — e num caminho onde a rede responde quase tudo isso apagaria da revisão a
+informação de quem realmente leu. Que a linha tenha corroborado continua registrado, mas
+na **confiança**, que sobe quando as duas concordam. O caminho só-EasyOCR (F17) não muda de
+resultado; muda o rótulo dos boxes que a linha confirmou sem alterar.
+
+`_preencher_por_linha` passou a ser o laço por linha compartilhado pelas duas ações, como
+`_preencher_boxes` é o laço por box.
+
+Cobertura: 4 testes novos em `tests/test_f17_leitura_de_linha.py` (34 no arquivo).
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

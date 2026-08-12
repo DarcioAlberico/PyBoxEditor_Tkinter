@@ -173,9 +173,11 @@ def test_faixa_de_linha_vazia():
 # ler_pagina
 # ----------------------------------------------------------------------
 
-def _ler_char_falso(tabela):
+def _ler_char_falso(tabela, fonte="easyocr"):
+    """`ler_caractere` da âncora: (char, confiança, fonte) por box."""
     def ler(b):
-        return tabela.get(b.char, ("?", 0.4))
+        ch, cf = tabela.get(b.char, ("?", 0.4))
+        return ch, cf, fonte
     return ler
 
 
@@ -189,8 +191,11 @@ def test_a_linha_corrige_o_caractere():
                            ler_caractere=_ler_char_falso(tabela))
 
     assert [ch for _b, ch, _c, _f in saida] == list("Fore")
-    fontes = {f for *_r, f in saida}
-    assert fontes == {"easyocr_linha"}
+    # `easyocr_linha` marca **só o box que a linha trocou**. Quem ela apenas
+    # confirmou fica com a fonte de quem leu — dizer o contrário esconderia da
+    # revisão que foi a rede (ou o EasyOCR) que respondeu aquele box.
+    fontes = [f for *_r, f in saida]
+    assert fontes == ["easyocr", "easyocr_linha", "easyocr", "easyocr"]
 
 
 def test_o_box_que_a_linha_mudou_fica_com_a_confianca_menor():
@@ -342,3 +347,69 @@ def test_a_acao_da_ui_preenche_os_boxes(monkeypatch):
             raiz.destroy()
         except Exception:
             pass
+
+
+# ----------------------------------------------------------------------
+# F20 — a trava, para a linha não estragar uma âncora forte
+# ----------------------------------------------------------------------
+
+def test_sem_trava_a_linha_manda_sempre():
+    """É o certo quando a âncora é o EasyOCR sozinho: 72,9% para 89,5%."""
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.99), "b": ("6", 0.99)}
+
+    saida = ldl.ler_pagina(pagina, [linha],
+                           ler_faixa=lambda t: ("ab", 0.5),
+                           ler_caractere=_ler_char_falso(tabela))
+    assert "".join(ch for _b, ch, _c, _f in saida) == "ab"
+
+
+def test_com_trava_a_linha_nao_encosta_no_que_a_cadeia_sabe():
+    """
+    A F18: a cadeia acerta 97,6% e a linha 89,5%. Deixá-la mandar em box que a
+    rede respondeu com confiança regride 7,3 pontos.
+    """
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.99), "b": ("6", 0.99)}
+
+    saida = ldl.ler_pagina(pagina, [linha],
+                           ler_faixa=lambda t: ("ab", 0.5),
+                           ler_caractere=_ler_char_falso(tabela, "neural"),
+                           conf_maxima_para_trocar=0.70)
+    assert "".join(ch for _b, ch, _c, _f in saida) == "a6", \
+        "a linha sobrescreveu o que a rede sabia"
+    assert [f for *_r, f in saida] == ["neural", "neural"]
+
+
+def test_com_trava_a_linha_manda_onde_a_cadeia_nao_soube():
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.99), "b": ("6", 0.30)}
+
+    saida = ldl.ler_pagina(pagina, [linha],
+                           ler_faixa=lambda t: ("ab", 0.5),
+                           ler_caractere=_ler_char_falso(tabela, "neural"),
+                           conf_maxima_para_trocar=0.70)
+    assert "".join(ch for _b, ch, _c, _f in saida) == "ab"
+    assert [f for *_r, f in saida] == ["neural", "easyocr_linha"], \
+        "o box trocado tem que dizer que foi a linha"
+
+
+def test_a_fonte_da_ancora_sobrevive_quando_a_linha_so_confirma():
+    """
+    O box que a rede acertou continua dizendo `neural`. Que a linha tenha
+    corroborado está na confiança, que sobe — não na fonte.
+    """
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.40), "b": ("b", 0.40)}
+
+    saida = ldl.ler_pagina(pagina, [linha],
+                           ler_faixa=lambda t: ("ab", 0.95),
+                           ler_caractere=_ler_char_falso(tabela, "neural"),
+                           conf_maxima_para_trocar=0.70)
+    assert [f for *_r, f in saida] == ["neural", "neural"]
+    assert [c for _b, _ch, c, _f in saida] == [0.95, 0.95], \
+        "concordaram: a confiança tinha que subir"
