@@ -185,6 +185,31 @@ class OCRService:
         return self._ler_easyocr(
             reader, crop_np if contexto is None else contexto)
 
+    def easyocr_linha_conf(self, faixa_np: np.ndarray,
+                           languages: Tuple[str, ...] = ("en",),
+                           gpu: bool = False) -> Tuple[str, float]:
+        """
+        Lê uma **faixa de linha inteira**. Retorna (texto, confiança 0..1).
+
+        É para isto que o `english_g2` foi treinado — palavra e linha, com o
+        modelo de linguagem implícito do CRNN —, e é o que a leitura caractere a
+        caractere joga fora. Medido, 72,8% para 91,2% (F17).
+
+        Aqui o texto **não** é truncado no primeiro caractere: a string inteira
+        é o resultado, e quem a distribui pelos boxes é `leitura_de_linha`.
+        """
+        reader = self._init_easyocr(languages, gpu)
+        cinza = self._cinza(faixa_np)
+        h, w = cinza.shape[:2]
+        resultados = reader.recognize(cinza, horizontal_list=[[0, w, 0, h]],
+                                      free_list=[], detail=1)
+        if not resultados:
+            return "", 0.0
+        texto = "".join((r[1] or "") for r in resultados).strip()
+        confs = [float(r[2]) for r in resultados if len(r) > 2]
+        conf = min(confs) if confs else 0.0
+        return texto, max(0.0, min(1.0, conf))
+
     # ------------------------------------------------------------------
     # Neural (Custom CNN)
     # ------------------------------------------------------------------

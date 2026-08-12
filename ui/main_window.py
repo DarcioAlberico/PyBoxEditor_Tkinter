@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import formato_box, lexico, nags, vertical
+from core import (formato_box, leitura_de_linha, lexico, nags, vertical)
 from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
@@ -589,8 +589,12 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Gerar boxes (OpenCV)", command=self.generate_boxes_opencv)
         m_tools.add_command(label="Preencher caracteres (OCR)", command=self.auto_fill_characters)
         m_tools.add_command(label="Preencher caracteres (EasyOCR)", command=self.auto_fill_characters_easyocr)
+        m_tools.add_command(label="Preencher caracteres (EasyOCR por linha)",
+                            command=self.auto_fill_characters_linha)
         m_tools.add_separator()
         m_tools.add_command(label="Detectar e Preencher (EasyOCR)", command=self.generate_and_fill_easyocr)
+        m_tools.add_command(label="Detectar e Preencher (EasyOCR por linha)",
+                            command=self.generate_and_fill_linha)
         m_tools.add_command(label="Detectar e Preencher (Híbrido/Ref)", command=self.generate_and_fill_combined)
         m_tools.add_command(label="Detectar e Preencher (Neural)", command=self.generate_and_fill_neural)
         m_tools.add_separator()
@@ -1403,6 +1407,81 @@ class MainWindow(tk.Frame):
         self.generate_boxes_opencv()
         if self.boxes:
             self.auto_fill_characters_easyocr()
+
+    def auto_fill_characters_linha(self):
+        """
+        Lê a linha inteira, e não o caractere (F17).
+
+        O `english_g2` é um CRNN treinado em palavra e linha; caractere a
+        caractere ele fica sem o modelo de linguagem que separa `0` de `o` e `1`
+        de `l`. Medido nas páginas rotuladas, 72,9% para 89,5% — e o ganho é
+        todo nos pares que um glifo isolado não decide.
+
+        O caro aqui não é a linha (1,5 ms por caractere), é a leitura por
+        caractere que serve de âncora ao alinhamento. Ela é obrigatória: sem um
+        item por box não há como distribuir a string pelos boxes.
+        """
+        titulo = "OCR (EasyOCR por linha)"
+        if self.image is None or not self.boxes:
+            messagebox.showinfo("Aviso", "Não há boxes para preencher.")
+            return
+        if self._busy(titulo):
+            return
+
+        # Cópia na thread da UI, pela razão de `_recortes_dos_boxes`.
+        pagina = np.array(self.image)
+        linhas = leitura_de_linha.linhas_da_pagina(self.boxes)
+        faixas = {id(b): faixa
+                  for uma in linhas
+                  for b, faixa in zip(uma, faixas_de_linha(uma))}
+        total = sum(len(uma) for uma in linhas)
+
+        def trabalho(h):
+            def ler_caractere(b):
+                justo = vertical.recorte_de_pe(pagina, b)
+                topo, base = faixas[id(b)]
+                contexto = (justo if (topo, base) == (b.y1, b.y2)
+                            else vertical.recorte_de_pe(
+                                pagina, replace(b, y1=topo, y2=base)))
+                return self.ocr_service.easyocr_ocr_conf(justo, contexto=contexto)
+
+            lidos = leitura_de_linha.ler_pagina(
+                pagina, linhas,
+                ler_faixa=self.ocr_service.easyocr_linha_conf,
+                ler_caractere=ler_caractere,
+                cancelado=lambda: h.cancelled,
+                progresso=lambda i, n: h.progress(i, n, f"linha {i}/{n}"),
+            )
+            return {"lidos": lidos, "cancelado": h.cancelled}
+
+        def aplicar(saida):
+            fontes = {}
+            for b, char, conf, fonte in saida["lidos"]:
+                b.char = char
+                b.source = fonte if char else ""
+                b.confidence = conf
+                fontes[fonte] = fontes.get(fonte, 0) + 1
+
+            self._commit_change()
+            self.update_sidebar()
+            self.update_canvas()
+
+            feitos = len(saida["lidos"])
+            texto = (f"Linhas: {len(linhas)}\n"
+                     f"Decididos pela linha: {fontes.get('easyocr_linha', 0)}\n"
+                     f"Só pelo caractere: {fontes.get('easyocr', 0)}")
+            if saida["cancelado"]:
+                texto += (f"\n\nCancelado: {feitos} de {total} boxes "
+                          f"processados; o resto ficou como estava.")
+                self.status.set(f"{titulo}: cancelado ({feitos}/{total}).")
+            messagebox.showinfo(titulo, texto)
+
+        self._run_task(titulo, trabalho, aplicar)
+
+    def generate_and_fill_linha(self):
+        self.generate_boxes_opencv()
+        if self.boxes:
+            self.auto_fill_characters_linha()
 
     def generate_and_fill_combined(self):
         self.generate_boxes_opencv()

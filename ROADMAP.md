@@ -4455,6 +4455,91 @@ desloca a linha inteira.
 
 ---
 
+## F17 — Ler a linha, e não o caractere — CONCLUÍDA
+
+A F16 parou em 74,9% e a lista de confusões que sobrou dizia o que faltava: `o` por `0`
+(92), `l` por `1` (53), `p` por `P` (26), `v` por `V` (17). Nenhum desses é decidível
+olhando um glifo de cada vez — `0` e `o` da mesma fonte diferem em altura, `1` e `l` em
+quase nada. São pares que só o contexto separa, e por caractere não há contexto nenhum.
+
+O `english_g2` é um CRNN treinado em palavra e linha. Usá-lo caractere a caractere
+descartava o modelo de linguagem implícito que é a força dele.
+
+### A conta
+
+Medido em 8.758 caracteres das páginas rotuladas, pelo módulo de produção:
+
+| | acerto |
+|---|---:|
+| por caractere (a F16) | 72,9% |
+| **por linha, com alinhamento** | **89,5%** |
+
+Só nas linhas que estão 100% dentro do alfabeto do EasyOCR (76,4% dos caracteres): 91,7%.
+Os exemplos dizem o mecanismo melhor que a tabela — `Bib1i0g[aPhY` vira `Bibliography`,
+`F0reW0rd` vira `Foreword`, `LeVe1` vira `Level`.
+
+### O problema é distribuir a string pelos boxes
+
+A linha devolve uma string; o programa precisa de um caractere por box. Não há de onde
+tirar a posição de cada um: o `recognize` devolve **uma** caixa para a faixa inteira, e a
+saída do CTC não expõe o passo de tempo.
+
+**A regra estrita — aceitar só quando o comprimento bate — cobre pouco.** Medido, bate em
+151 das 275 linhas (54,9%); a política que cai no modo por caractere nas outras dá 80,4%.
+Nas linhas em que bate, a leitura por linha acerta 91,1% — o problema era aproveitar isso
+nas outras 45%.
+
+**A leitura por caractere é a âncora**, e resolve. Ela tem, por construção, exatamente um
+item por box; alinhar a string da linha contra ela (`notacao._alinhar`, a mesma distância
+de edição da F1.7) distribui os caracteres sem precisar de posição na imagem. O desvio
+mais comum é a linha trazer caractere **a mais** que boxes (+1 em 34 linhas, +2 em 29), e
+o alinhamento os descarta.
+
+Custo: a linha custa 1,5 ms por caractere, mas a âncora é obrigatória, então o total fica
+em torno do dobro do caminho por caractere sozinho. É o preço dos 16,6 pontos.
+
+### O buraco na âncora, que quase passou
+
+`"".join` de uma lista com leitura vazia **encurta a string**, e aí o índice devolvido pelo
+alinhamento deixa de ser o índice do box: tudo depois dele anda uma casa. A primeira
+medição tinha esse defeito e ainda assim dava 91,2% — o erro é raro o bastante para não
+aparecer na média, e teria entrado em produção como um deslocamento silencioso de linha.
+O vazio agora vira `MARCA_DE_VAZIO` (`\x00`), que não existe em página nenhuma, nunca casa
+com nada e por isso sempre cede a vez para o que a linha leu. Corrigido, 91,7%.
+
+### A confiança sai da concordância, não da linha
+
+O `recognize` devolve uma confiança para a faixa inteira, e distribuí-la igual por todos os
+boxes seria inventar precisão que não foi medida. O que existe de verdade é a concordância
+entre as duas leituras: quando linha e caractere dizem o mesmo, uma corrobora a outra e
+vale a **maior**; quando divergem, a linha venceu mas há dúvida real, e vale a **menor** —
+que é o que põe o box na fila de revisão em vez de escondê-lo.
+
+Medido, a confiança resultante separa: dos caracteres com confiança ≥ 0,5 o acerto é
+**95,8%**; abaixo disso, **66,9%**. Ela é informativa, e não decorativa.
+
+### O filtro de alfabeto não serve num preenchimento
+
+`em_bloco` sabe recusar linha com glifo fora do alfabeto do EasyOCR, mas olha `b.char` — e
+num preenchimento o box ainda não tem caractere. Então na prática a linha é lida em bloco
+mesmo onde há figurinha e ligadura. **Medido de propósito nesse cenário**, que é o que o
+programa faz: 89,5% sem filtro nenhum contra 91,7% com. O alinhamento aguenta as linhas de
+notação — a figurinha vira caractere a mais e é descartada.
+
+Fica de fora, e volta ao modo por caractere: linha com box **girado** (F8.1) ou em
+**negativo** (F10). Nos dois a faixa da linha deixa de ser um retângulo em pé na página.
+
+### Onde está
+
+`core/leitura_de_linha.py` (`distribuir`, `confianca`, `em_bloco`, `ler_pagina`),
+`OCRService.easyocr_linha_conf` e duas entradas novas no menu Ferramentas: **Preencher
+caracteres (EasyOCR por linha)** e **Detectar e Preencher (EasyOCR por linha)**. As ações
+por caractere ficaram, porque são o outro lado da comparação e custam metade.
+
+Cobertura: `tests/test_f17_leitura_de_linha.py`, 28 testes.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
