@@ -7,7 +7,8 @@ import numpy as np
 from PIL import Image
 
 from core import (formato_box, leitura_de_linha, lexico, nags, vertical)
-from core.chess_pdf_processor import analisar_substituicao, substitute_chess_glyphs
+from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
+                                      substitute_chess_glyphs)
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
@@ -89,6 +90,23 @@ NAGS_POR_FAMILIA = [
 
 #: A lista achatada, que é o que o menu de contexto e os testes consomem.
 NAGS = [par for _, familia in NAGS_POR_FAMILIA for par in familia]
+
+# As figurinas de peça, ao lado dos NAGs e pela mesma razão que eles existem:
+# são caracteres que o teclado não tem e que aparecem em quase toda linha de
+# notação. Sem o botão, escrever um `♗` é procurar o codepoint.
+#
+# **São 5, e não 12**, e a razão é a mesma de `searchable_pdf.PECAS`, medida no
+# material real: peão não ganha letra em notação algébrica (`e4`, nunca com
+# figurina), e estes livros usam **um** conjunto de figurinas para os dois lados
+# — na linha "17...♞e5 18.♛c2 ♞a6 19.♞c4" o lance 17... é das pretas e o 19. das
+# brancas, e os dois cavalos usam o mesmo glifo. São exatamente as 5 classes que
+# o modelo aprendeu (`sym_9812` a `sym_9816` na base de treino).
+#
+# Os codepoints saem de `CHESS_UNICODE` em vez de serem redigitados aqui: é a
+# mesma tabela que `resolve_chess_font` valida contra as fontes do disco, e uma
+# segunda cópia poderia divergir dela sem ninguém notar.
+PECAS_RAPIDAS = ("Peças", list(zip(
+    CHESS_UNICODE[:5], ("Rei", "Dama", "Torre", "Bispo", "Cavalo"))))
 
 
 class MainWindow(tk.Frame):
@@ -495,7 +513,20 @@ class MainWindow(tk.Frame):
         # o excesso é cortado à direita sem aviso, e sumiriam justamente os dois
         # últimos. É o mesmo defeito que o `appy._geometria_que_cabe` existe para
         # não repetir — lá o sintoma foi "o botão de próxima página não aparece".
-        for faixa, familias in ((0, NAGS_POR_FAMILIA[:2]), (1, NAGS_POR_FAMILIA[2:])):
+        # As peças entram na segunda faixa, que é a curta: a primeira já leva 16
+        # botões e é ela que define a largura mínima da janela.
+        #
+        # Só as figurinas passam pela conferência de fonte, e é onde ela importa:
+        # os NAGs desta tabela foram conferidos um a um quando ela foi escrita,
+        # mas peça é o caso em que a fonte falta de verdade — a maioria das
+        # fontes comuns não desenha as 12, e é por isso que
+        # `resolve_chess_font` existe. Botão que escreve um caractere que vira
+        # retângulo vazio no PDF é o defeito do `·` da SPEC §4.2, e aqui ele fica
+        # desligado em vez de mentir.
+        sem_desenho = nags.sem_glifo([c for c, _ in PECAS_RAPIDAS[1]])
+
+        for faixa, familias in ((0, NAGS_POR_FAMILIA[:2]),
+                                (1, NAGS_POR_FAMILIA[2:] + [PECAS_RAPIDAS])):
             linha = tk.Frame(nag_frame)
             linha.pack(fill="x")
             tk.Label(linha, text="NAGs Rápidos:" if not faixa else "").pack(
@@ -507,10 +538,14 @@ class MainWindow(tk.Frame):
                 tk.Label(linha, text=titulo, fg="gray40").pack(side="left",
                                                                padx=(8, 2))
                 for nag_char, tooltip in familia:
-                    btn = tk.Button(linha, text=nag_char, width=3,
-                                    command=lambda c=nag_char: self.apply_nag(c))
+                    faltando = nag_char in sem_desenho
+                    btn = tk.Button(
+                        linha, text=nag_char, width=3,
+                        state="disabled" if faltando else "normal",
+                        command=lambda c=nag_char: self.apply_nag(c))
+                    dica = f"{tooltip} (sem fonte)" if faltando else tooltip
                     btn.bind("<Enter>",
-                             lambda e, text=tooltip: self.show_nag_tooltip(text))
+                             lambda e, text=dica: self.show_nag_tooltip(text))
                     btn.bind("<Leave>", lambda e: self.hide_nag_tooltip())
                     btn.pack(side="left", padx=1, pady=1)
             if faixa:

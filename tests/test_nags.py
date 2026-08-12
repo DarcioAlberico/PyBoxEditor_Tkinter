@@ -274,3 +274,101 @@ def test_o_menu_notacao_lista_tudo_e_desliga_o_que_nao_da_para_escrever():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ----------------------------------------------------------------------
+# As figurinas de peça, ao lado dos NAGs
+# ----------------------------------------------------------------------
+
+def test_sao_as_cinco_pecas_que_ganham_letra():
+    """
+    Peão fica de fora (`e4` nunca leva figurina), e os codepoints pretos também:
+    estes livros usam **um** conjunto para os dois lados. É a mesma regra de
+    `searchable_pdf.PECAS`, e são as 5 classes que o modelo aprendeu.
+    """
+    from core.chess_pdf_processor import CHESS_UNICODE
+    from ui.main_window import PECAS_RAPIDAS
+
+    simbolos = [s for s, _ in PECAS_RAPIDAS[1]]
+    assert simbolos == list(CHESS_UNICODE[:5])
+    assert simbolos == list("♔♕♖♗♘")
+
+
+def test_a_lista_de_pecas_bate_com_a_do_pdf():
+    """Se uma das duas mudar sozinha, o botão escreve o que o PDF não desenha."""
+    from core.searchable_pdf import PECAS
+    from ui.main_window import PECAS_RAPIDAS
+
+    assert {s for s, _ in PECAS_RAPIDAS[1]} == PECAS
+
+
+def test_toda_peca_tem_nome_e_e_unico():
+    from ui.main_window import PECAS_RAPIDAS
+
+    titulo, pares = PECAS_RAPIDAS
+    assert titulo
+    assert all(d.strip() for _s, d in pares)
+    assert len({d for _s, d in pares}) == len(pares)
+
+
+def test_peca_nao_colide_com_nag():
+    """Dois botões com o mesmo caractere seriam dois caminhos para o mesmo lugar."""
+    from ui.main_window import PECAS_RAPIDAS
+
+    assert not ({s for s, _ in PECAS_RAPIDAS[1]} & {s for s, _ in NAGS})
+
+
+def test_a_fonte_do_pdf_desenha_as_pecas():
+    from ui.main_window import PECAS_RAPIDAS
+
+    fontes = _fontes_no_disco()
+    if not fontes:
+        pytest.skip("nenhuma fonte candidata neste sistema")
+
+    alvo = "".join(s for s, _ in PECAS_RAPIDAS[1])
+    assert any(missing_glyphs(f, alvo) == [] for f in fontes), (
+        "nenhuma fonte candidata desenha as 5 peças — o botão escreveria "
+        "retângulo vazio no PDF")
+
+
+def test_os_botoes_de_peca_aparecem_na_janela():
+    """
+    Fecha o caminho que as asserções sobre a tabela não tocam: a peça tem que
+    virar botão de verdade, e na segunda faixa — a primeira já leva 16 e é ela
+    que define a largura mínima da janela.
+    """
+    import tkinter as tk
+    from tkinter import messagebox
+
+    from ui.main_window import MainWindow, PECAS_RAPIDAS
+
+    info = messagebox.showinfo
+    messagebox.showinfo = lambda *a, **k: None
+    raiz = raiz_tk()
+    try:
+        janela = MainWindow(raiz)
+        raiz.update_idletasks()
+
+        faixas = []
+        for filho in janela.winfo_children():
+            netos = filho.winfo_children()
+            if netos and all(isinstance(n, tk.Frame) for n in netos):
+                textos = [[w.cget("text") for w in n.winfo_children()
+                           if isinstance(w, tk.Button)] for n in netos]
+                if any(textos):
+                    faixas = textos
+                    break
+
+        assert faixas, "não achei as faixas de botões"
+        esperadas = [s for s, _ in PECAS_RAPIDAS[1]]
+        assert all(p in faixas[-1] for p in esperadas), (
+            f"as peças não estão na última faixa: {faixas[-1]}")
+        assert not any(p in faixas[0] for p in esperadas), (
+            "peça foi parar na faixa que já define a largura da janela")
+    finally:
+        messagebox.showinfo = info
+        try:
+            janela.task.shutdown()
+            raiz.destroy()
+        except Exception:
+            pass
