@@ -4540,6 +4540,69 @@ Cobertura: `tests/test_f17_leitura_de_linha.py`, 28 testes.
 
 ---
 
+## F18 — A leitura por linha no PDF pesquisável — CONCLUÍDA, e rende quase nada
+
+A F17 deu 16,6 pontos e o `searchable_pdf` tinha ficado de fora. Levá-la para lá era o
+passo óbvio. **Não é**, e a medição é o assunto desta fase.
+
+### Lá o EasyOCR não é o leitor
+
+No `searchable_pdf` o `reconhecer` é a cadeia inteira. Medido nas páginas rotuladas, com
+os boxes gerados pelo OpenCV — como o próprio módulo os monta, e não com os boxes da
+verdade:
+
+| fonte | boxes | | acerto |
+|---|---:|---:|---:|
+| neural | 2.472 | 98,9% | 97,6% |
+| easyocr | 17 | **0,7%** | — |
+| learner | 11 | 0,4% | — |
+
+Os 16,6 pontos da F17 foram medidos contra o EasyOCR **sozinho** (72,9% para 89,5%). Aqui
+ele é o último recurso de 0,7% dos casos, e a rede — que responde o resto — está 8 pontos
+acima dele.
+
+### A varredura do limiar
+
+2.278 caracteres, cadeia completa carregada. A linha só troca o caractere de um box cuja
+confiança da cadeia esteja abaixo do corte:
+
+| a linha manda quando | acerto |
+|---|---:|
+| nunca (o de antes) | 97,50% |
+| confiança < 0,70 | **97,54%** |
+| confiança < 0,90 | 97,50% |
+| confiança < 0,99 | 97,32% |
+| **sempre** | **90,21%** |
+
+O melhor caso é **+0,04 ponto — um caractere em 2.278**. No corte de 0,90 a linha mexeu em
+2 boxes: consertou 1 e quebrou 1. E mandar sempre custa **7,3 pontos**, porque seria trocar
+a rede a 97,6% pelo EasyOCR a 89,5%.
+
+Ficou o corte de 0,70, que é o melhor da tabela e por acaso o mesmo que a F14 apontou como
+o melhor negócio da triagem por confiança. `ler_linha` é opcional: sem ele o caminho é
+byte a byte o de antes, e nenhum chamador antigo paga nada.
+
+**Está registrado aqui para não ser refeito.** Um dia alguém vai olhar a F17 e a F16, ver
+que o PDF pesquisável usa a cadeia, e propor de novo levar a linha para lá. A resposta é
+esta tabela: o gargalo do `searchable_pdf` não é o último elo, é a rede e a segmentação.
+
+### O defeito que isto desenterrou, e esse valeu a fase inteira
+
+Ao ligar o `searchable_pdf` no `distribuir`, a asserção da F17 estourou: **a cadeia neural
+emite ligadura** (`fi`, `♗x`) num box só, e `"".join` deixava a âncora **maior** que o
+número de boxes. É o mesmo deslocamento silencioso de linha do vazio da F17, pelo lado
+oposto — e nunca apareceria no caminho só-EasyOCR, porque lá `easyocr_ocr_conf` trunca no
+primeiro caractere.
+
+A ligadura agora entra na âncora pela primeira letra, para o alinhamento ter onde encaixar,
+e **fica fora da troca**: um box que a cadeia leu como ligadura é justamente o que o EasyOCR
+não sabe escrever, e deixá-lo ser sobrescrito trocaria `♗x` por `B`.
+
+Cobertura: 4 testes em `tests/test_f21_pdf_pesquisavel.py`, 2 em
+`tests/test_f17_leitura_de_linha.py`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

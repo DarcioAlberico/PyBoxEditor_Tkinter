@@ -160,13 +160,28 @@ def distribuir(por_caractere: Sequence[str], texto: str) -> List[str]:
 
     Devolve uma lista do tamanho de `por_caractere`. Onde a linha não tem o que
     dizer, o que já estava fica.
+
+    **A âncora é um caractere por box, e nunca menos nem mais.** É a invariante
+    de que tudo aqui depende: o `pos` que o alinhamento devolve é o índice do
+    box, e qualquer descompasso desloca a linha inteira em silêncio. Os dois
+    jeitos de quebrá-la aparecem em produção:
+
+    - **leitura vazia**, que `"".join` faria sumir — vira `MARCA_DE_VAZIO`, um
+      caractere que não existe em página nenhuma, nunca casa com nada e por isso
+      sempre cede a vez para o que a linha leu;
+    - **ligadura**, que ocupa duas casas. A cadeia neural emite `fi` e `♗x` num
+      box só (SPEC §5.2), e foi a asserção deste módulo que pegou isso quando o
+      `searchable_pdf` passou a chamar por aqui. Entra na âncora pela primeira
+      letra, para o alinhamento ter onde encaixar, e **fica de fora da troca**:
+      um box que a cadeia leu como ligadura é justamente o que o EasyOCR não
+      sabe escrever, e deixá-lo ser sobrescrito trocaria `♗x` por `B`.
     """
-    ancora = "".join(c if c else MARCA_DE_VAZIO for c in por_caractere)
+    ancora = "".join(c[0] if c else MARCA_DE_VAZIO for c in por_caractere)
     assert len(ancora) == len(por_caractere), "a âncora perdeu o índice do box"
 
     saida = list(por_caractere)
     for pos, ch in _alinhar(ancora, texto):
-        if pos is not None and ch:
+        if pos is not None and ch and len(por_caractere[pos]) <= 1:
             saida[pos] = ch
     return saida
 

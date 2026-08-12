@@ -115,6 +115,57 @@ def _corpo_que_preenche(font: fitz.Font, texto: str,
     return max(1.0, min(corpo, alt_alvo * 3.0))
 
 
+def _ler_boxes(img, boxes, reconhecer, ler_linha, conf_linha_maxima, resumo):
+    """
+    `(box, char, confiança)` para cada box, já com a leitura por linha aplicada.
+
+    Sem `ler_linha` é o laço de antes: um box, uma chamada de `reconhecer`, na
+    ordem em que os boxes vieram.
+
+    Com ele, os boxes são agrupados em linhas e cada linha ganha uma segunda
+    opinião — mas a troca só acontece nos boxes em que a cadeia ficou abaixo de
+    `conf_linha_maxima`. O porquê do corte está em `gerar_pdf_pesquisavel`.
+    """
+    from core import leitura_de_linha as ldl
+
+    def do_box(b):
+        # De pé para classificar (F8.1): o modelo aprendeu glifo em pé, e o
+        # mesmo recorte deitado desce de 94,2% para 8,4%.
+        recorte = vertical.recorte_de_pe(img, b)
+        if recorte.size == 0:
+            return None
+        char, conf = reconhecer(recorte)
+        return (b, char, conf)
+
+    if ler_linha is None:
+        return [r for r in (do_box(b) for b in boxes) if r is not None]
+
+    saida = []
+    for linha in ldl.linhas_da_pagina(boxes):
+        lidos = [r for r in (do_box(b) for b in linha) if r is not None]
+        if not lidos:
+            continue
+
+        texto = ""
+        if ldl.em_bloco([b for b, _c, _f in lidos]):
+            faixa = ldl.faixa_da_linha(img, [b for b, _c, _f in lidos])
+            if faixa is not None:
+                texto = ler_linha(faixa)[0].replace(" ", "")
+
+        if not texto:
+            saida.extend(lidos)
+            continue
+
+        da_linha = ldl.distribuir([c for _b, c, _f in lidos], texto)
+        for (b, char, conf), sugerido in zip(lidos, da_linha):
+            if conf < conf_linha_maxima and sugerido and sugerido != char:
+                resumo["corrigidos_pela_linha"] += 1
+                saida.append((b, sugerido, conf))
+            else:
+                saida.append((b, char, conf))
+    return saida
+
+
 def gerar_pdf_pesquisavel(
     input_pdf: str,
     output_pdf: str,
@@ -125,6 +176,8 @@ def gerar_pdf_pesquisavel(
     conf_minima: float = 0.0,
     conf_minima_pecas: float = 0.6,
     pular_paginas_com_texto: bool = True,
+    ler_linha: Optional[Callable[[np.ndarray], Tuple[str, float]]] = None,
+    conf_linha_maxima: float = 0.70,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> dict:
     """
@@ -136,6 +189,29 @@ def gerar_pdf_pesquisavel(
       searchable — só a camada de texto invisível (padrão)
       replace    — desenha as peças de xadrez reconhecidas por cima do original
       both       — as duas coisas
+
+    `ler_linha(faixa) -> (texto, confiança)` liga a leitura por linha da F17, e
+    **só manda onde a cadeia está fraca** — abaixo de `conf_linha_maxima`.
+
+    Essa restrição não é cautela, é o que a medição pede. Aqui o `reconhecer` é
+    a cadeia inteira, e nela a rede responde 98,9% dos boxes com 97,6% de
+    acerto: o EasyOCR, que é onde a F17 rende, é consultado em **0,7%**. Medido
+    em 2.278 caracteres com a cadeia carregada:
+
+        a linha manda quando        acerto
+        nunca                       97,50%
+        confiança < 0,70            97,54%
+        confiança < 0,90            97,50%
+        confiança < 0,99            97,32%
+        sempre                      90,21%
+
+    O melhor caso é **um caractere em 2.278**, e mandar sempre custa 7,3 pontos
+    — seria trocar a rede a 97,6% pelo EasyOCR a 89,5%. Os 16,6 pontos da F17
+    foram medidos contra o EasyOCR **sozinho**; aqui ele não é o leitor, é o
+    último recurso. O corte de 0,70 é o melhor da tabela, e é o mesmo que a F14
+    apontou como o melhor negócio da triagem por confiança.
+
+    Sem `ler_linha` nada disso roda e o caminho é byte a byte o de antes.
 
     Devolve um resumo do que foi feito.
     """
@@ -159,6 +235,7 @@ def gerar_pdf_pesquisavel(
         "baixa_confianca": 0,
         "pecas_substituidas": 0,
         "sem_glifo": 0,
+        "corrigidos_pela_linha": 0,
     }
 
     try:
@@ -186,14 +263,8 @@ def gerar_pdf_pesquisavel(
             if modo in ("replace", "both"):
                 page.insert_font(fontname=FONTE_PECAS, fontfile=fonte_path)
 
-            for b in boxes:
-                # De pé para classificar (F8.1): o modelo aprendeu glifo em pé,
-                # e o mesmo recorte deitado desce de 94,2% para 8,4%.
-                recorte = vertical.recorte_de_pe(img, b)
-                if recorte.size == 0:
-                    continue
-
-                char, conf = reconhecer(recorte)
+            for b, char, conf in _ler_boxes(img, boxes, reconhecer, ler_linha,
+                                            conf_linha_maxima, resumo):
                 if not char or conf < conf_minima:
                     continue
                 # Todos os caracteres, e não só `char[0]`: uma classe de

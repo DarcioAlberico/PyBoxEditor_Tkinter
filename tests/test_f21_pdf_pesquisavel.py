@@ -330,3 +330,80 @@ def _main():
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+# ----------------------------------------------------------------------
+# F18 — a leitura por linha entra, mas só onde a cadeia está fraca
+# ----------------------------------------------------------------------
+
+def _pdf_de_uma_pagina(caminho, texto="Foreword"):
+    import fitz
+    doc = fitz.open()
+    pagina = doc.new_page(width=300, height=120)
+    pagina.insert_text(fitz.Point(20, 60), texto, fontsize=28)
+    doc.save(caminho)
+    doc.close()
+
+
+def _rodar(tmp, reconhecer, **kw):
+    import os
+    from core.searchable_pdf import gerar_pdf_pesquisavel
+    entrada = os.path.join(tmp, "e.pdf")
+    saida = os.path.join(tmp, "s.pdf")
+    _pdf_de_uma_pagina(entrada)
+    return gerar_pdf_pesquisavel(entrada, saida, reconhecer=reconhecer,
+                                 pular_paginas_com_texto=False, **kw)
+
+
+def test_sem_ler_linha_o_caminho_e_o_de_antes(tmp_path):
+    """A F18 é opcional: quem não passa `ler_linha` não paga nada por ela."""
+    vistos = []
+
+    def reconhecer(crop):
+        vistos.append(crop)
+        return ("x", 0.99)
+
+    resumo = _rodar(str(tmp_path), reconhecer)
+    assert resumo["corrigidos_pela_linha"] == 0
+    assert vistos, "o reconhecedor não foi chamado"
+
+
+def test_a_linha_nao_mexe_onde_a_cadeia_esta_confiante(tmp_path):
+    """
+    O ponto da fase. A rede responde 98,9% dos boxes com 97,6% de acerto;
+    deixar a linha sobrescrever isso custa 7,3 pontos.
+    """
+    chamadas = []
+
+    def ler_linha(faixa):
+        chamadas.append(faixa)
+        return ("ZZZZZZZZ", 0.99)
+
+    resumo = _rodar(str(tmp_path), lambda crop: ("x", 0.99),
+                    ler_linha=ler_linha)
+    assert chamadas, "a linha nem chegou a ser lida"
+    assert resumo["corrigidos_pela_linha"] == 0, \
+        "a linha sobrescreveu box em que a cadeia estava confiante"
+
+
+def test_a_linha_manda_onde_a_cadeia_esta_fraca(tmp_path):
+    def ler_linha(faixa):
+        return ("ZZZZZZZZ", 0.99)
+
+    resumo = _rodar(str(tmp_path), lambda crop: ("x", 0.10),
+                    ler_linha=ler_linha)
+    assert resumo["corrigidos_pela_linha"] > 0, \
+        "a cadeia estava fraca e a linha não corrigiu nada"
+
+
+def test_o_corte_e_configuravel(tmp_path):
+    def ler_linha(faixa):
+        return ("ZZZZZZZZ", 0.99)
+
+    frouxo = _rodar(str(tmp_path), lambda crop: ("x", 0.80),
+                    ler_linha=ler_linha, conf_linha_maxima=0.95)
+    assert frouxo["corrigidos_pela_linha"] > 0
+
+    apertado = _rodar(str(tmp_path), lambda crop: ("x", 0.80),
+                      ler_linha=ler_linha, conf_linha_maxima=0.70)
+    assert apertado["corrigidos_pela_linha"] == 0

@@ -1254,6 +1254,7 @@ class MainWindow(tk.Frame):
                 input_pdf, output_pdf,
                 reconhecer=reconhecer,
                 modo=modo,
+                ler_linha=self.ocr_service.easyocr_linha_conf,
                 progress_callback=progresso,
             )
 

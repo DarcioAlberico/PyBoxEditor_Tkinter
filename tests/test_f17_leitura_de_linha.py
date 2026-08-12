@@ -72,6 +72,27 @@ def test_texto_vazio_deixa_tudo_como_estava():
     assert ldl.distribuir(list("abc"), "") == list("abc")
 
 
+def test_ligadura_ocupa_uma_casa_so_na_ancora():
+    """
+    O outro jeito de perder o índice do box, e este apareceu de verdade: a
+    cadeia neural emite `fi` num box só, e `"".join` faria a âncora ficar
+    **maior** que o número de boxes. Foi a asserção que pegou, quando o
+    `searchable_pdf` passou a chamar por aqui.
+    """
+    saida = ldl.distribuir(["o", "fi", "c", "e"], "office")
+    assert len(saida) == 4, "a ligadura virou dois boxes"
+
+
+def test_a_linha_nao_sobrescreve_ligadura():
+    """
+    Um box lido como ligadura é justamente o que o EasyOCR não sabe escrever.
+    Deixá-lo ser sobrescrito trocaria `♗x` por `B`.
+    """
+    saida = ldl.distribuir(["a", "♗x", "c"], "aBc")
+    assert saida[1] == "♗x", "a figurina foi trocada por letra"
+    assert saida[0] == "a" and saida[2] == "c"
+
+
 # ----------------------------------------------------------------------
 # A confiança sai da concordância
 # ----------------------------------------------------------------------
