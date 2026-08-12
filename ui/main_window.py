@@ -10,6 +10,8 @@ from core import (formato_box, leitura_de_linha, lexico, nags, vertical)
 from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
                                       substitute_chess_glyphs)
 from core.relatorio_pdf import caminhos_do_relatorio
+from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
+from core.mapa_glifos import corrigir_mapeamento
 from core.searchable_pdf import gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService, faixas_de_linha
@@ -693,6 +695,8 @@ class MainWindow(tk.Frame):
                             command=self.gerar_pdf_pesquisavel_action)
         m_tools.add_command(label="Substituir Glifos em PDF Escaneado (Neural)...",
                             command=self.substitute_glyphs_neural_action)
+        m_tools.add_command(label="Corrigir Mapeamento de Caracteres do PDF...",
+                            command=self.corrigir_mapeamento_action)
         menubar.add_cascade(label="Ferramentas", menu=m_tools)
 
     def _build_menu_notacao(self, menubar):
@@ -1275,6 +1279,80 @@ class MainWindow(tk.Frame):
             titulo="Substituir glifos + OCR",
             titulo_saida="Salvar PDF convertido como...",
         )
+
+    def corrigir_mapeamento_action(self):
+        """
+        Conserta a tabela que diz qual caractere cada glifo representa.
+
+        **Não desenha nem apaga nada na página.** É a operação certa para o
+        livro cuja notação está correta na tela e sai `l2Jd7` ao copiar: nesses
+        PDFs a fonte é Identity-H e o defeito está no `ToUnicode`, não no
+        desenho. O PDF de saída renderiza pixel a pixel igual ao original —
+        muda só o que a busca e a cópia enxergam.
+        """
+        if self._busy("A correção"):
+            return
+
+        input_pdf = filedialog.askopenfilename(
+            title="Selecionar PDF",
+            filetypes=[("Arquivos PDF", "*.pdf")]
+        )
+        if not input_pdf:
+            return
+
+        output_pdf = filedialog.asksaveasfilename(
+            title="Salvar cópia corrigida como...",
+            defaultextension=".pdf",
+            filetypes=[("Arquivos PDF", "*.pdf")]
+        )
+        if not output_pdf:
+            return
+
+        def trabalho(h):
+            h.log("Carregando modelo neural...")
+            if not self.learning_service.load_predictor():
+                raise RuntimeError(self.learning_service.motivo_do_modelo())
+
+            # Só a rede, sem a cadeia de fallback: aqui a pergunta é "que peça é
+            # este desenho", e o EasyOCR — que aceita o que vier — só diluiria a
+            # votação com palpites de letra.
+            def classificar(recorte):
+                return self.learning_service.predict_neural(recorte)
+
+            def progresso(atual, total):
+                h.raise_if_cancelled()
+                h.progress(atual, total, f"página {atual}/{total}")
+
+            return corrigir_mapeamento(input_pdf, output_pdf,
+                                       classificar=classificar,
+                                       progress_callback=progresso)
+
+        def concluir(rel):
+            cj, cc = caminhos_do_mapa(output_pdf, rel.dry_run)
+            corpo = (f"{rel.resumo()}\n\n"
+                     f"A página não foi alterada: o PDF de saída renderiza igual "
+                     f"ao original.\nO original não foi tocado.\n\n"
+                     f"Arquivo salvo em:\n{output_pdf}\n\n"
+                     f"Relatório:\n{cj}\n{cc}")
+            if rel.avisos:
+                corpo += "\n\n" + "\n".join(rel.avisos)
+
+            if rel.aceitas:
+                messagebox.showinfo("Mapeamento corrigido", corpo)
+            else:
+                messagebox.showwarning(
+                    "Mapeamento corrigido", corpo + "\n\n"
+                    "Nenhuma figurina foi identificada. Ou este PDF não tem o "
+                    "defeito (a notação já copia certa), ou os glifos não se "
+                    "parecem com o que o modelo aprendeu — o CSV mostra o que "
+                    "foi examinado e por que cada candidata foi recusada.")
+
+        self._run_task("Corrigir mapeamento", trabalho, concluir)
+
+    #: Devolvido por `_perguntar_teto` quando o usuário desiste. **Não pode ser
+    #: `None`**: aqui `None` já quer dizer "sem teto", que é a resposta oposta
+    #: de "deixa para lá" — uma manda gravar tudo, a outra manda não rodar.
+    CANCELADO = object()
 
     def _acao_ocr_pdf(self, modo, titulo, titulo_saida):
         if self._busy("A conversão"):
