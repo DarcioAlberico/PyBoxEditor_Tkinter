@@ -28,15 +28,30 @@ from ui import confidence as conf_ui
 
 #: Confiança da cadeia acima da qual a leitura por linha **não** encosta no box.
 #:
-#: A trava da F18, e sem ela a linha estraga mais do que conserta: a cadeia
-#: acerta 97,6% e a linha 89,5%, então deixá-la mandar em tudo regride 7,3
-#: pontos. Medido em 2.278 caracteres, este é o melhor corte da varredura
-#: (97,54% contra 97,50% sem a linha), e é o mesmo que a F14 apontou como o
-#: melhor negócio da triagem por confiança.
+#: A trava da F18, e sem ela a linha estraga mais do que conserta — em qualquer
+#: um dos dois caminhos. **O valor certo depende de quão forte é a âncora**, e
+#: por isso são dois; medido em 2.278 caracteres:
 #:
-#: **O ganho é pequeno por construção**, e é bom saber disso antes de mexer no
-#: número: a rede responde 98,9% dos boxes, então a linha tem 0,7% onde atuar.
+#:     trava        com a rede    híbrido (k-NN)
+#:     sem linha        97,50%           94,82%
+#:     0,70             97,54%           95,22%
+#:     0,85             97,50%           95,26%
+#:     0,95             97,32%           95,08%
+#:     sempre           90,47%           90,25%
+#:
+#: **A âncora mais fraca é onde a linha rende.** No caminho com a rede o ganho é
+#: pequeno por construção — ela responde 98,9% dos boxes e sobra 0,7% onde a
+#: linha tem o que dizer, e o resultado é +0,04 ponto (1 box). No híbrido, sem
+#: rede, o ganho é dez vezes maior: +0,44 ponto, 42 boxes.
+#:
+#: Em nenhum dos dois "sempre" serve: seria pôr o EasyOCR (89,5%) por cima de
+#: quem já lia melhor, e custa 7 e 4,6 pontos respectivamente.
 CONF_MAXIMA_PARA_A_LINHA = 0.70
+
+#: O mesmo, para o caminho híbrido. O pico da varredura cai aqui, e o valor tem
+#: razão própria: é o `learner_threshold` daquela ação, então a linha age
+#: exatamente nos boxes em que o k-NN se recusou a responder.
+CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = 0.85
 
 
 # Símbolos do "Key to symbols used" destes livros, por família. O agrupamento é o
@@ -1529,25 +1544,28 @@ class MainWindow(tk.Frame):
         if not self.boxes:
             return
 
-        def preparar(h):
+        def preparar(h, pagina, faixas):
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
 
-            def classificar(justo, com_faixa):
+            def ler_caractere(b):
+                justo, contexto = self._recortes_do_box(pagina, b, faixas)
                 char, fonte, c = self.ocr_service.fallback_chain(
-                    justo, learner=learner, contexto=com_faixa,
+                    justo, learner=learner, contexto=contexto,
                     neural_threshold=0.85, learner_threshold=0.85,
                 )
                 if fonte not in ("learner", "easyocr"):
-                    return ("", "vazio", 0.0)
-                return (char, fonte, c)
-            return classificar
+                    return ("", 0.0, "vazio")
+                return (char, c, fonte)
+            return ler_caractere
 
-        self._preencher_boxes(
+        self._preencher_por_linha(
             "Detectar e preencher (Híbrido)", preparar,
-            lambda fontes, n: (f"Total: {n}\n"
-                               f"Encontrados via Base: {fontes.get('learner', 0)}\n"
-                               f"Encontrados via OCR: {fontes.get('easyocr', 0)}"),
+            lambda fontes: (f"Encontrados via Base: {fontes.get('learner', 0)}\n"
+                            f"Encontrados via OCR: {fontes.get('easyocr', 0)}\n"
+                            f"Corrigidos pela linha: "
+                            f"{fontes.get('easyocr_linha', 0)}"),
+            conf_maxima_para_trocar=CONF_MAXIMA_PARA_A_LINHA_HIBRIDO,
         )
 
     def generate_and_fill_neural(self):

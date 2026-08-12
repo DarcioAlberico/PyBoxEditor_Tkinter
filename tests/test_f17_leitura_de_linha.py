@@ -413,3 +413,34 @@ def test_a_fonte_da_ancora_sobrevive_quando_a_linha_so_confirma():
     assert [f for *_r, f in saida] == ["neural", "neural"]
     assert [c for _b, _ch, c, _f in saida] == [0.95, 0.95], \
         "concordaram: a confiança tinha que subir"
+
+
+def test_a_linha_preenche_o_box_que_a_ancora_deixou_vazio():
+    """
+    O caminho híbrido zera o box cuja fonte não é `learner` nem `easyocr`, e a
+    confiança dele fica em 0,0 — abaixo de qualquer trava. É exatamente onde a
+    linha deve entrar.
+    """
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("abc")
+    tabela = {"a": ("a", 0.99), "b": ("", 0.0), "c": ("c", 0.99)}
+
+    saida = ldl.ler_pagina(pagina, [linha],
+                           ler_faixa=lambda t: ("abc", 0.8),
+                           ler_caractere=_ler_char_falso(tabela, "learner"),
+                           conf_maxima_para_trocar=0.85)
+
+    assert "".join(ch for _b, ch, _c, _f in saida) == "abc"
+    assert [f for *_r, f in saida] == ["learner", "easyocr_linha", "learner"]
+
+
+def test_o_box_vazio_que_a_linha_tambem_nao_le_continua_vazio():
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.99), "b": ("", 0.0)}
+
+    saida = ldl.ler_pagina(pagina, [linha],
+                           ler_faixa=lambda t: ("", 0.0),
+                           ler_caractere=_ler_char_falso(tabela, "learner"),
+                           conf_maxima_para_trocar=0.85)
+    assert [(ch, f) for _b, ch, _c, f in saida] == [("a", "learner"), ("", "vazio")]

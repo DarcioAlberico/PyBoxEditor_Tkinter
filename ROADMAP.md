@@ -4724,6 +4724,54 @@ Cobertura: 4 testes novos em `tests/test_f17_leitura_de_linha.py` (34 no arquivo
 
 ---
 
+## F21 — A leitura por linha no «Híbrido/Ref» — CONCLUÍDA, e aqui ela rende
+
+Último caminho que faltava, e o único dos três em que a linha paga de verdade. A razão é
+o que as três medições juntas mostram: **a linha rende na proporção inversa da força da
+âncora.**
+
+Este caminho não tem rede — é k-NN → EasyOCR —, e começa 2,7 pontos abaixo do neural.
+Medido em 2.278 caracteres:
+
+| trava | com a rede (F20) | **híbrido (esta)** | trocados |
+|---|---:|---:|---:|
+| sem linha | 97,50% | **94,82%** | 0 |
+| 0,70 | 97,54% | 95,22% | 39 |
+| **0,85** | 97,50% | **95,26%** | 42 |
+| 0,90 | — | 95,08% | 50 |
+| 0,95 | 97,32% | 95,08% | 53 |
+| sempre | 90,47% | 90,25% | 194 |
+
+**+0,44 ponto, dez vezes o ganho do caminho neural** (+0,04). E o ótimo desloca de 0,70
+para 0,85 — que não é número achado só por varredura: 0,85 é o `learner_threshold` desta
+ação, então a linha age exatamente nos boxes em que o k-NN se recusou a responder.
+
+"Sempre" continua sendo o pior de todos os mundos, e por muito: 90,25%.
+
+### O box vazio é onde a linha mais tem a dizer
+
+Esta ação zera o box cuja fonte não é `learner` nem `easyocr` — a confiança dele fica em
+0,0, abaixo de qualquer trava. É o caso em que a âncora admite não saber, e é exatamente
+onde a segunda opinião vale mais. O alinhamento já tratava disso (a `MARCA_DE_VAZIO` da
+F17); agora há teste dizendo que o caminho inteiro faz isso.
+
+### O resumo das três fases
+
+| caminho | âncora | antes | depois | trava |
+|---|---|---:|---:|---:|
+| Preencher (EasyOCR por linha) | EasyOCR | 72,9% | **89,5%** | sem trava |
+| Detectar e Preencher (Neural) | rede + k-NN | 97,50% | 97,54% | 0,70 |
+| Detectar e Preencher (Híbrido) | k-NN | 94,82% | **95,26%** | 0,85 |
+| PDF pesquisável | rede + k-NN | 97,50% | 97,54% | 0,70 |
+
+Quem quiser mexer numa dessas travas: a pergunta não é "qual o melhor número", é "quão boa
+é a âncora deste caminho". Onde ela já lê melhor que 89,5%, a linha só deve encostar no
+que sobrou.
+
+Cobertura: 2 testes novos em `tests/test_f17_leitura_de_linha.py` (36 no arquivo).
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
