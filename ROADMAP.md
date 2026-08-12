@@ -4603,6 +4603,90 @@ Cobertura: 4 testes em `tests/test_f21_pdf_pesquisavel.py`, 2 em
 
 ---
 
+## F19 — A altura relativa à linha — MEDIDA, e o remédio não é este
+
+A F14 fechou pedindo isto com todas as letras: homóglifo e caixa são 23% dos erros, "não
+são erro de treino, são o mesmo desenho", e pedem "**entrada nova** — altura relativa à
+linha junto do recorte". Esta fase foi atrás. **O sinal está lá, e mesmo assim não
+melhora nada.** As duas metades importam.
+
+### O sinal existe, e o discriminante não é o que a F14 escreveu
+
+Medido nos `.box` rotulados, em distância entre médias por desvio combinado (d'):
+
+| par | d′(topo) | d′(base) | d′(altura) | |
+|---|---:|---:|---:|---|
+| s/S | **3,78** | 0,60 | 3,18 | separa |
+| o/0 | **3,24** | 0,60 | 2,66 | separa |
+| w/W | **3,10** | 0,20 | 2,78 | separa |
+| c/C | **3,00** | 0,30 | 1,82 | separa |
+| g/9 | **2,32** | 1,24 | 0,78 | separa |
+| l/1 | 1,93 | 1,02 | 0,06 | fraco |
+| p/P | 1,14 | 0,56 | 0,74 | não |
+| i/1 | 0,01 | 0,90 | 0,86 | não |
+
+**É o topo, e não a altura.** O topo ganha em toda linha da tabela, e a razão é
+tipográfica: todo glifo se apoia na mesma linha de base, então a base não distingue nada;
+o que muda é até onde o glifo sobe. Minúscula de x-height começa em 0,30 da faixa da
+linha; maiúscula e dígito, em 0,08.
+
+**A altura sozinha erraria justamente o `p`.** Ele desce abaixo da base e mede quase o
+mesmo que um `P` (0,703 contra 0,771) — por isso `p/P` fica em 1,14. Um módulo escrito
+como a F14 formulou ("altura") erraria o par que ela própria lista como o maior da família
+de caixa. `i/1` e `k/K` também não têm separação: os dois lados sobem igual.
+
+### E não dá para pôr na rede, que é onde a F14 queria
+
+A base são **127 mil PNGs de 32x32 já normalizados** (`training_data/`), e a altura
+relativa não é recuperável deles: foi descartada na gravação. Acrescentar a entrada à CNN
+exigiria reextrair e rerrotular a base inteira a partir das páginas originais — e o rótulo
+é trabalho humano de meses, não de uma fase.
+
+### Desempatar depois também não funciona
+
+O que dava para testar sem retreinar nada: a rede oferece as candidatas (`predict_topk`), a
+altura escolhe entre elas. `medir_altura.py` varre 63 combinações — dois normalizadores
+(faixa da linha; mediana de `y1`/`y2`, que é menos ruidosa), quatro cortes, três faixas de
+incerteza, três margens de probabilidade — em 9.178 caracteres:
+
+| | acerto |
+|---|---:|
+| rede como está (argmax) | **98,29%** |
+| melhor combinação com desambiguação | nenhuma passa de 98,29% |
+
+Nenhuma supera, e nenhuma sequer empata mexendo em alguma coisa. Testado também
+restringindo a troca só aos pares confundíveis, em vez de a toda divergência de classe:
+igual.
+
+**A conta que explica.** Numa amostra de 2.257 caracteres a rede erra 62, e 21 são de
+classe de topo — o alvo real. Para render, a medida geométrica teria de disparar nesses 21
+e quase nunca nos 2.195 acertos: a 2% de falso positivo já seriam 44 quebras contra 21
+consertos possíveis. **Uma base a 98% não tolera um canal lateral a 97%.**
+
+Houve um erro de percurso que vale registrar, porque quase virou conclusão errada: a
+primeira varredura usou margem de probabilidade de 0,02 e o desambiguador tocou **1 box em
+2.257**. A rede é peaked — a F14 mediu 0,9994 de confiança num acerto —, então a segunda
+candidata vem com ~0,0005 e a margem cortava todas. "Não mudou nada" parecia "não tem
+sinal", e era "o filtro estava fechado". Só depois de abrir a margem até 1e-6 a medição
+passou a responder a pergunta feita.
+
+### O que fica
+
+Nada em produção mudou. Ficam `core/altura_relativa.py` e `medir_altura.py` — instrumento
+e medição, como `avaliacao_pagina.py` e `medir_paginas.py` —, mais
+`NeuralPredictor.predict_topk`, que a varredura precisa e que qualquer tentativa futura
+aqui também vai precisar.
+
+**Isto não desmente a F14; reforça a parte dela que esta fase não alcançou.** A altura tem
+de entrar **na** rede, treinada junto, onde o modelo aprende quanto confiar nela — e o
+caminho para isso passa por reextrair a base com a escala preservada, não por pendurar um
+votante depois. Enquanto isso, quem resolve homóglifo e caixa de verdade é o contexto, e
+esse é o resultado da F17.
+
+Cobertura: `tests/test_f19_altura_relativa.py`, 18 testes.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

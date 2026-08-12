@@ -665,10 +665,47 @@ class NeuralPredictor:
             print(f"Erro ao carregar modelo: {e}")
             return False
             
+    def predict_topk(self, img_np, k=5):
+        """
+        As `k` classes mais prováveis, `[(char, probabilidade), ...]`.
+
+        Existe para a F19. A rede recebe o recorte normalizado em 32x32, e ali
+        `c` e `C` são a mesma imagem — ela **não tem como** escolher, e a
+        medição mostra que ela de fato hesita entre as duas. Quem desempata é a
+        altura relativa à linha, que não está na entrada dela; para isso ser
+        possível é preciso ver as candidatas, e não só a vencedora.
+        """
+        if not self.loaded:
+            return []
+
+        probs = self._probabilidades(img_np)
+        if probs is None:
+            return []
+        k = max(1, min(int(k), probs.shape[0]))
+        valores, indices = torch.topk(probs, k)
+        return [(self.idx_to_char.get(int(i), "?"), float(v))
+                for v, i in zip(valores, indices)]
+
+    def _probabilidades(self, img_np):
+        """O softmax da rede para um recorte, ou None se ela não carregou."""
+        if not self.loaded:
+            return None
+
+        if len(img_np.shape) == 3:
+            img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        else:
+            img_gray = img_np
+
+        img = cv2.resize(img_gray, (32, 32)).astype(np.float32) / 255.0
+        tensor = torch.tensor(img[None, None, :, :]).to(self.device)
+        with torch.no_grad():
+            saida = self.model(tensor)
+            return F.softmax(saida / self.temperatura, dim=1)[0]
+
     def predict(self, img_np):
         if not self.loaded:
             return "?", 0.0
-            
+
         # Preprocess
         if len(img_np.shape) == 3:
             img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
