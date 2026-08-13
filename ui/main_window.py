@@ -13,7 +13,7 @@ from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
 from core.mapa_glifos import corrigir_mapeamento
-from core.searchable_pdf import gerar_pdf_pesquisavel
+from core.searchable_pdf import contar_paginas_com_texto, gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService, faixas_de_linha
 from core.services.ocr_service import OCRService
@@ -1526,6 +1526,49 @@ class MainWindow(tk.Frame):
 
         self._run_task("Promover recortes", trabalho, concluir)
 
+    def _perguntar_sobre_paginas_com_texto(self, input_pdf):
+        """
+        True = pular as páginas que já têm texto, False = reprocessar, None = desistir.
+
+        **É a pergunta que decide o resultado inteiro nestes livros.** Pular é o
+        padrão certo para um scan limpo — escrever OCR sobre página que já tem
+        texto duplica o conteúdo e a busca devolve tudo duas vezes. Mas as
+        digitalizações deste projeto vêm com OCR de fábrica em quase toda
+        página, e aí o padrão faz a conversão inteira não fazer nada: medido nos
+        três livros de `PDF/`, 58/60, 57/60 e 53/60 páginas puladas. A opção
+        existia em `gerar_pdf_pesquisavel` desde sempre e não chegava aqui.
+
+        Só pergunta quando há o que perguntar: num scan puro a contagem dá zero
+        e o padrão passa direto.
+        """
+        self.parent.config(cursor="watch")
+        self.status.set("Verificando quais páginas já têm texto...")
+        self.parent.update_idletasks()
+        try:
+            com_texto, total = contar_paginas_com_texto(input_pdf)
+        except Exception:
+            # Arquivo ilegível: quem reporta é a tarefa, com o diálogo de erro
+            # de sempre. Aqui só não dá para perguntar nada.
+            return True
+        finally:
+            self.parent.config(cursor="")
+            self.status.set("Pronto.")
+
+        if not com_texto:
+            return True
+
+        resposta = messagebox.askyesnocancel(
+            "Páginas que já têm texto",
+            f"{com_texto} de {total} página(s) já têm uma camada de texto.\n\n"
+            "Sim — pular essas páginas (padrão): preserva o texto que já existe "
+            "e processa só o resto.\n"
+            "Não — reprocessar todas: para digitalização cujo OCR de fábrica é "
+            "ruim, que é o caso dos livros deste projeto.\n\n"
+            "Reprocessar acrescenta uma segunda camada de texto sobre a que já "
+            "existe; a busca no PDF passa a encontrar as duas."
+        )
+        return resposta
+
     def _acao_ocr_pdf(self, modo, titulo, titulo_saida):
         if self._busy("A conversão"):
             return
@@ -1535,6 +1578,10 @@ class MainWindow(tk.Frame):
             filetypes=[("Arquivos PDF", "*.pdf")]
         )
         if not input_pdf:
+            return
+
+        pular = self._perguntar_sobre_paginas_com_texto(input_pdf)
+        if pular is None:
             return
 
         output_pdf = filedialog.asksaveasfilename(
@@ -1567,6 +1614,7 @@ class MainWindow(tk.Frame):
                 input_pdf, output_pdf,
                 reconhecer=reconhecer,
                 modo=modo,
+                pular_paginas_com_texto=pular,
                 ler_linha=self.ocr_service.easyocr_linha_conf,
                 progress_callback=progresso,
             )
@@ -1578,6 +1626,13 @@ class MainWindow(tk.Frame):
                 f"{resumo['paginas_puladas']} já tinham texto)",
                 f"Caracteres reconhecidos: {resumo['reconhecidos']} de {resumo['boxes']}",
             ]
+            if not resumo["paginas_ocr"] and resumo["paginas_puladas"]:
+                linhas.append("")
+                linhas.append(
+                    "Nenhuma página foi processada: todas já tinham camada de "
+                    "texto e foram puladas. Se essa camada é de um OCR ruim, "
+                    "repita respondendo «Não» à pergunta sobre páginas que já "
+                    "têm texto.")
             if resumo["pecas_substituidas"]:
                 linhas.append(f"Peças substituídas: {resumo['pecas_substituidas']}")
             if resumo["baixa_confianca"]:

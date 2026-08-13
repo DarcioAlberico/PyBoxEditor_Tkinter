@@ -11,12 +11,18 @@ Rodar sem pytest:      python tests/test_f21_pdf_pesquisavel.py
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import fitz
+from conftest import raiz_tk
 
-from core.searchable_pdf import gerar_pdf_pesquisavel, MODOS
+import fitz
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+from core.searchable_pdf import (MODOS, contar_paginas_com_texto,
+                                 gerar_pdf_pesquisavel)
 
 
 # ----------------------------------------------------------------------
@@ -307,6 +313,208 @@ def test_arquivo_inexistente():
         pass
     else:
         raise AssertionError("deveria reclamar de arquivo inexistente")
+
+
+# ----------------------------------------------------------------------
+# Pular página que já tem texto é a decisão que muda tudo
+# ----------------------------------------------------------------------
+
+def test_contar_paginas_com_texto():
+    """A conta que deixa a UI perguntar só quando há o que perguntar."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scan = _pdf_escaneado(os.path.join(tmp, "scan.pdf"), paginas=3)
+        assert contar_paginas_com_texto(scan) == (0, 3)
+
+        digital = _pdf_digital(os.path.join(tmp, "digital.pdf"))
+        assert contar_paginas_com_texto(digital) == (1, 1)
+
+
+def test_contar_paginas_com_texto_num_documento_misto():
+    """
+    O caso dos livros deste projeto: digitalização que já veio com OCR. A conta
+    tem de separar as duas metades, senão a pergunta da UI sai errada.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        scan = fitz.open(_pdf_escaneado(os.path.join(tmp, "s.pdf"), paginas=2))
+        misto = fitz.open()
+        misto.insert_pdf(scan)
+        misto.new_page().insert_text((60, 100), "pagina com texto nativo", fontsize=18)
+        caminho = os.path.join(tmp, "misto.pdf")
+        misto.save(caminho)
+        misto.close()
+        scan.close()
+
+        assert contar_paginas_com_texto(caminho) == (1, 3)
+
+
+def test_contar_paginas_reclama_de_arquivo_inexistente():
+    try:
+        contar_paginas_com_texto("nao_existe_xyz.pdf")
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("deveria reclamar de arquivo inexistente")
+
+
+# ----------------------------------------------------------------------
+# A pergunta na UI
+# ----------------------------------------------------------------------
+
+class _AppOCR:
+    """
+    MainWindow com os diálogos e a conversão de verdade neutralizados.
+
+    `gerar_pdf_pesquisavel` é trocado **no espaço de nomes de `ui.main_window`**,
+    que é onde o nome está ligado. Assim o teste lê os argumentos sem carregar o
+    modelo neural nem as 127 mil imagens do k-NN, que é o que `trabalho` faria
+    antes de chamá-lo.
+    """
+
+    def __init__(self, entrada, resposta):
+        import ui.main_window as mw
+        from ui.main_window import MainWindow
+
+        self.mw = mw
+        self.entrada = entrada
+        self.saida = os.path.join(os.path.dirname(entrada), "saida.pdf")
+        self.resposta = resposta
+        self.perguntas = []
+        self.avisos = []
+        self.chamadas = []
+
+        self._original = (messagebox.showinfo, messagebox.showerror,
+                          messagebox.askyesnocancel, filedialog.askopenfilename,
+                          filedialog.asksaveasfilename, mw.gerar_pdf_pesquisavel)
+        messagebox.showinfo = lambda t, m, **k: self.avisos.append((t, m))
+        messagebox.showerror = lambda t, m, **k: self.avisos.append((t, m))
+        messagebox.askyesnocancel = self._perguntar
+        filedialog.askopenfilename = lambda **k: self.entrada
+        filedialog.asksaveasfilename = lambda **k: self.saida
+        mw.gerar_pdf_pesquisavel = self._gerar
+
+        self.root = raiz_tk()
+        self.win = MainWindow(self.root)
+        # Modelo neural e base de referência não entram num teste de diálogo.
+        self.win.learning_service.load_predictor = lambda *a, **k: None
+        self.win.learning_service._get_learner = lambda *a, **k: None
+        self.win.learning_service._predictor = None
+
+    def _perguntar(self, titulo, mensagem, **k):
+        self.perguntas.append((titulo, mensagem))
+        return self.resposta
+
+    def _gerar(self, entrada, saida, **kw):
+        self.chamadas.append(kw)
+        return {"paginas": 1, "paginas_ocr": 1, "paginas_puladas": 0, "boxes": 3,
+                "reconhecidos": 3, "baixa_confianca": 0, "pecas_substituidas": 0,
+                "sem_glifo": 0}
+
+    def aguardar(self, limite=30.0):
+        fim = time.time() + limite
+        self.root.update()
+        while self.win.task.is_running() and time.time() < fim:
+            self.root.update()
+            time.sleep(0.01)
+        self.root.update()
+        assert not self.win.task.is_running(), "a tarefa não terminou no tempo"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        (messagebox.showinfo, messagebox.showerror, messagebox.askyesnocancel,
+         filedialog.askopenfilename, filedialog.asksaveasfilename,
+         self.mw.gerar_pdf_pesquisavel) = self._original
+        try:
+            self.win.task.shutdown()
+            self.win.status.end_task()
+            self.root.update()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+
+
+def test_responder_nao_reprocessa_as_paginas_que_ja_tem_texto():
+    """
+    Era: a UI nunca passava `pular_paginas_com_texto`, e o padrão pula.
+
+    Nos três livros de `PDF/` — digitalizações que já vêm com OCR de fábrica —
+    isso é 58/60, 57/60 e 53/60 páginas puladas, e "Substituir Glifos em PDF
+    **Escaneado**" respondia "OCR em 0" diante de um livro escaneado. A opção
+    existia em `gerar_pdf_pesquisavel` desde o início e não chegava aqui.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = _pdf_digital(os.path.join(tmp, "in.pdf"))
+        with _AppOCR(entrada, resposta=False) as app:   # 'Não' = reprocessar
+            app.win.gerar_pdf_pesquisavel_action()
+            app.aguardar()
+
+            assert app.perguntas, "não perguntou nada sobre as páginas com texto"
+            assert "1 de 1" in app.perguntas[0][1], app.perguntas[0][1]
+            assert len(app.chamadas) == 1
+            assert app.chamadas[0]["pular_paginas_com_texto"] is False
+
+
+def test_responder_sim_mantem_o_padrao_de_pular():
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = _pdf_digital(os.path.join(tmp, "in.pdf"))
+        with _AppOCR(entrada, resposta=True) as app:
+            app.win.gerar_pdf_pesquisavel_action()
+            app.aguardar()
+
+            assert app.perguntas
+            assert app.chamadas[0]["pular_paginas_com_texto"] is True
+
+
+def test_desistir_da_pergunta_nao_converte():
+    """Cancelar na pergunta não pode seguir para o diálogo de salvar."""
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = _pdf_digital(os.path.join(tmp, "in.pdf"))
+        with _AppOCR(entrada, resposta=None) as app:
+            app.win.gerar_pdf_pesquisavel_action()
+            app.root.update()
+
+            assert app.perguntas
+            assert not app.chamadas, "converteu depois de o usuário desistir"
+
+
+def test_scan_puro_nao_gera_pergunta():
+    """Sem página com texto não há decisão a tomar — perguntar seria ruído."""
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = _pdf_escaneado(os.path.join(tmp, "in.pdf"), paginas=2)
+        with _AppOCR(entrada, resposta=None) as app:
+            app.win.substitute_glyphs_neural_action()
+            app.aguardar()
+
+            assert not app.perguntas, "perguntou sobre páginas com texto num scan puro"
+            assert app.chamadas[0]["pular_paginas_com_texto"] is True
+            assert app.chamadas[0]["modo"] == "both"
+
+
+def test_conversao_que_pulou_tudo_diz_o_que_fazer():
+    """
+    "OCR em 0, 264 já tinham texto" não é informação suficiente para quem
+    escolheu a ferramenta certa e não recebeu nada.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = _pdf_digital(os.path.join(tmp, "in.pdf"))
+        with _AppOCR(entrada, resposta=True) as app:
+            app._gerar = lambda e, s, **kw: (
+                app.chamadas.append(kw) or
+                {"paginas": 9, "paginas_ocr": 0, "paginas_puladas": 9, "boxes": 0,
+                 "reconhecidos": 0, "baixa_confianca": 0, "pecas_substituidas": 0,
+                 "sem_glifo": 0})
+            app.mw.gerar_pdf_pesquisavel = app._gerar
+
+            app.win.gerar_pdf_pesquisavel_action()
+            app.aguardar()
+
+            texto = app.avisos[-1][1]
+            assert "Nenhuma página foi processada" in texto, texto
+            assert "«Não»" in texto or "Não»" in texto, texto
 
 
 # ----------------------------------------------------------------------

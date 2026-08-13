@@ -76,6 +76,29 @@ def _pagina_tem_texto(page: fitz.Page, minimo: int = 12) -> bool:
         return False
 
 
+def contar_paginas_com_texto(input_pdf: str, minimo: int = 12) -> Tuple[int, int]:
+    """
+    (quantas páginas já têm camada de texto, total de páginas).
+
+    Existe para a UI poder perguntar antes de rodar — e só quando a pergunta faz
+    sentido. `pular_paginas_com_texto` é o padrão e está certo para um scan
+    limpo, mas decide o resultado inteiro no caso mais comum aqui: digitalização
+    que já veio com OCR de fábrica. Medido nos três livros de `PDF/`, nas 60
+    primeiras páginas de cada: 58, 57 e 53 páginas seriam puladas, e a camada
+    que elas trazem é justamente a que motivou este projeto ("hb7 2.hb7 l2Jd7
+    3.ha8 Wlxa8"). Sem a pergunta, a conversão devolvia "264 páginas, OCR em 0".
+
+    Custo medido: 0,6 s num livro de 263 páginas, 3,0 s num de 2.612.
+    """
+    if not os.path.exists(input_pdf):
+        raise FileNotFoundError(f"Arquivo não encontrado: {input_pdf}")
+    doc = fitz.open(input_pdf)
+    try:
+        return sum(1 for p in doc if _pagina_tem_texto(p, minimo)), len(doc)
+    finally:
+        doc.close()
+
+
 def _pagina_para_numpy(page: fitz.Page, dpi: int) -> np.ndarray:
     """Renderiza a página em escala de cinza, sem tocar no conteúdo dela."""
     pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csGRAY)
