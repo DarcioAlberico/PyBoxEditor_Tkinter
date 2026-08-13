@@ -1260,14 +1260,38 @@ class MainWindow(tk.Frame):
             cj, cc = caminhos_do_relatorio(output_pdf, rel.dry_run)
             destino = ("Nenhum PDF foi gravado." if rel.dry_run
                        else f"Arquivo salvo em:\n{output_pdf}")
-            messagebox.showinfo(
-                "Simulação concluída" if rel.dry_run else "Concluído",
-                f"{rel.resumo()}\n\n{destino}\n\n"
-                f"Relatório:\n{cj}\n{cc}"
-            )
+            titulo = "Simulação concluída" if rel.dry_run else "Concluído"
+            corpo = f"{rel.resumo()}\n\n{destino}\n\nRelatório:\n{cj}\n{cc}"
+
+            # Zero substituições sai como aviso, não como conclusão. Este caminho
+            # depende de reconhecer a fonte pelo nome, e nos três livros de
+            # `PDF/` nenhuma das 39/28/41 fontes casa: os nomes vêm em subset
+            # (`Fd350139`) e não há em que casar. O diálogo antigo dizia
+            # "264 página(s), 0 substituição(ões); nenhum aviso" — que é o que
+            # uma conversão perfeita também diria.
+            if rel.alerta():
+                messagebox.showwarning(titulo, f"{corpo}\n\n{self._saida_do_beco(rel)}")
+            else:
+                messagebox.showinfo(titulo, corpo)
 
         self._run_task("Simular substituição" if simular else "Substituir glifos",
                        trabalho, concluir)
+
+    @staticmethod
+    def _saida_do_beco(rel):
+        """O que fazer diante de um relatório vazio. Depende de qual vazio é."""
+        if rel.sem_camada_de_texto:
+            return ("Este PDF não tem texto extraível — é uma digitalização. "
+                    "Esta ferramenta trabalha sobre o texto do próprio PDF.\n"
+                    "Use 'Substituir Glifos em PDF Escaneado (Neural)'.")
+        return (
+            "A detecção procura palavras-chave no nome da fonte (chess, merida, "
+            "diagram...). Nomes como os deste documento costumam ser de subset, "
+            "e o nome original não sobrevive neles.\n\n"
+            "Se o livro é digitalizado, use 'Substituir Glifos em PDF Escaneado "
+            "(Neural)'. Se é digital, acrescente o nome da fonte em "
+            "'font_patterns' num perfil de config/profiles/ — a lista completa "
+            "das fontes está no JSON do relatório.")
 
     def gerar_pdf_pesquisavel_action(self):
         """PDF pesquisável: mantém a página como está e só acrescenta o texto."""

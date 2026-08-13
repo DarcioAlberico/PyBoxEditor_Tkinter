@@ -321,11 +321,17 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
         fonte_saida=font_path,
     )
 
+    fontes_vistas = set()
+    fontes_de_xadrez = set()
+
     for page_num, page in enumerate(doc):
-        # Em dry-run nem o alias é registrado: insert_font já altera o documento,
-        # e o combinado é não encostar nele.
-        if not dry_run:
-            page.insert_font(fontname=FONT_ALIAS, fontfile=font_path)
+        # O alias da fonte de saída é registrado no primeiro span que vai ser
+        # escrito, e não no topo da página. Registrar aqui embutia a fonte
+        # inteira em toda página do livro — inclusive nas que não têm nada de
+        # xadrez, e inclusive numa conversão que não substitui nada: medido, um
+        # PDF de 2.499 KB saía com 4.937 KB e **zero** substituições, só de
+        # carregar 2,4 MB de Segoe UI Symbol página a página.
+        fonte_registrada = False
 
         # Notify progress
         if progress_callback:
@@ -340,6 +346,19 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
             # Skip image blocks
             if block.get("type", 0) != 0:
                 continue
+
+            # As fontes são anotadas antes do filtro de diagrama, e não junto da
+            # substituição: um livro cuja notação toda caia na heurística de
+            # diagrama tem fonte de xadrez de verdade, e dizer o contrário
+            # mandaria o usuário procurar o problema no lugar errado.
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    nome = span.get("font", "")
+                    if not nome:
+                        continue
+                    fontes_vistas.add(nome)
+                    if is_chess_font(nome):
+                        fontes_de_xadrez.add(nome)
 
             # O perfil do bloco sai da primeira fonte de xadrez que ele contém —
             # os limiares de diagrama são por livro, e um bloco não mistura
@@ -361,6 +380,11 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
                 for span in line.get("spans", []):
                     if not is_chess_font(span["font"]):
                         continue
+                    # Em dry-run nem o alias é registrado: insert_font já altera
+                    # o documento, e o combinado é não encostar nele.
+                    if not dry_run and not fonte_registrada:
+                        page.insert_font(fontname=FONT_ALIAS, fontfile=font_path)
+                        fonte_registrada = True
                     escolhido = _resolver_perfil(span["font"], perfil,
                                                  perfis_disponiveis)
                     sub = process_span(
@@ -372,9 +396,27 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
                         sub.perfil = escolhido.nome if escolhido else ""
                         rel.substituicoes.append(sub)
 
+    rel.fontes_vistas = sorted(fontes_vistas)
+    rel.fontes_de_xadrez = sorted(fontes_de_xadrez)
+
     if not dry_run:
         try:
-            doc.save(output_pdf)
+            if rel.total_substituicoes:
+                # A fonte de símbolos tem 2,4 MB e seria embutida inteira.
+                # Reduzi-la aos glifos usados leva o mesmo documento de 4.937 KB
+                # para 1.387 KB — é o que o `searchable_pdf` já fazia, e que
+                # este caminho nunca recebeu.
+                #
+                # Só quando houve substituição: sem nenhuma, nada nosso entrou no
+                # documento, e mexer nas fontes do editor para nada seria alterar
+                # o que o usuário não pediu para alterar.
+                try:
+                    doc.subset_fonts()
+                except Exception:
+                    pass   # sem subset o arquivo fica grande, mas continua correto
+                doc.save(output_pdf, garbage=3, deflate=True)
+            else:
+                doc.save(output_pdf)
         except Exception as e:
             doc.close()
             raise Exception(f"Erro ao salvar PDF: {e}")

@@ -79,6 +79,15 @@ class RelatorioSubstituicao:
     # blocos que a heurística de diagrama pulou: (página, quantos spans)
     diagramas_ignorados: List[Tuple[int, int]] = field(default_factory=list)
     fonte_saida: str = ""
+    # Toda fonte que apareceu no documento, e quais delas `is_chess_font`
+    # reconheceu. Sem os dois, "0 substituições" diz a mesma coisa em três casos
+    # que pedem providências opostas: o livro não tem notação em fonte de
+    # xadrez; tem, mas o nome da fonte veio em subset (`Fd350139`) e a detecção
+    # por palavra-chave não teve em que casar; ou o PDF é digitalizado e não tem
+    # camada de texto nenhuma. Medido nos três livros de `PDF/`: 39, 28 e 41
+    # fontes, **nenhuma** reconhecida, e o resumo dizia "nenhum aviso".
+    fontes_vistas: List[str] = field(default_factory=list)
+    fontes_de_xadrez: List[str] = field(default_factory=list)
 
     @property
     def total_substituicoes(self) -> int:
@@ -103,12 +112,48 @@ class RelatorioSubstituicao:
     def spans_de_diagrama_ignorados(self) -> int:
         return sum(n for _, n in self.diagramas_ignorados)
 
+    @property
+    def sem_camada_de_texto(self) -> bool:
+        """O documento não tem texto extraível: não há span nenhum a converter."""
+        return not self.fontes_vistas
+
+    @property
+    def nenhuma_fonte_de_xadrez(self) -> bool:
+        """Há texto no documento, e nenhuma fonte dele foi reconhecida."""
+        return bool(self.fontes_vistas) and not self.fontes_de_xadrez
+
+    def amostra_de_fontes(self, quantas: int = 3) -> str:
+        nomes = sorted(self.fontes_vistas)[:quantas]
+        return ", ".join(nomes) + ("..." if len(self.fontes_vistas) > quantas else "")
+
+    def alerta(self) -> str:
+        """
+        A frase que explica um resultado vazio, ou "" quando não há o que explicar.
+
+        Existe porque zero substituições e conversão bem-sucedida saíam com a
+        mesma cara. Fica separada do `resumo()` para a UI poder decidir entre
+        aviso e informação a partir de um teste só.
+        """
+        if self.total_substituicoes:
+            return ""
+        if self.sem_camada_de_texto:
+            return ("ATENÇÃO: o documento não tem camada de texto — não há span "
+                    "algum a converter por este caminho")
+        if self.nenhuma_fonte_de_xadrez:
+            return (f"ATENÇÃO: nenhuma fonte de xadrez reconhecida — nada foi "
+                    f"substituído ({len(self.fontes_vistas)} fonte(s) no "
+                    f"documento: {self.amostra_de_fontes()})")
+        return ""
+
     def resumo(self) -> str:
         modo = "SIMULAÇÃO (nada foi gravado)" if self.dry_run else "conversão"
         linhas = [
             f"{modo}: {self.total_paginas} página(s), "
             f"{self.total_substituicoes} substituição(ões)",
         ]
+        alerta = self.alerta()
+        if alerta:
+            linhas.append(alerta)
         if self.diagramas_ignorados:
             linhas.append(
                 f"{len(self.diagramas_ignorados)} bloco(s) de diagrama ignorados "
@@ -117,7 +162,9 @@ class RelatorioSubstituicao:
         for chave, n in conta.items():
             if n:
                 linhas.append(f"{n} com aviso «{AVISOS[chave]}»")
-        if not any(conta.values()):
+        # "nenhum aviso" só faz sentido tendo havido substituição: sem nenhuma,
+        # ele soava como aprovação de um trabalho que não aconteceu.
+        if self.substituicoes and not any(conta.values()):
             linhas.append("nenhum aviso")
         return "; ".join(linhas)
 
@@ -168,6 +215,12 @@ def gravar_json(caminho: str, rel: RelatorioSubstituicao) -> str:
         "total_paginas": rel.total_paginas,
         "total_substituicoes": rel.total_substituicoes,
         "total_aplicadas": rel.total_aplicadas,
+        "alerta": rel.alerta(),
+        # A lista inteira, e não só a contagem: quando nada casa, os nomes são a
+        # única pista de por quê — `Fd350139` diz "fonte em subset" a quem sabe
+        # ler, e é o que permite escrever `font_patterns` para este livro.
+        "fontes_vistas": sorted(rel.fontes_vistas),
+        "fontes_de_xadrez": sorted(rel.fontes_de_xadrez),
         "avisos": rel.contagem_de_avisos(),
         "legenda_dos_avisos": AVISOS,
         "diagramas_ignorados": [{"pagina": p, "spans": n}

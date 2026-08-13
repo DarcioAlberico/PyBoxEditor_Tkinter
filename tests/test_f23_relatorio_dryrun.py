@@ -20,10 +20,15 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import raiz_tk
+
 import fitz
+import tkinter as tk
+from tkinter import filedialog, messagebox
 
 from core import chess_pdf_processor as cpp
 from core import relatorio_pdf
@@ -294,6 +299,259 @@ def test_gravar_relatorio_pode_ser_desligado():
     _analisar(entrada, saida, dry_run=False, gravar_relatorio=False)
     cj, cc = relatorio_pdf.caminhos_do_relatorio(saida, dry_run=False)
     assert not os.path.exists(cj) and not os.path.exists(cc)
+
+
+# ----------------------------------------------------------------------
+# Zero substituições não é conversão bem-sucedida
+# ----------------------------------------------------------------------
+
+def _pdf_so_prosa(paginas=1):
+    """Texto nativo, nenhuma fonte que a heurística possa reconhecer."""
+    doc = fitz.open()
+    for i in range(paginas):
+        doc.new_page(width=400, height=500).insert_text(
+            (40, 60), f"prosa comum da pagina {i + 1}", fontsize=11)
+    caminho = os.path.join(tempfile.mkdtemp(), "prosa.pdf")
+    doc.save(caminho)
+    doc.close()
+    return caminho
+
+
+def _pdf_digitalizado():
+    """Só a imagem da página, como um scan: nenhum span, nenhuma fonte."""
+    origem = fitz.open()
+    origem.new_page().insert_text((60, 100), "ABC def", fontsize=40)
+    doc = fitz.open()
+    for p in origem:
+        pix = p.get_pixmap(dpi=72)
+        nova = doc.new_page(width=p.rect.width, height=p.rect.height)
+        nova.insert_image(nova.rect, pixmap=pix)
+    caminho = os.path.join(tempfile.mkdtemp(), "scan.pdf")
+    doc.save(caminho)
+    doc.close()
+    origem.close()
+    return caminho
+
+
+def test_o_relatorio_anota_as_fontes_do_documento():
+    rel = analisar_substituicao(_pdf_so_prosa(), _saida(), dry_run=True)
+    assert rel.fontes_vistas, "não anotou nenhuma fonte"
+    assert rel.fontes_de_xadrez == []
+
+
+def test_nenhuma_fonte_de_xadrez_reconhecida_vira_alerta():
+    """
+    Era: "264 página(s), 0 substituição(ões); nenhum aviso" — exatamente o que
+    uma conversão perfeita também diria.
+
+    Medido nos três livros de `PDF/`: 39, 28 e 41 fontes embutidas, **nenhuma**
+    reconhecida, porque os nomes vêm em subset (`Fd350139`) e a detecção procura
+    palavra-chave no nome. O usuário recebia um PDF idêntico ao original com
+    cara de trabalho feito.
+    """
+    rel = analisar_substituicao(_pdf_so_prosa(), _saida(), dry_run=True)
+
+    assert rel.total_substituicoes == 0
+    assert rel.nenhuma_fonte_de_xadrez is True
+    assert rel.sem_camada_de_texto is False
+    assert "ATENÇÃO" in rel.alerta()
+    assert "ATENÇÃO" in rel.resumo()
+    assert "nenhum aviso" not in rel.resumo(), (
+        "'nenhum aviso' soa como aprovação de um trabalho que não aconteceu")
+
+
+def test_documento_sem_texto_tem_alerta_proprio():
+    """Digitalização e livro digital sem fonte de xadrez pedem saídas diferentes."""
+    rel = analisar_substituicao(_pdf_digitalizado(), _saida(), dry_run=True)
+
+    assert rel.sem_camada_de_texto is True
+    assert rel.nenhuma_fonte_de_xadrez is False
+    assert "camada de texto" in rel.alerta()
+
+
+def test_conversao_que_substituiu_nao_tem_alerta():
+    entrada = _pdf_simples()
+    rel = _analisar(entrada, _saida(), dry_run=True)
+
+    assert rel.total_substituicoes > 0
+    assert rel.fontes_de_xadrez, "não anotou a fonte que reconheceu"
+    assert rel.alerta() == ""
+    assert "ATENÇÃO" not in rel.resumo()
+
+
+def test_a_fonte_de_um_bloco_de_diagrama_conta_como_reconhecida():
+    """
+    O bloco de diagrama é pulado de propósito, mas a fonte dele **existe**.
+    Contá-la fora mandaria quem converte um livro só de diagramas procurar o
+    problema no lugar errado.
+    """
+    entrada = _pdf_simples(linhas_diagrama=8)
+    rel = _analisar(entrada, _saida(), dry_run=True)
+
+    assert rel.diagramas_ignorados, "o PDF de teste não virou diagrama"
+    assert rel.fontes_de_xadrez, "a fonte do diagrama sumiu do relatório"
+    assert rel.alerta() == ""
+
+
+def test_o_json_traz_a_lista_de_fontes():
+    """Os nomes são a única pista de por que nada casou — e o que se escreve
+    em `font_patterns` para consertar."""
+    entrada, saida = _pdf_so_prosa(), _saida()
+    analisar_substituicao(entrada, saida, dry_run=True)
+    cj, _ = relatorio_pdf.caminhos_do_relatorio(saida, dry_run=True)
+
+    with open(cj, encoding="utf-8") as f:
+        dados = json.load(f)
+    assert dados["fontes_vistas"], "o JSON não lista as fontes do documento"
+    assert dados["fontes_de_xadrez"] == []
+    assert "ATENÇÃO" in dados["alerta"]
+
+
+# ----------------------------------------------------------------------
+# O arquivo de saída não engorda à toa
+# ----------------------------------------------------------------------
+
+def _fontes_embutidas(caminho_pdf):
+    with fitz.open(caminho_pdf) as doc:
+        return {f[3] for pagina in doc for f in pagina.get_fonts(full=True)}
+
+
+def test_conversao_sem_substituicao_nao_embute_a_fonte_de_simbolos():
+    """
+    Era: `insert_font` no topo do laço de página, antes de saber se a página
+    tinha algo de xadrez. A fonte de saída (2,4 MB de Segoe UI Symbol neste
+    sistema) entrava em **toda** página, inclusive numa conversão que não
+    substituía nada: medido, 2.499 KB de entrada saíam com 4.937 KB e zero
+    substituições.
+    """
+    entrada, saida = _pdf_so_prosa(paginas=5), _saida()
+    rel = analisar_substituicao(entrada, saida)
+
+    assert rel.total_substituicoes == 0
+    assert _fontes_embutidas(saida) == _fontes_embutidas(entrada), (
+        "embutiu a fonte de símbolos numa conversão que não substituiu nada")
+    assert os.path.getsize(saida) < os.path.getsize(entrada) + 50_000
+
+
+def test_a_conversao_nao_deixa_o_arquivo_maior_que_a_entrada():
+    """
+    A fonte é embutida inteira e seria carregada como está. O `searchable_pdf`
+    já a reduzia aos glifos usados (`subset_fonts`); este caminho nunca recebeu
+    o mesmo tratamento. Medido no PDF deste teste: 2.568 KB -> 248 KB.
+    """
+    entrada, saida = _pdf_simples(), _saida()
+    rel = _analisar(entrada, saida)
+
+    assert rel.total_substituicoes > 0
+    assert os.path.getsize(saida) < os.path.getsize(entrada), (
+        f"a conversão engordou o arquivo: {os.path.getsize(entrada)} -> "
+        f"{os.path.getsize(saida)} bytes")
+
+
+def test_os_simbolos_sobrevivem_ao_subset():
+    """
+    Reduzir a fonte aos glifos usados é onde um símbolo vira retângulo vazio sem
+    erro nenhum no caminho — o defeito do `·` da SPEC §4.2, uma etapa depois.
+    """
+    entrada, saida = _pdf_simples("KQRBN"), _saida()
+    _analisar(entrada, saida)
+
+    with fitz.open(saida) as doc:
+        texto = doc[0].get_text()
+    assert any(p in texto for p in "♔♕♖♗♘"), f"nenhum símbolo sobreviveu: {texto!r}"
+    assert "·" not in texto
+
+
+# ----------------------------------------------------------------------
+# O que a UI mostra diante de um relatório vazio
+# ----------------------------------------------------------------------
+
+class _AppSubstituicao:
+    """MainWindow com os diálogos capturados; a conversão roda de verdade."""
+
+    def __init__(self, entrada, simular=False):
+        from ui.main_window import MainWindow
+
+        self.entrada = entrada
+        self.saida = os.path.join(os.path.dirname(entrada), "saida.pdf")
+        self.simular = simular
+        self.infos = []
+        self.alertas = []
+
+        self._original = (messagebox.showinfo, messagebox.showwarning,
+                          messagebox.showerror, messagebox.askyesnocancel,
+                          filedialog.askopenfilename, filedialog.asksaveasfilename)
+        messagebox.showinfo = lambda t, m, **k: self.infos.append((t, m))
+        messagebox.showwarning = lambda t, m, **k: self.alertas.append((t, m))
+        messagebox.showerror = lambda t, m, **k: self.infos.append((t, m))
+        messagebox.askyesnocancel = lambda t, m, **k: self.simular
+        filedialog.askopenfilename = lambda **k: self.entrada
+        filedialog.asksaveasfilename = lambda **k: self.saida
+
+        self.root = raiz_tk()
+        self.win = MainWindow(self.root)
+
+    def converter(self, limite=60.0):
+        self.win.substitute_chess_glyphs_action()
+        fim = time.time() + limite
+        self.root.update()
+        while self.win.task.is_running() and time.time() < fim:
+            self.root.update()
+            time.sleep(0.01)
+        self.root.update()
+        assert not self.win.task.is_running(), "a tarefa não terminou no tempo"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        (messagebox.showinfo, messagebox.showwarning, messagebox.showerror,
+         messagebox.askyesnocancel, filedialog.askopenfilename,
+         filedialog.asksaveasfilename) = self._original
+        try:
+            self.win.task.shutdown()
+            self.win.status.end_task()
+            self.root.update()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+
+
+def test_a_ui_avisa_quando_nenhuma_fonte_de_xadrez_casou():
+    """
+    Era `showinfo` com "0 substituição(ões); nenhum aviso" — a mesma caixa, com
+    o mesmo ícone, de uma conversão que deu certo.
+    """
+    with _AppSubstituicao(_pdf_so_prosa()) as app:
+        app.converter()
+
+        assert app.alertas, "0 substituições saiu como conclusão, não como aviso"
+        assert not app.infos
+        texto = app.alertas[0][1]
+        assert "nenhuma fonte de xadrez" in texto
+        assert "font_patterns" in texto, "o aviso não diz o que fazer"
+
+
+def test_a_ui_manda_o_pdf_digitalizado_para_a_ferramenta_certa():
+    with _AppSubstituicao(_pdf_digitalizado()) as app:
+        app.converter()
+
+        assert app.alertas
+        assert "Neural" in app.alertas[0][1], (
+            "não apontou o caminho do PDF escaneado")
+
+
+def test_a_ui_conclui_normalmente_quando_houve_substituicao():
+    entrada = _pdf_simples()
+    with _tratando_a_embutida_como_xadrez(entrada):
+        with _AppSubstituicao(entrada) as app:
+            app.converter()
+
+            assert app.infos, "uma conversão com substituições virou aviso"
+            assert not app.alertas
 
 
 # ----------------------------------------------------------------------
