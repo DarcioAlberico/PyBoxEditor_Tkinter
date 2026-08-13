@@ -2889,6 +2889,65 @@ O que sobra naquele diagrama é uma torre preta em e1 lida como branca: erro de
 
 Cobertura: `tests/test_f75_ocupacao.py`, 16 testes.
 
+### F7.6 — Seis diagramas na página, doze anunciados — CONCLUÍDA
+
+**Concluída em 2026-08-10.** Relato do usuário, com as páginas na mão: no *Chess
+Evolution 1* do Yusupov, a página 220 saiu com os três diagramas certos e a 221 — que
+tem **seis** — foi anunciada com **doze**.
+
+Reproduzido de primeira. As doze caixas são os seis tabuleiros de 577×579 e mais seis de
+**35 a 44 px**, que são caracteres soltos.
+
+**A causa é uma régua que o projeto já sabia ser instável, no único lugar que ainda a
+usava.** `localizar` tirava o tamanho mínimo da mediana simples das alturas dos boxes:
+
+| | pág 220 | pág 221 |
+|---|---:|---:|
+| boxes na página | 1.746 | 632 |
+| `preprocess.escala_de_texto` | 30 | 57 |
+| **mediana simples das alturas** | 19 | **5** |
+| mínimo daí (6 caracteres) | 114 px | **30 px** |
+
+A 221 é quase só diagrama: quatro linhas de texto e seis tabuleiros. A maioria dos
+contornos passa a ser o **hachurado de dentro das casas**, de 5 px — e a mediana mede a
+trama, não o texto. Com o mínimo em 30 px, um caractere de 39 entra como tabuleiro.
+
+É exatamente a armadilha que `descartar_blocos_nao_texto` documenta desde a F11, com a
+saída escrita no próprio docstring dela: *"quem tem a imagem passa
+`preprocess.escala_de_texto`, que pesa por tinta e não desaba"*. `ler_pagina` tem a
+imagem e não passava; `localizar` era o último lugar do pipeline decidindo por mediana
+simples. Agora passa, e vale para os **dois** filtros — o descarte de não-texto também
+era refeito ali sem escala, e com mediana 5 ele jogava fora 58 boxes de texto legítimo.
+
+**O saldo, medido em 41 páginas seguidas (200 a 240):** 142 "diagramas" viram **90**.
+Doze páginas mudam, e em todas o que sai tem de 36 a 64 px:
+
+| página | antes | agora | o que sumiu |
+|---|---:|---:|---|
+| 221, 222, 232, 202, 203 | 11–12 | 6 | 5 ou 6 caracteres soltos |
+| 205, 216, 236 | 8, 4, 5 | **0** | a página não tem diagrama nenhum |
+| 227 | 3 | 2 | um contorno de 58×64 |
+
+As três que foram a zero são o caso que mais incomoda e o mais claro: elas não têm
+tabuleiro, e o programa anunciava oito.
+
+**Nada de verdade se perdeu, e isso é medido e não argumentado.** Em 88 páginas espalhadas
+pelo livro inteiro (de 3 em 3), a mudança **removeu 72 caixas e não acrescentou nenhuma**:
+
+| maior lado da caixa removida | quantas |
+|---|---:|
+| até 49 px | 70 |
+| 50 a 99 px | 2 |
+| **acima de 100 px** | **0** |
+
+A maior que saiu tem 62×67 px. Os tabuleiros deste livro têm 577. Não há como a mudança
+ter custado um diagrama — a faixa onde eles vivem não foi tocada.
+
+Cobertura: `tests/test_f71_diagrama.py`, 4 testes novos, 3 deles falham no código
+anterior. Um monta a página que é quase só diagrama — seis tabuleiros, o miudinho das
+casas e quatro linhas de texto — e cobra que sem a escala o mínimo desabe, que é a única
+forma de o teste continuar valendo se alguém mexer na régua de novo.
+
 ---
 
 ## F8 — Texto girado e diagramas conferíveis
@@ -3246,6 +3305,192 @@ guarda a impressão da base (F7.3 aplicada aqui), então dá para saber que ele
 está velho — mas ninguém avisa sozinho ainda.
 
 Cobertura: `tests/test_f83_treino_diagrama.py`, 37 testes.
+
+### F8.4 — Um corpus de outro projeto vira 45 mil amostras — CONCLUÍDA
+
+**Concluída em 2026-08-10.** O usuário largou na raiz do projeto a pasta
+`Diagramas-outro-projeto/`, de um OCR de diagramas dele que "já está com uma precisão
+muito boa", e pediu para avaliar o aproveitamento. São 3.439 recortes de tabuleiro de
+800×800 com o FEN de cada um — e fecham o item que a F8.3 deixou aberto duas seções
+acima: *"nada mede se a base cresceu para melhor"*.
+
+#### Duas coisas precisavam ser verdade, e foram medidas antes de mexer em nada
+
+**Domínio.** Não são renders sintéticos: são recortes de scan de livro, com casas
+hachuradas e fontes de peça variadas — `1937 Kemeri`, `Euwe/Kramer 1956`,
+`Reinfeld 1977`, `Karpov 2011`, Yusupov, Polgar. Um deles vem amarelado. É o material
+que o nosso leitor enfrenta.
+
+**Alinhamento.** `_casas_do_recorte` divide o recorte em 8×8 **iguais**, então o corte
+precisa ser a borda do tabuleiro; moldura de 2% desloca toda casa. Medido antes de
+escrever uma linha de importador: **ocupação 99,81%** em 9.600 casas, 4 falsos positivos
+e 14 omissões. Divisão desalinhada não produz esse número. Consumo direto, sem recortar.
+
+#### A medição que justificou a fase
+
+Nosso leitor contra 346 tabuleiros do split `test` do corpus, que a importação deixa de
+fora de propósito:
+
+| | antes | depois |
+|---|---:|---:|
+| ocupação (há peça?) | 99,51% | 99,38% |
+| **identidade (qual peça?)** | **76,42%** | **99,62%** |
+| **tabuleiro inteiro certo** | **23,41%** | **92,49%** |
+
+Os 0,13 ponto a menos na ocupação não são desta fase: o modelo "antes" é o commitado em
+7 de agosto, e a base de ocupação já mudou desde então pelas confirmações do usuário
+(F8.3). Ver a nota sobre o teto de passos abaixo, onde a atribuição foi medida em vez de
+suposta.
+
+Os 76,42% são a ressalva que o relatório de treino imprime desde a F7.4 — *"ainda assim
+é otimista para um livro novo, que traz outra fonte de peças"* — medida pela primeira
+vez. Contra os ~98% que a medição interna informava.
+
+**E a causa é visível no resíduo.** O erro dominante era `p → b`: 671 de ~1.180. Os
+livros do corpus usam um peão de **pescoço fino e cabeça redonda**, forma que na nossa
+base existe só na classe do bispo; nossos peões são blocos maciços. O modelo votava
+bispo porque nunca tinha visto aquele peão. O corpus contém precisamente as fontes que
+faltavam.
+
+#### Só as peças entram, e o motivo é a mesma medição
+
+O corpus tem 51.589 peças e 168.507 casas vazias. As vazias ficaram de fora: a rede de
+ocupação já faz 99,5% **neste mesmo corpus**, e importar 168 mil amostras para a pergunta
+que está resolvida custaria toda a memória do treino sem mover o número que está errado.
+Entraram 45.256 amostras de peça, e a base de identidade foi de 1.649 para 46.905.
+
+#### O conferidor é a outra rede
+
+A defesa da F8.3 era "silêncio não é confirmação" — só entra a casa que a mão tocou.
+Aqui não há mão nenhuma: são 45 mil rótulos alheios de uma vez. A defesa que sobra é a
+ocupação, que é **independente** do que se quer aprender (diz *se* há peça, não *qual*) e
+acerta 99,5% aqui. Tabuleiro em que ela discorda do FEN em mais de 3 casas não entra.
+
+Recusou 56 de 3.091, e achou um defeito real: alguns recortes de 800×800 incluem a
+**legenda de avaliação impressa abaixo do tabuleiro** (`△  +−`). A divisão 8×8 sai
+comprimida, toda casa fica deslocada — e o FEN continua dizendo com segurança o que há
+em cada uma. Amostra torta com rótulo confiante é o defeito da F1.4, que não avisa que
+está errada.
+
+#### O gêmeo, e o único rótulo contraditório do corpus
+
+O primeiro treino com a base importada acusou, pelo `conferir` da F8.3, **a mesma imagem
+rotulada como `B` e como `P`**. Vale registrar como foi achado, porque a defesa acima não
+alcança este caso: as duas linhas dizem "há peça em c2", então a ocupação concorda com as
+duas. Quem pegou foi a conferência de rótulo contraditório, que a F1.4 deixou instalada.
+
+Perseguindo, apareceu a causa e uma segunda coisa mais frequente: **o corpus tem 3.439
+linhas para 3.264 imagens distintas.** 164 imagens aparecem sob mais de um nome. Nas duas
+linhas do conflito o arquivo é byte a byte o mesmo, e os FENs diferem só em c2 —
+`PPB1Q2P` contra `PPP1Q2P`. Ampliado, c2 é peão: uma das duas linhas está errada.
+
+O gêmeo não é só desperdício. `grupo_da_amostra` agrupa pela marca da procedência, e dois
+nomes são dois grupos: as mesmas casas poderiam cair uma no treino e outra no teste, que é
+exatamente o que a F7.4 mediu inflando o número. A importação passou a deduplicar **por
+conteúdo da imagem**, e onde os FENs discordam saem todas as cópias — não há como saber
+qual está certa, e "fica a primeira" seria escolher no cara ou coroa.
+
+**Deduplicar por FEN seria o erro simétrico**, e há teste contra ele: a mesma posição
+impressa em dois livros são duas amostras legítimas, e são justamente as que ensinam a
+fonte nova.
+
+#### O treinador precisou aguentar 28 vezes mais base
+
+- **`_deslocar` sem laço.** Era um `torch.roll` por amostra; com 46.905 são tantas
+  chamadas por época quanto amostras, e cada uma custa mais em despacho do Python do que
+  no deslocamento. Virou indexação circular no lote inteiro: **12× mais rápido e idêntico
+  bit a bit** ao laço com o mesmo sorteio — há teste cobrando a identidade, não a
+  semelhança.
+- **O platô da F7.4 fixou passos, não passadas.** As 80 épocas foram medidas com 833
+  amostras; repeti-las numa base 28 vezes maior pediria 59 mil passos de gradiente. O
+  teto agora é em passos e as épocas saem dele. Medido na base combinada:
+
+  | épocas | passos | treino | identidade | tabuleiros inteiros |
+  |---:|---:|---:|---:|---:|
+  | 2 | 2.932 | 33 s | 99,68% | 91,88% |
+  | 4 | 5.864 | 61 s | 99,68% | 91,88% |
+  | 8 | 11.728 | 120 s | 99,66% | 91,59% |
+  | 16 | 23.456 | 272 s | 99,72% | 92,17% |
+
+  O platô começa em **duas** passadas: de 2 a 16 a diferença é 0,06 ponto, sem tendência,
+  e o custo quadruplica. `MIN_EPOCAS = 4` é o meio do platô, mesmo critério da F7.4.
+- **`PASSOS = 7920` é o que a maior base do repositório já gastava**, e o primeiro valor
+  estava errado — vale registrar, com a correção junto. Tirei 4.160 da base de **peças**
+  (1.649 amostras × 80 épocas ÷ lotes de 32), que ela deixa intacta por construção. A de
+  **ocupação** tem 3.156, é maior, e o teto a cortou de 80 épocas para 42 sem teste
+  nenhum reclamar — o teste que escrevi cobria 833 e 1.649, e a base de ocupação nem
+  estava na conta.
+
+  **Atribuí o corte a uma queda que ele não causou, e a medição me desmentiu.** A
+  ocupação caíra de 99,51% para 99,38% no split de teste, e o corte era o suspeito
+  óbvio. Medido na mesma base, 42 épocas dá **99,88%** e 80 dá **99,79%** em 150
+  tabuleiros do corpus — a favor das 42. A diferença dos 0,13 ponto vem de outro lugar:
+  o `.pth` commitado foi treinado em 7 de agosto e a impressão digital da base de
+  ocupação já não bate com a dele, porque o usuário confirmou diagramas desde então. É a
+  F8.3 funcionando, e o efeito disso neste corpus nunca tinha sido medido.
+
+  O valor mudou mesmo assim, e não porque o corte fazia mal: **um padrão que altera em
+  silêncio o treino de uma base que já existia é o defeito**, e o acerto medido dele foi
+  sorte, não desenho. O teste agora cobra os três tamanhos (833, 1.649 e 3.156).
+- **Duas pastas, lidas juntas.** `training_data_diagrama/` é conferida à mão, tem 1.649
+  amostras e viaja no repositório; `training_data_diagrama_corpus/` tem 45 mil, vem de
+  rótulo alheio e o `.gitignore` a mantém fora, junto com os 2,8 GB do corpus. Separadas
+  no disco, dá para dizer de qual veio uma mudança no número — é a separação que o léxico
+  faz entre `palavras` e `do_usuario`. O corpus entra sozinho **se existir**: sem isso, a
+  janela treinaria largando 45 mil amostras em silêncio e gravaria por cima do modelo bom
+  um treinado com 3% dos dados.
+
+#### E os nossos livros, que viraram 3,6% da base?
+
+A pergunta que 42 mil amostras de outra procedência levantam: o modelo passou a ler os
+livros deles às custas dos nossos? `_pesos_das_classes` equilibra por **classe**, não por
+origem, e as nossas fontes ficaram em 3,6% dos dados.
+
+Medido com 20% dos **nossos** diagramas fora dos dois treinos:
+
+| treinado com | amostras | épocas | acerto nos nossos diagramas |
+|---|---:|---:|---:|
+| só a nossa base | 1.364 | 80 | 98,25% |
+| a nossa + o corpus | 43.811 | 6 | **99,30%** |
+
+Melhorou, e os dois erros que sumiram eram `p → b` — o mesmo defeito que o corpus veio
+consertar, presente também nos nossos livros e escondido pelo tamanho da base. O que
+sobra são dois `R → r`, que é distinguir torre branca de preta num scan escuro.
+
+#### O que a fase não promete
+
+**O split de teste compartilha livro com o de treino.** Nenhum dos 18 dias de captura é
+exclusivo do teste, então a tabela acima mede "livro cuja fonte a base já viu". Não há
+vazamento de imagem — 0 das 348 de teste é idêntica a alguma de treino —, mas 8,9% das
+posições do teste têm o mesmo FEN de alguma do treino, em imagem diferente.
+
+O número honesto de **fonte nova** é o leave-one-book-out: tirar um dia de captura
+inteiro do treino e medir nele.
+
+| dia fora | amostras no treino | tabuleiros | identidade | tabuleiros inteiros |
+|---|---:|---:|---:|---:|
+| 20260227 | 36.696 | 120 | 99,78% | 95,83% |
+| 20260301 | 36.566 | 120 | 100,00% | 99,17% |
+| 20260726 | 46.275 | 39 | 94,86% | 51,28% |
+
+O terceiro é o que vale ler: são 40 tabuleiros, e tirá-los quase não muda o treino — a
+fonte continua sozinha contra 46 mil amostras de outras, e ainda assim 94,86%. Os 51% de
+tabuleiro inteiro são aritmética, não desastre: ~15 peças por tabuleiro a 95% cada dão
+0,95¹⁵ ≈ 46%.
+
+**A procedência do corpus é fina.** `source_pdf` só está preenchido em 243 das 3.439
+linhas, então separar por **livro** — que é o corte honesto — não dá para todos; o dia de
+captura é o proxy disponível. Dentro da nossa base, `grupo_da_amostra` continua garantindo
+que duas casas do mesmo tabuleiro não fiquem em lados opostos.
+
+**Os rótulos não são todos conferidos à mão.** O `settings.json` do outro projeto aponta
+um preditor remoto de FEN e um leitor local; 126 linhas trazem `corrected_by` de
+`ocr-aceito` ou `ocr-corrigido`. O filtro de ocupação pega o rótulo grosseiramente errado,
+não o que troca uma peça por outra.
+
+Cobertura: `tests/test_f84_corpus.py` (11 testes, dos quais 5 são sobre o que **não**
+entra) e 8 testes novos em `tests/test_f83_treino_diagrama.py`. `medir_diagramas.py` refaz
+a medição da fase.
 
 ---
 

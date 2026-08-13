@@ -1420,6 +1420,29 @@ O ciclo que faltava: corrijo, guardo, treino, melhora.
    faz o leitor esquecer o modelo em memória — senão o treino não valeria até
    reiniciar o programa.
 
+> **A base virou duas, e cresceu 28× — [feito, F8.4, em `importar_diagramas.py`].** Um
+> corpus de outro projeto trouxe 3.439 recortes de tabuleiro com o FEN de cada um, e
+> `training_data_diagrama_corpus/` guarda as 45.256 amostras de peça extraídas deles. Ela
+> fica **fora do git**, ao lado da versionada e não dentro dela: separadas, dá para dizer
+> de qual base veio uma mudança no número; juntas, não. É a distinção que o léxico faz
+> entre `palavras` e `do_usuario` (§5.8). `treinar()` lê as duas, e o corpus entra sozinho
+> quando existe — o contrário faria a janela treinar largando 45 mil amostras calada.
+>
+> **O conferidor de entrada é a rede de ocupação**, e ela serve porque é independente do
+> que se quer aprender: diz *se* há peça, não *qual*. Onde discorda do FEN em mais de 3
+> casas, o tabuleiro não entra — e foi assim que apareceram os recortes que incluem a
+> legenda de avaliação abaixo do tabuleiro, cuja divisão 8×8 sai inteira deslocada.
+> A F8.3 tinha "silêncio não é confirmação" para proteger a base; com 45 mil rótulos
+> alheios de uma vez, não há mão nenhuma para calar, e esta é a defesa que sobra.
+>
+> **Só peça entra, e por medição:** a ocupação já faz 99,5% nesse corpus e a identidade
+> fazia 76,4%. As 168 mil casas vazias custariam toda a memória do treino para a pergunta
+> que está resolvida.
+>
+> **O platô da F7.4 fixou passos de gradiente, não passadas.** As 80 épocas foram medidas
+> com 833 amostras; `epocas_para` mantém o mesmo total de passos e o teto é exatamente o
+> que a base versionada já gastava, então um clone sem corpus treina o modelo de sempre.
+
 ### 7.12 A rede que lê as peças — [feito, F7.4, em `core/neural_model.RedeDiagrama`]
 
 Era HOG + PCA para 32 dimensões + voto dos 3 vizinhos mais próximos. O argumento
