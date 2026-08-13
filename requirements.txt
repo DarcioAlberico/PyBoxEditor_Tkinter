@@ -13,6 +13,13 @@ PyMuPDF>=1.23          # leitura/escrita de PDF, medição e embutimento de font
 torch>=2.0             # CNN customizada (core/neural_model.py, neural_trainer.py)
 easyocr>=1.7           # último elo da cadeia de fallback
 
+# --- Exportação de livro (F2.6) ---
+python-docx>=1.1        # escreve o DOCX. O EPUB sai com a biblioteca padrão —
+                        # é zip com XHTML dentro —, mas o OOXML tem
+                        # relacionamento, tipo de conteúdo e parte de mídia por
+                        # imagem, e errar um detalhe dá arquivo que o Word
+                        # recusa sem dizer por quê.
+
 # --- Validação de notação ---
 chess>=1.10             # regras do jogo (core/notacao.py, ROADMAP F1.7)
                         # Python puro, sem dependências; 1,3 MB instalado.
