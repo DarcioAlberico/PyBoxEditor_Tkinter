@@ -6,13 +6,13 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import (coleta, formato_box, leitura_de_linha, lexico, nags,
-                  vertical)
+from core import (coleta, exportar, formato_box, leitura_de_linha, lexico,
+                  livro, nags, vertical)
 from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
                                       substitute_chess_glyphs)
-from core.relatorio_pdf import caminhos_do_relatorio
 from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
 from core.mapa_glifos import corrigir_mapeamento
+from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import contar_paginas_com_texto, gerar_pdf_pesquisavel
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService, faixas_de_linha
@@ -698,6 +698,8 @@ class MainWindow(tk.Frame):
                             command=self.substitute_glyphs_neural_action)
         m_tools.add_command(label="Corrigir Mapeamento de Caracteres do PDF...",
                             command=self.corrigir_mapeamento_action)
+        m_tools.add_command(label="Exportar Livro (EPUB/DOCX, só nosso OCR)...",
+                            command=self.exportar_livro_action)
         m_tools.add_command(label="Criar Recortes para Revisão...",
                             command=self.criar_recortes_action)
         m_tools.add_command(label="Promover recortes revistos para a base...",
@@ -1419,6 +1421,102 @@ class MainWindow(tk.Frame):
                     "Teto por classe",
                     f"{erro}\n\nDigite um número, ou deixe o campo em branco "
                     "para não ter teto.")
+
+    def exportar_livro_action(self):
+        """
+        Lê o PDF **como imagem** e escreve um EPUB ou DOCX.
+
+        É o único caminho que não usa a camada de texto do PDF. Nestes livros
+        ela vem de um OCR de fábrica que erra a notação inteira — medido na
+        página 11 do Yusupov, `'•. hb7 2.hb7 l2Jd7 3.ha8 Wlxa8'` onde o nosso
+        OCR lê `'1...♗xb7 2.♗xb7 ♘d7 3.♗xa8 ♕xa8'`.
+        """
+        if self._busy("A exportação"):
+            return
+
+        input_pdf = filedialog.askopenfilename(
+            title="Selecionar PDF",
+            filetypes=[("Arquivos PDF", "*.pdf")]
+        )
+        if not input_pdf:
+            return
+
+        saida = filedialog.asksaveasfilename(
+            title="Salvar livro como...",
+            defaultextension=".epub",
+            filetypes=[("Livro EPUB", "*.epub"), ("Documento Word", "*.docx")]
+        )
+        if not saida:
+            return
+
+        formato = os.path.splitext(saida)[1].lstrip(".").lower()
+        if formato not in exportar.FORMATOS:
+            messagebox.showerror(
+                "Exportar livro",
+                f"Extensão não reconhecida: {formato!r}.\n"
+                f"Use .epub ou .docx.")
+            return
+
+        # A extração já sabe onde o modelo é fraco: são os caracteres que ela
+        # derruba por confiança. Guardá-los custa o disco de alguns milhares de
+        # PNG pequenos e poupa caçá-los na tela um a um.
+        coletar = messagebox.askyesno(
+            "Guardar o que o modelo não soube ler?",
+            "Guardar os recortes de baixa confiança numa pasta de revisão?\n\n"
+            f"Eles vão para '{coleta.PASTA_PADRAO}/', separados pelo palpite do "
+            "modelo — não para a base de treino. Confirmar é deixar o arquivo "
+            "onde está, corrigir é movê-lo para outra pasta, descartar é "
+            "apagá-lo.\n\n"
+            "Depois, 'Promover recortes revistos' leva para a base o que sobrou.")
+
+        teto = None
+        if coletar:
+            teto = self._perguntar_teto()
+            if teto is self.CANCELADO:
+                return
+
+        def trabalho(h):
+            h.log("Carregando modelo neural...")
+            if not self.learning_service.load_predictor():
+                raise RuntimeError(self.learning_service.motivo_do_modelo())
+
+            coletor = coleta.Coletor(
+                origem=os.path.basename(input_pdf),
+                max_por_classe=teto) if coletar else None
+
+            def progresso(atual, total):
+                h.raise_if_cancelled()
+                h.progress(atual, total, f"página {atual}/{total}")
+
+            paginas = livro.extrair(input_pdf, self.learning_service.predict_neural,
+                                    coletor=coletor, progress_callback=progresso)
+            h.log("Escrevendo o arquivo...")
+            exportar.exportar(paginas, saida, formato=formato,
+                              titulo=os.path.splitext(os.path.basename(input_pdf))[0])
+            if coletor is not None:
+                coletor.gravar_indice()
+            return paginas, coletor
+
+        def concluir(resultado):
+            paginas, coletor = resultado
+            figuras = sum(1 for p in paginas for b in p.blocos
+                          if isinstance(b, livro.Figura))
+            de_imagem = sum(1 for p in paginas if p.pagina_de_imagem)
+            linhas = [
+                f"Páginas: {len(paginas)}",
+                f"Caracteres lidos: {sum(p.caracteres for p in paginas)}",
+                f"Figuras: {figuras}",
+            ]
+            if de_imagem:
+                linhas.append(f"{de_imagem} página(s) eram imagem e saíram inteiras.")
+            if coletor is not None:
+                linhas += ["", f"Para revisão: {coletor.resumo()}",
+                           f"em {os.path.abspath(coletor.pasta)}"]
+            linhas += ["", "O texto veio só do nosso OCR — a camada de texto do "
+                       "PDF foi ignorada.", f"Arquivo salvo em:\n{saida}"]
+            messagebox.showinfo("Livro exportado", "\n".join(linhas))
+
+        self._run_task("Exportar livro", trabalho, concluir)
 
     def criar_recortes_action(self):
         """

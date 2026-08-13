@@ -19,6 +19,7 @@ Rodar sem pytest:      python tests/test_f26_livro.py
 import os
 import sys
 import tempfile
+import time
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -398,3 +399,122 @@ def _main():
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+# ----------------------------------------------------------------------
+# A ação da UI, que é a cola que nenhum teste de módulo alcança
+# ----------------------------------------------------------------------
+
+def _pdf_de_uma_pagina(caminho, texto="Foreword"):
+    doc = fitz.open()
+    pagina = doc.new_page(width=300, height=140)
+    pagina.insert_text(fitz.Point(20, 60), texto, fontsize=28)
+    doc.save(caminho)
+    doc.close()
+
+
+class _App:
+    """
+    MainWindow com os diálogos capturados e o modelo neural fora do caminho.
+
+    Os diálogos são a metade da ação que não dá para exercitar de outro jeito —
+    é neles que estão a escolha do formato pela extensão e a pergunta da coleta.
+    """
+
+    def __init__(self, entrada, saida, coletar=False):
+        from tkinter import filedialog, messagebox
+
+        self.originais = (filedialog.askopenfilename,
+                          filedialog.asksaveasfilename,
+                          messagebox.askyesno, messagebox.showinfo,
+                          messagebox.showerror)
+        self.avisos = []
+        self.erros = []
+        filedialog.askopenfilename = lambda *a, **k: entrada
+        filedialog.asksaveasfilename = lambda *a, **k: saida
+        messagebox.askyesno = lambda *a, **k: coletar
+        messagebox.showinfo = lambda t, m="", *a, **k: self.avisos.append(m)
+        messagebox.showerror = lambda t, m="", *a, **k: self.erros.append(m)
+
+    def __enter__(self):
+        from conftest import raiz_tk
+        from ui.main_window import MainWindow
+
+        self.root = raiz_tk()
+        self.win = MainWindow(self.root)
+        # A rede não é o assunto aqui: qualquer leitura serve para o caminho
+        # inteiro rodar. Carregá-la de verdade levaria minutos e faria o teste
+        # depender de um `.pth` que o `.gitignore` mantém fora.
+        self.win.learning_service.load_predictor = lambda: True
+        self.win.learning_service.predict_neural = lambda crop: ("a", 0.99)
+        return self
+
+    def rodar(self, segundos=60.0):
+        """
+        Roda a ação e espera o desfecho, **por prazo e não por contagem**.
+
+        A primeira versão dava 300 voltas de `update()`. Passava sozinha e
+        falhava na suíte inteira, porque ali a thread de trabalho divide a
+        máquina com tudo o mais e 300 voltas acabam antes do EPUB — um teste
+        que só falha acompanhado é pior que um que nunca passa.
+        """
+        self.win.exportar_livro_action()
+        limite = time.time() + segundos
+        while time.time() < limite:
+            self.root.update()
+            if self.avisos or self.erros:
+                break
+            time.sleep(0.01)
+        return self
+
+    def rodar_sem_esperar(self):
+        """Para os caminhos que voltam na hora, sem thread nenhuma."""
+        self.win.exportar_livro_action()
+        self.root.update()
+        return self
+
+    def __exit__(self, *a):
+        from tkinter import filedialog, messagebox
+        (filedialog.askopenfilename, filedialog.asksaveasfilename,
+         messagebox.askyesno, messagebox.showinfo,
+         messagebox.showerror) = self.originais
+        try:
+            self.win.task.shutdown()
+            self.root.destroy()
+        except Exception:
+            pass
+
+
+def test_a_acao_escreve_o_epub():
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    saida = os.path.join(tmp, "saida.epub")
+    _pdf_de_uma_pagina(entrada)
+
+    with _App(entrada, saida) as app:
+        app.rodar()
+        assert not app.erros, app.erros
+        assert os.path.exists(saida), "o EPUB não foi escrito"
+        assert zipfile.is_zipfile(saida), "o EPUB não é um zip"
+        assert app.avisos, "a conclusão não foi anunciada"
+
+
+def test_extensao_desconhecida_recusa_antes_de_ler_o_pdf():
+    """
+    O formato sai da extensão do arquivo escolhido. Sem esta guarda, o caminho
+    inteiro rodaria — minutos de OCR — para falhar na hora de escrever.
+    """
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    _pdf_de_uma_pagina(entrada)
+
+    with _App(entrada, os.path.join(tmp, "saida.txt")) as app:
+        app.rodar_sem_esperar()
+        assert app.erros, "aceitou uma extensão que não sabe escrever"
+        assert not app.avisos
+
+
+def test_cancelar_a_escolha_do_arquivo_nao_faz_nada():
+    with _App("", "") as app:
+        app.rodar_sem_esperar()
+        assert not app.avisos and not app.erros
