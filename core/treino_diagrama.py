@@ -81,6 +81,14 @@ from core.diagrama import CLASSES, LADO, OCUPADA, SIMBOLOS, VAZIA
 #: Onde as amostras de PEÇA moram. `<pasta>/<cor>/<LETRA>/<procedencia>.png`.
 PASTA_PADRAO = "training_data_diagrama"
 
+#: Onde `importar_diagramas.py` põe o corpus da F8.4, se ele existir.
+#:
+#: **Separada da de cima, e lida junto com ela.** A `PASTA_PADRAO` é conferida à
+#: mão, tem 1.649 amostras e viaja no repositório; esta tem 45 mil, vem de
+#: rótulo alheio e o `.gitignore` a mantém fora. Separadas no disco, dá para
+#: dizer de qual veio uma mudança no número — juntas, não.
+PASTA_CORPUS = "training_data_diagrama_corpus"
+
 #: Onde as amostras de OCUPAÇÃO moram, `<pasta>/{vazia,ocupada}/*.png`.
 #:
 #: **Base separada, e não uma classe a mais na de peças** — foi a medição que
@@ -93,8 +101,42 @@ PASTA_PADRAO = "training_data_diagrama"
 PASTA_OCUPACAO = "training_data_ocupacao"
 
 #: Passadas pela base. Com 833 amostras são ~20 s em CPU; 40 e 160 dão o mesmo
-#: acerto no livro deixado de fora, então 80 é meio do platô.
+#: acerto no livro deixado de fora, então 80 é meio do platô. Continua sendo o
+#: teto: `epocas_para` só desce a partir dele quando a base é grande.
 EPOCAS = 80
+
+#: Piso de passadas. Uma base enorme ainda precisa ver cada amostra algumas
+#: vezes — o teto de passos sozinho poderia mandar dar meia época.
+#:
+#: Medido na base combinada de 46.905 amostras, no split de teste do corpus
+#: (346 tabuleiros que nenhum treino viu):
+#:
+#:     épocas  passos   treino  identidade  tabuleiros inteiros
+#:          2   2.932      33s      99,68%              91,88%
+#:          4   5.864      61s      99,68%              91,88%
+#:          8  11.728     120s      99,66%              91,59%
+#:         16  23.456     272s      99,72%              92,17%
+#:
+#: O platô começa em **duas** passadas: de 2 a 16 a diferença é 0,06 ponto, sem
+#: tendência, e o custo quadruplica. Quatro é o meio do platô com folga de 2x
+#: sobre onde ele começa, e é o mesmo critério que escolheu `EPOCAS` na F7.4.
+MIN_EPOCAS = 4
+
+#: Teto de passos de gradiente por rede (F8.4). Ver `epocas_para`.
+#:
+#: **É o que a maior base do repositório já gastava**: a de ocupação tem 3.156
+#: amostras, que em lotes de 32 são 99 passos por época, e as 80 épocas dão
+#: 7.920. Quem nunca importou corpus nenhum tem de continuar treinando os mesmos
+#: dois modelos, e o teto só age acima disso.
+#:
+#: **O primeiro valor tentado foi 4.160**, tirado da base de peças (1.649
+#: amostras): deixava a de peças intacta e cortava a de **ocupação** — que é
+#: maior — de 80 épocas para 42, sem teste nenhum reclamar. Medido depois, na
+#: mesma base, o corte não fazia mal (99,88% contra 99,79% em 150 tabuleiros do
+#: corpus, a favor das 42). O valor mudou mesmo assim: um padrão que altera em
+#: silêncio o treino de uma base que já existia é o defeito, e o acerto medido
+#: dele foi sorte, não desenho.
+PASSOS = 7920
 
 #: Amostras por passo.
 LOTE = 32
@@ -118,6 +160,33 @@ MIN_POR_CLASSE = 12
 # ----------------------------------------------------------------------
 # A base: ler, gravar, conferir
 # ----------------------------------------------------------------------
+
+def bases_de_pecas() -> List[str]:
+    """
+    As pastas de amostra de peça a usar quando ninguém escolhe (F8.4).
+
+    O corpus entra **se existir**. Um clone novo não o tem e treina só com a
+    base versionada, exatamente como antes; quem importou treina com as duas
+    sem precisar dizer nada — e é o que evita a armadilha de treinar pela janela
+    largando 45 mil amostras em silêncio.
+    """
+    return [PASTA_PADRAO] + ([PASTA_CORPUS] if os.path.isdir(PASTA_CORPUS)
+                             else [])
+
+
+def _pastas(pasta) -> List[str]:
+    """
+    Normaliza para lista de pastas. Aceita `None`, um caminho, ou vários (F8.4).
+
+    **Vários porque as bases são separadas de propósito** — ver `PASTA_CORPUS`.
+    É a separação que o léxico faz entre `palavras` e `do_usuario` (F9.2).
+    """
+    if pasta is None:
+        return bases_de_pecas()
+    if isinstance(pasta, (str, bytes, os.PathLike)):
+        return [os.fspath(pasta)]
+    return [os.fspath(p) for p in pasta]
+
 
 def _pasta_da_classe(pasta: str, simbolo: str) -> str:
     if simbolo in (VAZIA, OCUPADA):
@@ -224,45 +293,47 @@ def colher(imagem, leitura, tabuleiro, origem: str = "",
     return gravados
 
 
-def carregar_amostras(pasta: Optional[str] = None
-                      ) -> List[Tuple[str, np.ndarray, str]]:
+def carregar_amostras(pasta=None) -> List[Tuple[str, np.ndarray, str]]:
     """[(símbolo, resíduo, caminho)] das pastas de classe que existirem.
 
     Serve às duas bases: a de peças tem `<cor>/<LETRA>/`, a de ocupação tem
     `vazia/` e `ocupada/`. Pasta que não existe simplesmente não contribui.
+
+    `pasta` aceita vários caminhos desde a F8.4 — ver `_pastas`.
     """
-    pasta = PASTA_PADRAO if pasta is None else pasta
     saida = []
     for simbolo in CLASSES + (OCUPADA,):
-        base = _pasta_da_classe(pasta, simbolo)
-        if not os.path.isdir(base):
-            continue
-        for nome in sorted(os.listdir(base)):
-            if not nome.endswith(".png"):
+        for raiz in _pastas(pasta):
+            base = _pasta_da_classe(raiz, simbolo)
+            if not os.path.isdir(base):
                 continue
-            caminho = os.path.join(base, nome)
-            img = cv2.imread(caminho, cv2.IMREAD_GRAYSCALE)
-            if img is not None:
-                saida.append((simbolo, img.astype(np.float32) - 128.0, caminho))
+            for nome in sorted(os.listdir(base)):
+                if not nome.endswith(".png"):
+                    continue
+                caminho = os.path.join(base, nome)
+                img = cv2.imread(caminho, cv2.IMREAD_GRAYSCALE)
+                if img is not None:
+                    saida.append((simbolo, img.astype(np.float32) - 128.0,
+                                  caminho))
     return saida
 
 
-def contagem(pasta: Optional[str] = None) -> Dict[str, int]:
+def contagem(pasta=None) -> Dict[str, int]:
     """Quantas amostras por classe, sem ler os PNGs. Só as classes que existem."""
-    pasta = PASTA_PADRAO if pasta is None else pasta
     saida = {}
     for simbolo in CLASSES + (OCUPADA,):
-        base = _pasta_da_classe(pasta, simbolo)
-        if simbolo in (VAZIA, OCUPADA) and not os.path.isdir(base):
+        bases = [_pasta_da_classe(r, simbolo) for r in _pastas(pasta)]
+        existem = [b for b in bases if os.path.isdir(b)]
+        if simbolo in (VAZIA, OCUPADA) and not existem:
             # Classe de outra base: ausente é o normal, e listá-la em zero
             # poluiria a impressão digital e o relatório.
             continue
-        saida[simbolo] = (sum(1 for n in os.listdir(base) if n.endswith(".png"))
-                          if os.path.isdir(base) else 0)
+        saida[simbolo] = sum(sum(1 for n in os.listdir(b) if n.endswith(".png"))
+                             for b in existem)
     return saida
 
 
-def impressao(pasta: Optional[str] = None) -> str:
+def impressao(pasta=None) -> str:
     """
     Impressão digital da base, pela contagem por classe.
 
@@ -274,7 +345,7 @@ def impressao(pasta: Optional[str] = None) -> str:
     return hashlib.sha256(corpo.encode("utf-8")).hexdigest()[:16]
 
 
-def modelo_desatualizado(pasta: Optional[str] = None) -> bool:
+def modelo_desatualizado(pasta=None) -> bool:
     """A base mudou depois do último treino? (F7.3 aplicada aqui.)"""
     gravada = diag.impressao_do_modelo()
     return bool(gravada) and gravada != impressao(pasta)
@@ -290,7 +361,7 @@ class Problema:
         return f"[{'ERRO ' if self.grave else 'aviso'}] {self.detalhe}"
 
 
-def conferir(pasta: Optional[str] = None) -> List[Problema]:
+def conferir(pasta=None, amostras=None) -> List[Problema]:
     """
     O que está errado na base de diagramas. Vazio = pode treinar.
 
@@ -300,9 +371,11 @@ def conferir(pasta: Optional[str] = None) -> List[Problema]:
     ocorrências diferentes ('1' e 'l' viram o mesmo desenho depois do recorte);
     num diagrama não há esse contexto — um bispo é um bispo.
     """
-    pasta = PASTA_PADRAO if pasta is None else pasta
     problemas = []
-    amostras = carregar_amostras(pasta)
+    # `amostras` já lidas evitam a segunda passada pelo disco. Com 46 mil PNGs
+    # ela custava tanto quanto o treino inteiro (F8.4).
+    if amostras is None:
+        amostras = carregar_amostras(pasta)
 
     porto = collections.defaultdict(set)
     for simbolo, residuo, caminho in amostras:
@@ -495,31 +568,65 @@ def _pesos_das_classes(y, num_classes):
     return peso / peso.mean()
 
 
+#: Deslocamento máximo, em pixels, do aumento de dados.
+DESLOCAMENTO = 2
+
+
 def _deslocar(X):
     """Aumento de dados: ±2 px em cada eixo.
 
     Só translação. **Espelhar seria estragar a base**: peça preta não é peça
     branca virada, e um cavalo espelhado não existe no material — o modelo
     aprenderia uma variação que a página nunca traz, gastando capacidade.
+
+    **Sem laço** (F8.4). Era um `torch.roll` por amostra, e o custo só apareceu
+    quando a base saiu de 833 amostras para 47 mil: a cada época são tantas
+    chamadas quanto amostras, e cada uma custa mais em despacho do Python do que
+    no deslocamento em si. A conta é a mesma — `roll` é indexação circular, e
+    aqui ela é escrita como tal, um índice por amostra.
     """
     import torch
 
-    n = X.shape[0]
-    dx = torch.randint(-2, 3, (n,))
-    dy = torch.randint(-2, 3, (n,))
-    saida = torch.empty_like(X)
-    for i in range(n):
-        saida[i] = torch.roll(X[i], (int(dy[i]), int(dx[i])), dims=(1, 2))
-    return saida
+    n, _, altura, largura = X.shape
+    dy = torch.randint(-DESLOCAMENTO, DESLOCAMENTO + 1, (n,))
+    dx = torch.randint(-DESLOCAMENTO, DESLOCAMENTO + 1, (n,))
+    linhas = (torch.arange(altura)[None, :] - dy[:, None]) % altura
+    colunas = (torch.arange(largura)[None, :] - dx[:, None]) % largura
+    quadro = X[:, 0][torch.arange(n)[:, None, None],
+                     linhas[:, :, None], colunas[:, None, :]]
+    return quadro.unsqueeze(1)
 
 
-def treinar_rede(X, y, num_classes: int, epocas: int = EPOCAS,
+def epocas_para(n_amostras: int) -> int:
+    """
+    Quantas passadas dar numa base deste tamanho (F8.4).
+
+    **O platô da F7.4 fixou passos de gradiente, não passadas.** Ele foi medido
+    com 833 amostras: em lotes de 32 são 27 passos por época, e as 80 épocas do
+    `EPOCAS` são ~2.100 passos. Repetir 80 passadas numa base 28 vezes maior
+    pediria 59 mil passos para aprender a mesma coisa, quase todos depois de a
+    curva ter parado — e o treino da janela deixaria de caber num café.
+
+    Por isso o teto é em passos, e as épocas saem dele. Base pequena não muda:
+    com 833 amostras a conta devolve as mesmas 80.
+    """
+    if n_amostras <= 0:
+        return EPOCAS
+    por_epoca = max(1, (n_amostras + LOTE - 1) // LOTE)
+    return int(max(MIN_EPOCAS, min(EPOCAS, -(-PASSOS // por_epoca))))
+
+
+def treinar_rede(X, y, num_classes: int, epocas: Optional[int] = None,
                  semente: int = SEMENTE, progresso=None):
-    """Uma `RedeDiagrama` treinada, em modo de leitura."""
+    """Uma `RedeDiagrama` treinada, em modo de leitura.
+
+    `epocas=None` deixa `epocas_para` decidir pelo tamanho da base.
+    """
     import torch
     import torch.nn as nn
     from core.neural_model import RedeDiagrama
 
+    epocas = epocas_para(len(X)) if epocas is None else epocas
     torch.manual_seed(semente)
     rede = RedeDiagrama(num_classes)
     otimizador = torch.optim.Adam(rede.parameters(), lr=1e-3, weight_decay=1e-4)
@@ -653,16 +760,16 @@ def treinar(pasta: Optional[str] = None, destino: Optional[str] = None,
     """
     if pasta is not None and pasta_ocupacao is None:
         pasta_ocupacao = ""
-    pasta = PASTA_PADRAO if pasta is None else pasta
     pasta_ocupacao = (PASTA_OCUPACAO if pasta_ocupacao is None
                       else pasta_ocupacao)
     destino = diag.CAMINHO_MODELO if destino is None else destino
     amostras = carregar_amostras(pasta)
+    ocupacao = carregar_amostras(pasta_ocupacao) if pasta_ocupacao else []
     relatorio = Relatorio(total=len(amostras),
                           contagem=dict(collections.Counter(
                               s for s, _, _ in amostras)),
-                          problemas=(conferir(pasta)
-                                     + (conferir(pasta_ocupacao)
+                          problemas=(conferir(pasta, amostras)
+                                     + (conferir(pasta_ocupacao, ocupacao)
                                         if pasta_ocupacao else [])))
     if not amostras:
         return relatorio
@@ -683,7 +790,6 @@ def treinar(pasta: Optional[str] = None, destino: Optional[str] = None,
         relatorio.bytes_gravados = os.path.getsize(destino)
 
     # --- a rede da ocupação: base própria, duas classes (F7.5) ---
-    ocupacao = carregar_amostras(pasta_ocupacao) if pasta_ocupacao else []
     if ocupacao:
         alvo = destino_ocupacao or diag.CAMINHO_OCUPACAO
         m = _treinar_e_gravar(ocupacao, [VAZIA, OCUPADA], alvo,

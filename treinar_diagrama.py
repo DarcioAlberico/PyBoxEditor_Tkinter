@@ -39,7 +39,9 @@ from core import treino_diagrama
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="Treina o modelo de diagramas.")
-    p.add_argument("--pasta", default=treino_diagrama.PASTA_PADRAO)
+    # Vários caminhos desde a F8.4: a base conferida à mão e a importada do
+    # corpus moram separadas. Sem `--pasta`, entram as que existirem.
+    p.add_argument("--pasta", nargs="+", default=None)
     # As duas bases andam juntas aqui e separadas no `treinar`: apontar uma sem
     # a outra desliga a segunda, para um teste com base própria não regravar o
     # modelo de verdade. Da linha de comando, quem aponta uma quase sempre quer
@@ -65,11 +67,13 @@ def main(argv=None):
             print("base sem problemas")
         return 1 if any(p.grave for p in problemas) else 0
 
+    pastas = treino_diagrama._pastas(args.pasta)
+    print("amostras de peça em: " + ", ".join(pastas), flush=True)
     relatorio = treino_diagrama.treinar(args.pasta, medir=not args.rapido,
                                         progresso=lambda m: print(m, flush=True),
                                         pasta_ocupacao=args.pasta_ocupacao)
     if not relatorio.total:
-        print(f"nenhuma amostra em {args.pasta}/")
+        print("nenhuma amostra em " + ", ".join(p + "/" for p in pastas))
         return 1
 
     print(relatorio.texto())

@@ -36,6 +36,15 @@ relatorio_treino_erros/
 # Scans de livros — grandes e derivados de material com copyright
 ilovepdf_pages-to-jpg/
 
+# Corpus de diagramas vindo de outro projeto (F8.4): 2,8 GB de recortes de
+# tabuleiro com o FEN de cada um, e as 45 mil amostras que `importar_diagramas.py`
+# extrai deles. Mesma razão da linha acima, mais o volume.
+#
+# `training_data_diagrama/` continua **dentro** do git, e a separação é o ponto:
+# ela é conferida à mão, tem 1.649 amostras e é o que um clone novo recebe.
+Diagramas-outro-projeto/
+training_data_diagrama_corpus/
+
 # Fonte do léxico (F9.1) — 31 MB de listas do ABBYY FineReader. O que o programa
 # usa é o produto de `importar_lexico.py`, 0,94 MB em assets/lexico/, e esse vai.
 Lista de Palavras/

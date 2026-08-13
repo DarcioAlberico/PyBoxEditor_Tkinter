@@ -674,5 +674,161 @@ def test_o_menu_tem_o_treino_de_diagramas():
         raiz.destroy()
 
 
+# ----------------------------------------------------------------------
+# F8.4 — a base cresceu 28x, e o treinador precisou aguentar
+# ----------------------------------------------------------------------
+
+def test_deslocar_faz_a_mesma_conta_que_o_laco():
+    """
+    Era um `torch.roll` por amostra; virou indexação circular no lote inteiro.
+
+    O ganho é de despacho, não de conta — e o teste cobra isso: com o mesmo
+    sorteio, o resultado tem de ser **idêntico**, não parecido.
+    """
+    torch = pytest.importorskip("torch")
+    X = torch.randn(24, 1, 32, 32)
+
+    torch.manual_seed(7)
+    vetorizado = treino_diagrama._deslocar(X)
+
+    torch.manual_seed(7)
+    d = treino_diagrama.DESLOCAMENTO
+    dy = torch.randint(-d, d + 1, (len(X),))
+    dx = torch.randint(-d, d + 1, (len(X),))
+    laco = torch.stack([torch.roll(X[i], (int(dy[i]), int(dx[i])), dims=(1, 2))
+                        for i in range(len(X))])
+
+    assert torch.equal(vetorizado, laco)
+
+
+def test_deslocar_preserva_a_tinta():
+    """Translação circular não cria nem apaga pixel — só muda de lugar."""
+    torch = pytest.importorskip("torch")
+    X = torch.rand(8, 1, 32, 32)
+    saida = treino_diagrama._deslocar(X)
+    assert torch.allclose(saida.sum(dim=(1, 2, 3)).sort().values,
+                          X.sum(dim=(1, 2, 3)).sort().values, atol=1e-4)
+
+
+@pytest.mark.parametrize("n,porque", [
+    (833, "a base da medição da F7.4"),
+    (1649, "a base de PEÇAS versionada"),
+    (3156, "a base de OCUPAÇÃO versionada — a maior das duas"),
+])
+def test_as_bases_do_repositorio_continuam_com_as_oitenta_epocas(n, porque):
+    """
+    O teto de passos não pode mexer em quem nunca importou corpus nenhum.
+
+    **A de ocupação é a que manda**, e descobri-lo custou uma medição: com o teto
+    tirado da base de peças (1.649 amostras, 4.160 passos), a de ocupação — que
+    tem 3.156 — caía de 80 épocas para 42 **em silêncio**, e só apareceu na
+    medição de ponta a ponta, com as omissões subindo de 96 para 136. O teto sai
+    da maior base que já existia.
+    """
+    assert treino_diagrama.epocas_para(n) == treino_diagrama.EPOCAS, porque
+
+
+def test_acima_da_maior_base_o_teto_age():
+    assert treino_diagrama.epocas_para(4000) < treino_diagrama.EPOCAS
+
+
+def test_a_base_com_o_corpus_gasta_o_orcamento_e_nao_mais():
+    """44 mil amostras: as épocas saem do teto de passos, não das 80 fixas."""
+    n = 44096
+    epocas = treino_diagrama.epocas_para(n)
+    passos = epocas * -(-n // treino_diagrama.LOTE)
+    assert treino_diagrama.MIN_EPOCAS <= epocas < treino_diagrama.EPOCAS
+    assert passos >= treino_diagrama.PASSOS, "gastou menos que o orçamento"
+    assert passos < treino_diagrama.PASSOS + n // treino_diagrama.LOTE, \
+        "passou do orçamento por mais de uma época"
+
+
+def test_o_piso_de_epocas_segura_a_base_gigante():
+    """
+    O teto sozinho mandaria dar meia passada numa base grande o bastante, e a
+    rede precisa ver cada amostra algumas vezes.
+    """
+    epocas = treino_diagrama.epocas_para(2_000_000)
+    assert epocas == treino_diagrama.MIN_EPOCAS
+    passos = epocas * -(-2_000_000 // treino_diagrama.LOTE)
+    assert passos > treino_diagrama.PASSOS, "o piso tem de poder estourar o teto"
+
+
+def test_epocas_nunca_sobem_com_a_base():
+    """Monotonia: base maior nunca pede mais passadas que base menor."""
+    tamanhos = [100, 833, 5_000, 20_000, 46_905, 200_000]
+    valores = [treino_diagrama.epocas_para(n) for n in tamanhos]
+    assert valores == sorted(valores, reverse=True)
+
+
+# ----------------------------------------------------------------------
+# F8.4 — duas bases separadas, lidas juntas
+# ----------------------------------------------------------------------
+
+def test_pastas_aceita_um_caminho_ou_varios():
+    assert treino_diagrama._pastas("a") == ["a"]
+    assert treino_diagrama._pastas(["a", "b"]) == ["a", "b"]
+
+
+def test_o_corpus_entra_sozinho_quando_existe(tmp_path, monkeypatch):
+    """
+    Quem importou o corpus não pode treinar sem ele por esquecimento.
+
+    O caminho perigoso é a janela: "Treinar modelo de diagramas..." chama
+    `treinar()` sem argumento nenhum, e se o padrão fosse só a base versionada
+    ela largaria 45 mil amostras em silêncio — e gravaria por cima do modelo
+    bom um treinado com 3% dos dados.
+    """
+    monkeypatch.setattr(treino_diagrama, "PASTA_CORPUS",
+                        str(tmp_path / "corpus"))
+    assert treino_diagrama._pastas(None) == [treino_diagrama.PASTA_PADRAO]
+
+    os.makedirs(tmp_path / "corpus")
+    assert treino_diagrama._pastas(None) == [treino_diagrama.PASTA_PADRAO,
+                                             str(tmp_path / "corpus")]
+
+
+def test_carregar_le_as_duas_bases_juntas(tmp_path):
+    """
+    A base conferida à mão viaja no git; a importada do corpus tem 45 mil
+    amostras e fica fora dele. Separadas no disco, somadas no treino.
+    """
+    nossa = _base(tmp_path / "nossa", {"B": [_residuo(40)], "N": [_residuo(50)]})
+    corpus = _base(tmp_path / "corpus", {"B": [_residuo(60)]})
+
+    assert len(treino_diagrama.carregar_amostras(nossa)) == 2
+    assert len(treino_diagrama.carregar_amostras(corpus)) == 1
+
+    juntas = treino_diagrama.carregar_amostras([nossa, corpus])
+    assert collections.Counter(s for s, _, _ in juntas) == {"B": 2, "N": 1}
+
+
+def test_contagem_e_impressao_somam_as_duas_bases(tmp_path):
+    """
+    A impressão digital tem de mudar quando **qualquer** das bases muda — senão
+    importar um corpus e esquecer de treinar fica indistinguível de ter treinado
+    (F7.3).
+    """
+    nossa = _base(tmp_path / "nossa", {"B": [_residuo(40)]})
+    corpus = _base(tmp_path / "corpus", {"B": [_residuo(60)], "R": [_residuo(70)]})
+
+    assert treino_diagrama.contagem([nossa, corpus])["B"] == 2
+    assert treino_diagrama.contagem([nossa, corpus])["R"] == 1
+
+    so_nossa = treino_diagrama.impressao(nossa)
+    assert treino_diagrama.impressao([nossa, corpus]) != so_nossa
+
+    _base(tmp_path / "corpus", {"Q": [_residuo(80)]})
+    assert treino_diagrama.impressao([nossa, corpus]) != so_nossa
+
+
+def test_pasta_que_nao_existe_nao_atrapalha_a_outra(tmp_path):
+    """Quem nunca importou corpus nenhum não pode ver erro por causa disso."""
+    nossa = _base(tmp_path / "nossa", {"B": [_residuo(40)]})
+    ausente = str(tmp_path / "nao_existe")
+    assert len(treino_diagrama.carregar_amostras([nossa, ausente])) == 1
+    assert treino_diagrama.contagem([nossa, ausente])["B"] == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
