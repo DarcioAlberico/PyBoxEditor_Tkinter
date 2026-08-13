@@ -34,27 +34,39 @@ from ui import confidence as conf_ui
 #:
 #: A trava da F18, e sem ela a linha estraga mais do que conserta — em qualquer
 #: um dos dois caminhos. **O valor certo depende de quão forte é a âncora**, e
-#: por isso são dois; medido em 2.278 caracteres:
+#: por isso são dois. Medido em 2.278 caracteres, **com o modelo calibrado**
+#: (T = 2,1916; ver F22 e a nota de temperatura no fim):
 #:
 #:     trava        com a rede    híbrido (k-NN)
-#:     sem linha        97,50%           94,82%
-#:     0,70             97,54%           95,22%
-#:     0,85             97,50%           95,26%
-#:     0,95             97,32%           95,08%
-#:     sempre           90,47%           90,25%
+#:     sem linha        97,37%           94,82%
+#:     0,60             97,45%           95,17%
+#:     0,70             97,45%           95,22%
+#:     0,80             97,45%           95,22%
+#:     0,85             97,28%           95,26%
+#:     0,95             97,15%           95,08%
+#:     sempre           90,34%           90,25%
 #:
 #: **A âncora mais fraca é onde a linha rende.** No caminho com a rede o ganho é
-#: pequeno por construção — ela responde 98,9% dos boxes e sobra 0,7% onde a
-#: linha tem o que dizer, e o resultado é +0,04 ponto (1 box). No híbrido, sem
-#: rede, o ganho é dez vezes maior: +0,44 ponto, 42 boxes.
+#: pequeno por construção — ela responde 96,7% dos boxes e sobra pouco onde a
+#: linha tem o que dizer, e o resultado é +0,08 ponto (3 boxes). No híbrido, sem
+#: rede, o ganho é cinco vezes maior: +0,44 ponto, 42 boxes.
 #:
 #: Em nenhum dos dois "sempre" serve: seria pôr o EasyOCR (89,5%) por cima de
-#: quem já lia melhor, e custa 7 e 4,6 pontos respectivamente.
+#: quem já lia melhor, e custa 7,0 e 4,6 pontos respectivamente.
+#:
+#: **Sobre a temperatura, porque estes números dependem dela.** A calibração da
+#: F1.9 (`calibrar_modelo.py --gravar`) desloca a escala de confiança inteira, e
+#: recalibrar obriga a remedir isto. Foi feito: em T = 1 o corte era um ponto
+#: (0,70, com 0,85 neutro); em T = 2,19 virou um **platô de 0,60 a 0,80**, e
+#: 0,85 passou a fazer mal ao caminho com a rede. O 0,70 ficou porque é o meio
+#: do platô, e não porque era o valor de antes.
 CONF_MAXIMA_PARA_A_LINHA = 0.70
 
 #: O mesmo, para o caminho híbrido. O pico da varredura cai aqui, e o valor tem
 #: razão própria: é o `learner_threshold` daquela ação, então a linha age
-#: exatamente nos boxes em que o k-NN se recusou a responder.
+#: exatamente nos boxes em que o k-NN se recusou a responder. **Não se moveu com
+#: a calibração**, e não tinha por quê — este caminho não usa a rede, e a
+#: confiança do k-NN não passa pela temperatura.
 CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = 0.85
 
 

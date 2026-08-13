@@ -5017,6 +5017,83 @@ Cobertura: 2 testes novos em `tests/test_f17_leitura_de_linha.py` (36 no arquivo
 
 ---
 
+## F22 — O modelo calibrado, e as travas remedidas contra ele — CONCLUÍDA
+
+O treino de 12/08 gravou `temperatura: 1.0`, que é o que **todo** treino grava — a
+calibração da F1.9 é ajustada para um conjunto de pesos e herdá-la aplicaria correção
+medida sobre outros. O modelo estava em softmax cru desde então.
+
+### A calibração paga
+
+`calibrar_modelo.py` ajusta em **leave-one-page-out**: a temperatura de cada página sai
+das outras nove, senão o número é bonito e falso.
+
+| | ECE |
+|---|---:|
+| T = 1 (como estava) | 0,0287 |
+| **T = 2,1916** | **0,0227** |
+
+21% de erro de calibração a menos. O valor bate com o 2,0768 do modelo de 143 classes —
+dois treinos diferentes, mesma família de correção.
+
+### O que a temperatura mexe não é o que se espera
+
+Ela **não muda qual classe vence** — só a confiança. Mas a cadeia **roteia por
+confiança**, e aí o efeito é real. Medido em 2.278 caracteres, com `neural_threshold=0.8`:
+
+| | T = 1 | T = 2,19 |
+|---|---:|---:|
+| respondidos pela rede | 2.263 | 2.203 |
+| pelo k-NN | 10 | 63 |
+| pelo EasyOCR | 5 | 12 |
+| **acerto da cadeia** | **97,50%** | **97,37%** |
+
+Sessenta boxes migraram da rede para o k-NN, e a cadeia perdeu 0,13 ponto. **O
+`neural_threshold=0.8` estava afinado para a escala não calibrada**, e na nova ele corta
+alto demais:
+
+| `neural_threshold` | acerto | rede / k-NN / OCR |
+|---:|---:|---|
+| 0,40–0,70 | **97,45%** | 2.272–2.253 / 3–17 / 3–8 |
+| 0,80 (atual) | 97,37% | 2.203 / 63 / 12 |
+| 0,90 | 97,19% | 2.114 / 139 / 25 |
+
+Baixá-lo para 0,70 recupera 0,08 dos 0,13. **Não foi mexido nesta fase**: é literal em três
+lugares de `main_window.py` e um padrão em `ocr_service`, e a SPEC §5.1 já pede que esses
+limiares venham de configuração — mexer neles à mão agora seria fazer o trabalho errado
+duas vezes. Fica medido e apontado.
+
+### As travas da F18 sobreviveram
+
+Era a pergunta que motivou remedir, e a resposta é que as duas ficam:
+
+| trava | com a rede | híbrido |
+|---|---:|---:|
+| sem linha | 97,37% | 94,82% |
+| 0,60 | 97,45% | 95,17% |
+| **0,70** | **97,45%** | 95,22% |
+| 0,80 | 97,45% | 95,22% |
+| **0,85** | 97,28% | **95,26%** |
+| sempre | 90,34% | 90,25% |
+
+**Mas a razão mudou, e é isso que o comentário da constante agora diz.** Em T = 1 o 0,70
+era um ponto, com 0,85 neutro; em T = 2,19 virou um **platô de 0,60 a 0,80**, e 0,85 passou
+a fazer mal ao caminho com a rede (97,28% contra 97,37% sem linha nenhuma). O 0,70 ficou
+por ser o meio do platô, não por ser o valor de antes.
+
+O 0,85 do híbrido não se moveu, e não tinha por quê: aquele caminho não usa a rede, e a
+confiança do k-NN não passa pela temperatura.
+
+### O saldo, dito inteiro
+
+A calibração custa **0,13 ponto de acerto** na cadeia neural e devolve **21% de ECE**. Vale
+porque a confiança aqui não é enfeite — é ela que ordena a fila de revisão (F3.2) e que a
+F14 mediu como o melhor filtro disponível. Um ponto a menos de acerto bruto com a confiança
+dizendo a verdade rende mais que o contrário, e o 0,13 volta quase todo assim que o
+`neural_threshold` seguir a escala.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
