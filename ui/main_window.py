@@ -6,7 +6,8 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import (formato_box, leitura_de_linha, lexico, nags, vertical)
+from core import (coleta, formato_box, leitura_de_linha, lexico, nags,
+                  vertical)
 from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
                                       substitute_chess_glyphs)
 from core.relatorio_pdf import caminhos_do_relatorio
@@ -697,6 +698,10 @@ class MainWindow(tk.Frame):
                             command=self.substitute_glyphs_neural_action)
         m_tools.add_command(label="Corrigir Mapeamento de Caracteres do PDF...",
                             command=self.corrigir_mapeamento_action)
+        m_tools.add_command(label="Criar Recortes para Revisão...",
+                            command=self.criar_recortes_action)
+        m_tools.add_command(label="Promover recortes revistos para a base...",
+                            command=self.promover_revisao_action)
         menubar.add_cascade(label="Ferramentas", menu=m_tools)
 
     def _build_menu_notacao(self, menubar):
@@ -1353,6 +1358,173 @@ class MainWindow(tk.Frame):
     #: `None`**: aqui `None` já quer dizer "sem teto", que é a resposta oposta
     #: de "deixa para lá" — uma manda gravar tudo, a outra manda não rodar.
     CANCELADO = object()
+
+    def _perguntar_teto(self):
+        """
+        Pergunta o teto por classe da coleta. Em branco é sem teto.
+
+        **Campo de texto, e não `askinteger`.** O `askinteger` não tem como
+        dizer "ilimitado": ele devolve `None` tanto para campo vazio quanto
+        para o botão Cancelar, e mais um teto máximo no diálogo só trocaria um
+        número fixo no código por outro na tela.
+
+        Número inválido é perguntado de novo com o que foi digitado no campo,
+        em vez de recusado com a ação inteira — o erro aqui é de dedo, e a
+        alternativa é reabrir o PDF e a pasta para tentar outra vez.
+        """
+        from tkinter import simpledialog
+
+        digitado = ""
+        while True:
+            digitado = simpledialog.askstring(
+                "Teto por classe",
+                "Quantos recortes gravar, no máximo, por cada classe?\n\n"
+                "Deixe em branco para não ter teto: grava tudo o que aparecer.\n\n"
+                "O teto existe porque uma classe ruim inunda a pasta e esconde "
+                "as outras — revisar 4.000 recortes de 'o' não ensina mais que "
+                "revisar algumas centenas. Para bater o olho numa grade de "
+                "miniaturas, algumas centenas por classe; para engordar a base "
+                "com o livro inteiro, sem teto.",
+                initialvalue=digitado)
+            if digitado is None:
+                return self.CANCELADO
+            try:
+                return coleta.teto_de_texto(digitado)
+            except ValueError as erro:
+                messagebox.showwarning(
+                    "Teto por classe",
+                    f"{erro}\n\nDigite um número, ou deixe o campo em branco "
+                    "para não ter teto.")
+
+    def criar_recortes_action(self):
+        """
+        Lê o PDF e grava os recortes de caractere separados por classe.
+
+        Não escreve nada além dos PNG: nem PDF, nem livro. É o caminho para
+        crescer a base de treino olhando — a pasta de uma classe fica cheia de
+        acertos e o intruso salta aos olhos numa grade de miniaturas.
+
+        **A pasta é escolhida, e o padrão nunca é `training_data`.** Amostra
+        por conferir não pode ficar onde o treino varre.
+        """
+        if self._busy("A extração de recortes"):
+            return
+
+        input_pdf = filedialog.askopenfilename(
+            title="Selecionar PDF",
+            filetypes=[("Arquivos PDF", "*.pdf")]
+        )
+        if not input_pdf:
+            return
+
+        pasta = filedialog.askdirectory(title="Onde gravar os recortes...")
+        if not pasta:
+            return
+
+        # As duas revisões são diferentes e as duas servem; ver LIMIAR_PADRAO.
+        todos = messagebox.askyesnocancel(
+            "Quais recortes gravar?",
+            "Sim — todos os caracteres.\n"
+            "    A pasta de cada classe fica cheia de acertos, e o recorte que "
+            "não pertence ali salta aos olhos. É o modo de revisar batendo o "
+            "olho, e o que faz a base crescer.\n\n"
+            "Não — só os que o modelo leu com dúvida.\n"
+            "    Bem menos arquivo, e mostra onde o modelo é fraco. Mas a pasta "
+            "fica sem contraste: se quase tudo ali está errado, não há com o "
+            "que comparar.\n\n"
+            "Em seguida você escolhe o teto por classe — em branco, sem teto.")
+        if todos is None:
+            return
+
+        teto = self._perguntar_teto()
+        if teto is self.CANCELADO:
+            return
+
+        def trabalho(h):
+            h.log("Carregando modelo neural...")
+            if not self.learning_service.load_predictor():
+                raise RuntimeError(self.learning_service.motivo_do_modelo())
+
+            coletor = coleta.Coletor(
+                pasta=pasta, origem=os.path.basename(input_pdf),
+                max_por_classe=teto,
+                limiar=None if todos else coleta.LIMIAR_PADRAO)
+
+            def progresso(atual, total):
+                h.raise_if_cancelled()
+                h.progress(atual, total, f"página {atual}/{total}")
+
+            livro.extrair(input_pdf, self.learning_service.predict_neural,
+                          coletor=coletor, progress_callback=progresso)
+            coletor.gravar_indice()
+            return coletor
+
+        def concluir(coletor):
+            linhas = [coletor.resumo(), "", f"Em: {os.path.abspath(coletor.pasta)}"]
+            if coletor.total:
+                linhas += [
+                    "",
+                    "Cada pasta é uma classe. Abra a pasta em miniaturas grandes "
+                    "e procure o recorte que não pertence ali:",
+                    "  • está certo — deixe onde está",
+                    "  • está na classe errada — mova para a pasta certa",
+                    "  • não é caractere — apague",
+                    "",
+                    "Depois, 'Promover recortes revistos para a base'."]
+            (messagebox.showinfo if coletor.total else messagebox.showwarning)(
+                "Recortes para revisão", "\n".join(linhas))
+
+        self._run_task("Criar recortes", trabalho, concluir)
+
+    def promover_revisao_action(self):
+        """
+        Leva para a base de treino o que sobreviveu à revisão.
+
+        O rótulo é o nome da pasta, então o que valeu foi o que você fez com o
+        mouse: confirmar é deixar onde está, corrigir é mover, descartar é
+        apagar. Pasta com nome que não é rótulo é recusada, não adivinhada.
+        """
+        if self._busy("A promoção"):
+            return
+
+        pasta = filedialog.askdirectory(
+            title="Pasta de revisão", initialdir=os.path.abspath(coleta.PASTA_PADRAO)
+            if os.path.isdir(coleta.PASTA_PADRAO) else None)
+        if not pasta:
+            return
+
+        quantos = sum(len([a for a in os.listdir(os.path.join(pasta, d))
+                           if a.lower().endswith(".png")])
+                      for d in os.listdir(pasta)
+                      if os.path.isdir(os.path.join(pasta, d)))
+        if not quantos:
+            messagebox.showinfo("Promover recortes",
+                                "Não há recorte nenhum nessa pasta.")
+            return
+        if not messagebox.askyesno(
+                "Promover recortes",
+                f"{quantos} recorte(s) vão entrar na base de treino, com o "
+                f"rótulo da pasta em que estão.\n\n"
+                "Confira antes: amostra com rótulo errado ensina o modelo "
+                "errado, e sair dele depois dá trabalho."):
+            return
+
+        def trabalho(h):
+            h.log("Lendo os recortes revistos...")
+            return coleta.promover(pasta, data_dir=self.learning_service.data_dir)
+
+        def concluir(r):
+            linhas = [f"{r.aprendidos} recorte(s) em {r.classes} classe(s) "
+                      f"entraram na base."]
+            if r.recusados:
+                linhas += ["", "Pastas recusadas por não serem rótulo:",
+                           "  " + ", ".join(r.recusados[:8])]
+            if r.ilegiveis:
+                linhas.append(f"{len(r.ilegiveis)} arquivo(s) ilegíveis.")
+            linhas += ["", "Treine a rede para o modelo passar a usá-los."]
+            messagebox.showinfo("Promover recortes", "\n".join(linhas))
+
+        self._run_task("Promover recortes", trabalho, concluir)
 
     def _acao_ocr_pdf(self, modo, titulo, titulo_saida):
         if self._busy("A conversão"):
