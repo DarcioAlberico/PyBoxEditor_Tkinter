@@ -69,6 +69,31 @@ CONF_MAXIMA_PARA_A_LINHA = 0.70
 #: confiança do k-NN não passa pela temperatura.
 CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = 0.85
 
+#: Confiança mínima para a rede responder sozinha, sem passar ao k-NN (F22).
+#:
+#: Era 0,8, e o 0,8 estava afinado para o modelo **não calibrado**. A F22 gravou
+#: a temperatura de 2,1916, que baixa a escala inteira sem mudar qual classe
+#: vence — e como este limiar compara confiança, o mesmo 0,8 passou a cortar
+#: alto demais. Medido em 2.278 caracteres, com o modelo calibrado:
+#:
+#:     limiar   acerto   rede /  k-NN / OCR
+#:     0,40     97,45%   2.272 /     3 /   3
+#:     0,70     97,45%   2.253 /    17 /   8
+#:     0,80     97,37%   2.203 /    63 /  12
+#:     0,90     97,19%   2.114 /   139 /  25
+#:
+#: Sessenta boxes voltam da fila do k-NN para a rede, e a cadeia recupera os
+#: 0,08 ponto que a calibração custava.
+#:
+#: **0,70 e não 0,40, apesar de medirem igual.** O platô é chato de 0,40 a 0,70,
+#: e nesse trecho o que muda é quem responde, não o acerto — 19 boxes a mais na
+#: rede entre uma ponta e outra. Ficar na borda alta do platô é manter o k-NN
+#: como segunda opinião onde a rede hesita, que é a razão de ele existir na
+#: cadeia (ver `CharacterLearner`: nos casos difíceis ele acerta 88,5% contra
+#: 72,4% da rede sozinha). Descer a 0,40 compraria o mesmo número desligando
+#: quase toda a segunda opinião.
+NEURAL_THRESHOLD = 0.70
+
 
 # Símbolos do "Key to symbols used" destes livros, por família. O agrupamento é o
 # da própria página do livro, e serve para achar o botão: numa fileira única de 23
@@ -1736,7 +1761,7 @@ class MainWindow(tk.Frame):
             def reconhecer(recorte):
                 char, _fonte, conf = self.ocr_service.fallback_chain(
                     recorte, predictor=predictor, learner=learner,
-                    neural_threshold=0.8, learner_threshold=0.9,
+                    neural_threshold=NEURAL_THRESHOLD, learner_threshold=0.9,
                 )
                 return char, conf
 
@@ -2059,7 +2084,7 @@ class MainWindow(tk.Frame):
                 char, fonte, c = self.ocr_service.fallback_chain(
                     justo, predictor=predictor, learner=learner,
                     contexto=contexto,
-                    neural_threshold=0.8, learner_threshold=0.9,
+                    neural_threshold=NEURAL_THRESHOLD, learner_threshold=0.9,
                 )
                 return (char, c, fonte)
             return ler_caractere

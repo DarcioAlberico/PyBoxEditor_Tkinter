@@ -5058,10 +5058,20 @@ alto demais:
 | 0,80 (atual) | 97,37% | 2.203 / 63 / 12 |
 | 0,90 | 97,19% | 2.114 / 139 / 25 |
 
-Baixá-lo para 0,70 recupera 0,08 dos 0,13. **Não foi mexido nesta fase**: é literal em três
-lugares de `main_window.py` e um padrão em `ocr_service`, e a SPEC §5.1 já pede que esses
-limiares venham de configuração — mexer neles à mão agora seria fazer o trabalho errado
-duas vezes. Fica medido e apontado.
+Baixado para 0,70, e virou `NEURAL_THRESHOLD` em vez dos literais repetidos — a SPEC §5.1
+ainda pede que estes limiares venham de configuração, e uma constante nomeada com a tabela
+ao lado é o passo que falta para isso, não um desvio dele.
+
+**0,70 e não 0,40, apesar de medirem igual.** No trecho chato do platô o que muda é quem
+responde, não o acerto: 19 boxes a mais na rede entre uma ponta e outra. Ficar na borda
+alta mantém o k-NN como segunda opinião onde a rede hesita, que é a razão de ele existir
+na cadeia — medido em `CharacterLearner`, nos casos difíceis ele acerta 88,5% contra 72,4%
+da rede sozinha. Descer a 0,40 compraria o mesmo número desligando quase toda a segunda
+opinião.
+
+Conferido pelo caminho de produção, com a linha ligada e a trava em 0,70: **97,50%**, com
+2.253 boxes na rede, 17 no k-NN, 7 no EasyOCR e 1 corrigido pela linha. É o mesmo número
+de antes da calibração — o custo caiu de 0,13 para 0,04 ponto, e os 21% de ECE ficam.
 
 ### As travas da F18 sobreviveram
 
@@ -5086,11 +5096,19 @@ confiança do k-NN não passa pela temperatura.
 
 ### O saldo, dito inteiro
 
-A calibração custa **0,13 ponto de acerto** na cadeia neural e devolve **21% de ECE**. Vale
-porque a confiança aqui não é enfeite — é ela que ordena a fila de revisão (F3.2) e que a
-F14 mediu como o melhor filtro disponível. Um ponto a menos de acerto bruto com a confiança
-dizendo a verdade rende mais que o contrário, e o 0,13 volta quase todo assim que o
-`neural_threshold` seguir a escala.
+A calibração custava **0,13 ponto de acerto** e devolve **21% de ECE**. Com o
+`neural_threshold` seguindo a escala nova, o custo cai para **0,04 ponto** — um caractere
+em 2.278 — e o ECE fica.
+
+Valeria mesmo pelos 0,13: a confiança aqui não é enfeite, é ela que ordena a fila de
+revisão (F3.2) e que a F14 mediu como o melhor filtro disponível, e acerto bruto com a
+confiança mentindo rende menos que o contrário. Mas não foi preciso escolher.
+
+**A lição é do formato do limiar, não do valor.** Um número afinado contra a escala de
+confiança de um modelo é um número que o próximo treino invalida em silêncio — nada
+quebra, nada avisa, e o roteamento da cadeia muda sozinho. Os três que existem hoje
+(`NEURAL_THRESHOLD`, as duas travas da F18) carregam a tabela que os produziu, e a tabela
+diz contra qual temperatura foi medida.
 
 ---
 

@@ -246,7 +246,12 @@ class OCRService:
         predictor=None,
         learner=None,
         reader=None,  # se None, usa self._init_easyocr internamente
-        neural_threshold: float = 0.8,
+        # 0,70 e não 0,80 desde a F22: o 0,80 estava afinado para o modelo sem
+        # calibração, e a temperatura de 2,1916 baixou a escala inteira sem
+        # mudar qual classe vence. Medido, 0,80 manda 60 boxes a mais para o
+        # k-NN e custa 0,08 ponto. Ver `NEURAL_THRESHOLD` em `ui/main_window`,
+        # que é onde a tabela está.
+        neural_threshold: float = 0.70,
         learner_threshold: float = 0.9,
         easyocr_languages: Tuple[str, ...] = ("en",),
         easyocr_gpu: bool = False,
