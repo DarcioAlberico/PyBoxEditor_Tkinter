@@ -28,31 +28,19 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from core import preprocess
+from core import calibracao_de_pagina, preprocess
 from core.avaliacao_pagina import carregar_box, classificar_cortes, comparar
 from core.box_model import BoxEntry
 from core.services.box_service import BoxService
 
 
-PASTAS_DE_IMAGEM = ("ilovepdf_pages-to-jpg", "Box")
-MIN_ROTULADOS = 50
-
-
-def paginas_rotuladas():
-    """[(imagem, .box)] — a imagem pode estar na pasta do .box ou na do PDF."""
-    achados = []
-    for pasta in PASTAS_DE_IMAGEM:
-        for cx in sorted(glob.glob(os.path.join(pasta, "*.box"))):
-            nome = os.path.splitext(os.path.basename(cx))[0]
-            for onde in (os.path.dirname(cx),) + PASTAS_DE_IMAGEM:
-                imagem = next(
-                    (p for p in (os.path.join(onde, nome + e)
-                                 for e in (".jpg", ".png", ".jpeg"))
-                     if os.path.exists(p)), None)
-                if imagem:
-                    achados.append((imagem, cx))
-                    break
-    return achados
+# Reexportados de `core.calibracao_de_pagina`, para onde mudaram na F27: o
+# treino passou a calibrar sozinho no fim, e o núcleo não pode importar um
+# script de medição. Quem já importava daqui continua importando daqui — é a
+# mesma solução que `avaliacao_pagina.carregar_box` usa desde a F5.2.
+PASTAS_DE_IMAGEM = calibracao_de_pagina.PASTAS_DE_IMAGEM
+MIN_ROTULADOS = calibracao_de_pagina.MIN_ROTULADOS
+paginas_rotuladas = calibracao_de_pagina.paginas_rotuladas
 
 
 def segmentar(imagem, modo, arbitro=None, margem=None, fator=None):

@@ -3321,24 +3321,20 @@ class MainWindow(tk.Frame):
             # O relatório da F1.3 é o único lugar onde a qualidade do modelo
             # aparece medida sobre dados que ele não viu. Não adianta gravá-lo e
             # deixar o usuário sem saber que existe.
-            # O treino acabou de gravar `temperatura: 1.0`, então o modelo que
-            # ele produziu está sem calibração **por construção**. É o momento
-            # exato de dizer, e o único em que o usuário sabe que causou.
-            # `_modelo_avisado` volta a falso porque a ressalva agora é de outro
-            # arquivo — a que ele já viu era do modelo anterior.
+            # A ressalva agora é de outro arquivo: a que o usuário já fechou
+            # era do modelo anterior. O treino calibra sozinho no fim (F27), e
+            # quando ele consegue não há o que avisar — `_avisar_do_modelo` só
+            # abre a boca se a temperatura ficou neutra, que é o caso de quem
+            # não tem página rotulada. O log da tarefa já disse qual dos dois
+            # aconteceu; isto é para quem não leu o log.
             self._modelo_avisado = False
-            calibrar = ("\n\nO modelo novo está sem calibração — a confiança "
-                        "dele é softmax cru até você rodar:\n"
-                        "    python calibrar_modelo.py --gravar\n"
-                        "Sem isso o filtro \"só pendentes\" mostra menos da "
-                        "metade dos erros que mostraria.")
 
             relatorio = self.learning_service.caminho_relatorio()
             if os.path.exists(relatorio):
                 if messagebox.askyesno(
                     "Treinamento concluído",
                     "Treinamento concluído! Agora você pode usar "
-                    "'Detectar e Preencher (Neural)'." + calibrar + "\n\n"
+                    "'Detectar e Preencher (Neural)'.\n\n"
                     "Deseja abrir o relatório de validação?"
                 ):
                     self.abrir_relatorio_treino()
@@ -3346,8 +3342,9 @@ class MainWindow(tk.Frame):
                 messagebox.showinfo(
                     "Sucesso",
                     "Treinamento concluído!\nAgora você pode usar "
-                    "'Detectar e Preencher (Neural)'." + calibrar
+                    "'Detectar e Preencher (Neural)'."
                 )
+            self._avisar_do_modelo()
 
         self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)
 

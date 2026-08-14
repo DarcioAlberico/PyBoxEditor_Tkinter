@@ -364,6 +364,7 @@ class NeuralTrainer:
         self.device = get_device()
         
     def train(self, epochs=20, callback=None, should_stop=None,
+              calibrar=True,
               balanceamento="sqrt", paciencia=5, semente=SEMENTE_PADRAO,
               relatorio=True):
         """
@@ -613,7 +614,72 @@ class NeuralTrainer:
         elif callback:
             callback(f"Treinamento concluído na epoch {melhor_epoch}. Modelo salvo.")
 
+        if calibrar:
+            self._calibrar(model, callback)
         return True
+
+    def _calibrar(self, model, callback=None):
+        """
+        Ajusta e grava a temperatura do modelo recém-treinado (F27).
+
+        **Aqui e não num comando à parte.** `gravar_modelo` escreve
+        `temperatura: 1.0` de propósito — herdar a do modelo anterior aplicaria
+        correção medida sobre outros pesos —, e até a F26 nada dizia que ela
+        precisava ser refeita. O modelo de 14/08 rodou um dia em softmax cru,
+        com a fila de revisão mostrando 11% dos erros em vez de 23%. O aviso da
+        F26 é o remédio para quem já tem um modelo assim; este é o que impede o
+        próximo.
+
+        **Custa 20 s** — 8,6 s para colher os logits das páginas rotuladas e
+        11,6 s para ajustar a temperatura —, contra os minutos de um treino. Era
+        essa medida que faltava para decidir emendá-la aqui.
+
+        **Nunca derruba o treino.** O modelo já está gravado e vale; o que se
+        perde numa falha aqui é a calibração, e o aviso da F26 passa a acender.
+        Sem página rotulada é o estado normal de quem nunca rotulou uma, e não
+        um erro.
+        """
+        from core import calibracao_de_pagina as cal
+
+        if callback:
+            callback("Calibrando a confiança nas páginas rotuladas...")
+        try:
+            with open(self.meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+            # Sem isto o dropout continuaria ligado e os logits sairiam de um
+            # modelo que não é o que a aplicação usa.
+            model.eval()
+            T, paginas, chars = cal.ajustar(model, meta, self.device)
+        except cal.SemPaginasRotuladas as e:
+            if callback:
+                callback(f"Sem calibração: {e}. A confiança fica em softmax "
+                         "cru — rotule uma página e rode "
+                         "`python calibrar_modelo.py --gravar`.")
+            return
+        except Exception as e:                      # noqa: BLE001
+            if callback:
+                callback(f"A calibração falhou ({e}). O modelo está gravado e "
+                         "vale; rode `python calibrar_modelo.py --gravar`.")
+            return
+
+        if cal.no_limite(T):
+            # Recusar é mais seguro que gravar: T na borda esmaga toda a
+            # confiança, e aí **nada** passa pelo `NEURAL_THRESHOLD` — a cadeia
+            # inteira mudaria de comportamento sem ninguém ter pedido. Em
+            # softmax cru pelo menos o aviso da F26 acende.
+            if callback:
+                callback(f"Calibração recusada: a temperatura ajustada "
+                         f"({T:.4f}) parou na borda do intervalo "
+                         f"{cal.LIMITES[0]}–{cal.LIMITES[1]}, o que quer dizer "
+                         f"que o modelo e as páginas rotuladas não combinam. A "
+                         f"confiança fica em softmax cru; rode "
+                         f"`python calibrar_modelo.py` para ver as tabelas.")
+            return
+
+        cal.gravar_temperatura(self.meta_path, T)
+        if callback:
+            callback(f"Calibrado: T = {T:.4f}, ajustado em {chars} caracteres "
+                     f"de {paginas} página(s) rotulada(s).")
 
 class NeuralPredictor:
     def __init__(self, model_path="custom_model.pth", meta_path="model_meta.json"):

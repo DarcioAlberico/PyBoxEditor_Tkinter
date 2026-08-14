@@ -143,3 +143,24 @@ def _a_suite_nao_escreve_na_base_de_ocupacao():
         "esqueceu de apontar PASTA_OCUPACAO para uma pasta temporária "
         "(a gravação foi recusada, a base está intacta):\n  "
         + "\n  ".join(_INDEVIDAS))
+
+
+@pytest.fixture(autouse=True)
+def _sem_paginas_rotuladas(monkeypatch):
+    """
+    Nenhum teste enxerga as páginas rotuladas do diretório de trabalho.
+
+    A F27 fez o treino calibrar sozinho no fim, e a calibração procura `.box`
+    em `Box/` e `ilovepdf_pages-to-jpg/` — que existem na máquina de quem
+    desenvolve e não num clone limpo. Sem esta trava, onze testes de treino
+    passavam a colher logits das dez páginas reais: **103 s a mais na suíte**, e
+    um resultado que dependia de arquivos fora do repositório.
+
+    O caminho não é desligado, é esvaziado: `_calibrar` roda, não acha página e
+    relata — que é exatamente o estado de quem nunca rotulou uma. Quem quiser o
+    outro lado devolve `paginas_rotuladas` no próprio teste.
+    """
+    from core import calibracao_de_pagina
+
+    monkeypatch.setattr(calibracao_de_pagina, "paginas_rotuladas",
+                        lambda *a, **k: [])

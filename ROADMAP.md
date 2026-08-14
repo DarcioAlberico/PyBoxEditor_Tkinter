@@ -5618,6 +5618,88 @@ pesos e `temperatura: 1.0`.
 
 ---
 
+## F27 — O treino calibra sozinho no fim — CONCLUÍDA
+
+A F26 fechou dizendo que o aviso é o remédio barato: **enquanto der para terminar um treino
+e sair sem calibrar, a situação da F25 volta a acontecer — só que avisada.** O que faltava
+para decidir era o custo, e ele nunca tinha sido medido.
+
+### 20 segundos
+
+Medido nas 10 páginas rotuladas, 10.549 caracteres:
+
+| | |
+|---|---:|
+| colher os logits (segmentar + rede) | 8,6 s |
+| ajustar a temperatura | 11,6 s |
+| **total** | **20,2 s** |
+
+Contra os minutos de um treino, a pergunta se responde sozinha. Era só medir.
+
+### Onde o código foi parar
+
+A coleta morava dentro de `calibrar_modelo.py` e importava `medir_paginas` — e o núcleo
+não pode depender de um script de medição do diretório raiz. Saiu para
+`core/calibracao_de_pagina.py`, que é a metade "página real" da calibração;
+`core/calibracao.py` continua sendo só a matemática, sem torch nem cv2.
+
+`medir_paginas.py` **reexporta** `paginas_rotuladas`, `MIN_ROTULADOS` e `PASTAS_DE_IMAGEM`
+de lá, para os cinco `medir_*.py` que importavam daqui continuarem funcionando — a mesma
+solução que `avaliacao_pagina.carregar_box` usa desde a F5.2. E `calibrar_modelo.py` passou
+a consumir o núcleo: continua sendo quem **mostra** as tabelas e quem recalibra sem
+retreinar.
+
+`NeuralTrainer._calibrar` roda depois do relatório, com `model.eval()` — sem isso o dropout
+continuaria ligado e os logits sairiam de um modelo que não é o que a aplicação usa. E
+`LearningService.train_neural` passou a soltar o preditor anterior: `load_predictor`
+devolve `True` sem reler quando já há um carregado, então sem isso a sessão seguiria com os
+pesos velhos e a ressalva da F26 seria a do arquivo recém-substituído.
+
+### A calibração nunca derruba o treino
+
+O modelo já está gravado quando ela roda. Três saídas, e nenhuma perde o treino:
+
+- **sem página rotulada** — o estado normal de quem nunca rotulou uma. Relata, deixa a
+  temperatura neutra, e o aviso da F26 acende;
+- **exceção qualquer** — relata e segue. O que se perde é a calibração, não os minutos;
+- **temperatura na borda do intervalo** — recusada, e este é o caso que a fase encontrou.
+
+### Automatizar tirou o humano que julgava, e isso precisou ser reposto
+
+Na verificação de ponta a ponta — um modelo de 4 classes treinado num tmp, calibrado contra
+as páginas reais — a temperatura saiu **10,0000**, que é exatamente o teto do intervalo
+`(0,4 – 10,0)`. O modelo não sabia ler aquelas páginas; errava quase tudo com confiança
+alta, e a busca foi empurrando a temperatura para o teto tentando amaciá-la.
+
+O valor de borda **não é uma temperatura medida, é o fim da régua** — e gravá-lo seria pior
+que não calibrar: com T no teto nada mais passaria pelo `NEURAL_THRESHOLD` e a cadeia
+inteira mudaria de comportamento sem ninguém ter pedido.
+
+Antes desta fase isso não podia acontecer calado: quem rodava `calibrar_modelo.py` via as
+tabelas e julgava. **Automatizar a rotina tirou esse julgamento**, e `no_limite` é o que o
+repõe — a verificação que o humano fazia a olho, agora escrita. É o custo escondido de
+automatizar um passo manual, e vale registrar porque não aparece na medição de tempo.
+
+### A suíte denunciou uma dependência que ninguém tinha pedido
+
+Com a calibração no fim do treino, a suíte foi de 82 s para **185 s**: onze testes de treino
+passaram a achar as dez páginas rotuladas do diretório de trabalho e a colher logits delas
+de verdade. Pior que o tempo é o que isso significava — testes cujo resultado dependia de
+arquivos que não estão no repositório e não existem num clone limpo.
+
+O `conftest.py` ganhou uma trava autouse que esvazia `paginas_rotuladas` para a suíte
+inteira. O caminho não é desligado, é esvaziado: `_calibrar` roda, não acha página e relata
+— que é exatamente o estado de um clone limpo. A suíte voltou a 83 s, e os testes de treino
+caíram de ~9 s para ~1,5 s cada, o que revela que eles **já** pagavam a segmentação das
+páginas reais sem que isso estivesse escrito em lugar nenhum.
+
+Cobertura: `tests/test_f27_calibracao_no_treino.py`, 11 testes — a temperatura sai de 1,0
+quando dá; o treino não cai quando não dá; o metadado sobrevive inteiro à regravação (ele
+carrega os dois SHA-256 da F7.3, e remontá-lo de fora é como se perde a amarração); e a
+borda é recusada nas duas pontas. Suíte em 1.312.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

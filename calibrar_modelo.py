@@ -10,25 +10,24 @@ e o ECE é 0,0003 — não há o que calibrar, e a temperatura ajustada dá 0,99
 página real a acurácia cai para ~93% e o ECE sobe para ~0,033. É na página que a
 confiança é consumida, então é na página que ela tem de estar certa.
 
-A validação é **leave-one-page-out**: a temperatura de cada página sai das outras
-sete. Ajustar e medir nas mesmas 8 páginas daria um número bonito e falso.
+A validação é **leave-one-page-out**: a temperatura de cada página sai de todas
+as outras. Ajustar e medir nas mesmas páginas daria um número bonito e falso.
+
+Desde a F27 o treino chama esta calibração sozinho no fim (`NeuralTrainer._calibrar`),
+e a coleta mora em `core/calibracao_de_pagina.py`. Este script continua sendo
+quem **mostra** as tabelas — e quem recalibra sem retreinar.
 """
 
 import argparse
 import json
-import os
 import sys
 
-import cv2
 import numpy as np
 import torch
-from PIL import Image
 
 from core import calibracao
-from core.avaliacao_pagina import carregar_box, comparar, normalizar
+from core.calibracao_de_pagina import coletar
 from core.neural_model import SimpleCNN, get_device
-from core.services.box_service import BoxService
-from medir_paginas import MIN_ROTULADOS, paginas_rotuladas
 
 
 def carregar_modelo(model_path="custom_model.pth", meta_path="model_meta.json"):
@@ -39,55 +38,6 @@ def carregar_modelo(model_path="custom_model.pth", meta_path="model_meta.json"):
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     return model, meta, device
-
-
-@torch.no_grad()
-def _logits(model, device, recortes, lote=512):
-    imgs = np.stack([cv2.resize(r, (32, 32)) for r in recortes])
-    x = torch.from_numpy(imgs).float().div_(255.0).unsqueeze(1).to(device)
-    saida = [model(x[i:i + lote]).cpu().numpy() for i in range(0, len(x), lote)]
-    return np.concatenate(saida)
-
-
-def coletar(model, meta, device, separar_colados=True):
-    """[(nome, logits, máscara de classes aceitáveis)] por página rotulada."""
-    idx_to_char = {int(k): v for k, v in meta["idx_to_char"].items()}
-    num_classes = meta["num_classes"]
-
-    # caractere normalizado -> classes que contam como leitura correta
-    aceitaveis_de = {}
-    for k, c in idx_to_char.items():
-        aceitaveis_de.setdefault(normalizar(c), []).append(k)
-
-    paginas = []
-    for imagem, caminho_box in paginas_rotuladas():
-        img = Image.open(imagem).convert("L")
-        rotulados = carregar_box(caminho_box, img.size[1])
-        if len(rotulados) < MIN_ROTULADOS:
-            continue
-
-        arr = np.array(img)
-        boxes = BoxService.generate_boxes_opencv(
-            img, separar_colados=separar_colados)
-        lg = _logits(model, device, [arr[b.y1:b.y2, b.x1:b.x2] for b in boxes])
-        previsto = lg.argmax(axis=1)
-        for i, b in enumerate(boxes):
-            b.char = idx_to_char.get(int(previsto[i]), "?")
-
-        linhas, mascaras = [], []
-        for i, j in comparar(boxes, rotulados).pares:
-            classes = aceitaveis_de.get(normalizar(rotulados[j].char))
-            if not classes:
-                continue        # rótulo que o modelo nem tem como classe
-            m = np.zeros(num_classes, dtype=bool)
-            m[classes] = True
-            linhas.append(lg[i])
-            mascaras.append(m)
-
-        if linhas:
-            paginas.append((os.path.basename(imagem), np.stack(linhas),
-                            np.stack(mascaras)))
-    return paginas
 
 
 def _mostrar(titulo, r):

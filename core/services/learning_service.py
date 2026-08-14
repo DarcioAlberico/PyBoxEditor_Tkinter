@@ -157,7 +157,8 @@ class LearningService:
                      callback: Optional[Callable[[str], None]] = None,
                      should_stop: Optional[Callable[[], bool]] = None,
                      validar: bool = True,
-                     balanceamento: str = "sqrt") -> bool:
+                     balanceamento: str = "sqrt",
+                     calibrar: bool = True) -> bool:
         """
         Treina a rede neural com os dados atuais.
 
@@ -179,9 +180,17 @@ class LearningService:
                 raise DatasetInvalido(graves)
 
         trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
-        return trainer.train(epochs=epochs, callback=callback,
-                             should_stop=should_stop,
-                             balanceamento=balanceamento)
+        ok = trainer.train(epochs=epochs, callback=callback,
+                           should_stop=should_stop,
+                           balanceamento=balanceamento,
+                           calibrar=calibrar)
+        if ok:
+            # O preditor em memória é o do modelo ANTERIOR, e `load_predictor`
+            # devolve `True` sem reler quando já há um carregado. Sem isto a
+            # sessão seguiria usando os pesos velhos, e a ressalva da F26 seria
+            # a do arquivo que acabou de ser substituído.
+            self._predictor = None
+        return ok
 
     # ------------------------------------------------------------------
     # Batch processing (extract + classify)
