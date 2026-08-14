@@ -5753,6 +5753,77 @@ Cobertura: `tests/test_f73_modelo.py`, 28 testes (2 novos). Suíte em 1.314.
 
 ---
 
+## F29 — Quanto a calibração mexe na segmentação — MEDIDA, e mexe quase nada
+
+A F28 deixou a pergunta escrita: o árbitro de corte (F1.5b) endossa o corte quando
+`menor > p_inteiro + margem`, o que é uma **comparação de confiança** — e a temperatura
+mexe em toda confiança. A `margem = 0,30` foi afinada na F1.5b, antes de existir
+calibração. Se o ótimo dela tivesse se movido, seria o quarto número desta série afinado
+contra uma escala que deixou de existir, junto do `NEURAL_THRESHOLD`, das duas travas da
+linha e do `learner_threshold`.
+
+`medir_paginas.py` ganhou `--temperatura`, que força a do árbitro em vez de usar a gravada.
+Era o que faltava — o instrumento já media segmentação e já varria a margem.
+
+### No ponto de produção, três cortes
+
+Nas 10 páginas rotuladas, ~12.000 caracteres, modo `arbitrado` com a margem de produção:
+
+| | T = 1 | T = 2,1682 |
+|---|---:|---:|
+| F1 | 94,9 | **95,0** |
+| espúrios | 339 | 344 |
+| cortes bons | 14 | 17 |
+| cortes falsos | 1 | 2 |
+
+### E o ótimo da margem não se move
+
+| margem | F1 (T = 1) | F1 (T = 2,1682) | bons/falsos (T=1) | bons/falsos (T=2,17) |
+|---:|---:|---:|---|---|
+| **0,00** | **95,1** | **95,1** | 43 / 14 | 45 / 16 |
+| 0,15 | 94,9 | 95,0 | 19 / 4 | 26 / 5 |
+| 0,30 *(produção)* | 94,9 | 95,0 | 14 / 1 | 17 / 2 |
+| 0,50 | 94,8 | 94,9 | 3 / 0 | 10 / 0 |
+
+O ranking é o mesmo nas duas colunas, e o ótimo cai no mesmo lugar. **A `margem = 0,30` não
+é um limiar invalidado pela calibração** — é um número insensível a ela, que era a terceira
+possibilidade e a que eu não tinha nomeado.
+
+A razão de a superfície ser tão pequena está na própria tabela: o árbitro é conservador de
+saída. O modo `local`, sem ele, faz **192 cortes falsos**; o `arbitrado` faz 1 ou 2. Sobra
+pouco para a temperatura mover.
+
+### O mecanismo que eu previ está errado, e não o substituo por outro
+
+A previsão era: a temperatura comprime as confianças, a folga `menor - p_inteiro` encolhe,
+e contra uma margem absoluta menos cortes passam. O medido é o contrário — **calibrado
+endossa mais cortes em todas as quatro margens** (43→45, 19→26, 14→17, 3→10), sem exceção.
+
+Tentei medir a folga direto e a reconstrução do laço de candidatos saiu divergente da
+produção (zero candidatos onde ela acha vários). Parei ali: depurar uma cópia do pipeline
+para explicar 0,1 de F1 é o erro que a F1.5 registrou, com menos motivo. **A direção está
+medida e o mecanismo não está verificado**, e é assim que fica escrito — foi a quarta vez
+nesta série que uma aritmética plausível não sobreviveu à medida.
+
+### Uma pergunta que esta medição abriu e não é a dela
+
+`margem = 0,00` mede **melhor** que a de produção nas duas temperaturas — 95,1 contra 94,9
+e 95,0. São +0,2 de F1, e a troca é explícita: 48 espúrios a mais e 13 cortes falsos a mais,
+comprados com 0,5 ponto de recall.
+
+Isso contradiz a decisão da F1.5b, cujo docstring diz com todas as letras que "a margem é
+0,30, e quem decidiu foi o F1 da página". O F1 da página agora aponta para 0,00. Entre uma
+medida e outra mudaram o dpi (F15), o modelo (210 classes) e a base — então não é a mesma
+pergunta feita duas vezes, é uma pergunta velha cujo terreno se moveu. **Fica registrada,
+não resolvida**: é fase própria, com a varredura mais fina e a conta de espúrio contra
+recall feita à parte, e não um número para mudar de passagem no fim de outra fase.
+
+Cobertura: nenhum teste novo — a fase não mudou código de produção, só acrescentou uma
+opção ao instrumento. Reproduzir:
+`python medir_paginas.py --temperatura 1.0 --margens 0.0 0.15 0.30 0.50`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

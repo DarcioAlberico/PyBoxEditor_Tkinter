@@ -118,6 +118,10 @@ def main():
                     help="varre margens do árbitro (F1.5b) em vez dos modos")
     ap.add_argument("--fatores", type=float, nargs="*", default=None,
                     help="varre o fator_largo da candidatura (F13)")
+    ap.add_argument("--temperatura", type=float, default=None,
+                    help="força a temperatura do árbitro em vez da gravada "
+                         "(F29): o endosso do corte compara confianças, e a "
+                         "temperatura comprime a diferença entre elas")
     args = ap.parse_args()
 
     predizer = None
@@ -127,6 +131,9 @@ def main():
         if not svc.load_predictor():
             print("sem modelo treinado — rodando como --sem-modelo\n")
         else:
+            if args.temperatura is not None:
+                svc._predictor.temperatura = args.temperatura
+            print(f"árbitro com temperatura {svc._predictor.temperatura:.4f}")
             predizer = svc._predictor.predict
 
     paginas = paginas_rotuladas()
