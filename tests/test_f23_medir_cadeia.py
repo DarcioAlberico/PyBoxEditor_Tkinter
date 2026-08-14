@@ -82,6 +82,37 @@ def test_memo_devolve_o_que_o_modelo_devolveria():
     assert mc._Memo(modelo).predict(crop) == esperado
 
 
+def test_a_confianca_combinada_e_o_minimo_das_duas():
+    """
+    `min(absoluta, margem)` — a terceira forma que a F24 mediu, e que perde.
+
+    O envelope não consulta o k-NN de novo: as duas metades já foram calculadas
+    no aquecimento, e é isso que torna a varredura das duas confianças possível
+    no mesmo processo — que é como elas ficam na mesma base.
+    """
+    class _Learner:
+        def __init__(self):
+            self.consultas = 0
+
+        def predict(self, crop):
+            self.consultas += 1
+            return "a", 0.80
+
+        def margem_de_confianca(self, crop):
+            self.consultas += 1
+            return 0.25
+
+    alvo = _Learner()
+    memo = mc._Memo(alvo)
+    combinado = mc._MemoCombinado(memo)
+    crop = _crop()
+
+    assert combinado.predict(crop) == ("a", 0.25)
+    combinado.predict(crop)
+    combinado.predict(crop)
+    assert alvo.consultas == 2      # um `predict` e uma `margem`, e só
+
+
 def test_memo_responde_ao_loaded_do_fallback_chain():
     """
     O `fallback_chain` pergunta `predictor.loaded` antes de consultar a rede.

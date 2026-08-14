@@ -129,6 +129,31 @@ class _Memo:
         return self._cache[chave]
 
 
+class _MemoCombinado:
+    """
+    `min(confiança de produção, margem)` — a ideia que a F24 deixou aberta.
+
+    Se a absoluta detecta novidade e a margem detecta ambiguidade, o mínimo das
+    duas acende nos dois casos. Envolve o memo em vez do k-NN: as duas metades
+    já foram calculadas no aquecimento, então a varredura inteira não custa
+    consulta nova nenhuma.
+    """
+
+    def __init__(self, memo):
+        self._memo = memo
+        self.loaded = True
+
+    def predict(self, crop):
+        char, conf = self._memo.predict(crop)
+        return char, min(conf, self._memo.margem(crop))
+
+    def vizinhos(self, crop, k=1):
+        return self._memo.vizinhos(crop, k=k)
+
+    def margem(self, crop):
+        return self._memo.margem(crop)
+
+
 class ServicoMemorizado(OCRService):
     """
     O serviço de produção, com o EasyOCR consultado uma vez por recorte.
@@ -421,7 +446,8 @@ def tabela_do_knn(aquecidos, verdade):
     print(f"\n{'para pegar':<14}" + "".join(f"{f'{int(a*100)}% dos erros':>18}"
                                            for a in alvos))
     for nome, conf_de in (("produção", lambda r: r[0]),
-                          ("margem", lambda r: r[2])):
+                          ("margem", lambda r: r[2]),
+                          ("mín. das duas", lambda r: min(r[0], r[2]))):
         custos = _custo_por_recall(medidos, certos, conf_de, alvos)
         celulas = "".join(f"{('—' if c is None else f'{c} à toa'):>18}"
                           for c in custos)
@@ -555,6 +581,10 @@ def main():
     ap.add_argument("--knn", action="store_true",
                     help="mede só o elo do k-NN, sem carregar o EasyOCR — é a "
                          "rodada rápida, e é como se varre o --k")
+    ap.add_argument("--combinada", action="store_true",
+                    help="varre o roteamento com min(absoluta, margem) **e** com "
+                         "a de produção, no mesmo processo e na mesma base — a "
+                         "ideia aberta na F24")
     args = ap.parse_args()
 
     if args.k is not None:
@@ -639,19 +669,32 @@ def main():
     tabela_do_knn(aquecidos, verdade)
     tabela_roteamento(aquecidos, verdade)
 
-    if args.learner is not None:
+    if args.learner is not None or args.combinada:
         limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]
-        linhas_da_tabela = []
-        for lt in limiares:
-            so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0)
-            # A trava acompanha o limiar: a razão do 0,85 de hoje é ser o mesmo
-            # número do `learner_threshold`, para a linha agir exatamente onde o
-            # k-NN se recusou (F21). Movido um, o outro tem de mover junto.
-            com_linha = rodar(cadeia, paginas, caminho, lt, lt)
-            linhas_da_tabela.append(
-                (f"{lt:.2f}", [acerto(so_ancora), acerto(com_linha)]))
-        tabela_varredura("learner_threshold (o roteamento do k-NN)",
-                         ["âncora", "com a linha"], linhas_da_tabela)
+        # Com `--combinada` as duas confianças são varridas na mesma base e no
+        # mesmo processo. É o cuidado que a F24 aprendeu à força: comparar com
+        # uma tabela de outra rodada é comparar com outra base.
+        confiancas = [("o roteamento do k-NN", cadeia.learner)]
+        if args.combinada:
+            confiancas.append(("min(absoluta, margem)",
+                               _MemoCombinado(cadeia.learner)))
+
+        original = cadeia.learner
+        for nome, memo in confiancas:
+            cadeia.learner = memo
+            linhas_da_tabela = []
+            for lt in limiares:
+                so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0)
+                # A trava acompanha o limiar: a razão do 0,30 de hoje é ser o
+                # mesmo número do `learner_threshold`, para a linha agir
+                # exatamente onde o k-NN se recusou (F21/F23). Movido um, o
+                # outro move junto.
+                com_linha = rodar(cadeia, paginas, caminho, lt, lt)
+                linhas_da_tabela.append(
+                    (f"{lt:.2f}", [acerto(so_ancora), acerto(com_linha)]))
+            tabela_varredura(f"learner_threshold — {nome}",
+                             ["âncora", "com a linha"], linhas_da_tabela)
+        cadeia.learner = original
 
     if args.trava is not None:
         valores = [("sem linha", 0.0)]

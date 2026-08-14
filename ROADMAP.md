@@ -5371,7 +5371,8 @@ Produção voltou ao que era, conferido código contra código como acima. Ficar
   `predict` virou constante nomeada, com o aviso de que **continua sem tabela** e de que os
   dois limiares do híbrido saem desta escala.
 - No instrumento: `--k` para varrer o voto, `--knn` para medir só este elo sem carregar o
-  EasyOCR (segundos em vez de minutos), e a comparação produção × margem por recall igual.
+  EasyOCR (segundos em vez de minutos), `--combinada` para varrer duas confianças na mesma
+  base e no mesmo processo, e a comparação por recall igual entre as três.
 
 **A coluna "já na base" mudou de definição, e a mudança é o assunto da F22 acontecendo com
 o instrumento desta fase.** Na F23 ela era `conf >= 0,99`, o que valia enquanto a confiança
@@ -5379,21 +5380,63 @@ fosse distância absoluta. Sob a margem, 0,99 passou a significar "o vencedor es
 perto que a segunda classe" — verdadeiro em box fácil que a base nunca viu. O número não
 teria mudado de nome, só de significado. Agora é a distância crua: zero é cópia exata.
 
+### E a combinação das duas também perde
+
+Ficava a pergunta óbvia: se a absoluta detecta novidade e a margem detecta ambiguidade,
+`min(absoluta, margem)` acende nos dois casos. Medida em 10.481 caracteres, com as duas
+confianças varridas **no mesmo processo e na mesma base** — o cuidado que esta fase
+aprendeu à força:
+
+| limiar | absoluta | `min(absoluta, margem)` |
+|---:|---:|---:|
+| 0,00 | 97,52% | 97,52% |
+| 0,10 | 97,56% | 97,40% |
+| 0,20 | **97,64%** | 97,19% |
+| 0,30 | 97,61% | 97,05% |
+| 0,50 | 97,36% | 96,08% |
+| 0,70 | 95,53% | 94,33% |
+
+O melhor de cada uma: **97,64% contra 97,52%**. E na fila de revisão o combinado empata no
+topo e fica entre as duas no resto (0 / 66 / 1.613 alarmes falsos contra 0 / 28 / 1.990 da
+absoluta e 37 / 124 / 1.379 da margem).
+
+**O motivo é que `min` só sabe baixar.** Ela de fato acende nos dois casos, como a hipótese
+dizia — mas acender junto significa despejar na fila e no elo seguinte os boxes ambíguos
+que a absoluta já resolvia bem, e a maioria deles está certa. O combinado não soma o melhor
+das duas: fica entre elas, herdando a cauda de uma e perdendo o topo da outra.
+
+Com isso a pergunta da confiança do k-NN está fechada nas três formas testáveis sem
+mudar o que entra no classificador: absoluta, margem, e o mínimo das duas. **A absoluta
+ganha.**
+
 ### O que continua aberto
 
-**O 2000 segue sem medição.** Esta fase mediu a alternativa que o dispensaria, não o valor
-dele. Ele é o divisor da confiança **e** o corte acima do qual o k-NN não responde — dois
-papéis num número só, e nenhum dos dois com tabela.
+**O 2000 segue sem medição.** Esta fase mediu as alternativas que o dispensariam, não o
+valor dele. Ele é o divisor da confiança **e** o corte acima do qual o k-NN não responde —
+dois papéis num número só, e nenhum dos dois com tabela.
 
-**A combinação não foi medida.** Se a absoluta detecta novidade e a margem detecta
-ambiguidade, `min(absoluta, margem)` acenderia nos dois casos. Pela aritmética das tabelas
-ela deve ajudar a fila de revisão e atrapalhar o roteamento — mais boxes para o EasyOCR, e
-a F23 mediu que o k-NN ganha dele em toda faixa. Um número serve os dois usos hoje;
-separá-los é a pergunta anterior a essa.
+**Um número serve dois usos, e eles pedem coisas diferentes.** Roteamento quer novidade,
+fila de revisão quer as duas coisas. Toda esta fase mediu qual fórmula única serve melhor
+aos dois; ninguém mediu ainda o que acontece separando-os — `b.confidence` continuaria a
+absoluta, e a fila de revisão passaria a ordenar por outro critério. É a pergunta anterior
+a qualquer nova fórmula.
 
-Cobertura: `tests/test_f72_knn.py`, 51 testes (14 novos). Dois mudaram de contrato e o
-registro fica: `test_a_resposta_e_a_mesma_do_laco` virou `test_a_busca_e_a_mesma_do_laco` —
-a propriedade que a F7.2 garantia continua valendo, e quem a expõe agora é `vizinhos`.
+**O limiar do híbrido continua em 0,30, e isto é decisão e não descuido.** Na base de hoje
+(73.900 referências, contra 70.755 quando a F23 mediu) o pico da varredura caiu em 0,20 com
+97,64%, contra 97,61% de 0,30 — **três caracteres em 10.481**. De 0,10 a 0,30 é platô
+(97,56 / 97,64 / 97,61), o 0,30 está dentro dele, e mover uma constante por três caracteres
+é afinar contra o ruído de uma base que muda sozinha.
+
+Cobertura: `tests/test_f72_knn.py`, 51 testes (14 novos), mais um em
+`tests/test_f23_medir_cadeia.py` para o envelope da confiança combinada. Dois mudaram de
+contrato e o registro fica: `test_a_resposta_e_a_mesma_do_laco` virou
+`test_a_busca_e_a_mesma_do_laco` — a propriedade que a F7.2 garantia continua valendo, e
+quem a expõe agora é `vizinhos`.
+
+**As tabelas desta fase estão em duas bases**, e o cabeçalho do instrumento agora diz
+qual: voto, margem e a comparação de roteamento saíram com 70.755 referências; a
+combinação e a varredura acima, com 73.900. Cada tabela é internamente comparável, e é o
+que importa — nenhuma conclusão aqui compara números de rodadas diferentes.
 
 ---
 
