@@ -81,6 +81,51 @@ def filhos_de(pai, filhos):
             and pai.y1 <= (b.y1 + b.y2) / 2 <= pai.y2]
 
 
+#: Os quatro destinos possíveis de um caractere rotulado, do melhor ao pior.
+#:
+#: `sem_box` não é "invisível": a falta deixa buraco no texto, e buraco se vê
+#: lendo. `errado_invisivel` é o único que chega ao fim parecendo certo.
+ESTADOS = ("certo", "errado_visivel", "errado_invisivel", "sem_box")
+
+
+def estado_por_rotulo(img, caminho_box, predizer, margem, lex):
+    """
+    `{índice do rotulado: estado}` — o destino de cada caractere da verdade.
+
+    É a metade do ganho que a F31 deixou aberta. Ela contou o custo de uma
+    margem agressiva em erro invisível, e o ganho em "caractere certo" — duas
+    moedas que não se somam. Aqui os dois lados são contados na mesma.
+
+    O índice é o do rotulado, que **não muda com a margem** — é a mesma verdade
+    lida do mesmo `.box`. É o que permite acompanhar o mesmo caractere de uma
+    margem para a outra.
+    """
+    rotulados = carregar_box(caminho_box, img.size[1])
+    if len(rotulados) < MIN_ROTULADOS:
+        return None
+
+    arr = np.array(img)
+    _pais, filhos = segmentar(img, "arbitrado", arbitro=predizer, margem=margem)
+    for b in filhos:
+        b.char, b.confidence = predizer(arr[b.y1:b.y2, b.x1:b.x2])
+
+    suspeitos = set()
+    if not lex.vazio:
+        for s in lexico.suspeitas_da_pagina(filhos, lex):
+            suspeitos.update(s.indices)
+
+    estado = {j: "sem_box" for j in range(len(rotulados))}
+    for i, j in comparar(filhos, rotulados).pares:
+        b = filhos[i]
+        if normalizar(b.char) == normalizar(rotulados[j].char):
+            estado[j] = "certo"
+        elif conf_ui.precisa_revisao(_BoxFalso(b)) or i in suspeitos:
+            estado[j] = "errado_visivel"
+        else:
+            estado[j] = "errado_invisivel"
+    return estado
+
+
 def medir_pagina(img, caminho_box, predizer, margem, lex):
     """As contas de uma página, para uma margem."""
     rotulados = carregar_box(caminho_box, img.size[1])
@@ -164,20 +209,23 @@ def main():
         print("nenhuma página rotulada encontrada")
         return 1
 
-    totais = {}
+    totais, estados = {}, {}
     for margem in args.margens:
         print(f"\n=== margem {margem:.2f} ===", flush=True)
-        soma = Counter()
+        soma, por_pagina = Counter(), {}
         for imagem, caminho_box in paginas:
             img = Image.open(imagem).convert("L")
             conta = medir_pagina(img, caminho_box, predizer, margem, lex)
             if conta is None:
                 continue
             soma.update(conta)
+            por_pagina[imagem] = estado_por_rotulo(img, caminho_box, predizer,
+                                                   margem, lex)
             print(f"  {os.path.basename(imagem)[-28:]:<30}"
                   f"falsos {conta['cortes_falsos']:>3}   "
                   f"invisíveis {conta['invisivel']:>3}", flush=True)
         totais[margem] = soma
+        estados[margem] = por_pagina
 
     print("\n\n=========== O CORTE FALSO ===========")
     print(f"{'margem':>8}{'cortes':>8}{'pedaços':>9}{'errados':>9}"
@@ -202,7 +250,51 @@ def main():
         de = totais[b]["espurio_invisivel"] - totais[a]["espurio_invisivel"]
         print(f"\nDe {a:.2f} para {b:.2f}: {da:+d} erro(s) invisível(is) de corte "
               f"falso, {de:+d} espúrio(s) invisível(is).")
+        _tabela_de_transicao(estados[b], estados[a], b, a)
     return 0
+
+
+def _tabela_de_transicao(de_estado, para_estado, de_margem, para_margem):
+    """
+    O que aconteceu com cada caractere rotulado ao trocar de margem.
+
+    É a conta que fecha a F31: ela mediu o custo em erro invisível e o ganho em
+    "caractere certo", que são moedas diferentes. Aqui os dois lados saem na
+    mesma — o que se ganha é dito **de que estado veio**, e o que se perde, para
+    qual foi.
+    """
+    troca = Counter()
+    for imagem, antes in de_estado.items():
+        depois = para_estado.get(imagem)
+        if depois is None:
+            continue
+        for j, e_antes in antes.items():
+            e_depois = depois.get(j)
+            if e_depois is not None and e_antes != e_depois:
+                troca[(e_antes, e_depois)] += 1
+
+    print(f"\n=========== O QUE MUDA DE {de_margem:.2f} PARA "
+          f"{para_margem:.2f} ===========")
+    ganhos = [(a, n) for (a, d), n in troca.items() if d == "certo"]
+    perdas = [(d, n) for (a, d), n in troca.items() if a == "certo"]
+
+    print(f"\nGanhos — passaram a sair certos ({sum(n for _e, n in ganhos)}):")
+    for estado in ESTADOS:
+        n = sum(v for e, v in ganhos if e == estado)
+        if n:
+            print(f"  vinham de {estado:<18} {n:>4}")
+
+    print(f"\nPerdas — deixaram de sair certos ({sum(n for _e, n in perdas)}):")
+    for estado in ESTADOS:
+        n = sum(v for e, v in perdas if e == estado)
+        if n:
+            print(f"  viraram   {estado:<18} {n:>4}")
+
+    liquido_inv = (sum(v for e, v in perdas if e == "errado_invisivel")
+                   - sum(v for e, v in ganhos if e == "errado_invisivel"))
+    print(f"\nSaldo de erro invisível sobre caractere rotulado: {liquido_inv:+d}")
+    print("(negativo é a favor de "
+          f"{para_margem:.2f}; positivo, de {de_margem:.2f})")
 
 
 if __name__ == "__main__":

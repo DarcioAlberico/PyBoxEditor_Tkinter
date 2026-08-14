@@ -5969,6 +5969,13 @@ caractere certo por um plausível.
 
 De `0,00` para `0,30`: **−11 erros invisíveis de corte falso e −14 espúrios invisíveis**.
 
+> **Correção (F32): a soma abaixo está errada, e a conclusão dela também.** As duas
+> contagens **se sobrepõem** — um corte falso parte um glifo em k pedaços, no máximo um
+> casa com o rótulo e os outros k−1 *são* boxes espúrios, já contados na outra coluna.
+> Somá-las conta o mesmo pedaço duas vezes. Medido na F32, sobre caractere rotulado a
+> margem agressiva perde **1**, não 11. O parágrafo fica como estava, com esta ressalva,
+> porque apagá-lo esconderia o erro em vez de registrá-lo.
+
 Ponha ao lado da conta da F30, que era `0,00` comprando ~+53 caracteres lidos certo:
 
     a favor de 0,00     ~+53 caracteres certos
@@ -5993,6 +6000,96 @@ Cobertura: `medir_corte_falso.py`, instrumento novo. `avaliacao_pagina.pais_por_
 passou a devolver os boxes de cada categoria e `classificar_cortes` virou a contagem dele —
 uma classificação só, para as duas não poderem divergir. Reproduzir:
 `python medir_corte_falso.py --margens 0.0 0.30`.
+
+---
+
+## F32 — O lado do ganho, e um erro de aritmética meu na F31 — MEDIDA
+
+A F31 mediu o custo de uma margem agressiva em **erro invisível** e o ganho em **caractere
+certo**, e fechou dizendo que são moedas diferentes e que medir o ganho na mesma moeda
+fecharia a conta. Fechou — e virou o sinal.
+
+### Como se conta o mesmo caractere nas duas margens
+
+Cada caractere **rotulado** ganha um destino em cada margem, e o índice do rotulado não muda
+entre elas: é a mesma verdade lida do mesmo `.box`. Isso permite seguir o mesmo caractere de
+uma margem para a outra.
+
+    certo               saiu certo
+    errado_visivel      saiu errado, e a fila de revisão ou o léxico acenderam
+    errado_invisivel    saiu errado e nada acendeu
+    sem_box             não saiu
+
+**`sem_box` não é invisível**, e a distinção importa: falta deixa buraco, e buraco se vê
+lendo. O único destino que chega ao fim parecendo certo é `errado_invisivel`.
+
+### O que muda de 0,30 para 0,00
+
+| ganhos — passaram a sair certos | 48 |
+|---|---:|
+| vinham de `errado_visivel` | 14 |
+| vinham de **`errado_invisivel`** | **11** |
+| vinham de `sem_box` | 23 |
+
+| perdas — deixaram de sair certos | **1** |
+|---|---:|
+| viraram `errado_invisivel` | 1 |
+
+**Saldo de erro invisível sobre caractere rotulado: −10, a favor de `0,00`.**
+
+Sobre o texto de verdade, a margem agressiva ganha 48 e perde **um**.
+
+### O erro da F31
+
+A F31 somou os `−11` de corte falso com os `−14` de espúrio e escreveu "+25 erros que
+ninguém vê" contra o `0,00`. **As duas contagens se sobrepõem.** Um corte falso parte um
+glifo em k pedaços; no máximo um casa com o rótulo, e os outros k−1 **são** boxes espúrios,
+já contados na outra coluna. Dos 39 pedaços que os 16 cortes falsos geram, ~16 são pareados
+e ~23 são espúrios — somar as colunas conta o mesmo pedaço duas vezes.
+
+A tabela de transição mostra o tamanho real: **uma** regressão de caractere rotulado, não
+onze. O parágrafo da F31 ficou onde estava, com a ressalva ao lado, porque apagá-lo
+esconderia o erro em vez de registrá-lo.
+
+### O que a conta corrigida diz
+
+| | 0,00 contra 0,30 |
+|---|---|
+| caracteres rotulados | **+47 certos**, e **−10** erros invisíveis |
+| boxes espúrios | **+48**, dos quais **+14** não acendem nada |
+
+Não é "+53 visíveis contra +25 invisíveis". É **texto melhor, lixo a mais**: 47 caracteres a
+mais saem certos e 10 erros calados somem, ao preço de 14 caracteres de lixo a mais que o
+filtro não acusa.
+
+### E mesmo assim a margem não muda hoje
+
+A F30 recusou o `0,00` por três razões. A terceira — a assimetria entre os modos de errar —
+**está refutada por esta medição**: ela apontava para o `0,30` e aponta para o `0,00`. As
+outras duas continuam de pé, e uma delas é o obstáculo:
+
+- o F1 é plano de 0,05 a 0,30 — continua verdade, e agora sabe-se por quê: ele desconta em
+  precisão os 48 espúrios que a recall ganha;
+- **o teste por página deu 5 a 4** — e a métrica nova ainda não passou por ele. Foi a F30
+  que estabeleceu esse padrão, citando a F15 ("nenhuma exceção"), e trocar um número de
+  produção sem aplicá-lo à medida que decide seria abandonar o critério justamente quando
+  ele passou a incomodar.
+
+**A próxima medida é a quebra por página da tabela de transição.** Se os 48 ganhos e a
+única perda estiverem espalhados, o `0,30` cai — e cai com número, que é como as outras
+constantes desta série caíram. Se estiverem concentrados numa digitalização ruim, fica.
+
+### O que esta série vem mostrando sobre medir
+
+É a quinta vez em dez fases que uma conclusão minha não sobreviveu à medida seguinte, e a
+segunda em que o defeito não foi o dado e sim **o que eu fiz com ele** — na F25 subtraí
+números de instrumentos diferentes, aqui somei contagens que se sobrepunham. As duas passam
+despercebidas do mesmo jeito: a aritmética fecha, as unidades parecem iguais e o resultado é
+plausível. O que as pega é olhar o que cada linha **conta**, uma de cada vez, antes de
+juntá-las.
+
+Cobertura: `medir_corte_falso.py` ganhou `estado_por_rotulo` e a tabela de transição.
+Reproduzir: `python medir_corte_falso.py --margens 0.0 0.30`.
 
 ---
 
