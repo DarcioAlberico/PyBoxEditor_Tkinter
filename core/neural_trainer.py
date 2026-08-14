@@ -20,6 +20,26 @@ from core.learner import folder_to_char
 #:   2 — schema_version, modelo_sha256, classes_sha256, treinado_em
 SCHEMA_META = 2
 
+#: O recado de um modelo que carregou em softmax cru (F26).
+#:
+#: `temperatura == 1.0` é o que **todo** treino grava, de propósito (ver o
+#: comentário em `_gravar_meta`), e é também o que um metadado anterior à F1.9
+#: devolve por omissão. Nos dois casos a escala de confiança é a não calibrada,
+#: e nada avisava: o modelo de 14/08 rodou um dia inteiro assim, e só apareceu
+#: porque a F25 foi medir outra coisa.
+AVISO_SEM_CALIBRACAO = (
+    "Este modelo está sem calibração — a confiança que ele reporta é softmax "
+    "cru.\n\n"
+    "Não é defeito do treino: ele grava temperatura neutra de propósito, "
+    "porque a calibração é ajustada para um conjunto de pesos e herdar a do "
+    "modelo anterior aplicaria correção medida sobre outros. O que faltava "
+    "era dizer que ela precisa ser refeita.\n\n"
+    "O que muda sem ela: a confiança é o que ordena a fila de revisão e o que "
+    "roteia a cadeia de reconhecimento. Medido nas 10 páginas rotuladas, sem "
+    "calibração o filtro \"só pendentes\" mostra 11% dos erros da rede; com "
+    "ela, 23%.\n\n"
+    "Para calibrar:    python calibrar_modelo.py --gravar")
+
 
 def impressao_do_modelo(caminho: str) -> str:
     """
@@ -655,6 +675,13 @@ class NeuralPredictor:
                 self.temperatura = t if t > 0 else 1.0
             except (TypeError, ValueError):
                 self.temperatura = 1.0
+
+            if self.temperatura == 1.0:
+                # Acumula em vez de substituir: um metadado antigo pode estar
+                # sem impressão **e** sem calibração, e as duas ressalvas são
+                # independentes.
+                self.aviso = ((self.aviso + "\n\n" if self.aviso else "")
+                              + AVISO_SEM_CALIBRACAO)
 
             self.model = SimpleCNN(num_classes).to(self.device)
             self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))

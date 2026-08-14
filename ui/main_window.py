@@ -263,6 +263,9 @@ class MainWindow(tk.Frame):
         # é a mesma ordem do `deepcopy` que a F3.8 teve de tirar do caminho da
         # tecla. A chave custa 0,36 ms.
         self._cache_suspeitas = (None, [])
+        # A ressalva do modelo já foi mostrada nesta sessão? Ver
+        # `_avisar_do_modelo`: é sobre o arquivo, então uma vez basta.
+        self._modelo_avisado = False
 
         # Modo digitação contínua: a tecla aplica e avança, sem Enter.
         self.modo_digitacao = False
@@ -1301,6 +1304,27 @@ class MainWindow(tk.Frame):
     # OpenCV: gerar boxes automáticos
     # -------------------------------------------------------
 
+    def _avisar_do_modelo(self):
+        """
+        Mostra a ressalva do modelo carregado, **uma vez por sessão**.
+
+        Uma vez porque a ressalva é sobre o arquivo, não sobre a ação: repeti-la
+        a cada preenchimento treinaria o usuário a fechá-la sem ler, que é o
+        mesmo que não avisar — só que mais irritante. E é modal, e não barra de
+        status, porque a única coisa que resolve é uma linha de comando que ele
+        precisa ler inteira.
+
+        Chamada da thread da UI. `load_predictor` dentro de `trabalho` roda em
+        outra, e `messagebox` de lá é o caminho para uma janela que não fecha.
+        """
+        if self._modelo_avisado:
+            return
+        aviso = self.learning_service.aviso_do_modelo()
+        if not aviso:
+            return
+        self._modelo_avisado = True
+        messagebox.showwarning("Modelo neural", aviso)
+
     def _arbitro_de_corte(self):
         """
         O classificador que confirma cada corte de glifo colado (F1.5b).
@@ -2152,6 +2176,11 @@ class MainWindow(tk.Frame):
         )
 
     def generate_and_fill_neural(self):
+        # Antes do trabalho, não depois: este é o caminho em que a confiança da
+        # rede vira `b.confidence`, e é ela que decide a cor do box e o filtro
+        # "só pendentes". Saber que a escala não está calibrada muda como o
+        # usuário lê o resultado que está prestes a gerar.
+        self._avisar_do_modelo()
         self.generate_boxes_opencv()
         if not self.boxes:
             return
@@ -3292,19 +3321,32 @@ class MainWindow(tk.Frame):
             # O relatório da F1.3 é o único lugar onde a qualidade do modelo
             # aparece medida sobre dados que ele não viu. Não adianta gravá-lo e
             # deixar o usuário sem saber que existe.
+            # O treino acabou de gravar `temperatura: 1.0`, então o modelo que
+            # ele produziu está sem calibração **por construção**. É o momento
+            # exato de dizer, e o único em que o usuário sabe que causou.
+            # `_modelo_avisado` volta a falso porque a ressalva agora é de outro
+            # arquivo — a que ele já viu era do modelo anterior.
+            self._modelo_avisado = False
+            calibrar = ("\n\nO modelo novo está sem calibração — a confiança "
+                        "dele é softmax cru até você rodar:\n"
+                        "    python calibrar_modelo.py --gravar\n"
+                        "Sem isso o filtro \"só pendentes\" mostra menos da "
+                        "metade dos erros que mostraria.")
+
             relatorio = self.learning_service.caminho_relatorio()
             if os.path.exists(relatorio):
                 if messagebox.askyesno(
                     "Treinamento concluído",
                     "Treinamento concluído! Agora você pode usar "
-                    "'Detectar e Preencher (Neural)'.\n\n"
+                    "'Detectar e Preencher (Neural)'." + calibrar + "\n\n"
                     "Deseja abrir o relatório de validação?"
                 ):
                     self.abrir_relatorio_treino()
             else:
                 messagebox.showinfo(
                     "Sucesso",
-                    "Treinamento concluído!\nAgora você pode usar 'Detectar e Preencher (Neural)'."
+                    "Treinamento concluído!\nAgora você pode usar "
+                    "'Detectar e Preencher (Neural)'." + calibrar
                 )
 
         self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)

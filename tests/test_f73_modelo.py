@@ -86,7 +86,9 @@ def _par(tmp_path, **extra):
         "label_map": {c: i for i, c in enumerate("abcde")},
         "idx_to_char": idx,
         "num_classes": len(idx),
-        "temperatura": 1.0,
+        # Calibrada de propósito: `temperatura == 1.0` é a ressalva da
+        # F26, e um par "coerente" tem de sair sem ressalva nenhuma.
+        "temperatura": 2.0,
         "modelo_sha256": impressao_do_modelo(str(pth)),
         "classes_sha256": impressao_das_classes(idx),
     }
@@ -216,3 +218,166 @@ def test_o_modelo_do_repositorio_carrega():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ----------------------------------------------------------------------
+# F26 — o modelo sem calibração deixa de ser calado
+# ----------------------------------------------------------------------
+
+def test_modelo_sem_calibracao_carrega_com_ressalva(tmp_path):
+    """
+    `temperatura: 1.0` é o que todo treino grava, e a escala de confiança dele
+    é a não calibrada. Carregar está certo; ficar calado não estava — o modelo
+    de 14/08 rodou um dia assim, e só apareceu porque a F25 media outra coisa.
+    """
+    pth, meta = _par(tmp_path, temperatura=1.0)
+    p = NeuralPredictor(pth, meta)
+    assert p.load()
+    assert p.loaded
+    assert "sem calibração" in p.aviso
+
+
+def test_a_ressalva_diz_o_comando(tmp_path):
+    """Aviso que não diz o que fazer é ruído; o remédio é uma linha só."""
+    pth, meta = _par(tmp_path, temperatura=1.0)
+    p = NeuralPredictor(pth, meta)
+    p.load()
+    assert "calibrar_modelo.py --gravar" in p.aviso
+
+
+def test_metadado_sem_o_campo_conta_como_sem_calibracao(tmp_path):
+    """Anterior à F1.9: sem campo, a temperatura efetiva é 1,0 do mesmo jeito."""
+    pth, meta = _par(tmp_path)
+    d = json.loads(open(meta, encoding="utf-8").read())
+    del d["temperatura"]
+    open(meta, "w", encoding="utf-8").write(json.dumps(d))
+
+    p = NeuralPredictor(pth, meta)
+    assert p.load()
+    assert "sem calibração" in p.aviso
+
+
+def test_as_duas_ressalvas_cabem_juntas(tmp_path):
+    """
+    Formato antigo **e** sem calibração são independentes, e um metadado
+    anterior à F7.3 costuma ser os dois. A segunda não pode apagar a primeira.
+    """
+    pth, meta = _par(tmp_path, temperatura=1.0)
+    d = json.loads(open(meta, encoding="utf-8").read())
+    del d["modelo_sha256"]
+    d.pop("schema_version", None)
+    open(meta, "w", encoding="utf-8").write(json.dumps(d))
+
+    p = NeuralPredictor(pth, meta)
+    assert p.load()
+    assert "formato anterior" in p.aviso
+    assert "sem calibração" in p.aviso
+
+
+def test_modelo_calibrado_nao_reclama(tmp_path):
+    pth, meta = _par(tmp_path, temperatura=2.1682)
+    p = NeuralPredictor(pth, meta)
+    assert p.load()
+    assert p.aviso == ""
+
+
+def test_o_servico_expoe_a_ressalva_de_quem_carregou(tmp_path):
+    """
+    O canal de aviso existia desde a F7.3 e **não tinha leitor**: só o `erro`
+    era consultado, e só quando a carga falhava. Um aviso que ninguém lê é o
+    mesmo que não avisar.
+    """
+    from core.services.learning_service import LearningService
+
+    pth, meta = _par(tmp_path, temperatura=1.0)
+    svc = LearningService(model_path=pth, meta_path=meta)
+    assert "sem calibração" in svc.aviso_do_modelo()
+
+
+def test_o_servico_cala_quando_o_modelo_esta_calibrado(tmp_path):
+    from core.services.learning_service import LearningService
+
+    pth, meta = _par(tmp_path, temperatura=2.1682)
+    svc = LearningService(model_path=pth, meta_path=meta)
+    assert svc.aviso_do_modelo() == ""
+
+
+def _janela():
+    """A janela real, ou `None` sem display. Ver `conftest.raiz_tk`."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+    from conftest import raiz_tk
+    from ui.main_window import MainWindow
+
+    raiz = raiz_tk()
+    if raiz is None:
+        return None, None
+    return raiz, MainWindow(raiz)
+
+
+def test_a_ressalva_aparece_uma_vez_por_sessao(monkeypatch):
+    """
+    Uma vez porque a ressalva é sobre o **arquivo**, não sobre a ação. Repetida
+    a cada preenchimento, ela treina o usuário a fechá-la sem ler — que é o
+    mesmo que não avisar, com mais atrito.
+    """
+    from tkinter import messagebox
+
+    raiz, win = _janela()
+    if win is None:
+        pytest.skip("sem display")
+
+    mostradas = []
+    monkeypatch.setattr(messagebox, "showwarning",
+                        lambda t, m, **k: mostradas.append(m))
+    monkeypatch.setattr(win.learning_service, "aviso_do_modelo",
+                        lambda: "sem calibração: rode o comando")
+
+    win._avisar_do_modelo()
+    win._avisar_do_modelo()
+    win._avisar_do_modelo()
+
+    assert len(mostradas) == 1
+    assert "sem calibração" in mostradas[0]
+    raiz.destroy()
+
+
+def test_modelo_sem_ressalva_nao_interrompe(monkeypatch):
+    from tkinter import messagebox
+
+    raiz, win = _janela()
+    if win is None:
+        pytest.skip("sem display")
+
+    mostradas = []
+    monkeypatch.setattr(messagebox, "showwarning",
+                        lambda t, m, **k: mostradas.append(m))
+    monkeypatch.setattr(win.learning_service, "aviso_do_modelo", lambda: "")
+
+    win._avisar_do_modelo()
+    assert mostradas == []
+    raiz.destroy()
+
+
+def test_treinar_de_novo_volta_a_avisar(monkeypatch):
+    """
+    O treino grava temperatura neutra outra vez, então a ressalva vale de novo
+    — e é de **outro arquivo** que a que o usuário já fechou.
+    """
+    from tkinter import messagebox
+
+    raiz, win = _janela()
+    if win is None:
+        pytest.skip("sem display")
+
+    mostradas = []
+    monkeypatch.setattr(messagebox, "showwarning",
+                        lambda t, m, **k: mostradas.append(m))
+    monkeypatch.setattr(win.learning_service, "aviso_do_modelo",
+                        lambda: "sem calibração")
+
+    win._avisar_do_modelo()
+    win._modelo_avisado = False          # o que `concluir` do treino faz
+    win._avisar_do_modelo()
+
+    assert len(mostradas) == 2
+    raiz.destroy()

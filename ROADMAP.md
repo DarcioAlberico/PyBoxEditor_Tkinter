@@ -5559,6 +5559,65 @@ o que ela produziu foram tabelas, e o que as reproduz é `medir_cadeia.py --neur
 
 ---
 
+## F26 — O aviso que faltava, e o canal que ninguém lia — CONCLUÍDA
+
+A F25 terminou com um item de processo: **nada avisa que o modelo está sem calibração**.
+Todo treino grava `temperatura: 1.0` de propósito — a F22 explica por quê —, e o modelo de
+14/08 rodou um dia inteiro em softmax cru com a fila de revisão mostrando 11% dos erros em
+vez de 23%. Ninguém tinha como saber.
+
+### O canal existia e estava morto
+
+`NeuralPredictor` tem `erro` e `aviso` desde a F7.3. O `erro` é lido — `motivo_do_modelo`
+o entrega quando a carga **falha**. O `aviso`, que é para o modelo que **carregou** com
+ressalva, não tinha leitor nenhum: nenhum lugar da UI o consultava.
+
+Um aviso que ninguém lê é o mesmo que não avisar, e havia um já escrito ali dentro (o
+metadado de formato anterior à F7.3, que não permite conferir o par) que nunca chegou a
+ninguém.
+
+### O que entrou
+
+- `AVISO_SEM_CALIBRACAO` em `core/neural_trainer.py`, disparado quando a temperatura
+  efetiva é 1,0 — o que cobre tanto o campo gravado pelo treino quanto o metadado anterior
+  à F1.9, que não tem o campo. **Acumula** com a ressalva de formato em vez de substituí-la:
+  as duas são independentes e um metadado antigo costuma ser as duas coisas.
+- `LearningService.aviso_do_modelo()`, irmã de `motivo_do_modelo` para o caso em que a
+  carga deu certo.
+- `MainWindow._avisar_do_modelo()`, **uma vez por sessão**. Uma vez porque a ressalva é
+  sobre o arquivo e não sobre a ação: repetida a cada preenchimento, ela treina o usuário a
+  fechá-la sem ler — o mesmo que não avisar, com mais atrito. Modal e não barra de status
+  porque o que resolve é uma linha de comando que precisa ser lida inteira. Chamada da
+  thread da UI, no começo de `generate_and_fill_neural`, antes do trabalho: é a confiança
+  desse caminho que vira `b.confidence`, e saber que a escala não está calibrada muda como
+  o usuário lê o resultado que está prestes a gerar.
+- **O diálogo de fim de treino diz junto**, porque é o momento em que a temperatura é
+  zerada e o único em que o usuário sabe que foi ele que causou. `_modelo_avisado` volta a
+  falso ali: a ressalva agora é de outro arquivo.
+
+O recado carrega a medida da F25 — 11% contra 23% — e o comando. Aviso que não diz o que
+fazer é ruído.
+
+### O que fica de fora
+
+**Os outros caminhos que carregam a rede ainda não chamam o aviso** — o PDF pesquisável e o
+preenchimento por caractere. O gancho é uma linha em cada, e a razão de não estarem aqui é
+que só o «Detectar e Preencher (Neural)» foi conferido de ponta a ponta nesta fase.
+
+**O certo é o treino calibrar sozinho no fim.** O aviso é o remédio barato; enquanto o
+usuário puder terminar um treino e sair sem calibrar, a situação da F25 volta a acontecer —
+só que agora avisada. O que impede hoje é o custo: `calibrar_modelo.py` roda
+leave-one-page-out sobre as 10 páginas rotuladas, e emendá-lo no fim do treino sem medir
+quanto isso acrescenta ao tempo é a decisão que falta.
+
+Cobertura: `tests/test_f73_modelo.py`, 26 testes (10 novos) — a ressalva aparece, diz o
+comando, convive com a de formato, cala em modelo calibrado, e a janela a mostra uma vez
+por sessão. Conferido também contra os arquivos reais: silêncio no `model_meta.json`
+calibrado de hoje, e o recado completo no backup de antes da calibração, que tem os mesmos
+pesos e `temperatura: 1.0`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

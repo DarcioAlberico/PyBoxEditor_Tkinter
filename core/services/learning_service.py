@@ -104,6 +104,19 @@ class LearningService:
             return True
         return self._predictor.load()
 
+    def aviso_do_modelo(self) -> str:
+        """
+        A ressalva de um modelo que **carregou**, ou string vazia.
+
+        Irmã de `motivo_do_modelo`, que é para quando a carga falha. O canal de
+        aviso existia desde a F7.3 e **não tinha leitor nenhum** — o que o
+        tornava equivalente a não existir. Foi por isso que um modelo sem
+        calibração passou um dia em produção sem ninguém notar (F26).
+        """
+        if not self.load_predictor():
+            return ""
+        return getattr(self._predictor, "aviso", "")
+
     def motivo_do_modelo(self) -> str:
         """
         Por que a carga do modelo falhou, na linguagem de quem vai ler.
