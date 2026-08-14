@@ -60,6 +60,17 @@ from ui import confidence as conf_ui
 #: (0,70, com 0,85 neutro); em T = 2,19 virou um **platô de 0,60 a 0,80**, e
 #: 0,85 passou a fazer mal ao caminho com a rede. O 0,70 ficou porque é o meio
 #: do platô, e não porque era o valor de antes.
+#:
+#: **Remedido na F25**, contra o treino de 14/08 e a calibração T = 2,1682, em
+#: 10.484 caracteres — e este sobreviveu inteiro, ao contrário do
+#: `NEURAL_THRESHOLD`:
+#:
+#:     trava       acerto   trocados
+#:     sem linha   97,37%          0
+#:     0,60        97,41%         15
+#:     0,70        97,43%         19
+#:     0,80        97,31%         42
+#:     sempre      89,74%        888
 CONF_MAXIMA_PARA_A_LINHA = 0.70
 
 #: Confiança mínima para o k-NN responder sozinho, no caminho híbrido (F23).
@@ -135,30 +146,33 @@ LEARNER_THRESHOLD_HIBRIDO = 0.30
 #: de somar com ele.
 CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = LEARNER_THRESHOLD_HIBRIDO
 
-#: Confiança mínima para a rede responder sozinha, sem passar ao k-NN (F22).
+#: Confiança mínima para a rede responder sozinha, sem passar ao k-NN.
 #:
-#: Era 0,8, e o 0,8 estava afinado para o modelo **não calibrado**. A F22 gravou
-#: a temperatura de 2,1916, que baixa a escala inteira sem mudar qual classe
-#: vence — e como este limiar compara confiança, o mesmo 0,8 passou a cortar
-#: alto demais. Medido em 2.278 caracteres, com o modelo calibrado:
+#: **Este número é por modelo, e já se moveu duas vezes.** Era 0,8; a F22 mediu
+#: contra a calibração daquele treino e baixou para 0,7; a F25 remediu contra o
+#: treino de 14/08 (210 classes, T = 2,1682) e devolveu para 0,8. Não é
+#: indecisão: é a propriedade do limiar. Ele compara confiança, e a escala da
+#: confiança é do conjunto de pesos — o próximo treino invalida esta tabela em
+#: silêncio, como invalidou as duas anteriores.
 #:
-#:     limiar   acerto   rede /  k-NN / OCR
-#:     0,40     97,45%   2.272 /     3 /   3
-#:     0,70     97,45%   2.253 /    17 /   8
-#:     0,80     97,37%   2.203 /    63 /  12
-#:     0,90     97,19%   2.114 /   139 /  25
+#: Medido em 10.484 caracteres das 10 páginas rotuladas (F25):
 #:
-#: Sessenta boxes voltam da fila do k-NN para a rede, e a cadeia recupera os
-#: 0,08 ponto que a calibração custava.
+#:     limiar   acerto    rede /  k-NN / OCR
+#:     0,40     97,32%   10.405 /    5 /  26
+#:     0,60     97,43%   10.368 /   32 /  63
+#:     0,70     97,43%   10.325 /   54 /  86
+#:     0,80     97,52%   10.168 /  168 / 125
+#:     0,90     97,10%    9.904 /  293 / 245
 #:
-#: **0,70 e não 0,40, apesar de medirem igual.** O platô é chato de 0,40 a 0,70,
-#: e nesse trecho o que muda é quem responde, não o acerto — 19 boxes a mais na
-#: rede entre uma ponta e outra. Ficar na borda alta do platô é manter o k-NN
-#: como segunda opinião onde a rede hesita, que é a razão de ele existir na
-#: cadeia (ver `CharacterLearner`: nos casos difíceis ele acerta 88,5% contra
-#: 72,4% da rede sozinha). Descer a 0,40 compraria o mesmo número desligando
-#: quase toda a segunda opinião.
-NEURAL_THRESHOLD = 0.70
+#: **0,80 é pico, e não meio de platô** — cai dos dois lados. São 9 caracteres
+#: de vantagem sobre 0,70, pouco por si só; o que decide é que a composição
+#: aponta no mesmo sentido. A 0,80 o k-NN vê 168 boxes em vez de 54, e é para
+#: isso que ele está na cadeia: nos casos difíceis ele acerta 88,5% contra 72,4%
+#: da rede sozinha (ver `CharacterLearner`). A 0,40 a segunda opinião some quase
+#: inteira e o acerto cai junto.
+#:
+#: Reproduzir: `python medir_cadeia.py --neural --rede 0.4 0.6 0.7 0.8 0.9`.
+NEURAL_THRESHOLD = 0.80
 
 
 # Símbolos do "Key to symbols used" destes livros, por família. O agrupamento é o

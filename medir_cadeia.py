@@ -64,6 +64,7 @@ from core.avaliacao_pagina import carregar_box, comparar, normalizar
 from core.services.box_service import faixas_de_linha
 from core.services.learning_service import LearningService
 from core.services.ocr_service import OCRService
+from ui import confidence as conf_ui
 from medir_paginas import MIN_ROTULADOS, paginas_rotuladas, segmentar
 from ui.main_window import (CONF_MAXIMA_PARA_A_LINHA,
                             CONF_MAXIMA_PARA_A_LINHA_HIBRIDO,
@@ -248,7 +249,7 @@ class Cadeia:
                 raise SystemExit("sem modelo treinado — o caminho neural precisa dele")
             self.predictor = _Memo(svc._predictor)
 
-    def leitor(self, pagina, caminho, learner_threshold):
+    def leitor(self, pagina, caminho, learner_threshold, neural_threshold=None):
         """
         `ler_caractere(box)` da ação pedida, com os limiares que ela usa.
 
@@ -273,7 +274,8 @@ class Cadeia:
             char, fonte, c = self.ocr.fallback_chain(
                 justo, predictor=self.predictor, learner=self.learner,
                 contexto=contexto,
-                neural_threshold=NEURAL_THRESHOLD,
+                neural_threshold=(NEURAL_THRESHOLD if neural_threshold is None
+                                  else neural_threshold),
                 learner_threshold=learner_threshold,
             )
             return (char, c, fonte)
@@ -319,7 +321,8 @@ class Cadeia:
         return saida
 
 
-def rodar(cadeia, paginas, caminho, learner_threshold, trava):
+def rodar(cadeia, paginas, caminho, learner_threshold, trava,
+          neural_threshold=None):
     """
     `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
 
@@ -332,7 +335,8 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava):
         lidos = ldl.ler_pagina(
             p.arr, p.linhas,
             ler_faixa=cadeia.ocr.easyocr_linha_conf,
-            ler_caractere=cadeia.leitor(p, caminho, learner_threshold),
+            ler_caractere=cadeia.leitor(p, caminho, learner_threshold,
+                                        neural_threshold),
             conf_maxima_para_trocar=trava,
         )
         for b, char, conf, fonte in lidos:
@@ -398,6 +402,137 @@ def tabela_por_pagina(linhas, na_base):
         curto = nome if len(nome) <= 50 else nome[:47] + "..."
         print(f"{curto:<52}{len(parte):>7}{acerto(parte):>8.2f}%"
               f"{100.0 * copias / len(parte):>11.1f}%")
+
+
+class _BoxFalso:
+    """O mínimo que `ui.confidence` olha num box, para não copiar a regra."""
+
+    __slots__ = ("char", "source", "confidence")
+
+    def __init__(self, reg):
+        self.char = reg[2]
+        self.source = reg[0] if reg[2] else ""
+        self.confidence = reg[1]
+
+
+def tabela_fila_e_linha(ancora, producao):
+    """
+    O que a corroboração da linha faz com a **fila de revisão**.
+
+    Um box abaixo da trava numa linha lida não fica com a própria confiança:
+    recebe `confianca(concordam, conf_linha, cf)`, que é o **máximo** dos dois
+    quando as duas leituras concordam (F17). Uma leitura a 0,30 corroborada
+    sobe para a confiança da linha e **sai da fila**.
+
+    O desenho se sustenta — corroboração é informação, e foi medida como tal —,
+    mas ele nunca foi olhado do lado da revisão. As duas perguntas são:
+
+    - dos boxes que a linha tirou da fila, quantos estavam **errados**? Cada um
+      é um erro que o revisor deixou de ver por causa de uma segunda leitura que
+      errou junto;
+    - e a conta líquida, porque a linha também **empurra** box para a fila:
+      quando as duas leituras divergem vale a menor, e aí a confiança cai.
+
+    `ancora` tem de vir de uma corrida com `trava=0.0`, que é o que faz
+    `ler_pagina` devolver a confiança crua de cada box.
+    """
+    saiu = saiu_errado = entrou = entrou_errado = 0
+    for a, p in zip(ancora, producao):
+        antes = conf_ui.precisa_revisao(_BoxFalso(a))
+        depois = conf_ui.precisa_revisao(_BoxFalso(p))
+        if antes == depois:
+            continue
+        errado = normalizar(p[2]) != normalizar(p[3])
+        if antes and not depois:
+            saiu += 1
+            saiu_errado += errado
+        else:
+            entrou += 1
+            entrou_errado += errado
+
+    print(f"\nA linha e a fila de revisão (corte em "
+          f"{conf_ui.LIMIAR_ALTO:.2f}):")
+    print(f"  saíram da fila por corroboração: {saiu:>5}"
+          f"   dos quais errados: {saiu_errado}")
+    print(f"  entraram na fila por divergência:{entrou:>5}"
+          f"   dos quais errados: {entrou_errado}")
+    print(f"  saldo de erros visíveis ao revisor: "
+          f"{entrou_errado - saiu_errado:+d}")
+
+
+def tabela_revisao(linhas):
+    """
+    A fila de revisão (F3.2) medida **como fila**: custo para achar os erros.
+
+    O outro uso da confiança, e o que nunca foi medido em separado. A F14 mediu
+    os cortes contra a rede sozinha; aqui a página vem da cadeia, e a cadeia
+    mistura fontes cuja confiança **não está na mesma régua** — softmax
+    calibrado a T = 2,19 na rede (F22), `1 - distância/2000` no k-NN, a do CRNN
+    no EasyOCR. `ui/confidence.py` aplica o mesmo 0,90 às três.
+
+    A segunda tabela é o teste dessa suspeita. Se a régua fosse comum, ordenar
+    a fila pela confiança crua e ordená-la pelo **percentil dentro da própria
+    fonte** dariam curvas parecidas. Se a do percentil for melhor, as fontes
+    estão descalibradas entre si e o número único está custando revisão.
+    """
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    print(f"\n{'fonte':<16}{'boxes':>7}{'erros':>7}{'mediana':>19}"
+          f"{'':>4}{'abaixo de 0,90':>16}{'erros pegos':>13}")
+    print(f"{'':<16}{'':>7}{'':>7}{'erro':>9}{'acerto':>10}")
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        erros = [r for r in parte if normalizar(r[2]) != normalizar(r[3])]
+        acertos = [r for r in parte if normalizar(r[2]) == normalizar(r[3])]
+        abaixo = [r for r in parte if r[1] < conf_ui.LIMIAR_ALTO]
+        pegos = sum(1 for r in abaixo
+                    if normalizar(r[2]) != normalizar(r[3]))
+        me = float(np.median([r[1] for r in erros])) if erros else float("nan")
+        ma = (float(np.median([r[1] for r in acertos]))
+              if acertos else float("nan"))
+        print(f"{fonte:<16}{len(parte):>7}{len(erros):>7}{me:>9.4f}{ma:>10.4f}"
+              f"{'':>4}{len(abaixo):>16}{pegos:>13}")
+
+    # A fila ordenada de dois jeitos. `certos` acompanha para o custo sair em
+    # "acertos revisados à toa", que é o que o revisor paga.
+    def custo(ordenados):
+        total_erros = sum(1 for ok in ordenados if not ok)
+        if not total_erros:
+            return [None, None, None]
+        saida, pegos, toa, restantes = [], 0, 0, [0.25, 0.50, 0.75]
+        for ok in ordenados:
+            if ok:
+                toa += 1
+            else:
+                pegos += 1
+            while restantes and pegos >= restantes[0] * total_erros:
+                saida.append(toa)
+                restantes.pop(0)
+        return saida + [None] * len(restantes)
+
+    def ok(reg):
+        return normalizar(reg[2]) == normalizar(reg[3])
+
+    crua = [ok(r) for r in sorted(linhas, key=lambda r: r[1])]
+
+    # Percentil dentro da fonte: a posição relativa do box entre os da mesma
+    # origem. Tira a régua de cada uma e deixa só a ordem.
+    percentil = {}
+    for parte in por_fonte.values():
+        ordenada = sorted(parte, key=lambda r: r[1])
+        for i, reg in enumerate(ordenada):
+            percentil[reg[5]] = i / max(1, len(ordenada) - 1)
+    por_percentil = [ok(r)
+                     for r in sorted(linhas, key=lambda r: percentil[r[5]])]
+
+    print(f"\n{'ordenação da fila':<22}" + "".join(
+        f"{f'{p}% dos erros':>18}" for p in (25, 50, 75)))
+    for nome, ordenados in (("confiança crua (hoje)", crua),
+                            ("percentil por fonte", por_percentil)):
+        celulas = "".join(f"{('—' if c is None else f'{c} à toa'):>18}"
+                          for c in custo(ordenados))
+        print(f"{nome:<22}{celulas}")
 
 
 def tabela_do_knn(aquecidos, verdade):
@@ -581,6 +716,9 @@ def main():
     ap.add_argument("--knn", action="store_true",
                     help="mede só o elo do k-NN, sem carregar o EasyOCR — é a "
                          "rodada rápida, e é como se varre o --k")
+    ap.add_argument("--rede", type=float, nargs="*", default=None,
+                    help="varre o NEURAL_THRESHOLD (a tabela da F22), com a "
+                         "composição da cadeia em cada ponto")
     ap.add_argument("--combinada", action="store_true",
                     help="varre o roteamento com min(absoluta, margem) **e** com "
                          "a de produção, no mesmo processo e na mesma base — a "
@@ -666,6 +804,8 @@ def main():
     tabela_composicao(producao)
     tabela_por_pagina(producao, na_base)
     tabela_linha(ancora, producao)
+    tabela_revisao(producao)
+    tabela_fila_e_linha(ancora, producao)
     tabela_do_knn(aquecidos, verdade)
     tabela_roteamento(aquecidos, verdade)
 
@@ -695,6 +835,29 @@ def main():
             tabela_varredura(f"learner_threshold — {nome}",
                              ["âncora", "com a linha"], linhas_da_tabela)
         cadeia.learner = original
+
+    if args.rede is not None:
+        if not args.neural:
+            print("\n--rede só faz sentido com --neural: o caminho híbrido não "
+                  "carrega a rede.")
+        else:
+            # A tabela da F22, com a composição junto: no platô o que muda é
+            # **quem responde**, não o acerto, e sem a composição o platô parece
+            # empate quando na verdade é o k-NN sendo desligado como segunda
+            # opinião.
+            linhas_da_tabela = []
+            for nt in (args.rede or [0.4, 0.6, 0.7, 0.8, 0.9]):
+                r = rodar(cadeia, paginas, caminho, padrao_learner,
+                          padrao_trava, neural_threshold=nt)
+                conta = {}
+                for reg in r:
+                    conta[reg[0]] = conta.get(reg[0], 0) + 1
+                linhas_da_tabela.append((f"{nt:.2f}", [
+                    acerto(r), conta.get("neural", 0), conta.get("learner", 0),
+                    conta.get("easyocr", 0)]))
+            tabela_varredura("NEURAL_THRESHOLD (F22, remedido)",
+                             ["acerto", "rede", "k-NN", "EasyOCR"],
+                             linhas_da_tabela)
 
     if args.trava is not None:
         valores = [("sem linha", 0.0)]

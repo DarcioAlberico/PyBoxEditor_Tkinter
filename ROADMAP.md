@@ -5440,6 +5440,125 @@ que importa — nenhuma conclusão aqui compara números de rodadas diferentes.
 
 ---
 
+## F25 — A calibração que o retreino apagou, e os dois usos da confiança — CONCLUÍDA
+
+A pergunta de partida era a que a F24 deixou aberta: **um número serve dois usos** —
+roteamento da cadeia e ordenação da fila de revisão (F3.2) —, e eles pedem coisas
+diferentes. A suspeita concreta: `ui/confidence.py` compara `box.confidence` com 0,90 e
+0,70 **sem olhar a fonte**, e as fontes não estão na mesma régua — softmax calibrado na
+rede, `1 - distância/2000` no k-NN, a do CRNN no EasyOCR, e a combinação de
+`leitura_de_linha.confianca` na linha. Quatro escalas, um par de cortes.
+
+A suspeita está **refutada**, e no caminho apareceu um defeito maior.
+
+### Réguas separadas medem pior, e duas vezes
+
+Se a régua comum custasse revisão, ordenar a fila pela confiança crua e ordená-la pelo
+**percentil dentro da própria fonte** — que tira a escala e deixa só a ordem — dariam
+curvas diferentes a favor da segunda. Medido em 10.484 caracteres, custo em acertos
+revisados à toa para achar cada fração dos erros:
+
+| ordenação da fila | 25% dos erros | 50% dos erros | 75% dos erros |
+|---|---:|---:|---:|
+| **confiança crua (hoje)** | **392** | **1.971** | **4.645** |
+| percentil por fonte | 718 | 2.811 | 5.226 |
+
+Pior em toda coluna, e antes da calibração também era (204/1.140/4.194 contra
+206/1.742/5.229). O motivo é o desequilíbrio: a rede responde 98,5% dos boxes, o EasyOCR
+0,8%, o k-NN 0,5%, a linha 0,2%. Normalizar por fonte espalha esses punhados pela faixa
+inteira de percentil e joga box correto para a frente da fila. **Uma régua comum, mesmo
+torta, custa menos que quatro réguas próprias.**
+
+### O que estava errado era a calibração, e ela some sozinha
+
+`model_meta.json` do treino de **14/08 às 00:17** (210 classes) trazia `temperatura: 1.0`.
+Não é descuido de ninguém: é o que **todo** treino grava, e a F22 já tinha registrado o
+porquê — a temperatura é ajustada para um conjunto de pesos, e herdá-la aplicaria correção
+medida sobre outros. O que falta é qualquer coisa que avise, e por isso o modelo rodou o
+dia em softmax cru.
+
+O preço, medido na fila de revisão antes e depois de `calibrar_modelo.py --gravar`:
+
+| | mediana da confiança num erro | abaixo de 0,90 | erros pegos |
+|---|---:|---:|---:|
+| T = 1 (como estava) | **0,9997** | 80 | 29 de 257 |
+| **T = 2,1682** | 0,9895 | 421 | **48 de 213** |
+
+Com a confiança em softmax cru, **`precisa_revisao` via 11% dos erros da rede**. A
+calibração dobra isso, para 23%. O ECE cai de 0,0276 para 0,0235 em leave-one-page-out, e
+o 2,1682 bate com o 2,1916 que a F22 mediu no modelo anterior — dois treinos, mesma família
+de correção.
+
+### O `NEURAL_THRESHOLD` se moveu pela segunda vez
+
+| limiar | acerto | rede / k-NN / OCR |
+|---:|---:|---|
+| 0,40 | 97,32% | 10.405 / 5 / 26 |
+| 0,60 | 97,43% | 10.368 / 32 / 63 |
+| 0,70 *(era)* | 97,43% | 10.325 / 54 / 86 |
+| **0,80** | **97,52%** | 10.168 / 168 / 125 |
+| 0,90 | 97,10% | 9.904 / 293 / 245 |
+
+Era 0,8 antes da F22, virou 0,7 nela, e volta a 0,8 aqui. **Isto não é indecisão, é a
+propriedade do limiar**: ele compara confiança, a escala da confiança é do conjunto de
+pesos, e o valor certo é por modelo. São 9 caracteres de vantagem sobre 0,70 — pouco por si
+só; o que decide é a composição apontar no mesmo sentido, com o k-NN vendo 168 boxes em vez
+de 54, que é a razão de ele estar na cadeia.
+
+A trava da linha foi remedida junto e **sobreviveu inteira** em 0,70 (97,43%, contra 97,41%
+em 0,60 e 97,31% em 0,80).
+
+`medir_cadeia.py` ganhou `--rede`, que faltava: a tabela da F22 era a única das quatro que
+o instrumento ainda não reproduzia.
+
+### O que fica aberto, e o primeiro é de processo
+
+**Nada avisa que o modelo está sem calibração.** `NeuralPredictor.load` já tem um canal de
+`aviso` e já o usa para o par `.pth`/`.json` trocado. `temperatura == 1.0` num modelo
+treinado depois da F1.9 é a mesma classe de problema — nada quebra, nada avisa, e a fila de
+revisão fica cega até alguém desconfiar. O remédio barato é o aviso; o certo é o treino
+chamar a calibração no fim.
+
+### A linha não esconde erro da revisão — e a suspeita de que escondia era erro de medida
+
+Um box abaixo da trava numa linha lida recebe `confianca(concordam, conf_linha, cf)`, que é
+o **máximo** dos dois quando as duas leituras concordam (F17). Uma leitura neural a 0,30
+corroborada sobe para ~0,95 e sai da fila de revisão. A pergunta era quantos desses boxes
+eram erro que as duas leituras cometeram junto — cada um seria um erro que o revisor deixou
+de ver.
+
+Medido nas 10 páginas, comparando a confiança crua da cadeia com a final, box a box, pelo
+`precisa_revisao` de produção:
+
+| | boxes | dos quais errados |
+|---|---:|---:|
+| saíram da fila por corroboração | **2** | **0** |
+| entraram na fila por divergência | 0 | 0 |
+
+**Custo zero.** O desenho da F17 se sustenta inteiro, e a razão de a população ser tão
+pequena estava disponível o tempo todo: o reforço só alcança box com confiança abaixo da
+trava (0,70), e depois do roteamento quase nada chega lá — um box em que a rede hesita é
+passado ao k-NN ou ao EasyOCR, e esses respondem com confiança própria alta (mediana do
+k-NN num acerto: 1,0000).
+
+**A suspeita vinha de comparar duas medidas de coisas diferentes.** O `calibrar_modelo.py`
+punha ~250 boxes abaixo de 0,90 e esta fase media 80 na UI, e a diferença foi atribuída à
+linha. Era a **temperatura**: com o modelo calibrado a mesma tabela passou a mostrar 264
+boxes abaixo de 0,90. Fica registrado porque é o terceiro caso da mesma família nesta série
+— a F23 quase concluiu contaminação onde havia base crescendo, a F24 quase concluiu
+reversão infiel pelo mesmo motivo, e aqui dois números de origens diferentes viraram uma
+inferência sobre um mecanismo que não estava agindo. **Números de instrumentos diferentes
+não se subtraem.**
+
+Conferido no caminho de produção, com `NEURAL_THRESHOLD = 0,80` aplicado: **97,52%**, com
+10.168 boxes na rede, 168 no k-NN, 125 no EasyOCR e 23 corrigidos pela linha. É o número que
+a varredura previa.
+
+Cobertura: nenhum teste novo. Esta fase não mudou código de produção além de uma constante;
+o que ela produziu foram tabelas, e o que as reproduz é `medir_cadeia.py --neural --rede`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
