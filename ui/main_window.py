@@ -62,12 +62,71 @@ from ui import confidence as conf_ui
 #: do platô, e não porque era o valor de antes.
 CONF_MAXIMA_PARA_A_LINHA = 0.70
 
-#: O mesmo, para o caminho híbrido. O pico da varredura cai aqui, e o valor tem
-#: razão própria: é o `learner_threshold` daquela ação, então a linha age
-#: exatamente nos boxes em que o k-NN se recusou a responder. **Não se moveu com
-#: a calibração**, e não tinha por quê — este caminho não usa a rede, e a
-#: confiança do k-NN não passa pela temperatura.
-CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = 0.85
+#: Confiança mínima para o k-NN responder sozinho, no caminho híbrido (F23).
+#:
+#: Era 0,85, e o 0,85 nunca tinha sido medido: veio de ser o mesmo número da
+#: trava da linha, que por sua vez era 0,85 por ser o `learner_threshold`. Os
+#: dois se justificavam um pelo outro e nenhum dos dois pela página.
+#:
+#: `medir_cadeia.py` põe o k-NN e o EasyOCR **no mesmo box**, separados por
+#: faixa de confiança do k-NN. Medido em 10.481 caracteres de 10 páginas:
+#:
+#:     confiança do k-NN   boxes    k-NN   EasyOCR
+#:     0,00 – 0,50           395   51,9%     47,6%
+#:     0,50 – 0,70           839   98,6%     62,7%
+#:     0,70 – 0,80           808   97,8%     65,7%
+#:     0,80 – 0,85           218   99,1%     85,8%
+#:     0,85 – 0,90           216   98,6%     87,0%
+#:     0,95 – 0,99         2.006   97,5%     79,1%
+#:     0,99 – 1,00         5.972   99,7%     74,6%
+#:
+#: **O k-NN ganha em toda faixa, e nas de 0,50 a 0,85 ele vai a 98%** — acima da
+#: própria faixa 0,95–0,99. A confiança `1 - distância/2000` mal ordena
+#: qualidade no meio da escala, e o corte em 0,85 mandava 21,6% dos boxes para o
+#: pior dos dois classificadores. A varredura, com a trava acompanhando:
+#:
+#:     limiar   10 páginas   as 2 limpas
+#:     0,00         97,53%        95,73%
+#:     0,30         97,62%        95,68%
+#:     0,50         97,36%        95,45%
+#:     0,70         95,53%        92,65%
+#:     0,85         93,72%        87,68%
+#:     0,95         94,11%        88,51%
+#:
+#: **0,30 e não 0,00.** De 0,00 a 0,50 o resultado é platô; o que decide a borda
+#: é a faixa mais baixa, onde nas páginas limpas o k-NN faz 46,7% contra 48,9% —
+#: cara ou coroa, e a única em que ele não ganha. O 0,30 o mantém fora dela.
+#:
+#: **"As 2 limpas" é a coluna que vale para livro novo.** `training_data` foi
+#: colhida das próprias páginas rotuladas, e onde o k-NN responde acima de 0,99
+#: ele está consultando a própria cópia, não generalizando — em duas páginas
+#: isso é 97% e 95% dos boxes. As duas menos contaminadas (9,5% e 27,1%) sobem
+#: **8,00 pontos** com esta mudança, contra 3,90 do conjunto: o ganho não era
+#: vazamento, e cresce justamente onde a base não ajuda.
+LEARNER_THRESHOLD_HIBRIDO = 0.30
+
+#: A trava da linha no caminho híbrido, **e ela é o mesmo número de propósito**.
+#:
+#: A razão é mecânica, e não coincidência numérica: a trava existe para a linha
+#: agir exatamente nos boxes em que o k-NN se recusou a responder, e quem define
+#: essa recusa é o limiar acima. Amarrados aqui para que mover um mova o outro —
+#: separá-los foi medido e é o pior dos mundos. Com o limiar em 0,30 e a trava
+#: deixada em 0,85, nas duas páginas limpas:
+#:
+#:     trava       acerto   trocados
+#:     sem linha   95,68%          0
+#:     0,30        95,68%          3
+#:     0,60        95,22%         22
+#:     0,70        93,57%         65
+#:     0,85        91,54%        112
+#:     sempre      88,01%        209
+#:
+#: São **7 consertos contra 97 quebras**, saldo de −90 caracteres: o EasyOCR por
+#: linha (89,5%) passando por cima de um k-NN que agora lê a 95,7%. É a lei da
+#: F21 — a linha rende na proporção inversa da força da âncora — vista do outro
+#: lado, e é por isso que fortalecer a âncora **tira** trabalho da linha em vez
+#: de somar com ele.
+CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = LEARNER_THRESHOLD_HIBRIDO
 
 #: Confiança mínima para a rede responder sozinha, sem passar ao k-NN (F22).
 #:
@@ -2049,9 +2108,13 @@ class MainWindow(tk.Frame):
 
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
+                # `neural_threshold` não é usado — esta ação não carrega a rede
+                # —, mas fica igual ao outro para o dia em que alguém passar um
+                # predictor por aqui e esperar o mesmo roteamento.
                 char, fonte, c = self.ocr_service.fallback_chain(
                     justo, learner=learner, contexto=contexto,
-                    neural_threshold=0.85, learner_threshold=0.85,
+                    neural_threshold=LEARNER_THRESHOLD_HIBRIDO,
+                    learner_threshold=LEARNER_THRESHOLD_HIBRIDO,
                 )
                 if fonte not in ("learner", "easyocr"):
                     return ("", 0.0, "vazio")

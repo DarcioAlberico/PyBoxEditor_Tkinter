@@ -5112,6 +5112,146 @@ diz contra qual temperatura foi medida.
 
 ---
 
+## F23 — O limiar que se justificava por outro limiar — CONCLUÍDA
+
+A F22 fechou dizendo que um limiar afinado contra uma escala de confiança é um número que
+o próximo treino invalida em silêncio, e listou os três que carregam a tabela que os
+produziu. **Faltava dizer que havia um quarto, sem tabela nenhuma.** O `learner_threshold`
+do «Detectar e Preencher (Híbrido/Ref)» era `0.85`, literal dentro do `preparar` da ação,
+e a única razão registrada era ser o mesmo número da trava da linha — cuja razão, por sua
+vez, era ser o `learner_threshold` da ação. Os dois se justificavam um pelo outro e nenhum
+dos dois pela página.
+
+### O instrumento vinha faltando desde a F18
+
+As tabelas da F18, F20, F21 e F22 saíram de script que não ficou: nada em `medir_*.py`
+chamava `fallback_chain`, e refazer qualquer uma delas era reescrever o instrumento antes
+de medir. `medir_cadeia.py` é o que faltava, e é para a cadeia o que `medir_paginas.py` é
+para a segmentação.
+
+Ele chama o `fallback_chain` e o `ler_pagina` **de produção**, com os limiares importados
+de `ui/main_window` — a única cópia é o `_recortes_do_box`, seis linhas que moram dentro
+da classe da janela. Cada modelo é consultado uma vez por recorte e memorizado; o que
+reexecuta a cada ponto da varredura é o roteamento, que é o que está sendo medido. Sem
+isso uma varredura de seis limiares pagaria seis vezes os ~16 ms por caractere do EasyOCR.
+
+E ele mede o que as tabelas anteriores não diziam: a **composição** (quem responde quantos
+boxes e quanto acerta nos que pegou) e o **roteamento** — o k-NN e o EasyOCR postos no
+*mesmo* box, separados por faixa de confiança do k-NN. É esta segunda que decide o limiar,
+e ela custa consultar o EasyOCR em todos os boxes, inclusive nos que a cadeia jamais lhe
+mandaria.
+
+### O k-NN ganha em toda faixa, e a confiança dele mal ordena qualidade
+
+Medido em 10.481 caracteres de 10 páginas rotuladas:
+
+| confiança do k-NN | boxes | k-NN | EasyOCR | ganha |
+|---|---:|---:|---:|---|
+| 0,00 – 0,50 | 395 | 51,9% | 47,6% | k-NN |
+| 0,50 – 0,70 | 839 | **98,6%** | 62,7% | k-NN |
+| 0,70 – 0,80 | 808 | **97,8%** | 65,7% | k-NN |
+| 0,80 – 0,85 | 218 | 99,1% | 85,8% | k-NN |
+| 0,85 – 0,90 | 216 | 98,6% | 87,0% | k-NN |
+| 0,95 – 0,99 | 2.006 | 97,5% | 79,1% | k-NN |
+| 0,99 – 1,00 | 5.972 | 99,7% | 74,6% | k-NN |
+
+Nas faixas de 0,50 a 0,85 o k-NN faz 98% — **acima da própria faixa 0,95–0,99**. A
+confiança é `1 - distância/2000`, uma L2 absoluta sobre 32x32 em cinza cru, e no meio da
+escala ela quase não ordena qualidade. O corte em 0,85 mandava **21,6% dos boxes para o
+pior dos dois classificadores**.
+
+A varredura, com a trava acompanhando o limiar:
+
+| limiar | 10 páginas | as 2 limpas |
+|---:|---:|---:|
+| 0,00 | 97,53% | 95,73% |
+| **0,30** | **97,62%** | **95,68%** |
+| 0,50 | 97,36% | 95,45% |
+| 0,70 | 95,53% | 92,65% |
+| 0,85 *(era)* | 93,72% | 87,68% |
+| 0,95 | 94,11% | 88,51% |
+
+**+3,90 pontos** no conjunto e **+8,00** nas duas páginas limpas. De 0,00 a 0,50 é platô; o
+que decide a borda é a faixa mais baixa, onde nas páginas limpas o k-NN faz 46,7% contra
+48,9% — cara ou coroa, e a única em que ele não ganha. O 0,30 o mantém fora dela.
+
+### A página que já estava na base, e por que a coluna "as 2 limpas" existe
+
+`training_data` foi colhida com "Aprender com Página Atual" **das próprias páginas
+rotuladas**, e onde o k-NN responde acima de 0,99 a distância está abaixo de 20 em 1.024
+pixels — meio nível de cinza por pixel. Ali ele não generaliza, consulta a própria cópia:
+
+| página | boxes | acerto | já na base |
+|---|---:|---:|---:|
+| Kasparov page-0013 | 1.557 | 99,23% | **97,2%** |
+| Kasparov page-0057 | 1.184 | 97,89% | **94,9%** |
+| Aagaard pg11 | 1.115 | 94,71% | 63,1% |
+| Kasparov page-0022 | 508 | 94,88% | 61,4% |
+| Kasparov page-0014 | 1.002 | 96,61% | 57,7% |
+| Aagaard (1ª) | 292 | 90,75% | 47,9% |
+| Kasparov page-0033 | 1.259 | 95,08% | 47,7% |
+| Kasparov page-0108 | 1.388 | 89,55% | 43,8% |
+| Kasparov page-0020 | 1.085 | 92,35% | 27,0% |
+| **Kasparov page-0128** | 1.091 | **83,04%** | **9,1%** |
+
+A correlação é a tabela inteira, sem exceção. **O número deste caminho é, em boa medida,
+uma medida de quanto da página já foi aprendida** — e as duas de baixo são o que esperar
+de livro novo. É por isso que a varredura foi refeita só nelas: se os +3,90 fossem
+vazamento, encolheriam ali. Dobraram. O que o k-NN faz entre 0,50 e 0,85 é generalização —
+644 boxes a ~96%, com distância entre 300 e 1.000, longe de qualquer cópia.
+
+`tabela_por_pagina` passou a imprimir essa coluna sempre, porque um número alto medido em
+página contaminada é a boa notícia falsa mais fácil de acreditar neste projeto.
+
+### Os dois limiares viraram um, e agora em código
+
+Separá-los foi medido de propósito — limiar novo (0,30) com a trava velha (0,85), nas duas
+páginas limpas:
+
+| trava | acerto | trocados |
+|---|---:|---:|
+| sem linha | **95,68%** | 0 |
+| 0,30 | 95,68% | 3 |
+| 0,60 | 95,22% | 22 |
+| 0,70 | 93,57% | 65 |
+| 0,85 | 91,54% | 112 |
+| sempre | 88,01% | 209 |
+
+São **7 consertos contra 97 quebras**, saldo de −90 caracteres. É a lei da F21 — a linha
+rende na proporção inversa da força da âncora — vista do outro lado: fortalecer a âncora
+**tira** trabalho da linha em vez de somar com ele. Por isso
+`CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = LEARNER_THRESHOLD_HIBRIDO`, amarrados no código e não
+só no comentário, com teste que quebra se a amarração se desfizer.
+
+O caminho híbrido passa a ter o mesmo formato do neural: âncora forte, linha agindo só na
+sobra. O ganho dela caiu de +2,31 pontos para +0,02, e isso é o esperado, não uma perda.
+
+### O que esta fase fecha, e o que ela reabre
+
+**Fecha o canal geométrico da F19 para este caminho.** A conta que o refutou era "uma base
+a 98% não tolera um canal lateral a 97%", e o argumento não valia aqui enquanto a âncora
+era 94,8%. Com ela em 97,6% volta a valer, e o alvo de homóglifo e caixa da F14 volta a
+depender de a altura entrar **na** rede, treinada junto.
+
+**Reabre a fórmula da confiança do k-NN.** A tabela de roteamento mostra que
+`1 - distância/2000` mal ordena qualidade no meio da escala, e o `threshold=2000.0` de
+`CharacterLearner.predict` nunca foi medido contra nada. Voto entre os k vizinhos mais
+próximos e confiança por **margem** (o melhor da classe vencedora contra o melhor de outra
+classe) são a mesma conta de matriz que já roda — o vetor de distâncias está calculado, é
+trocar `argmin` por `argpartition`. Mas mexer nisso desloca a escala inteira e **obriga a
+remedir os dois limiares desta fase**, que é exatamente a lição da F22.
+
+**A base é o outro caminho, e é o mais barato.** Este elo é vizinho mais próximo sobre
+amostras colhidas destes livros; a coluna "já na base" é literalmente a curva de retorno
+de "Aprender com Página Atual". Uma ou duas páginas de um livro novo movem este caminho
+mais que qualquer limiar.
+
+Cobertura: `tests/test_f23_medir_cadeia.py`, 9 testes — a memorização não muda resposta
+nenhuma (que é a afirmação de que o instrumento inteiro depende) e os dois limiares são o
+mesmo número.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
