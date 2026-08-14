@@ -5603,12 +5603,13 @@ fazer é ruído.
 **Os outros caminhos que carregam a rede ainda não chamam o aviso** — o PDF pesquisável e o
 preenchimento por caractere. O gancho é uma linha em cada, e a razão de não estarem aqui é
 que só o «Detectar e Preencher (Neural)» foi conferido de ponta a ponta nesta fase.
+*(Fechado na F28.)*
 
 **O certo é o treino calibrar sozinho no fim.** O aviso é o remédio barato; enquanto o
 usuário puder terminar um treino e sair sem calibrar, a situação da F25 volta a acontecer —
 só que agora avisada. O que impede hoje é o custo: `calibrar_modelo.py` roda
 leave-one-page-out sobre as 10 páginas rotuladas, e emendá-lo no fim do treino sem medir
-quanto isso acrescenta ao tempo é a decisão que falta.
+quanto isso acrescenta ao tempo é a decisão que falta. *(Fechado na F27: são 20 s.)*
 
 Cobertura: `tests/test_f73_modelo.py`, 26 testes (10 novos) — a ressalva aparece, diz o
 comando, convive com a de formato, cala em modelo calibrado, e a janela a mostra uma vez
@@ -5697,6 +5698,58 @@ Cobertura: `tests/test_f27_calibracao_no_treino.py`, 11 testes — a temperatura
 quando dá; o treino não cai quando não dá; o metadado sobrevive inteiro à regravação (ele
 carrega os dois SHA-256 da F7.3, e remontá-lo de fora é como se perde a amarração); e a
 borda é recusada nas duas pontas. Suíte em 1.312.
+
+---
+
+## F28 — O aviso nos outros caminhos — CONCLUÍDA
+
+A F26 pôs o aviso de modelo sem calibração num caminho só, e registrou que os outros
+ficaram de fora. São seis os que carregam a rede, e o levantamento corrigiu duas suposições
+minhas.
+
+### O nome de um deles engana
+
+`run_general_neural_training` parece treino e é **processamento em lote**: lê imagens e
+PDFs com a rede e grava a saída. Estava na lista dos que não precisavam avisar por causa do
+nome. Precisa — é output lido pela rede como qualquer outro.
+
+Passaram a conferir o modelo: «Detectar e Preencher (Neural)» (F26), PDF pesquisável,
+exportação de livro, extração de recortes, correção do mapa de glifos e o processamento em
+lote.
+
+### Um fica de fora, e a razão está escrita nele
+
+`_arbitro_de_corte` roda em **toda** `generate_boxes_opencv`, inclusive nas ações híbrida e
+EasyOCR. Ali a rede arbitra corte de glifo colado (F1.5b), não lê texto: a confiança dela
+não vira `b.confidence` nem roteia nada, e o recado da F26 fala de fila de revisão e de
+roteamento da cadeia — nenhum dos dois é verdade naquele caminho.
+
+A margem da F1.5b **é** uma comparação de confiança, então a calibração provavelmente mexe
+na segmentação também. *Provavelmente* — não está medido, e avisar por causa disso seria
+afirmar o que não se sabe. Fica registrado como pergunta, não como omissão.
+
+### Um defeito que só apareceu ao espalhar
+
+`_avisar_do_modelo` marcava a sessão como avisada **só quando havia ressalva**. Com o
+modelo em ordem a marca nunca era posta, e cada chamada refazia `load_predictor` na thread
+da UI — 2 s de janela congelada na primeira, em cada uma das seis ações. Com o aviso num
+caminho só isso passava; espalhado por seis, viraria sintoma.
+
+A marca passou a ser posta antes de saber se há ressalva, e o campo mudou de nome —
+`_modelo_conferido`, que é o que ele sempre quis dizer. Uma conferência por sessão nos dois
+casos.
+
+### O teste que guarda a lista
+
+O erro da F26 não foi escrever o aviso: foi haver um canal sem leitor. Uma lista de
+chamadas espalhada por seis métodos tem o mesmo formato de defeito — some uma e ninguém
+nota. `test_todo_caminho_que_le_com_a_rede_confere_o_modelo` lê a própria árvore sintática
+de `ui/main_window.py`, junta quem chama `load_predictor` sem chamar `_avisar_do_modelo`, e
+exige que o conjunto seja exatamente `{_arbitro_de_corte}`. Caminho novo que carregue a
+rede e esqueça o aviso quebra o teste; e tirar o árbitro da exceção também, o que obriga
+quem o fizer a explicar por quê.
+
+Cobertura: `tests/test_f73_modelo.py`, 28 testes (2 novos). Suíte em 1.314.
 
 ---
 

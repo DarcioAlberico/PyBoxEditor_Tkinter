@@ -376,8 +376,66 @@ def test_treinar_de_novo_volta_a_avisar(monkeypatch):
                         lambda: "sem calibração")
 
     win._avisar_do_modelo()
-    win._modelo_avisado = False          # o que `concluir` do treino faz
+    win._modelo_conferido = False          # o que `concluir` do treino faz
     win._avisar_do_modelo()
 
     assert len(mostradas) == 2
     raiz.destroy()
+
+
+def test_a_conferencia_vale_mesmo_sem_ressalva(monkeypatch):
+    """
+    A marca é posta antes de saber se há ressalva.
+
+    Com ela só no caminho do aviso, um modelo em ordem fazia `load_predictor`
+    rodar na thread da UI a cada ação — e a primeira carga custa ~2 s de janela
+    congelada. O que se quer é uma conferência por sessão nos dois casos.
+    """
+    from tkinter import messagebox
+
+    raiz, win = _janela()
+    if win is None:
+        pytest.skip("sem display")
+
+    consultas = []
+    monkeypatch.setattr(messagebox, "showwarning", lambda t, m, **k: None)
+    monkeypatch.setattr(win.learning_service, "aviso_do_modelo",
+                        lambda: consultas.append(1) or "")
+
+    win._avisar_do_modelo()
+    win._avisar_do_modelo()
+    win._avisar_do_modelo()
+
+    assert len(consultas) == 1
+    raiz.destroy()
+
+
+def test_todo_caminho_que_le_com_a_rede_confere_o_modelo():
+    """
+    O aviso não vale por existir, vale por estar em todo caminho que produz
+    saída lida pela rede — foi um canal sem leitor que deixou um modelo sem
+    calibração passar um dia em produção (F26).
+
+    `_arbitro_de_corte` fica fora **de propósito**: ali a rede arbitra corte e
+    não lê texto, e o recado fala de fila de revisão e roteamento. Ver o
+    docstring dele.
+    """
+    import ast
+    import inspect
+
+    import ui.main_window as mw
+
+    fonte = inspect.getsource(mw)
+    tree = ast.parse(fonte)
+    metodos = {m.name: m for no in ast.walk(tree)
+               if isinstance(no, ast.ClassDef)
+               for m in no.body if isinstance(m, ast.FunctionDef)}
+
+    def chama(m, nome):
+        return any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                   and c.func.attr == nome for c in ast.walk(m))
+
+    sem_aviso = {nome for nome, m in metodos.items()
+                 if chama(m, "load_predictor") and not chama(m, "_avisar_do_modelo")}
+    assert sem_aviso == {"_arbitro_de_corte"}, \
+        f"caminhos que carregam a rede sem conferir o modelo: {sorted(sem_aviso)}"

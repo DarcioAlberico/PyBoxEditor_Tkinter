@@ -265,7 +265,7 @@ class MainWindow(tk.Frame):
         self._cache_suspeitas = (None, [])
         # A ressalva do modelo já foi mostrada nesta sessão? Ver
         # `_avisar_do_modelo`: é sobre o arquivo, então uma vez basta.
-        self._modelo_avisado = False
+        self._modelo_conferido = False
 
         # Modo digitação contínua: a tecla aplica e avança, sem Enter.
         self.modo_digitacao = False
@@ -1317,13 +1317,17 @@ class MainWindow(tk.Frame):
         Chamada da thread da UI. `load_predictor` dentro de `trabalho` roda em
         outra, e `messagebox` de lá é o caminho para uma janela que não fecha.
         """
-        if self._modelo_avisado:
+        if self._modelo_conferido:
             return
+        # Marcado **antes** de saber se há ressalva, e não só quando há. Com a
+        # marca só no caminho do aviso, um modelo em ordem fazia `load_predictor`
+        # rodar na thread da UI a cada ação — e a primeira carga custa ~2 s de
+        # janela congelada. Uma conferência por sessão é o que se quer nos dois
+        # casos.
+        self._modelo_conferido = True
         aviso = self.learning_service.aviso_do_modelo()
-        if not aviso:
-            return
-        self._modelo_avisado = True
-        messagebox.showwarning("Modelo neural", aviso)
+        if aviso:
+            messagebox.showwarning("Modelo neural", aviso)
 
     def _arbitro_de_corte(self):
         """
@@ -1333,6 +1337,15 @@ class MainWindow(tk.Frame):
         árbitro o `generate_boxes_opencv` simplesmente não separa, porque
         separar sem ele é a única configuração que a medição reprova (2,3
         pontos de F1 abaixo de não separar).
+
+        **Este é o único caminho da rede que não chama `_avisar_do_modelo`, e é
+        de propósito.** Aqui ela arbitra corte, não lê texto: roda em toda
+        `generate_boxes_opencv`, inclusive nas ações híbrida e EasyOCR, onde a
+        confiança dela não vira `b.confidence` nem roteia coisa alguma — e o
+        recado da F26 fala de fila de revisão e de roteamento da cadeia. A
+        margem da F1.5b *é* uma comparação de confiança, então a calibração
+        provavelmente mexe na segmentação também; **provavelmente não está
+        medido**, e avisar por causa disso seria afirmar o que não se sabe.
         """
         if not self.learning_service.load_predictor():
             return None
@@ -1464,6 +1477,7 @@ class MainWindow(tk.Frame):
         """
         if self._busy("A correção"):
             return
+        self._avisar_do_modelo()
 
         input_pdf = filedialog.askopenfilename(
             title="Selecionar PDF",
@@ -1574,6 +1588,7 @@ class MainWindow(tk.Frame):
         """
         if self._busy("A exportação"):
             return
+        self._avisar_do_modelo()
 
         input_pdf = filedialog.askopenfilename(
             title="Selecionar PDF",
@@ -1672,6 +1687,7 @@ class MainWindow(tk.Frame):
         """
         if self._busy("A extração de recortes"):
             return
+        self._avisar_do_modelo()
 
         input_pdf = filedialog.askopenfilename(
             title="Selecionar PDF",
@@ -1835,6 +1851,7 @@ class MainWindow(tk.Frame):
     def _acao_ocr_pdf(self, modo, titulo, titulo_saida):
         if self._busy("A conversão"):
             return
+        self._avisar_do_modelo()
 
         input_pdf = filedialog.askopenfilename(
             title="Selecionar PDF Escaneado",
@@ -3327,7 +3344,7 @@ class MainWindow(tk.Frame):
             # abre a boca se a temperatura ficou neutra, que é o caso de quem
             # não tem página rotulada. O log da tarefa já disse qual dos dois
             # aconteceu; isto é para quem não leu o log.
-            self._modelo_avisado = False
+            self._modelo_conferido = False
 
             relatorio = self.learning_service.caminho_relatorio()
             if os.path.exists(relatorio):
@@ -3594,6 +3611,10 @@ class MainWindow(tk.Frame):
             messagebox.showerror("Modelo neural",
                                  self.learning_service.motivo_do_modelo())
             return
+
+        # Depois da carga, e não antes: aqui ela já roda na thread da UI, então
+        # a conferência não acrescenta espera nenhuma.
+        self._avisar_do_modelo()
 
         filepaths = filedialog.askopenfilenames(
             title="Selecione as imagens ou PDF para processar",
