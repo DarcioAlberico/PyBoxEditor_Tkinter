@@ -45,7 +45,7 @@ def _base(tmp_path, amostras):
     return str(raiz)
 
 
-def _vizinho_ingenuo(learner, consulta, threshold=2000.0):
+def _vizinho_ingenuo(learner, consulta):
     """A implementação anterior: um laço, uma norma por referência."""
     alvo = cv2.resize(consulta, (LADO, LADO)).astype(np.float32).ravel()
     melhor, menor = "?", float("inf")
@@ -53,15 +53,21 @@ def _vizinho_ingenuo(learner, consulta, threshold=2000.0):
         d = float(np.linalg.norm(alvo - linha))
         if d < menor:
             menor, melhor = d, char
-    conf = max(0.0, 1.0 - menor / threshold) if menor < threshold else 0.0
-    return melhor, conf
+    return melhor, menor
 
 
 # ----------------------------------------------------------------------
-# A resposta não pode mudar
+# A busca não pode mudar
 # ----------------------------------------------------------------------
 
-def test_a_resposta_e_a_mesma_do_laco(tmp_path):
+def test_a_busca_e_a_mesma_do_laco(tmp_path):
+    """
+    A conta de matriz da F7.2 devolve o mesmo vizinho que o laço ingênuo.
+
+    Media o `predict` até a F24, quando a decisão passou a ser voto entre k e a
+    confiança passou a ser margem. **A propriedade em teste é a mesma** — a
+    busca não mudou —, e quem a expõe agora é `vizinhos`.
+    """
     caminho = _base(tmp_path, {
         "a": [_amostra(10), _amostra(20), _amostra(30)],
         "b": [_amostra(120), _amostra(130)],
@@ -70,17 +76,206 @@ def test_a_resposta_e_a_mesma_do_laco(tmp_path):
     L = CharacterLearner(caminho, usar_cache=False)
     for valor in (0, 15, 25, 100, 125, 200, 245, 255):
         consulta = _amostra(valor)
-        assert L.predict(consulta) == pytest.approx(
+        assert L.vizinhos(consulta, k=1)[0] == pytest.approx(
             _vizinho_ingenuo(L, consulta), abs=1e-6), f"valor {valor}"
 
 
-def test_confianca_cai_com_a_distancia(tmp_path):
+def test_predict_responde_o_que_respondia_antes_da_f24(tmp_path):
+    """
+    A F24 trocou `predict` por voto e margem, mediu, e desfez. Este teste é o
+    que garante que o desfazer foi completo — inclusive a confiança, que o
+    teste da busca não cobre.
+
+    A referência é o corpo anterior reescrito aqui, contra as mesmas matrizes.
+    Conferido também nos 4.280 recortes de quatro páginas reais: zero
+    divergências.
+    """
+    caminho = _base(tmp_path, {
+        "a": [_amostra(10), _amostra(20)], "b": [_amostra(120)],
+        "c": [_amostra(240), _amostra(250)],
+    })
+    L = CharacterLearner(caminho, usar_cache=False)
+
+    def antes_da_f24(consulta, threshold=2000.0):
+        char, distancia = _vizinho_ingenuo(L, consulta)
+        conf = (max(0.0, 1.0 - distancia / threshold)
+                if distancia < threshold else 0.0)
+        return char, conf
+
+    for valor in (0, 15, 25, 100, 125, 200, 245, 255):
+        consulta = _amostra(valor)
+        assert L.predict(consulta) == pytest.approx(
+            antes_da_f24(consulta), abs=1e-6), f"valor {valor}"
+
+
+def test_vizinhos_saem_em_ordem_e_no_numero_pedido(tmp_path):
+    caminho = _base(tmp_path, {"a": [_amostra(10), _amostra(30)],
+                               "b": [_amostra(120)], "c": [_amostra(240)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    perto = L.vizinhos(_amostra(20), k=3)
+    assert len(perto) == 3
+    assert [c for c, _d in perto] == ["a", "a", "b"]
+    assert [d for _c, d in perto] == sorted(d for _c, d in perto)
+
+
+def test_vizinhos_de_base_vazia(tmp_path):
+    L = CharacterLearner(str(tmp_path / "vazia"), usar_cache=False)
+    assert L.vizinhos(_amostra(50)) == []
+
+
+# ----------------------------------------------------------------------
+# F24 — o voto entre os k
+# ----------------------------------------------------------------------
+
+def test_a_confianca_de_producao_cai_com_a_distancia(tmp_path):
+    """
+    O que a cadeia roteia por: distância absoluta ao vizinho mais próximo.
+
+    Sobreviveu à F24, que mediu a alternativa e a devolveu — ver
+    `test_a_margem_mede_ambiguidade_e_a_producao_mede_novidade`.
+    """
     caminho = _base(tmp_path, {"a": [_amostra(100)]})
     L = CharacterLearner(caminho, usar_cache=False)
     _, perto = L.predict(_amostra(100))
     _, longe = L.predict(_amostra(160))
     assert perto == 1.0
     assert 0.0 < longe < perto
+
+
+def test_o_voto_escolhe_a_maioria_e_nao_o_mais_proximo(tmp_path):
+    """
+    Uma referência solitária mais perto que o grupo certo.
+
+    É o caso que motivou medir o voto, e o `voto` de fato o resolve. Não
+    entrou porque **no conjunto** ele custa: 96,10% com k=1 contra 95,90% com
+    k=5 (ver `K_VIZINHOS`). Um caso construído não é uma distribuição.
+    """
+    caminho = _base(tmp_path, {
+        "o": [_amostra(100)],
+        "0": [_amostra(104), _amostra(106), _amostra(108), _amostra(110)],
+    })
+    L = CharacterLearner(caminho, usar_cache=False)
+    consulta = _amostra(101)
+
+    assert L.vizinhos(consulta, k=1)[0][0] == "o"
+    assert L.voto(consulta, k=5) == "0"
+    assert L.predict(consulta)[0] == "o"        # produção segue o mais próximo
+
+
+def test_o_voto_desempata_pelo_mais_proximo(tmp_path):
+    caminho = _base(tmp_path, {"a": [_amostra(100)], "b": [_amostra(140)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    assert L.voto(_amostra(110), k=2) == "a"
+    assert L.voto(_amostra(130), k=2) == "b"
+
+
+def test_voto_de_base_vazia(tmp_path):
+    L = CharacterLearner(str(tmp_path / "vazia"), usar_cache=False)
+    assert L.voto(_amostra(50)) == "?"
+
+
+# ----------------------------------------------------------------------
+# F24 — a margem, que também não entrou
+# ----------------------------------------------------------------------
+
+def test_a_margem_e_invariante_de_escala(tmp_path):
+    """
+    A razão entre distâncias não se move quando todas as distâncias dobram.
+
+    É a propriedade que motivou medi-la: `1 - distância/2000` mede peso de
+    tinta junto com qualidade, e rebaixa o glifo de traço grosso por engordar.
+    As duas bases aqui têm a mesma geometria relativa e o mesmo número sai.
+    """
+    # O alvo a 1/5 do caminho entre as duas classes, com vão de 80 numa base e
+    # de 160 na outra.
+    perto = _base(tmp_path / "perto", {"a": [_amostra(100)],
+                                       "b": [_amostra(180)]})
+    longe = _base(tmp_path / "longe", {"a": [_amostra(20)],
+                                       "b": [_amostra(180)]})
+    A = CharacterLearner(perto, usar_cache=False)
+    B = CharacterLearner(longe, usar_cache=False)
+    assert A.margem_de_confianca(_amostra(116)) == pytest.approx(0.75, abs=1e-6)
+    assert B.margem_de_confianca(_amostra(52)) == pytest.approx(0.75, abs=1e-6)
+
+    # E a de produção **não** é invariante: é o defeito que a margem corrigia.
+    assert A.predict(_amostra(116))[1] != pytest.approx(
+        B.predict(_amostra(52))[1], abs=1e-6)
+
+
+def test_a_margem_mede_ambiguidade_e_a_producao_mede_novidade(tmp_path):
+    """
+    O achado da F24, no menor caso que o mostra.
+
+    Um recorte que a base nunca viu, longe de tudo, mas muito mais perto de uma
+    classe que da outra: **margem alta, confiança de produção baixa**. Quem
+    roteia quer a segunda leitura — o elo seguinte da cadeia existe justamente
+    para o box que esta base não conhece.
+    """
+    # Distância 1.920 até 'a' e 3.840 até 'b': o dobro, então a margem dá 0,50 —
+    # e 1.920 é longe o bastante para a confiança de produção dar 0,04.
+    caminho = _base(tmp_path, {"a": [_amostra(10)], "b": [_amostra(190)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    desconhecido = _amostra(70)
+
+    assert L.margem_de_confianca(desconhecido) == pytest.approx(0.50, abs=1e-6)
+    assert L.predict(desconhecido)[1] == pytest.approx(0.04, abs=1e-6)
+
+
+def test_copia_exata_da_base_da_confianca_cheia(tmp_path):
+    caminho = _base(tmp_path, {"a": [_amostra(100)], "b": [_amostra(200)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    assert L.predict(_amostra(100)) == ("a", 1.0)
+    assert L.margem_de_confianca(_amostra(100)) == 1.0
+
+
+def test_classe_unica_na_base_nao_tem_do_que_duvidar(tmp_path):
+    """Sem outra classe não há margem a medir, e fingir dúvida seria pior."""
+    caminho = _base(tmp_path, {"a": [_amostra(100)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    assert L.margem_de_confianca(_amostra(160)) == 1.0
+
+
+def test_duas_classes_a_mesma_distancia_zeram_a_margem(tmp_path):
+    """
+    O empate perfeito é o caso em que a margem tem de dizer "não sei".
+
+    **Não dá para montá-lo com a mesma imagem sob dois rótulos** — a dedup por
+    bytes da F7.2 guarda só uma das duas, e as 16 contradições da base real
+    (`0`/`o`, `1`/`l`, `V`/`v`) já chegam ao k-NN com um lado só. Aqui o empate
+    é geométrico: o alvo no meio exato do caminho entre as duas classes.
+    """
+    caminho = _base(tmp_path, {"a": [_amostra(100)], "b": [_amostra(140)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    assert L.margem_de_confianca(_amostra(120)) == 0.0
+
+
+def test_a_margem_cai_quando_a_outra_classe_se_aproxima(tmp_path):
+    caminho = _base(tmp_path, {"a": [_amostra(100)], "b": [_amostra(200)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    folgada = L.margem_de_confianca(_amostra(105))
+    apertada = L.margem_de_confianca(_amostra(145))
+    assert folgada > apertada > 0.0
+
+
+def test_margem_de_base_vazia(tmp_path):
+    L = CharacterLearner(str(tmp_path / "vazia"), usar_cache=False)
+    assert L.margem_de_confianca(_amostra(50)) == 0.0
+
+
+def test_aprender_uma_classe_nova_entra_no_indice(tmp_path):
+    """
+    `_ids` é o que torna a margem vetorizada, e ele cresce em `learn`. Fora de
+    sincronia, a máscara apontaria para a classe errada — em silêncio.
+    """
+    caminho = _base(tmp_path, {"a": [_amostra(100)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    assert L.margem_de_confianca(_amostra(200)) == 1.0     # classe única
+
+    L.learn(_amostra(200), "z")
+    assert L.predict(_amostra(200))[0] == "z"
+    assert L.margem_de_confianca(_amostra(200)) == 1.0     # cópia exata de 'z'
+    assert len(L._ids) == L.total
+    assert L._classes[L._ids[-1]] == "z"
 
 
 def test_base_vazia_devolve_interrogacao(tmp_path):

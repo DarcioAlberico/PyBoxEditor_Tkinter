@@ -5252,6 +5252,151 @@ mesmo número.
 
 ---
 
+## F24 — O voto e a margem — MEDIDAS, e as duas voltaram
+
+A F23 fechou reabrindo a fórmula da confiança do k-NN: a tabela de roteamento mostrava
+`1 - distância/2000` mal ordenando qualidade no meio da escala, e o 2000 nunca tinha sido
+medido contra nada. Os dois candidatos naturais eram voto entre os k vizinhos e confiança
+por margem. **Foram implementados, medidos e devolvidos.** O que ficou é o instrumento das
+duas e uma explicação de por que a fórmula "pior" é a certa aqui.
+
+### O voto perde, e monotonicamente
+
+A hipótese: o 1-NN deixa uma amostra ruim decidir sozinha, e a maioria entre os k
+corrigiria. Medido em 3.564 caracteres das três páginas menos contaminadas pela própria
+base (`medir_cadeia.py --knn --k N`, segundos por ponto):
+
+| k | acerto do k-NN sozinho |
+|---:|---:|
+| **1** | **96,10%** |
+| 3 | 95,90% |
+| 5 | 95,90% |
+| 7 | 95,79% |
+
+Não há joelho, é descida. A explicação provável está na composição da base: 70.755
+referências em 211 classes, sobreviventes de uma dedup byte a byte que tirou 86% de
+repetição. O vizinho mais próximo costuma ser quase o mesmo PNG, e exigir maioria entre
+cinco arrasta amostra de classe vizinha para dentro da decisão. **Classe rara é quem mais
+perde** — ligadura e figurina não têm cinco amostras para votar.
+
+O caso construído que motivou a hipótese existe e o `voto` de fato o resolve
+(`test_o_voto_escolhe_a_maioria_e_nao_o_mais_proximo`). Um caso construído não é uma
+distribuição.
+
+### A margem perde nos dois usos, e o segundo explica o primeiro
+
+A margem é `1 - (distância à classe vencedora) / (distância à classe mais próxima que não
+seja ela)` — a razão de Lowe. Ela conserta, no papel, exatamente o que se criticava:
+é **invariante de escala**, então não rebaixa o glifo de traço grosso por engordar, e
+dispensa a constante mágica.
+
+**Roteamento da cadeia**, 10.481 caracteres, mesmas páginas e mesma segmentação da F23:
+
+| limiar | margem (esta) | absoluta (F23) |
+|---:|---:|---:|
+| 0,00 | 97,19% | 97,53% |
+| **0,10** | **97,32%** | — |
+| 0,30 | 97,02% | **97,62%** |
+| 0,50 | 96,13% | 97,36% |
+| 0,85 | 93,65% | 93,72% |
+
+O melhor de cada uma: **97,32% contra 97,62%**. A margem custa 0,30 ponto.
+
+**Fila de revisão** (F3.2, que ordena por confiança). Cortes fixos não comparam duas
+escalas diferentes — o mesmo 0,70 cai em lugares diferentes da distribuição —, então a
+comparação é a recall igual: para pegar a mesma fração dos erros, quantos acertos entram
+na revisão à toa.
+
+| para pegar | 25% dos erros | 50% dos erros | 75% dos erros |
+|---|---:|---:|---:|
+| absoluta (produção) | **0 à toa** | **26 à toa** | 1.991 à toa |
+| margem | 37 à toa | 125 à toa | **1.380 à toa** |
+
+A absoluta ganha no topo da fila, que é onde o revisor de verdade olha; a margem ganha na
+cauda, onde ninguém chega. A mediana de confiança de um erro fica igual nas duas (0,215
+contra 0,231).
+
+### O motivo, e é ele que vale guardar
+
+**Os dois números respondem perguntas diferentes, e a cadeia faz a da absoluta.**
+
+- distância absoluta: *"isto se parece com alguma coisa que eu já vi?"* — detector de
+  **novidade**. Recorte-lixo cai no fundo dela.
+- margem: *"o vencedor está claramente à frente?"* — detector de **ambiguidade**. Um
+  recorte-lixo pode estar duas vezes mais perto de `a` que de `b` e tirar margem 0,50.
+
+A evidência está numa linha da tabela acima que parece erro de medição e não é: com a
+fórmula absoluta e o limiar em **0,00**, a cadeia dá 97,53% — **acima dos 97,19% que o
+k-NN acerta sozinho**. Só é possível porque alguns boxes não passam pelo k-NN mesmo com o
+limiar no chão: são os de distância acima de `DISTANCIA_MAXIMA`, que a absoluta manda para
+o EasyOCR, e lá eles são lidos certo. **O elo seguinte da cadeia existe justamente para o
+box que esta base nunca viu**, e é a absoluta quem sabe qual é.
+
+O teste que guarda isso é `test_a_margem_mede_ambiguidade_e_a_producao_mede_novidade`, no
+menor caso que o mostra: margem 0,50 e confiança de produção 0,04, no mesmo recorte.
+
+### A base cresceu no meio da medição, e quase virou conclusão errada
+
+A rodada de verificação reproduziu a tabela da F23 em quatro dos seis limiares e ficou
+**0,01 ponto** abaixo nos outros dois. Em 10.481 caracteres isso é **um caractere**, e num
+lugar suspeito: só nos limiares baixos, que são os que mandam mais boxes ao k-NN.
+
+Não era a reversão. `training_data` passou de **70.755 para 73.900 referências** entre uma
+rodada e a outra — "Aprender com Página Atual" grava na base enquanto a medição roda, e o
+`CharacterLearner` reconstruiu o cache sozinho, como deve. **Nada na saída dizia isso**: as
+duas rodadas se apresentavam com o mesmo número de caracteres e de páginas.
+
+Duas coisas saíram daí. O cabeçalho do instrumento passou a imprimir o tamanho da base, que
+é o que torna duas rodadas comparáveis. E a verificação virou **código contra código**, que
+não depende de a base estar parada: o corpo anterior de `predict` reescrito contra as
+mesmas matrizes, em 4.280 recortes de quatro páginas reais — **zero divergências**. É a
+mesma técnica que a F7.2 usou para provar que a conta de matriz não mudava a resposta, e
+`test_predict_responde_o_que_respondia_antes_da_f24` a guarda.
+
+O que isso diz das tabelas acima: a comparação margem × absoluta é limpa — as duas rodadas
+usaram as mesmas 70.755 referências —, e a varredura de `k` também. A de verificação foi a
+primeira a pegar a base nova.
+
+### O que ficou
+
+Produção voltou ao que era, conferido código contra código como acima. Ficaram:
+
+- **`CharacterLearner.vizinhos(crop, k)`** — o `predict_topk` deste elo, que faltava. É o
+  que tornou toda a medição possível, e qualquer desempate futuro aqui vai precisar dele
+  (a F19 precisou do equivalente na rede).
+- **`voto` e `margem_de_confianca`** — as duas alternativas, com as tabelas nos docstrings.
+  Nada em produção as chama, e é de propósito: mesma decisão que a F19 tomou com
+  `core/altura_relativa.py`. Sem elas `medir_cadeia.py` não reproduz o que decidiu.
+- **`DISTANCIA_MAXIMA = 2000.0`** — o `threshold` que era literal na assinatura de
+  `predict` virou constante nomeada, com o aviso de que **continua sem tabela** e de que os
+  dois limiares do híbrido saem desta escala.
+- No instrumento: `--k` para varrer o voto, `--knn` para medir só este elo sem carregar o
+  EasyOCR (segundos em vez de minutos), e a comparação produção × margem por recall igual.
+
+**A coluna "já na base" mudou de definição, e a mudança é o assunto da F22 acontecendo com
+o instrumento desta fase.** Na F23 ela era `conf >= 0,99`, o que valia enquanto a confiança
+fosse distância absoluta. Sob a margem, 0,99 passou a significar "o vencedor está 100x mais
+perto que a segunda classe" — verdadeiro em box fácil que a base nunca viu. O número não
+teria mudado de nome, só de significado. Agora é a distância crua: zero é cópia exata.
+
+### O que continua aberto
+
+**O 2000 segue sem medição.** Esta fase mediu a alternativa que o dispensaria, não o valor
+dele. Ele é o divisor da confiança **e** o corte acima do qual o k-NN não responde — dois
+papéis num número só, e nenhum dos dois com tabela.
+
+**A combinação não foi medida.** Se a absoluta detecta novidade e a margem detecta
+ambiguidade, `min(absoluta, margem)` acenderia nos dois casos. Pela aritmética das tabelas
+ela deve ajudar a fila de revisão e atrapalhar o roteamento — mais boxes para o EasyOCR, e
+a F23 mediu que o k-NN ganha dele em toda faixa. Um número serve os dois usos hoje;
+separá-los é a pergunta anterior a essa.
+
+Cobertura: `tests/test_f72_knn.py`, 51 testes (14 novos). Dois mudaram de contrato e o
+registro fica: `test_a_resposta_e_a_mesma_do_laco` virou `test_a_busca_e_a_mesma_do_laco` —
+a propriedade que a F7.2 garantia continua valendo, e quem a expõe agora é `vizinhos`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

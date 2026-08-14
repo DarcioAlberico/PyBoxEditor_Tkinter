@@ -132,6 +132,42 @@ LADO = 32
 #: Onde a matriz de referências fica guardada, dentro da própria base.
 NOME_DO_CACHE = ".learner_cache.npz"
 
+#: A distância acima da qual o vizinho mais próximo não conta como resposta, e
+#: o divisor da confiança de `predict`.
+#:
+#: **Nunca foi medido contra nada** — veio junto com a primeira versão do k-NN.
+#: A F24 mediu a alternativa que dispensaria a constante (a margem, invariante
+#: de escala) e ela saiu pior; o número em si continua sem tabela. Quem for
+#: mexer: `medir_cadeia.py --knn` mostra o efeito na fila de revisão e
+#: `medir_cadeia.py --learner ...` o efeito no roteamento, e os dois limiares do
+#: caminho híbrido saem desta escala — mudar aqui os invalida em silêncio.
+DISTANCIA_MAXIMA = 2000.0
+
+#: Quantos vizinhos votam em `CharacterLearner.voto` (F24), que **não** é o
+#: caminho de produção.
+#:
+#: **É 1, e isso é resultado de medição.** A hipótese era que o 1-NN deixa uma
+#: amostra ruim decidir sozinha e que a maioria entre os k corrigiria isso.
+#: Medido em 3.564 caracteres das três páginas rotuladas menos contaminadas
+#: pela própria base:
+#:
+#:     k    acerto do k-NN sozinho
+#:     1    96,10%
+#:     3    95,90%
+#:     5    95,90%
+#:     7    95,79%
+#:
+#: Cai monotonicamente. A explicação provável está na composição da base: são
+#: 70.755 referências em 211 classes, sobreviventes de uma dedup byte a byte que
+#: tirou 86% de repetição — o vizinho mais próximo costuma ser quase o mesmo
+#: PNG, e exigir maioria entre cinco arrasta amostra de classe vizinha para
+#: dentro da decisão. Classe rara (ligadura, figurina) é quem mais perde: ela
+#: não tem cinco amostras para votar.
+#:
+#: A constante fica, com a tabela, porque numa base mais equilibrada a resposta
+#: pode ser outra e `medir_cadeia.py --knn --k N` a reproduz em segundos.
+K_VIZINHOS = 1
+
 
 class CharacterLearner:
     """
@@ -267,6 +303,27 @@ class CharacterLearner:
         self._chars = list(chars)
         self._X = np.ascontiguousarray(X, dtype=np.float32)
         self._normas = (self._X * self._X).sum(axis=1)
+        self._reindexar()
+
+    def _reindexar(self):
+        """
+        O rótulo de cada referência como inteiro, para a margem ser vetorizada.
+
+        A margem (F24) precisa da menor distância **de outra classe**, e isso é
+        uma máscara sobre as 70 mil referências. Comparar string a string em
+        laço Python custaria mais que a busca inteira; com `_ids` vira
+        `d2[self._ids != vencedora].min()`.
+        """
+        self._classes = []
+        self._indice_de_classe = {}
+        ids = []
+        for char in self._chars:
+            i = self._indice_de_classe.get(char)
+            if i is None:
+                i = self._indice_de_classe[char] = len(self._classes)
+                self._classes.append(char)
+            ids.append(i)
+        self._ids = np.array(ids, dtype=np.int32)
 
     def salvar_cache(self, digital=None):
         """Grava a matriz. Instantâneo — são 23 MB de uint8."""
@@ -327,27 +384,75 @@ class CharacterLearner:
         self._chars.append(char)
         self._X = np.ascontiguousarray(np.vstack([self._X, linha]))
         self._normas = np.append(self._normas, float((linha * linha).sum()))
+
+        # O índice de classe cresce junto, e sem refazer os 70 mil: só a
+        # amostra nova entra, com classe nova se for a primeira do caractere.
+        i = self._indice_de_classe.get(char)
+        if i is None:
+            i = self._indice_de_classe[char] = len(self._classes)
+            self._classes.append(char)
+        self._ids = np.append(self._ids, np.int32(i))
         self._cache_sujo = True
 
-    def predict(self, crop_np: np.ndarray, threshold=2000.0) -> Tuple[str, float]:
+    def _quadrados_ate(self, crop_np: np.ndarray) -> np.ndarray:
         """
-        O vizinho mais próximo, e o quanto ele está perto.
+        A distância² de `crop_np` a cada referência.
 
-        A distância é a mesma L2 de sempre, calculada por
-        `||a-b||² = ||a||² + ||b||² - 2a·b` com `||b||²` pré-calculado. **A
-        resposta é idêntica à do laço anterior** — não é aproximação: medido em
-        200 consultas reais, mesmo caractere e diferença de confiança 0,000.
+        `||a-b||² = ||a||² + ||b||² - 2a·b`, com `||b||²` pré-calculado — é a
+        conta de matriz da F7.2, e a resposta é idêntica à do laço ingênuo.
         """
-        if self.total == 0:
-            return "?", 0.0
-
         if len(crop_np.shape) == 3:
             img_gray = cv2.cvtColor(crop_np, cv2.COLOR_RGB2GRAY)
         else:
             img_gray = crop_np
 
         alvo = cv2.resize(img_gray, (LADO, LADO)).reshape(-1).astype(np.float32)
-        d2 = self._normas - 2.0 * (self._X @ alvo) + float(alvo @ alvo)
+        return self._normas - 2.0 * (self._X @ alvo) + float(alvo @ alvo)
+
+    def vizinhos(self, crop_np: np.ndarray,
+                 k: int = K_VIZINHOS) -> List[Tuple[str, float]]:
+        """
+        Os `k` mais próximos, `[(char, distância)]`, do mais perto ao mais longe.
+
+        É o `predict_topk` deste elo, e existe pelo mesmo motivo do da rede: sem
+        ver as candidatas não há como desempatar nada — nem por voto aqui dentro,
+        nem por um canal lateral fora (F19).
+        """
+        if self.total == 0:
+            return []
+        d2 = self._quadrados_ate(crop_np)
+        k = max(1, min(k, self.total))
+        idx = np.argpartition(d2, k - 1)[:k]
+        idx = idx[np.argsort(d2[idx])]
+        return [(self._chars[i], float(np.sqrt(max(float(d2[i]), 0.0))))
+                for i in idx]
+
+    def predict(self, crop_np: np.ndarray,
+                threshold: float = DISTANCIA_MAXIMA) -> Tuple[str, float]:
+        """
+        O vizinho mais próximo, e o quanto ele está perto.
+
+        A distância é a L2 de sempre, pela conta de matriz da F7.2, e a resposta
+        é idêntica à do laço ingênuo — ver `test_a_busca_e_a_mesma_do_laco`.
+
+        **A confiança é distância absoluta, e a F24 mediu que tem de ser.** A
+        alternativa natural é a margem (`margem_de_confianca`, aqui ao lado):
+        invariante de escala, sem constante mágica, e mede o que a palavra
+        promete. Mediu pior nos dois usos — 0,30 ponto no roteamento da cadeia e
+        37 alarmes falsos contra 0 no topo da fila de revisão.
+
+        O motivo é que **os dois números respondem perguntas diferentes**, e a
+        que a cadeia faz é a desta. Distância absoluta pergunta "isto se parece
+        com alguma coisa que eu já vi?" — é detector de novidade, e recorte-lixo
+        cai no fundo dela. Margem pergunta "o vencedor está claramente à
+        frente?" — e um recorte-lixo pode estar muito mais perto de `A` do que
+        de `B`, e tirar margem alta. Quem roteia quer a primeira pergunta: o
+        elo seguinte da cadeia existe para o box que esta base nunca viu.
+        """
+        if self.total == 0:
+            return "?", 0.0
+
+        d2 = self._quadrados_ate(crop_np)
         i = int(np.argmin(d2))
         distancia = float(np.sqrt(max(float(d2[i]), 0.0)))
 
@@ -355,3 +460,59 @@ class CharacterLearner:
         if distancia < threshold:
             confianca = max(0.0, 1.0 - distancia / threshold)
         return self._chars[i], confianca
+
+    # ------------------------------------------------------------------
+    # As duas alternativas que a F24 mediu, e que não entraram
+    # ------------------------------------------------------------------
+    #
+    # Ficam pelo mesmo motivo que `core/altura_relativa.py` ficou depois da F19:
+    # são o instrumento de uma pergunta que foi feita e respondida, e sem elas
+    # `medir_cadeia.py` não reproduz a tabela que decidiu. **Nada em produção as
+    # chama**, e é de propósito.
+
+    def voto(self, crop_np: np.ndarray, k: int = K_VIZINHOS) -> str:
+        """
+        O caractere que os `k` mais próximos votam, empate pelo mais perto.
+
+        A hipótese era que o 1-NN deixa uma amostra ruim decidir sozinha. Mede
+        pior, e monotonicamente — ver a tabela em `K_VIZINHOS`.
+        """
+        perto = self.vizinhos(crop_np, k=k)
+        if not perto:
+            return "?"
+        votos = {}
+        for posicao, (char, _d) in enumerate(perto):
+            if char not in votos:
+                votos[char] = [0, posicao]      # (votos, melhor colocação)
+            votos[char][0] += 1
+        return min(votos, key=lambda c: (-votos[c][0], votos[c][1]))
+
+    def margem_de_confianca(self, crop_np: np.ndarray) -> float:
+        """
+        `1 - (distância à classe vencedora) / (distância à classe mais próxima
+        que não seja ela)` — a razão de Lowe.
+
+        **Invariante de escala**: multiplique todas as distâncias por qualquer
+        constante e o número não se move. É o que a confiança de produção não é,
+        e foi essa a razão de medir — a L2 absoluta rebaixa o glifo de traço
+        grosso por engordar, não por estar em dúvida.
+
+        Casos de borda: cópia exata da base dá 1,0; duas classes à mesma
+        distância dão 0,0; classe única na base dá 1,0, porque não há do que
+        duvidar.
+        """
+        if self.total == 0:
+            return 0.0
+
+        d2 = self._quadrados_ate(crop_np)
+        vencedora = self._ids == self._ids[int(np.argmin(d2))]
+        if vencedora.all():
+            return 1.0                          # não há outra classe na base
+        d_dentro = float(np.sqrt(max(float(d2[vencedora].min()), 0.0)))
+        d_fora = float(np.sqrt(max(float(d2[~vencedora].min()), 0.0)))
+        if d_fora <= 0.0:
+            # Divisão por zero: outra classe é cópia exata do alvo. Raro — a
+            # dedup por bytes da F7.2 é global às pastas, então duas classes
+            # nunca guardam a mesma imagem.
+            return 0.0
+        return float(np.clip(1.0 - d_dentro / d_fora, 0.0, 1.0))

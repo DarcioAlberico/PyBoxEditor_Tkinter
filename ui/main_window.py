@@ -83,7 +83,14 @@ CONF_MAXIMA_PARA_A_LINHA = 0.70
 #: **O k-NN ganha em toda faixa, e nas de 0,50 a 0,85 ele vai a 98%** — acima da
 #: própria faixa 0,95–0,99. A confiança `1 - distância/2000` mal ordena
 #: qualidade no meio da escala, e o corte em 0,85 mandava 21,6% dos boxes para o
-#: pior dos dois classificadores. A varredura, com a trava acompanhando:
+#: pior dos dois classificadores.
+#:
+#: **A fórmula foi trocada por margem e a troca foi desfeita (F24)** — 97,32%
+#: contra 97,62%. Ela ordena melhor, e é justamente por isso que perde: o que o
+#: roteamento pergunta não é "o vencedor está à frente?" e sim "esta base já viu
+#: algo assim?". Antes de mexer aqui de novo, ver a F24 no ROADMAP.
+#:
+#: A varredura, com a trava acompanhando:
 #:
 #:     limiar   10 páginas   as 2 limpas
 #:     0,00         97,53%        95,73%

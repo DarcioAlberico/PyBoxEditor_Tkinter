@@ -57,6 +57,7 @@ from dataclasses import replace
 import numpy as np
 from PIL import Image
 
+from core import learner as core_learner
 from core import leitura_de_linha as ldl
 from core import vertical
 from core.avaliacao_pagina import carregar_box, comparar, normalizar
@@ -111,6 +112,20 @@ class _Memo:
         chave = crop.tobytes()
         if chave not in self._cache:
             self._cache[chave] = self._alvo.predict(crop)
+        return self._cache[chave]
+
+    def vizinhos(self, crop, k=1):
+        """Só o k-NN tem isto; a rede não é consultada por aqui."""
+        chave = (k, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.vizinhos(crop, k=k)
+        return self._cache[chave]
+
+    def margem(self, crop):
+        """A alternativa que a F24 mediu e devolveu. Só o k-NN tem."""
+        chave = ("margem", crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.margem_de_confianca(crop)
         return self._cache[chave]
 
 
@@ -240,27 +255,42 @@ class Cadeia:
 
         return hibrido if caminho == "hibrido" else neural
 
-    def aquecer(self, pagina, com_rede):
+    def aquecer(self, pagina, com_rede, com_ocr=True):
         """
         Consulta cada modelo em cada box uma vez, antes de qualquer varredura.
 
         Não é só cache: a tabela de roteamento precisa da resposta do k-NN e da
         do EasyOCR **no mesmo box**, inclusive nos que a cadeia jamais mandaria
-        para o segundo. Devolve `[(id, conf_knn, char_knn, char_ocr)]`.
+        para o segundo. Devolve `[(id, conf_knn, char_knn, char_ocr, dist)]`.
+
+        `dist` é a distância ao vizinho mais próximo, crua. Ela existe porque a
+        F24 trocou a confiança por margem e a coluna "já na base" da F23 estava
+        definida como `conf >= 0,99` — na escala nova isso mede outra coisa
+        ("o vencedor está 100x mais perto"), e não o que a coluna promete. Com a
+        distância a definição é direta: zero é cópia exata da base.
+
+        `com_ocr=False` pula o EasyOCR, que é 16 ms por caractere contra os 12
+        do k-NN inteiro. É o que torna a varredura de `k` viável.
         """
         saida = []
         for b in pagina.boxes:
             justo, contexto = pagina.recortes(b)
             ck, fk = self.learner.predict(justo)
-            co, _ = self.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            perto = self.learner.vizinhos(justo, k=1)
+            dist = perto[0][1] if perto else float("inf")
+            co = ""
+            if com_ocr:
+                co, _ = self.ocr.easyocr_ocr_conf(justo, contexto=contexto)
             if com_rede:
                 self.predictor.predict(justo)
-            saida.append((id(b), fk, ck, co))
-        for uma in pagina.linhas:
-            if ldl.em_bloco(uma):
-                tira = ldl.faixa_da_linha(pagina.arr, uma)
-                if tira is not None:
-                    self.ocr.easyocr_linha_conf(tira)
+            saida.append((id(b), fk, ck, co, dist,
+                          self.learner.margem(justo)))
+        if com_ocr:
+            for uma in pagina.linhas:
+                if ldl.em_bloco(uma):
+                    tira = ldl.faixa_da_linha(pagina.arr, uma)
+                    if tira is not None:
+                        self.ocr.easyocr_linha_conf(tira)
         return saida
 
 
@@ -283,7 +313,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava):
         for b, char, conf, fonte in lidos:
             verdade = p.verdade.get(id(b))
             if verdade is not None:
-                saida.append((fonte, conf, char, verdade, p.nome))
+                saida.append((fonte, conf, char, verdade, p.nome, id(b)))
     return saida
 
 
@@ -314,20 +344,24 @@ def tabela_composicao(linhas):
         print(f"{fonte:<16}{len(parte):>8}{'':>4}{pct:>6.1f}%{a}")
 
 
-def tabela_por_pagina(linhas):
+def tabela_por_pagina(linhas, na_base):
     """
     O acerto página a página, e o quanto de cada uma o k-NN já tem na base.
 
-    **A coluna da direita é o aviso, e ela não é decoração.** A confiança do
-    k-NN é `1 - distância/2000`, então 0,99 quer dizer distância abaixo de 20 em
-    1.024 pixels — meio nível de cinza por pixel, ou seja, o recorte já está na
-    base de referência, byte a byte ou quase. Numa página assim o k-NN não está
-    generalizando, está consultando a própria cópia, e o acerto medido não vale
-    como previsão para página nova.
+    **A coluna da direita é o aviso, e ela não é decoração.** `na_base` são os
+    boxes cujo vizinho mais próximo está a distância **zero** — o recorte já
+    está em `training_data`, byte a byte. Ali o k-NN não generaliza, consulta a
+    própria cópia, e o acerto medido não vale como previsão para página nova.
 
     É o que separa esta medição de uma boa notícia falsa: `training_data` foi
     colhida com "Aprender com Página Atual", e nada impede que as páginas
     rotuladas — que são as mesmas em que se aprendeu — estejam lá dentro.
+
+    **A definição mudou na F24, e a mudança é o próprio assunto.** Na F23 esta
+    coluna era `conf >= 0,99`, que valia enquanto a confiança fosse
+    `1 - distância/2000`. Com a margem, 0,99 passou a querer dizer "o vencedor
+    está 100x mais perto que a segunda classe" — verdadeiro em box fácil que a
+    base nunca viu. O número não teria mudado de nome, só de significado.
     """
     por_pagina = {}
     for reg in linhas:
@@ -335,11 +369,97 @@ def tabela_por_pagina(linhas):
 
     print(f"\n{'página':<52}{'boxes':>7}{'acerto':>9}{'já na base':>12}")
     for nome, parte in por_pagina.items():
-        na_base = sum(1 for reg in parte
-                      if reg[0] == "learner" and reg[1] >= 0.99)
+        copias = sum(1 for reg in parte if reg[5] in na_base)
         curto = nome if len(nome) <= 50 else nome[:47] + "..."
         print(f"{curto:<52}{len(parte):>7}{acerto(parte):>8.2f}%"
-              f"{100.0 * na_base / len(parte):>11.1f}%")
+              f"{100.0 * copias / len(parte):>11.1f}%")
+
+
+def tabela_do_knn(aquecidos, verdade):
+    """
+    O elo do k-NN sozinho: acerto, e o quanto a confiança denuncia o erro.
+
+    A segunda metade é a tabela da F14 aplicada a este elo, e ela mede o outro
+    uso da confiança — a fila de revisão da F3.2, que ordena por ela. As duas
+    colunas comparam a de produção (distância absoluta) com a margem, que a F24
+    mediu e devolveu.
+    """
+    medidos = [(fk, ck, margem, verdade[chave])
+               for chave, fk, ck, _co, _d, margem in aquecidos
+               if chave in verdade]
+    if not medidos:
+        return
+    certos = [normalizar(ck) == normalizar(vd) for _fk, ck, _m, vd in medidos]
+    print(f"\nO k-NN sozinho, em {len(medidos)} boxes: "
+          f"**{100.0 * sum(certos) / len(medidos):.2f}%**")
+
+    print(f"\n{'corte':>8}{'':>4}{'produção (distância)':>26}{'':>4}"
+          f"{'margem (F24, fora)':>26}")
+    print(f"{'':>8}{'':>4}{'pega':>8}{'à toa':>9}{'escapa':>9}{'':>4}"
+          f"{'pega':>8}{'à toa':>9}{'escapa':>9}")
+    for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
+        celulas = []
+        for conf_de in (lambda r: r[0], lambda r: r[2]):
+            pega = toa = escapa = 0
+            for reg, ok in zip(medidos, certos):
+                abaixo = conf_de(reg) < corte
+                if not ok and abaixo:
+                    pega += 1
+                elif not ok:
+                    escapa += 1
+                elif abaixo:
+                    toa += 1
+            celulas.append(f"{pega:>8}{toa:>9}{escapa:>9}")
+        print(f"{corte:>8.2f}{'':>4}{celulas[0]}{'':>4}{celulas[1]}")
+
+    # A tabela de cortes acima serve para escolher um limiar, **não** para
+    # comparar as duas fórmulas: as escalas são outras, e o mesmo 0,70 corta em
+    # lugares diferentes da distribuição. A comparação justa é a recall igual —
+    # para pegar a mesma fração dos erros, quantos acertos vão para a revisão à
+    # toa. É a única forma de o número não depender de onde se corta.
+    alvos = (0.25, 0.50, 0.75)
+    print(f"\n{'para pegar':<14}" + "".join(f"{f'{int(a*100)}% dos erros':>18}"
+                                           for a in alvos))
+    for nome, conf_de in (("produção", lambda r: r[0]),
+                          ("margem", lambda r: r[2])):
+        custos = _custo_por_recall(medidos, certos, conf_de, alvos)
+        celulas = "".join(f"{('—' if c is None else f'{c} à toa'):>18}"
+                          for c in custos)
+        print(f"{nome:<14}{celulas}")
+
+    for nome, conf_de in (("produção", lambda r: r[0]),
+                          ("margem", lambda r: r[2])):
+        erros = [conf_de(r) for r, ok in zip(medidos, certos) if not ok]
+        acertos = [conf_de(r) for r, ok in zip(medidos, certos) if ok]
+        me = float(np.median(erros)) if erros else float("nan")
+        ma = float(np.median(acertos)) if acertos else float("nan")
+        print(f"  {nome:<16} mediana de um erro {me:.4f}, de um acerto {ma:.4f}")
+
+
+def _custo_por_recall(medidos, certos, conf_de, alvos):
+    """
+    Quantos acertos entram na revisão até pegar cada fração dos erros.
+
+    Percorre os boxes do menos confiante para o mais confiante — que é a ordem
+    em que o revisor os veria (F3.2) — e anota o custo acumulado ao cruzar cada
+    alvo. `None` quando o alvo não é alcançável.
+    """
+    pares = sorted((conf_de(r), ok) for r, ok in zip(medidos, certos))
+    total_erros = sum(1 for _c, ok in pares if not ok)
+    if not total_erros:
+        return [None] * len(alvos)
+
+    saida, pegos, toa = [], 0, 0
+    restantes = list(alvos)
+    for _c, ok in pares:
+        if ok:
+            toa += 1
+        else:
+            pegos += 1
+        while restantes and pegos >= restantes[0] * total_erros:
+            saida.append(toa)
+            restantes.pop(0)
+    return saida + [None] * len(restantes)
 
 
 def tabela_roteamento(aquecidos, verdade):
@@ -354,7 +474,8 @@ def tabela_roteamento(aquecidos, verdade):
     print(f"\n{'confiança do k-NN':<20}{'boxes':>8}{'k-NN':>10}{'EasyOCR':>10}"
           f"{'':>4}{'quem ganha':<12}")
     for lo, hi in zip(FAIXAS, FAIXAS[1:]):
-        parte = [(ck, co, verdade[chave]) for chave, fk, ck, co in aquecidos
+        parte = [(ck, co, verdade[chave])
+                 for chave, fk, ck, co, _d, _m in aquecidos
                  if lo <= fk < hi and chave in verdade]
         if not parte:
             continue
@@ -428,7 +549,18 @@ def main():
     ap.add_argument("--limiar", type=float, default=None,
                     help="troca o learner_threshold desta ação, para a rodada "
                          "de produção e para a varredura da trava")
+    ap.add_argument("--k", type=int, default=None,
+                    help="quantos vizinhos votam no k-NN (F24); sem isto, o "
+                         "`K_VIZINHOS` de produção")
+    ap.add_argument("--knn", action="store_true",
+                    help="mede só o elo do k-NN, sem carregar o EasyOCR — é a "
+                         "rodada rápida, e é como se varre o --k")
     args = ap.parse_args()
+
+    if args.k is not None:
+        # O `predict` lê o global a cada chamada, então trocá-lo aqui vale para
+        # a medição inteira sem tocar no código de produção.
+        core_learner.K_VIZINHOS = args.k
 
     caminho = "neural" if args.neural else "hibrido"
     padrao_learner = LEARNER_NEURAL if args.neural else LEARNER_THRESHOLD_HIBRIDO
@@ -463,7 +595,8 @@ def main():
         if len(p.rotulados) < MIN_ROTULADOS:
             continue
         paginas.append(p)
-        aquecidos.extend(cadeia.aquecer(p, com_rede=args.neural))
+        aquecidos.extend(cadeia.aquecer(p, com_rede=args.neural,
+                                        com_ocr=not args.knn))
         print(f"  {p.nome}  {p.medidos} de {len(p.boxes)} boxes com rótulo",
               flush=True)
 
@@ -476,8 +609,21 @@ def main():
         verdade.update(p.verdade)
     total = sum(p.medidos for p in paginas)
 
+    na_base = {chave for chave, _fk, _ck, _co, dist, _m in aquecidos if dist == 0.0}
+
+    # O tamanho da base entra no cabeçalho porque **duas rodadas só são
+    # comparáveis se ele não mudou**, e ele muda sozinho: "Aprender com Página
+    # Atual" escreve em `training_data` enquanto a medição roda. Foi assim que a
+    # F24 quase concluiu que uma reversão fiel tinha mudado um caractere — a
+    # base tinha crescido de 70.755 para 73.900 entre uma rodada e a outra, e
+    # nada na saída dizia isso.
     print(f"\n=========== {total} caracteres em {len(paginas)} página(s), "
-          f"caminho {caminho} ===========")
+          f"caminho {caminho}, k = {core_learner.K_VIZINHOS}, "
+          f"{cadeia.learner._alvo.total} referências ===========")
+
+    if args.knn:
+        tabela_do_knn(aquecidos, verdade)
+        return 0
 
     producao = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava)
     ancora = rodar(cadeia, paginas, caminho, padrao_learner, 0.0)
@@ -488,8 +634,9 @@ def main():
     print(f"Só a âncora, sem a leitura por linha: {acerto(ancora):.2f}%")
 
     tabela_composicao(producao)
-    tabela_por_pagina(producao)
+    tabela_por_pagina(producao, na_base)
     tabela_linha(ancora, producao)
+    tabela_do_knn(aquecidos, verdade)
     tabela_roteamento(aquecidos, verdade)
 
     if args.learner is not None:
