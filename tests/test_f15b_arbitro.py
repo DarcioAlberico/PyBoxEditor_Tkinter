@@ -138,8 +138,21 @@ def test_vale_a_menor_parte_e_nao_a_media():
 
 
 def test_margem_padrao_e_a_medida():
-    """0,30 foi o pico de F1 nas páginas rotuladas; 0,0 e 1,0 rendem menos."""
-    assert BoxService.MARGEM_ARBITRO == 0.30
+    """
+    0,00 desde a F33, e **a régua mudou junto com o número**.
+
+    O 0,30 era o pico de F1 da página. A F30 mediu que esse pico virou platô de
+    0,05 a 0,30 — o F1 deixou de decidir —, e a F31/F32 trocaram a moeda para
+    "erro que atravessa a fila de revisão e o léxico". Nela, contra a de
+    produção: +47 de saldo de texto, melhor saldo de invisível das quatro
+    candidatas, ganha em 7 das 10 páginas e não perde em nenhuma.
+
+    Este teste existe para o valor não voltar por acidente. Para voltar de
+    propósito há motivo registrado: o 0,00 sobe os cortes falsos de 2 para 16, e
+    7 deles saem de uma digitalização ruim. Ver `MARGEM_ARBITRO` e
+    `medir_corte_falso.py`.
+    """
+    assert BoxService.MARGEM_ARBITRO == 0.00
 
 
 # ----------------------------------------------------------------------

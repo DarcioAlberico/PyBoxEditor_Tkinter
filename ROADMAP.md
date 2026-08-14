@@ -6093,6 +6093,87 @@ Reproduzir: `python medir_corte_falso.py --margens 0.0 0.30`.
 
 ---
 
+## F33 — A margem do árbitro cai para 0,00 — CONCLUÍDA
+
+Quatro fases para trocar um número. A F30 recusou o `0,00` por três razões, a F32 refutou
+uma delas e a segunda caiu aqui: **a quebra por página**, que era o obstáculo que a própria
+F32 nomeou.
+
+### O 0,00 ganha em 7 de 10 e não perde em nenhuma
+
+| página | ganhos | perdas | saldo | invisível |
+|---|---:|---:|---:|---:|
+| Kasparov 0013 | 15 | 0 | **+15** | −2 |
+| Kasparov 0014 | 0 | 0 | 0 | 0 |
+| Kasparov 0020 | 7 | 0 | +7 | −1 |
+| Kasparov 0022 | 2 | 0 | +2 | −1 |
+| Kasparov 0033 | 0 | 0 | 0 | 0 |
+| Kasparov 0057 | 4 | 1 | +3 | +1 |
+| Kasparov 0128 | 7 | 0 | +7 | −2 |
+| Aagaard | 0 | 0 | 0 | 0 |
+| Aagaard pg11 | 10 | 0 | **+10** | −4 |
+| Kasparov 0108 | 3 | 0 | +3 | −1 |
+
+Sete ganham, três empatam, **nenhuma perde**. A única regressão de caractere em dez páginas
+está numa que ganha quatro.
+
+Compare com o 5 a 4 que fez a F30 recusar: aquele era o F1, que desconta em precisão os
+espúrios que a recall ganha. Sobre o texto — caractere rotulado — não há empate técnico.
+
+### E o meio não domina as pontas, que era o risco de repetir a F29
+
+A F32 fechou dizendo que o `0,30` cai mas não necessariamente para `0,00`, porque a
+varredura da F30 sugeria que `0,10` pudesse dar quase o mesmo com metade dos cortes falsos.
+Medido, contra a de produção:
+
+| margem | saldo do texto | saldo invisível | ganha em | cortes falsos |
+|---:|---:|---:|---:|---:|
+| **0,00** | **+47** | **+4** | **7 de 10** | 16 |
+| 0,05 | +33 | +7 | 6 de 10 | 11 |
+| 0,10 | +22 | +6 | 6 de 10 | 8 |
+| 0,15 | +14 | +6 | 5 de 10 | 5 |
+| 0,30 *(era)* | 0 | 0 | — | 2 |
+
+O `0,00` ganha em toda coluna, inclusive na do erro invisível — os −10 que ele tira sobre
+caractere rotulado compensam quase todo o +14 que ele acrescenta em espúrio que não acende.
+O meio não domina: rende menos texto **e** mais erro calado.
+
+"Saldo invisível" soma os dois lados sem sobrepô-los, que é a correção da F32.
+
+### O critério foi fixado antes do resultado, e isso foi o que sustentou a decisão
+
+Está escrito na conversa antes de a medição rodar: vence o melhor saldo de texto sem perder
+em página nenhuma, e havendo empate fica a margem maior, porque menos corte falso é menos
+risco fora destas dez páginas.
+
+Não houve empate. Se tivesse havido, o `0,15` levaria — e é por isso que fixar o critério
+antes tem valor: das quatro fases desta sequência, três terminaram invertendo a leitura da
+anterior, e a única defesa contra escolher a régua pelo resultado é escolhê-la antes de
+tê-lo.
+
+### O risco que o número carrega, e que a medida não cobre
+
+O `0,00` sobe os cortes falsos de **2 para 16**, e a F30 já tinha registrado que **7 dos 16
+saem de uma única digitalização ruim**. Nestas dez páginas o saldo é francamente positivo;
+num livro pior escaneado, a conta pode virar — e cada corte falso custa ~0,8 erro que
+ninguém vê (F31).
+
+Está escrito no comentário da constante, junto de qual instrumento responde: se aparecer um
+livro assim, `medir_corte_falso.py` diz quanto, e é aqui que se mexe.
+
+### O que ficou de dívida no instrumento
+
+`medir_pagina` e `estado_por_rotulo` segmentam a mesma página cada um, então cada margem
+custa duas passadas em vez de uma — 100 segmentações nesta rodada em vez de 50. O resultado
+é o mesmo e o tempo é o dobro. Fica anotado porque é desperdício que se acumula em
+instrumento feito para ser rodado muitas vezes.
+
+Cobertura: `tests/test_f15b_arbitro.py`, com `test_margem_padrao_e_a_medida` guardando o
+valor novo **e a régua nova** — o docstring dele dizia "0,30 foi o pico de F1", que a F30
+mediu não ser mais verdade. Suíte em 1.314.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

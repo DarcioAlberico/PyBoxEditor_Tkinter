@@ -235,8 +235,34 @@ class BoxService:
         return referencia
 
     #: Quanto as partes precisam superar o inteiro para o corte valer (F1.5b).
-    #: Ver `dividir_glifos_colados` para as tabelas que fixaram o valor.
-    MARGEM_ARBITRO = 0.30
+    #:
+    #: **Era 0,30, decidido pelo F1 da página; é 0,00 desde a F33, decidido pelo
+    #: que sobra errado no texto final.** A F30 mediu que o F1 é plano de 0,05 a
+    #: 0,30 e não decide mais nada; a F31 e a F32 trocaram a moeda para "erro que
+    #: atravessa a fila de revisão e o léxico". Contra a de produção, em 10
+    #: páginas e 10.613 caracteres rotulados:
+    #:
+    #:     margem  saldo do texto  saldo invisível  ganha em  cortes falsos
+    #:     0,00           +47            +4          7 de 10        16
+    #:     0,05           +33            +7          6 de 10        11
+    #:     0,10           +22            +6          6 de 10         8
+    #:     0,15           +14            +6          5 de 10         5
+    #:     0,30             0             0             —            2
+    #:
+    #: "Saldo do texto" é caractere rotulado que passou a sair certo menos o que
+    #: deixou de sair. "Saldo invisível" soma os dois lados **sem sobrepô-los** —
+    #: somar as duas colunas de erro invisível foi o defeito da F31, porque os
+    #: pedaços de um corte falso que não casam com rótulo *são* boxes espúrios.
+    #:
+    #: O 0,00 ganha em toda coluna e **não perde em página nenhuma** (a única
+    #: regressão de caractere em 10 páginas está numa que ganha 4).
+    #:
+    #: **O risco que este número carrega, e que a medida não cobre:** ele sobe os
+    #: cortes falsos de 2 para 16, e 7 dos 16 saem de **uma** digitalização ruim.
+    #: Fora destas dez páginas, um livro pior escaneado paga mais caro — e cada
+    #: corte falso custa ~0,8 erro que ninguém vê (F31). Se aparecer livro assim,
+    #: é aqui que se mexe, e `medir_corte_falso.py` é quem diz quanto.
+    MARGEM_ARBITRO = 0.00
 
     @staticmethod
     def _cortes_endossados(imagem_cinza, box, cortes, arbitro, margem):

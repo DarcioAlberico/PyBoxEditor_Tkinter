@@ -244,13 +244,20 @@ def main():
               f"{s['espurio_so_pelo_lexico']:>11}"
               f"{s['espurio_invisivel']:>12}")
 
-    if len(totais) == 2:
-        a, b = list(totais)
-        da = totais[b]["invisivel"] - totais[a]["invisivel"]
-        de = totais[b]["espurio_invisivel"] - totais[a]["espurio_invisivel"]
-        print(f"\nDe {a:.2f} para {b:.2f}: {da:+d} erro(s) invisível(is) de corte "
-              f"falso, {de:+d} espúrio(s) invisível(is).")
-        _tabela_de_transicao(estados[b], estados[a], b, a)
+    # Todas as margens são comparadas contra a **última** da lista, que é a de
+    # produção por convenção da chamada. Comparar par a par entre si daria N²
+    # tabelas e nenhuma decisão; o que se quer saber é o que cada candidata faz
+    # em relação ao que está no ar hoje.
+    if len(totais) >= 2:
+        base = list(totais)[-1]
+        for margem in list(totais)[:-1]:
+            da = totais[base]["invisivel"] - totais[margem]["invisivel"]
+            de = (totais[base]["espurio_invisivel"]
+                  - totais[margem]["espurio_invisivel"])
+            print(f"\nDe {margem:.2f} para {base:.2f}: {da:+d} erro(s) "
+                  f"invisível(is) de corte falso, {de:+d} espúrio(s) "
+                  f"invisível(is).")
+            _tabela_de_transicao(estados[base], estados[margem], base, margem)
     return 0
 
 
@@ -264,14 +271,40 @@ def _tabela_de_transicao(de_estado, para_estado, de_margem, para_margem):
     qual foi.
     """
     troca = Counter()
+    por_pagina = {}
     for imagem, antes in de_estado.items():
         depois = para_estado.get(imagem)
         if depois is None:
             continue
+        local = Counter()
         for j, e_antes in antes.items():
             e_depois = depois.get(j)
             if e_depois is not None and e_antes != e_depois:
                 troca[(e_antes, e_depois)] += 1
+                local[(e_antes, e_depois)] += 1
+        por_pagina[imagem] = local
+
+    # A quebra por página vem antes do total, e é ela que decide. O padrão está
+    # na F15, que mudou o dpi e apareceu em **todas** as sete páginas do
+    # Kasparov sem exceção; a F30 recusou a margem 0,00 por um 5 a 4 no F1. Um
+    # total favorável feito de duas páginas contra oito é acaso de digitalização,
+    # não efeito.
+    print(f"\n=========== POR PÁGINA, DE {de_margem:.2f} PARA "
+          f"{para_margem:.2f} ===========")
+    print(f"{'página':<32}{'ganhos':>8}{'perdas':>8}{'saldo':>8}"
+          f"{'invisível':>11}")
+    espalhado = 0
+    for imagem, local in por_pagina.items():
+        g = sum(n for (_a, d), n in local.items() if d == "certo")
+        p = sum(n for (a, _d), n in local.items() if a == "certo")
+        inv = (sum(n for (a, d), n in local.items()
+                   if a == "certo" and d == "errado_invisivel")
+               - sum(n for (a, d), n in local.items()
+                     if a == "errado_invisivel" and d == "certo"))
+        espalhado += g > p
+        print(f"{os.path.basename(imagem)[-30:]:<32}{g:>8}{p:>8}{g - p:>+8}"
+              f"{inv:>+11}")
+    print(f"\nganha em {espalhado} de {len(por_pagina)} páginas")
 
     print(f"\n=========== O QUE MUDA DE {de_margem:.2f} PARA "
           f"{para_margem:.2f} ===========")
