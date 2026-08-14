@@ -66,6 +66,36 @@ def test_ligadura_alfanumerica():
     assert folder_to_char("ligature_fi") == "fi"
 
 
+def test_ligadura_com_hifen_e_mais():
+    """
+    O mesmo bug do 'f7', um nível abaixo: `isalnum()` mandava '-g' para o hex.
+
+    São os três colados não alfanuméricos que a base real tem — o hífen da
+    notação longa e o par de avaliação —, e valem 39 amostras que estavam em
+    `ligature_hex_002d0067` e vizinhas.
+    """
+    for texto in ["-g", "+-", "-+"]:
+        assert char_to_folder(texto) == f"ligature_{texto}"
+        assert folder_to_char(f"ligature_{texto}") == texto
+
+
+def test_extras_legiveis_nao_admitem_caractere_perigoso():
+    """
+    A lista é fechada, e cada filtro aqui já custou caro em algum lugar.
+
+    `_` é o que separa nome legível de hexadecimal: um extra `_` deixaria uma
+    ligadura chamada 'hex_0041' ser lida de volta como 'A'. `*?[]` seriam
+    curinga no `glob` do `_pngs`, que monta o padrão com o caminho inteiro — a
+    classe apareceria vazia. O resto o Windows recusa como nome de pasta.
+    """
+    from core.learner import EXTRAS_LEGIVEIS
+
+    assert not set(EXTRAS_LEGIVEIS) & set('_*?[]\\/:"<>|. ')
+    assert EXTRAS_LEGIVEIS.isascii()
+    # E o que os extras produzem continua fechando a ida e volta.
+    assert folder_to_char(char_to_folder("hex_0041")) == "hex_0041"
+
+
 def test_ligadura_hexadecimal_ida_e_volta():
     """O TODO antigo devolvia '?' e a largura variável era ambígua."""
     for texto in ["a♔", "♔♕", "é!", "x±y"]:

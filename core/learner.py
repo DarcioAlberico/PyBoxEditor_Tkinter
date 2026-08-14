@@ -6,6 +6,26 @@ import glob
 from typing import Tuple, List, Optional
 
 
+#: Não alfanuméricos que ainda cabem num nome de pasta legível.
+#:
+#: São os que este material cola no caractere seguinte: o hífen da notação longa
+#: (`Rf1-g1`) e o par de avaliação `+-` / `-+`. Sem eles a base guardava
+#: `ligature_hex_002d0067` no lugar de `ligature_-g` — e quem revisa a base a
+#: olho lê o nome da pasta, não este arquivo.
+#:
+#: **A lista é fechada de propósito**, e é curta porque um candidato novo tem de
+#: passar por três filtros:
+#:
+#: - **legal no Windows**: `\ / : * ? " < > |` não são nome de pasta, e ponto ou
+#:   espaço no fim somem sem aviso;
+#: - **inerte no `glob`**: o `_pngs` do `dataset_check` monta o padrão com o
+#:   caminho inteiro, então `*`, `?`, `[` e `]` no nome da pasta virariam
+#:   curinga e a classe apareceria vazia;
+#: - **nunca `_`**: é o que garante que um nome legível não comece por `hex_` e
+#:   seja lido de volta como hexadecimal.
+EXTRAS_LEGIVEIS = "+-"
+
+
 def char_to_folder(char: str) -> str:
     """
     Converte um caractere em um nome de pasta seguro para Windows,
@@ -17,12 +37,13 @@ def char_to_folder(char: str) -> str:
     if not char:
         return "unknown"
 
-    # Ligaduras (ex: 'fi', 'ffi', 'f7')
+    # Ligaduras (ex: 'fi', 'ffi', 'f7', '-g')
     if len(char) > 1:
-        # Alfanumérico ASCII cabe no nome da pasta e fica legível.
-        # Antes o teste era isalpha(), o que jogava 'f7' — casa de xadrez,
-        # comum como box único nestes livros — no ramo hexadecimal.
-        if char.isalnum() and char.isascii():
+        # Cabe no nome da pasta e fica legível. O teste já foi `isalpha()`, que
+        # jogava 'f7' — casa de xadrez, comum como box único nestes livros — no
+        # ramo hexadecimal; depois `isalnum()`, que fazia o mesmo com '-g'.
+        if char.isascii() and all(c.isalnum() or c in EXTRAS_LEGIVEIS
+                                  for c in char):
             return f"ligature_{char}"
         # Hex de largura fixa: com largura variável a volta é ambígua
         # ('ab' + 'c' e 'a' + 'bc' geram a mesma cadeia).

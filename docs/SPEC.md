@@ -532,6 +532,22 @@ Executar **antes** de qualquer novo treino:
    levanta em vez de devolver `"?"`: devolver `"?"` em silêncio foi o que deixou o
    defeito de `sym_f7` passar despercebido.
 
+   > **O ramo legível aceita `+` e `-`** (`EXTRAS_LEGIVEIS`, em `core/learner.py`).
+   > É o mesmo alargamento que o item 1 fez de `isalpha()` para `isalnum()` por
+   > causa do `f7`, um nível abaixo: `isalnum()` mandava `-g` — o hífen da
+   > notação longa, `Rf1-g1` — para o hexadecimal, e a base ficava com
+   > `ligature_hex_002d0067`. Migradas 3 pastas e 39 amostras (`+-`, `-+`, `-g`).
+   >
+   > **A lista é fechada**, e admitir um caractere novo custa três checagens:
+   > legal como nome de pasta no Windows; inerte no `glob` (o `_pngs` monta o
+   > padrão com o caminho inteiro, então `*?[]` esvaziariam a classe); e nunca
+   > `_`, que é o que impede um nome legível de começar por `hex_` e ser lido de
+   > volta como hexadecimal.
+   >
+   > A migração é **só de nome de pasta**: `idx_to_char` guarda o caractere, não
+   > a pasta, e o `classes_sha256` sai dele — renomear não desalinha o modelo
+   > treinado nem a impressão digital das classes.
+
 **Regra que saiu daqui:** nunca usar `cv2.imread`/`cv2.imwrite` como teste de
 integridade de arquivo. No Windows eles falham em caminho não-ASCII e devolvem
 `None`/`False`, indistinguível de "arquivo corrompido". A primeira versão da

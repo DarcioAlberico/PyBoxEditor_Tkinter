@@ -262,7 +262,7 @@ def test_o_servico_grava_o_cache_apos_o_lote(tmp_path):
 # O que já valia continua valendo
 # ----------------------------------------------------------------------
 
-@pytest.mark.parametrize("char", list("aZ0") + ["fi", "f7", "♞", "?", "."])
+@pytest.mark.parametrize("char", list("aZ0") + ["fi", "f7", "-g", "+-", "♞", "?", "."])
 def test_ida_e_volta_do_nome_de_pasta(char):
     assert folder_to_char(char_to_folder(char)) == char
 
