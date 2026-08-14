@@ -137,15 +137,21 @@ def comparar(gerados: Sequence[BoxEntry],
                      perdidos=len(rotulados) - len(pares), pares=pares)
 
 
-def classificar_cortes(pais: Sequence[BoxEntry], filhos: Sequence[BoxEntry],
-                       rotulados: Sequence[BoxEntry]) -> Dict[str, int]:
+def pais_por_categoria(pais: Sequence[BoxEntry], filhos: Sequence[BoxEntry],
+                       rotulados: Sequence[BoxEntry]
+                       ) -> Dict[str, List[BoxEntry]]:
     """
-    Cada corte foi legítimo?
+    Os boxes **pais** de cada categoria de corte, e não só quantos são.
 
-    Um box **pai** que cobre o centro de dois ou mais rotulados estava mesmo
-    colado, e cortá-lo é o objetivo da F1.5. Um pai que cobre um só rotulado é
-    um glifo inteiro, e cortá-lo é estrago. É a distinção que a validação
-    original não fazia — ela só contava se os pedaços tinham ficado estreitos.
+    Um pai que cobre o centro de dois ou mais rotulados estava mesmo colado, e
+    cortá-lo é o objetivo da F1.5. Um pai que cobre um só é um glifo inteiro, e
+    cortá-lo é estrago. É a distinção que a validação original não fazia — ela
+    só contava se os pedaços tinham ficado estreitos.
+
+    Devolver os boxes, e não a contagem, é o que a F31 precisou: para perguntar
+    se um corte falso **foi visto na revisão** é preciso chegar aos pedaços que
+    ele gerou. `classificar_cortes` passou a ser a contagem disto, para não
+    haver duas classificações que possam divergir.
     """
     def cobertos(pai):
         return sum(1 for r in rotulados
@@ -155,18 +161,26 @@ def classificar_cortes(pais: Sequence[BoxEntry], filhos: Sequence[BoxEntry],
     # um pai foi cortado se não sobreviveu idêntico na saída
     intactos = {(b.x1, b.y1, b.x2, b.y2) for b in filhos}
 
-    conta = {"cortes_legitimos": 0, "cortes_falsos": 0, "cortes_sem_rotulo": 0,
-             "colados_intactos": 0}
+    saida: Dict[str, List[BoxEntry]] = {
+        "cortes_legitimos": [], "cortes_falsos": [], "cortes_sem_rotulo": [],
+        "colados_intactos": []}
     for pai in pais:
         n = cobertos(pai)
         if (pai.x1, pai.y1, pai.x2, pai.y2) in intactos:
             if n >= 2:
-                conta["colados_intactos"] += 1
+                saida["colados_intactos"].append(pai)
             continue
         if n >= 2:
-            conta["cortes_legitimos"] += 1
+            saida["cortes_legitimos"].append(pai)
         elif n == 1:
-            conta["cortes_falsos"] += 1
+            saida["cortes_falsos"].append(pai)
         else:
-            conta["cortes_sem_rotulo"] += 1
-    return conta
+            saida["cortes_sem_rotulo"].append(pai)
+    return saida
+
+
+def classificar_cortes(pais: Sequence[BoxEntry], filhos: Sequence[BoxEntry],
+                       rotulados: Sequence[BoxEntry]) -> Dict[str, int]:
+    """Quantos cortes de cada categoria — a contagem de `pais_por_categoria`."""
+    return {k: len(v)
+            for k, v in pais_por_categoria(pais, filhos, rotulados).items()}

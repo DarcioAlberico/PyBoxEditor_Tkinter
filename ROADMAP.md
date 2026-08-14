@@ -5912,6 +5912,90 @@ Cobertura: nenhum teste novo, nenhuma mudança de produção. Reproduzir:
 
 ---
 
+## F31 — Quanto custa um corte falso na revisão — MEDIDA
+
+A F30 fechou dizendo que o F1 da página não decide mais a margem do árbitro — ele é plano
+de 0,05 a 0,30 —, e que quem sustenta o 0,30 é a **assimetria entre os três modos de
+errar**, que o F1 não sabe expressar. Deixou escrito que quem reabrisse aquilo não
+precisaria de grade mais fina: precisaria medir o custo de um corte falso. É esta fase, e
+o argumento da F30 passa a ter número.
+
+### A moeda é o erro que ninguém vê
+
+Um box a mais é caro se o revisor tem de caçá-lo, e barato se ele salta. A página já tem
+duas redes, e elas pegam coisas diferentes:
+
+1. **`precisa_revisao`** (F3.2) — box vazio ou de confiança baixa. É cega para o erro
+   confiante, e a F14 mediu que a confiança mediana de um erro é alta;
+2. **o léxico** (F9) — palavra de prosa fora do dicionário, **independente da confiança**.
+   Foi construído exatamente para o que a primeira não vê.
+
+Um erro que escapa das duas chega ao texto final e ninguém o vê. É esse que se conta.
+
+### Cada corte falso custa ~0,8 erro invisível
+
+| margem | cortes falsos | pedaços | errados | na fila | só léxico | **invisíveis** |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0,00 | 16 | 39 | 34 | 9 | 12 | **13** |
+| **0,30** *(produção)* | 2 | 5 | 5 | 1 | 2 | **2** |
+
+Um corte falso gera ~2,4 pedaços, ~2,1 deles errados, e **~0,8 deles atravessa as duas
+redes**. Não é um box a mais para apagar: é caractere errado no texto final, calado.
+
+### O léxico pega mais que a confiança, num caso que ele não previa
+
+12 pegos só pelo léxico contra 9 pela fila de revisão. A F9 foi construída sobre a medida
+de que "1,000 é a confiança mediana de um erro", e aqui está o mesmo mecanismo num caso que
+ela não tinha em vista: glifo partido gera pedaço que o modelo lê **com confiança alta** —
+e que quebra a palavra. É a rede certa para o defeito certo, por acidente de projeto.
+
+E ainda assim 13 escapam das duas: os pedaços que caem em notação, onde o léxico não opina
+por contrato, e os que formam palavra válida. O `m` → `rn` do argumento da F30 deixou de ser
+suposição.
+
+### O box espúrio
+
+| margem | espúrios | na fila | só léxico | **invisíveis** |
+|---:|---:|---:|---:|---:|
+| 0,00 | 392 | 73 | 73 | **246** |
+| **0,30** | 344 | 59 | 53 | **232** |
+
+"Invisível" aqui quer dizer outra coisa, e vale distinguir: o espúrio não corrompe uma
+leitura certa, ele **acrescenta** um caractere de lixo que a filtragem não acende — quem lê
+o texto o encontra, quem confia no filtro não. Já o pedaço de corte falso substitui um
+caractere certo por um plausível.
+
+### O saldo, na moeda certa
+
+De `0,00` para `0,30`: **−11 erros invisíveis de corte falso e −14 espúrios invisíveis**.
+
+Ponha ao lado da conta da F30, que era `0,00` comprando ~+53 caracteres lidos certo:
+
+    a favor de 0,00     ~+53 caracteres certos
+    contra              +25 erros que ninguém vê
+
+**A margem fica em 0,30, agora por medida e não por argumento.**
+
+### O que continua sem medida, e é metade da conta
+
+Os +53 caracteres estão contados em "certo contra errado", não em "visível contra
+invisível". Se as leituras que eles substituem já eram pegas pelas duas redes — e há razão
+para suspeitar que sim, porque colagem lida como um caractere só costuma quebrar a palavra
+—, então o ganho é de trabalho poupado e a perda é de erro permanente, que são moedas
+diferentes. **Medir o lado do ganho com o mesmo instrumento é o que fecharia a conta**, e
+não foi feito.
+
+E o custo em **tempo** de consertar um box não é mensurável aqui: isso é medida com gente,
+não com script. O que esta fase estabelece é que não precisa de cronômetro para escolher
+entre duas margens — basta contar o que fica errado sem ninguém saber.
+
+Cobertura: `medir_corte_falso.py`, instrumento novo. `avaliacao_pagina.pais_por_categoria`
+passou a devolver os boxes de cada categoria e `classificar_cortes` virou a contagem dele —
+uma classificação só, para as duas não poderem divergir. Reproduzir:
+`python medir_corte_falso.py --margens 0.0 0.30`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
