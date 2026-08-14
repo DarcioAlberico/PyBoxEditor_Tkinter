@@ -5824,6 +5824,94 @@ opção ao instrumento. Reproduzir:
 
 ---
 
+## F30 — A margem 0,00, medida direito — MEDIDA, e o 0,30 fica
+
+A F29 encontrou de passagem que `margem = 0,00` media +0,2 de F1 sobre a de produção, e
+registrou que aquilo era fase própria e não número para mudar no fim de outra. Esta é a
+fase. **A conclusão é que a margem fica em 0,30**, e as três medidas que decidem estão
+abaixo — cada uma enfraquecendo mais a hipótese que a anterior.
+
+### A varredura fina transforma o pico em platô
+
+A F29 varreu quatro pontos e 0,00 apareceu 0,2 acima. Com oito, na temperatura de produção:
+
+| margem | recall | precisão | F1 | espúrios | bons | falsos |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0,00 | 96,4% | 93,8% | **95,1** | 392 | 45 | 16 |
+| 0,05 | 96,2% | 93,8% | 95,0 | 383 | 39 | 11 |
+| 0,10 | 96,1% | 93,8% | 95,0 | 370 | 32 | 8 |
+| 0,15 | 96,1% | 93,9% | 95,0 | 358 | 26 | 5 |
+| 0,20 | 96,0% | 94,0% | 95,0 | 354 | 25 | 3 |
+| 0,25 | 96,0% | 94,0% | 95,0 | 350 | 21 | 3 |
+| **0,30** *(produção)* | 95,9% | 94,0% | 95,0 | 344 | 17 | 2 |
+| 0,40 | 95,8% | 94,0% | 94,9 | 342 | 13 | 2 |
+
+De 0,05 a 0,30 o F1 não se mexe. A vantagem de 0,00 cai de 0,2 para **0,1**, e o que
+parecia pico é a borda de um platô — a mesma armadilha da grade grossa que a F22 registrou
+no `NEURAL_THRESHOLD`.
+
+### Em caracteres, a troca fica explícita
+
+Com os 10.613 caracteres rotulados de denominador, `0,00` contra `0,30`:
+
+| | |
+|---|---:|
+| caracteres a mais lidos certo | **~+53** |
+| boxes espúrios a mais para apagar | **+48** |
+| glifos partidos ao meio a mais | **+14** |
+
+(O recall vem arredondado em uma casa, então os 53 carregam ~±11 de folga.)
+
+**Os três não custam a mesma coisa ao revisor, e o F1 os pesa igual.** Box espúrio é lixo
+visível: aparece na lista, é apagado. Box faltando deixa buraco visível. **Corte falso é o
+pior dos três e é o único calado** — um `m` partido vira `r`+`n`, que continua lendo como
+palavra e passa pela revisão inteira sem acender nada. Comprar 53 caracteres com 14 leituras
+silenciosamente erradas não é o negócio que o F1 anuncia.
+
+### E a conferência por página desfaz o resto
+
+| página | F1 (0,00) | F1 (0,30) | Δ | falsos (0,00) |
+|---|---:|---:|---:|---:|
+| Kasparov 0013 | 97,4 | 97,0 | +0,4 | 0 |
+| Kasparov 0014 | 95,4 | 95,8 | **−0,4** | 1 |
+| Kasparov 0020 | 92,6 | 92,2 | +0,4 | 1 |
+| Kasparov 0022 | 91,8 | 92,0 | −0,2 | 0 |
+| Kasparov 0033 | 93,9 | 94,1 | −0,2 | 2 |
+| Kasparov 0057 | 96,0 | 95,9 | +0,1 | 1 |
+| Kasparov 0128 | 93,4 | 93,2 | +0,2 | 3 |
+| Aagaard | 96,8 | 96,8 | 0,0 | 0 |
+| Aagaard pg11 | 95,2 | 94,7 | +0,5 | 1 |
+| Kasparov 0108 | 96,4 | 96,6 | −0,2 | **7** |
+
+**Ganha em 5, empata em 1, perde em 4.** O +0,1 do total é a soma de oscilações nos dois
+sentidos, não um efeito.
+
+O padrão de comparação está na F15, que mudou o dpi de 200 para 300: *"aparece em **todas**
+as sete páginas do Kasparov: +4,1 +3,6 +3,1 +2,8 +2,9 +2,0 +2,0. Nenhuma exceção."* É essa
+a cara de um ganho real. Cinco a quatro é a cara de uma moeda.
+
+Repare também na última linha: os 16 cortes falsos de `0,00` não estão espalhados — **7
+saem de uma página só**. O modo agressivo não erra pouco em toda parte, erra muito onde a
+digitalização é ruim, que é justamente onde o revisor já tem mais trabalho.
+
+### O que fica
+
+Nada em produção mudou. `medir_paginas.py --margens` já existia e a F29 lhe deu
+`--temperatura`; esta fase não precisou de código novo, só de rodar a grade fina e olhar
+por página.
+
+**A decisão de a F1.5b usar o F1 da página continua valendo, mas o número não é mais o
+argumento.** Ela escolheu 0,30 porque o F1 apontava para lá; hoje o F1 é plano no intervalo
+inteiro, e o que sustenta o 0,30 é a assimetria entre os três modos de errar — o único
+critério que o F1 não sabe expressar. Se alguém reabrir isto, o que decide não é uma
+varredura mais fina ainda: é medir **quanto custa um corte falso na revisão**, que ninguém
+mediu.
+
+Cobertura: nenhum teste novo, nenhuma mudança de produção. Reproduzir:
+`python medir_paginas.py --margens 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.40`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
