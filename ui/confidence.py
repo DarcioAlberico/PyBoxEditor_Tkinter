@@ -56,12 +56,64 @@ def cor_do_box(box) -> str:
     return COR_BAIXA
 
 
+#: Abaixo disto a leitura do k-NN vai para a revisão (F44).
+#:
+#: **Está numa escala diferente do `LIMIAR_ALTO`, e por isso tem nome próprio.**
+#: Aquele corta confiança — distância absoluta, `1 - d/2000`. Este corta a
+#: margem, a razão de Lowe, que pergunta outra coisa: não "isto se parece com
+#: algo que eu já vi?" e sim "o vencedor estava claramente à frente?". Comparar
+#: os dois números é comparar réguas.
+#:
+#: A F43 mediu por que são dois: **o roteamento gasta a primeira**. Quando o box
+#: chega à fila, a pergunta da novidade já foi feita e respondida por quem
+#: escolheu o classificador, e o que sobra por decidir é ambiguidade.
+#:
+#: Medido contra a regra que estava aqui, nas 10 páginas (246 erros) e nas 3
+#: menos contaminadas (105 erros), que é a coluna que vale para livro novo:
+#:
+#:                          10 páginas              3 limpas
+#:     regra              pegos    à toa        pegos    à toa
+#:     conf < 0,90          123    2.266           53      918
+#:     margem < 0,30        111      196           36       64
+#:     margem < 0,50        141      501           55      189
+#:     margem < 0,70        165    1.115           62      420
+#:     margem < 0,90        178    2.331           72      951
+#:
+#: **0,50 domina a regra antiga nos dois eixos, nas duas amostras**: pega mais
+#: erros (141 contra 123; 55 contra 53) abrindo quatro a cinco vezes menos
+#: acerto à toa. As linhas de baixo também dominam, e a escolha entre elas é de
+#: política — 0,90 acharia 55 erros a mais pelo mesmo trabalho de antes. O 0,50
+#: é o ponto que melhora as duas colunas sem aumentar nenhuma.
+#:
+#: A vantagem **não** vem da contaminação, que era a suspeita óbvia: a distância
+#: absoluta satura quando o vizinho é cópia da própria página, e as três limpas
+#: são justamente onde ela não satura. O fator quase não se move entre as duas
+#: colunas.
+LIMIAR_DE_MARGEM = 0.50
+
+
 def precisa_revisao(box) -> bool:
-    """Verdadeiro para o que o revisor deveria olhar: vazio ou confiança baixa."""
+    """
+    Verdadeiro para o que o revisor deveria olhar: vazio, ou duvidoso.
+
+    "Duvidoso" mudou de definição na F44. Onde há **margem** — só o k-NN a
+    produz —, é ela que decide, porque foi ela que mediu melhor como filtro. Nas
+    outras fontes continua a confiança, que é o único número que existe.
+
+    **A cor do box não segue esta regra**, e isso é deliberado: `cor_do_box` fica
+    na confiança, que é o que a F25 mediu contra a calibração da rede e o que
+    diz "o quanto esta leitura se parece com o que a base conhece". Um box pode
+    sair verde e mesmo assim entrar na fila — quer dizer "parecidíssimo com algo
+    que eu já vi, e quase igualmente parecido com outra coisa". São dois fatos
+    diferentes sobre o mesmo box, e a F44 registra como pergunta aberta se
+    mostrar os dois separados ajuda ou confunde quem revisa.
+    """
     if not box.char:
         return True
     if not box.source:
         return False          # não avaliado não é o mesmo que suspeito
+    if box.margem >= 0.0:
+        return box.margem < LIMIAR_DE_MARGEM
     return box.confidence < LIMIAR_ALTO
 
 

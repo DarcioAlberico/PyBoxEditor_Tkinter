@@ -354,6 +354,48 @@ def test_o_instrumento_varre_o_voto_de_verdade():
 
 
 # ----------------------------------------------------------------------
+# F44 — as duas escalas numa consulta só
+# ----------------------------------------------------------------------
+
+def test_predict_e_margem_e_o_mesmo_das_duas(tmp_path):
+    """
+    A conta única não pode mudar resposta nenhuma — é o risco de toda
+    otimização, e o mesmo que a F7.2 travou com o laço ingênuo.
+    """
+    caminho = _base(tmp_path, {"a": [_amostra(10), _amostra(20)],
+                               "b": [_amostra(120)],
+                               "c": [_amostra(240), _amostra(250)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    for valor in (0, 15, 25, 100, 125, 200, 245, 255):
+        alvo = _amostra(valor)
+        char, conf, margem = L.predict_e_margem(alvo)
+        assert (char, conf) == pytest.approx(L.predict(alvo), abs=1e-9)
+        assert margem == pytest.approx(L.margem_de_confianca(alvo), abs=1e-9)
+
+
+def test_predict_e_margem_consulta_a_base_uma_vez(tmp_path, monkeypatch):
+    """
+    O ponto da função é o custo: o k-NN responde 98% dos boxes no caminho
+    híbrido, e duas buscas por box seriam dobrar a ação inteira (F7.2).
+    """
+    caminho = _base(tmp_path, {"a": [_amostra(10)], "b": [_amostra(200)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+
+    chamadas = []
+    original = L._quadrados_ate
+    monkeypatch.setattr(L, "_quadrados_ate",
+                        lambda crop: (chamadas.append(1), original(crop))[1])
+
+    L.predict_e_margem(_amostra(100))
+    assert len(chamadas) == 1, "voltou a buscar duas vezes"
+
+
+def test_predict_e_margem_em_base_vazia(tmp_path):
+    L = CharacterLearner(str(tmp_path / "vazia"), usar_cache=False)
+    assert L.predict_e_margem(_amostra(50)) == ("?", 0.0, 0.0)
+
+
+# ----------------------------------------------------------------------
 # F37 — as candidatas por classe
 # ----------------------------------------------------------------------
 

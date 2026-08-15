@@ -100,6 +100,9 @@ def test_fallback_chain_propaga_confianca():
     class _Learner:
         def __init__(self, c): self.c = c
         def predict(self, crop): return ("R", self.c)
+        # A cadeia consulta o k-NN por `predict_e_margem` desde a F44: uma busca
+        # só para as duas escalas.
+        def predict_e_margem(self, crop): return ("R", self.c, 0.5)
 
     class _Reader:
         def recognize(self, img, horizontal_list=None, free_list=None, detail=1):

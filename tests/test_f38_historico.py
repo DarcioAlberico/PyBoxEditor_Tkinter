@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from core.box_model import BoxEntry
+from core.box_model import SEM_MARGEM, BoxEntry
 from core.services.history_service import HistoryManager
 
 
@@ -40,8 +40,20 @@ def _estados(boxes):
 
 def test_as_state_leva_todos_os_campos():
     b = BoxEntry("fi", 1, 2, 3, 4, confidence=0.75, source="lote", angulo=90,
-                 negativo=True)
-    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True)
+                 negativo=True, margem=0.4)
+    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True, 0.4)
+
+
+def test_estado_anterior_a_margem_continua_carregando():
+    """
+    O contrato que faz o campo novo entrar **no fim** (F44): `from_state` carrega
+    por posição, e um estado de nove campos é o de antes desta versão. Enfiar a
+    margem no meio faria o `angulo` ser lido como margem, calado.
+    """
+    antigo = ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True)
+    b = BoxEntry.from_state(antigo)
+    assert (b.angulo, b.negativo) == (90, True)
+    assert b.margem == SEM_MARGEM
 
 
 def test_from_state_desfaz_as_state():

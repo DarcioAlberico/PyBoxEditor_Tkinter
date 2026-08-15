@@ -141,6 +141,11 @@ class _Memo:
             self._cache[chave] = self._alvo.margem_de_confianca(crop)
         return self._cache[chave]
 
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
+
     def voto(self, crop, k):
         """A outra alternativa da F24. Memorizada por `k`, como `vizinhos`."""
         chave = ("voto", k, crop.tobytes())
@@ -172,6 +177,11 @@ class _MemoCombinado:
 
     def margem(self, crop):
         return self._memo.margem(crop)
+
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
 
 
 class _MemoComDistancia:
@@ -206,6 +216,11 @@ class _MemoComDistancia:
     def margem(self, crop):
         return self._memo.margem(crop)
 
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
+
 
 class _MemoComVoto:
     """
@@ -235,6 +250,11 @@ class _MemoComVoto:
 
     def margem(self, crop):
         return self._memo.margem(crop)
+
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
 
 
 class ServicoMemorizado(OCRService):
@@ -732,6 +752,47 @@ def tabela_revisao(linhas, margem_de=None):
         print(f"{nome:<22}{celulas}")
 
 
+def tabela_corte_da_revisao(linhas, margem_de):
+    """
+    O **corte** da revisão, e não a ordem dela (F44).
+
+    A F43 mediu a fila como curva de recall, e escreveu "ordenação". O código
+    não ordena nada: `ui/confidence.precisa_revisao` é um corte — `confidence <
+    LIMIAR_ALTO` —, e o revisor navega os marcados. A pergunta prática é
+    portanto um ponto da curva, não a curva: **trocando a régua, quantos erros
+    a mais aparecem e quantos acertos a mais são abertos à toa?**
+
+    A regra candidata usa a margem onde ela existe e cai na regra de hoje onde
+    não existe — rede, EasyOCR e linha não têm margem, e para eles nada muda.
+    É o que torna a troca implementável sem mexer no que a F25 mediu: a
+    `b.confidence` continua sendo a absoluta, e é ela que colore o box.
+    """
+    marcados_hoje = [r for r in linhas if r[1] < conf_ui.LIMIAR_ALTO]
+
+    def conta(marcados):
+        erros = sum(1 for r in marcados if normalizar(r[2]) != normalizar(r[3]))
+        return len(marcados), erros, len(marcados) - erros
+
+    total_erros = sum(1 for r in linhas
+                      if normalizar(r[2]) != normalizar(r[3]))
+
+    print(f"\n--- o corte da revisão (F44), em {len(linhas)} boxes com "
+          f"{total_erros} erros ---")
+    print(f"{'regra':<26}{'marcados':>10}{'erros pegos':>13}"
+          f"{'à toa':>9}{'escapam':>10}")
+
+    def linha(nome, marcados):
+        n, pegos, toa = conta(marcados)
+        print(f"{nome:<26}{n:>10}{pegos:>13}{toa:>9}{total_erros - pegos:>10}")
+
+    linha(f"hoje (conf < {conf_ui.LIMIAR_ALTO})", marcados_hoje)
+    for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
+        marcados = [r for r in linhas
+                    if (margem_de[r[5]] < corte if r[5] in margem_de
+                        else r[1] < conf_ui.LIMIAR_ALTO)]
+        linha(f"margem < {corte:.2f}", marcados)
+
+
 def tabela_do_knn(aquecidos, verdade):
     """
     O elo do k-NN sozinho: acerto, e o quanto a confiança denuncia o erro.
@@ -1172,16 +1233,10 @@ def main():
     tabela_composicao(producao)
     tabela_por_pagina(producao, na_base)
     tabela_linha(ancora, producao)
-    tabela_revisao(producao,
-                   margem_de={chave: margem
-                              for chave, _fk, _ck, _co, _d, margem in aquecidos})
-    tabela_fila_e_linha(ancora, producao)
-    tabela_do_knn(aquecidos, verdade)
-    tabela_roteamento(aquecidos, verdade)
-    tabela_por_distancia(aquecidos, verdade)
-
-    if args.alfabeto:
-        tabela_alfabeto(cadeia, paginas, caminho, padrao_learner, padrao_trava)
+    margens = {chave: margem
+               for chave, _fk, _ck, _co, _d, margem in aquecidos}
+    tabela_revisao(producao, margem_de=margens)
+    tabela_corte_da_revisao(producao, margens)
 
     if args.learner is not None or args.combinada:
         limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]

@@ -1,6 +1,15 @@
 from dataclasses import dataclass, replace
 
 
+#: `margem` de um box que não tem margem. Só o k-NN a produz; a rede e o EasyOCR
+#: não têm o conceito, e um box carregado de um `.box` não traz nada.
+#:
+#: **Não é zero.** Margem zero quer dizer "duas classes exatamente à mesma
+#: distância", que é o box mais ambíguo que existe — confundir os dois estados
+#: mandaria toda página carregada de arquivo para o topo da fila de revisão.
+SEM_MARGEM = -1.0
+
+
 @dataclass
 class BoxEntry:
     """
@@ -38,6 +47,22 @@ class BoxEntry:
     # `core.negativo.positivar` faz essa volta no mesmo funil do ângulo.
     negativo: bool = False
 
+    # A segunda escala, e ela responde outra pergunta (F43/F44). `confidence` é
+    # distância absoluta e detecta **novidade**: "isto se parece com algo que eu
+    # já vi?". É ela que roteia a cadeia e é ela que colore o box. `margem` é a
+    # razão de Lowe e detecta **ambiguidade**: "o vencedor estava claramente à
+    # frente?". Só o k-NN a produz; nas outras fontes fica `SEM_MARGEM`.
+    #
+    # São duas porque o roteamento **gasta** a primeira: quando o box chega à
+    # fila de revisão, a pergunta da novidade já foi feita e respondida por quem
+    # escolheu o classificador, e o que sobra por decidir é ambiguidade.
+    #
+    # **Entra no fim da lista, e isso não é arrumação.** `from_state` carrega o
+    # estado por posição, então um campo enfiado no meio faria um estado de nove
+    # campos gravado antes desta versão virar outro box em silêncio — o `angulo`
+    # lido como margem. Campo novo entra por último, sempre.
+    margem: float = SEM_MARGEM
+
     def as_tuple(self):
         return (self.char, self.x1, self.y1, self.x2, self.y2)
 
@@ -51,11 +76,12 @@ class BoxEntry:
         inclusive.
 
         Estado gravado antes da F8.1 tem sete campos e continua carregando; o
-        de antes da F10 tem oito. Os campos que faltam ficam no valor padrão,
-        que é o que aquele box queria dizer.
+        de antes da F10 tem oito, e o de antes da F44 tem nove. Os campos que
+        faltam ficam no valor padrão, que é o que aquele box queria dizer.
         """
         return (self.char, self.x1, self.y1, self.x2, self.y2,
-                self.confidence, self.source, self.angulo, self.negativo)
+                self.confidence, self.source, self.angulo, self.negativo,
+                self.margem)
 
     @classmethod
     def from_state(cls, estado) -> "BoxEntry":

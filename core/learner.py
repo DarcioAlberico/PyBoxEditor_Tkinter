@@ -584,8 +584,10 @@ class CharacterLearner:
         """
         if self.total == 0:
             return 0.0
+        return self._margem(self._quadrados_ate(crop_np))
 
-        d2 = self._quadrados_ate(crop_np)
+    def _margem(self, d2) -> float:
+        """A margem a partir das distâncias já calculadas — ver `predict_e_margem`."""
         vencedora = self._ids == self._ids[int(np.argmin(d2))]
         if vencedora.all():
             return 1.0                          # não há outra classe na base
@@ -597,3 +599,33 @@ class CharacterLearner:
             # nunca guardam a mesma imagem.
             return 0.0
         return float(np.clip(1.0 - d_dentro / d_fora, 0.0, 1.0))
+
+    def predict_e_margem(self, crop_np: np.ndarray,
+                         threshold: Optional[float] = None
+                         ) -> Tuple[str, float, float]:
+        """
+        `(char, confiança, margem)` — as duas escalas, **numa consulta só**.
+
+        Existe pelo custo, e o custo é o assunto da F7.2: a busca é uma
+        multiplicação de matriz contra 86 mil referências, e chamar `predict` e
+        `margem_de_confianca` em seguida a faz **duas vezes**. No caminho híbrido
+        o k-NN responde 98% dos boxes, então seria dobrar o preço da ação.
+
+        As duas saídas são idênticas às das funções separadas — é a mesma conta
+        sobre o mesmo `d2`, e `test_predict_e_margem_e_o_mesmo_das_duas` guarda
+        isso. A razão de existirem as duas escalas está em `predict` e na F43: a
+        absoluta detecta **novidade** e é ela que roteia; a margem detecta
+        **ambiguidade** e é ela que serve à revisão, porque quando o box chega à
+        fila a pergunta da novidade já foi gasta no roteamento.
+        """
+        if self.total == 0:
+            return "?", 0.0, 0.0
+        if threshold is None:
+            threshold = DISTANCIA_MAXIMA
+
+        d2 = self._quadrados_ate(crop_np)
+        i = int(np.argmin(d2))
+        distancia = float(np.sqrt(max(float(d2[i]), 0.0)))
+        conf = (max(0.0, 1.0 - distancia / threshold)
+                if distancia < threshold else 0.0)
+        return self._chars[i], conf, self._margem(d2)

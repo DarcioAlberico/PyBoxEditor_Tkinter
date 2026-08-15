@@ -14,7 +14,7 @@ from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
 from core.mapa_glifos import corrigir_mapeamento
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import contar_paginas_com_texto, gerar_pdf_pesquisavel
-from core.box_model import BoxEntry
+from core.box_model import SEM_MARGEM, BoxEntry
 from core.services.box_service import BoxService, faixas_de_linha
 from core.services.ocr_service import OCRService
 from core.services.pdf_service import DPI_PADRAO, PDFService
@@ -121,6 +121,7 @@ CONF_MAXIMA_PARA_A_LINHA = 0.70
 #: isso é 97% e 95% dos boxes. As duas menos contaminadas (9,5% e 27,1%) sobem
 #: **8,00 pontos** com esta mudança, contra 3,90 do conjunto: o ganho não era
 #: vazamento, e cresce justamente onde a base não ajuda.
+
 LEARNER_THRESHOLD_HIBRIDO = 0.30
 
 #: A trava da linha no caminho híbrido, **e ela é o mesmo número de propósito**.
@@ -2111,7 +2112,9 @@ class MainWindow(tk.Frame):
         caractere que serve de âncora ao alinhamento. Ela é obrigatória: sem um
         item por box não há como distribuir a string pelos boxes.
         """
-        def preparar(h, pagina, faixas):
+        def preparar(h, pagina, faixas, margens):
+            # Sem k-NN nesta ação, então `margens` fica vazio e todo box sai
+            # `SEM_MARGEM` — que é o certo: não há margem para falar dele.
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
                 ch, cf = self.ocr_service.easyocr_ocr_conf(
@@ -2162,11 +2165,18 @@ class MainWindow(tk.Frame):
                   for b, faixa in zip(uma, faixas_de_linha(uma))}
         total = sum(len(uma) for uma in linhas)
 
+        # **A margem viaja por fora do `ler_pagina`, e é de propósito** (F44). Ela
+        # é do reconhecimento do caractere, não da leitura da linha, e enfiá-la
+        # na tupla do `ler_pagina` mudaria o contrato de um módulo que o
+        # `searchable_pdf` também usa. O `id(box)` como chave é o mesmo idioma
+        # que o `faixas` aqui em cima já usa.
+        margens = {}
+
         def trabalho(h):
             lidos = leitura_de_linha.ler_pagina(
                 pagina, linhas,
                 ler_faixa=self.ocr_service.easyocr_linha_conf,
-                ler_caractere=preparar(h, pagina, faixas),
+                ler_caractere=preparar(h, pagina, faixas, margens),
                 # **Sem `deslocam`, e a F36 mediu que tem de ser.** A linha com
                 # figurina parece a que mais precisa de filtro e é a que menos:
                 # o `_alinhar` absorve o deslocamento, e filtrar joga fora as
@@ -2183,6 +2193,10 @@ class MainWindow(tk.Frame):
                 b.char = char
                 b.source = fonte if char else ""
                 b.confidence = conf
+                # Só onde a fonte sobreviveu: um box que a linha trocou passou a
+                # ser leitura do EasyOCR, e a margem do k-NN não fala dele.
+                b.margem = (margens.get(id(b), SEM_MARGEM)
+                            if fonte == "learner" else SEM_MARGEM)
                 fontes[fonte] = fontes.get(fonte, 0) + 1
 
             self._commit_change()
@@ -2209,7 +2223,7 @@ class MainWindow(tk.Frame):
         if not self.boxes:
             return
 
-        def preparar(h, pagina, faixas):
+        def preparar(h, pagina, faixas, margens):
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
 
@@ -2218,14 +2232,15 @@ class MainWindow(tk.Frame):
                 # `neural_threshold` não é usado — esta ação não carrega a rede
                 # —, mas fica igual ao outro para o dia em que alguém passar um
                 # predictor por aqui e esperar o mesmo roteamento.
-                char, fonte, c = self.ocr_service.fallback_chain(
+                leitura = self.ocr_service.fallback_chain_detalhado(
                     justo, learner=learner, contexto=contexto,
                     neural_threshold=LEARNER_THRESHOLD_HIBRIDO,
                     learner_threshold=LEARNER_THRESHOLD_HIBRIDO,
                 )
-                if fonte not in ("learner", "easyocr"):
+                if leitura.fonte not in ("learner", "easyocr"):
                     return ("", 0.0, "vazio")
-                return (char, c, fonte)
+                margens[id(b)] = leitura.margem
+                return (leitura.char, leitura.confianca, leitura.fonte)
             return ler_caractere
 
         self._preencher_por_linha(
@@ -2247,7 +2262,7 @@ class MainWindow(tk.Frame):
         if not self.boxes:
             return
 
-        def preparar(h, pagina, faixas):
+        def preparar(h, pagina, faixas, margens):
             h.log("Carregando modelo neural...")
             self.learning_service.load_predictor()
             h.log("Carregando base de referência...")
@@ -2256,13 +2271,14 @@ class MainWindow(tk.Frame):
 
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
-                char, fonte, c = self.ocr_service.fallback_chain(
+                leitura = self.ocr_service.fallback_chain_detalhado(
                     justo, predictor=predictor, learner=learner,
                     contexto=contexto,
                     neural_threshold=NEURAL_THRESHOLD,
                     learner_threshold=LEARNER_THRESHOLD_NEURAL,
                 )
-                return (char, c, fonte)
+                margens[id(b)] = leitura.margem
+                return (leitura.char, leitura.confianca, leitura.fonte)
             return ler_caractere
 
         self._preencher_por_linha(

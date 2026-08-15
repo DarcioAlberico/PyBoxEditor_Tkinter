@@ -133,9 +133,11 @@ def test_a_rede_e_o_knn_recebem_o_recorte_justo():
             return ("N", 0.1)
 
     class _Learner:
-        def predict(self, crop):
+        # A cadeia consulta o k-NN por `predict_e_margem` desde a F44 — uma
+        # busca só para a confiança e a margem.
+        def predict_e_margem(self, crop):
             vistos["learner"] = crop.shape
-            return ("R", 0.1)
+            return ("R", 0.1, 0.5)
 
     svc = OCRService()
     justo, faixa = _crop(h=10), _crop(h=40)

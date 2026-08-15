@@ -1,7 +1,32 @@
 import cv2
 import numpy as np
+from dataclasses import dataclass
 from typing import Optional, Tuple
 from PIL import Image
+
+from core.box_model import SEM_MARGEM
+
+
+@dataclass
+class Leitura:
+    """
+    O que a cadeia respondeu, com as duas escalas separadas (F44).
+
+    `confianca` é a que **roteia** — detector de novidade, e é ela que vira
+    `b.confidence` e a cor do box. `margem` é a que serve à **revisão**, e só
+    vem preenchida quando a fonte é o k-NN. A F43 mediu por que são duas: o
+    roteamento gasta a informação da primeira, e o que sobra por decidir na
+    fila é ambiguidade, que é o que a segunda mede.
+    """
+
+    char: str
+    fonte: str
+    confianca: float
+    margem: float = SEM_MARGEM
+
+    def como_tupla(self) -> Tuple[str, str, float]:
+        """O contrato antigo de `fallback_chain`, para quem não quer a margem."""
+        return self.char, self.fonte, self.confianca
 
 
 def preprocess_for_easyocr(crop_np: np.ndarray, pad: int = 10, min_h: int = 64) -> np.ndarray:
@@ -265,18 +290,50 @@ class OCRService:
 
         Retorna (char, source, confidence).
         source pode ser: "neural", "learner", "easyocr", "none".
+
+        **É `fallback_chain_detalhado` sem a margem**, e não uma segunda
+        implementação da cadeia: dois caminhos que deveriam rotear igual acabam
+        divergindo, e é o defeito que a F1.5 registrou.
+        """
+        return self.fallback_chain_detalhado(
+            crop_np, predictor=predictor, learner=learner, reader=reader,
+            neural_threshold=neural_threshold,
+            learner_threshold=learner_threshold,
+            easyocr_languages=easyocr_languages, easyocr_gpu=easyocr_gpu,
+            contexto=contexto).como_tupla()
+
+    def fallback_chain_detalhado(
+        self,
+        crop_np: np.ndarray,
+        *,
+        predictor=None,
+        learner=None,
+        reader=None,
+        neural_threshold: float = 0.70,
+        learner_threshold: float = 0.9,
+        easyocr_languages: Tuple[str, ...] = ("en",),
+        easyocr_gpu: bool = False,
+        contexto: Optional[np.ndarray] = None,
+    ) -> Leitura:
+        """
+        A mesma cadeia, devolvendo também a **margem** do k-NN (F44).
+
+        O k-NN é consultado por `predict_e_margem`, que faz a busca **uma vez** e
+        devolve as duas escalas — chamar `predict` e `margem_de_confianca` em
+        seguida dobraria o custo da ação, e é o custo que a F7.2 existe para
+        conter. Quando quem responde não é o k-NN, a margem sai `SEM_MARGEM`.
         """
         # 1. Neural
         if predictor is not None and getattr(predictor, "loaded", False):
             char, conf = predictor.predict(crop_np)
             if conf > neural_threshold:
-                return char, "neural", conf
+                return Leitura(char, "neural", conf)
 
         # 2. Learner
         if learner is not None:
-            char, conf = learner.predict(crop_np)
+            char, conf, margem = learner.predict_e_margem(crop_np)
             if conf > learner_threshold:
-                return char, "learner", conf
+                return Leitura(char, "learner", conf, margem)
 
         # 3. EasyOCR (último elo: aceita o que vier, com a confiança real).
         # A rede e o k-NN querem o recorte justo, em que foram treinados; só
@@ -287,6 +344,6 @@ class OCRService:
         char, conf = self._ler_easyocr(
             reader, crop_np if contexto is None else contexto)
         if char:
-            return char, "easyocr", conf
+            return Leitura(char, "easyocr", conf)
 
-        return "", "none", 0.0
+        return Leitura("", "none", 0.0)

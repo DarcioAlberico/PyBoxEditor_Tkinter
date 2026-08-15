@@ -7008,6 +7008,85 @@ Cobertura: nenhum teste novo — é instrumento. Reproduzir:
 
 ---
 
+## F44 — A margem chega ao box, e o corte da revisão muda — CONCLUÍDA
+
+A F43 mediu que separar os dois usos da confiança rende, e parou ali: "produção não mudou,
+e a razão é que a mudança não é de fórmula, é de estrutura". Esta fase faz a estrutura.
+
+**E a primeira coisa que ela achou foi um erro de leitura meu.** A F43 falou o tempo todo
+em "ordenar a fila", e mediu curvas de recall. O código não ordena nada: `precisa_revisao`
+é um **corte** — `confidence < LIMIAR_ALTO` —, e o revisor navega os marcados. A pergunta
+prática é um ponto da curva, não a curva. Isso torna a decisão mais fácil e a medição mais
+direta.
+
+### O corte, medido
+
+`margem < X` onde há margem, e a regra de antes onde não há — rede, EasyOCR e linha não têm
+margem, e para elas nada muda. Nas 10 páginas (246 erros) e nas 3 menos contaminadas (105):
+
+| | 10 páginas | | 3 limpas | |
+|---|---:|---:|---:|---:|
+| **regra** | **pegos** | **à toa** | **pegos** | **à toa** |
+| conf < 0,90 (antes) | 123 | 2.266 | 53 | 918 |
+| margem < 0,30 | 111 | 196 | 36 | 64 |
+| **margem < 0,50** | **141** | **501** | **55** | **189** |
+| margem < 0,70 | 165 | 1.115 | 62 | 420 |
+| margem < 0,90 | 178 | 2.331 | 72 | 951 |
+
+**0,50 domina a regra antiga nos dois eixos e nas duas amostras**: acha mais erros abrindo
+quatro a cinco vezes menos acerto à toa. Não é troca, é ganho nas duas colunas.
+
+As linhas de baixo também dominam, e a escolha entre elas é de política, não de medição —
+`margem < 0,90` acharia 55 erros a mais pelo mesmo trabalho de antes. O 0,50 é o ponto que
+melhora as duas colunas sem aumentar nenhuma, e foi por isso o escolhido.
+
+A contaminação era a suspeita óbvia — a distância absoluta satura quando o vizinho é cópia
+da própria página, e saturada ela não ordena nada. A coluna das limpas responde: o fator
+quase não se move.
+
+### O que a estrutura exigiu, e o que ela custou
+
+- **`CharacterLearner.predict_e_margem`** — as duas escalas numa busca só. Chamar `predict`
+  e `margem_de_confianca` em seguida faria a multiplicação de matriz contra 87 mil
+  referências **duas vezes**, e no caminho híbrido o k-NN responde 98% dos boxes: seria
+  dobrar o preço da ação inteira, que é exatamente o que a F7.2 existe para conter. Há
+  teste de que a resposta é idêntica à das duas funções separadas, e outro de que a base é
+  consultada uma vez só.
+- **`OCRService.fallback_chain_detalhado`**, devolvendo uma `Leitura`, com o
+  `fallback_chain` de sempre implementado **em cima dele**. Duas implementações da cadeia
+  divergiriam com o tempo, e é o defeito que a F1.5 registrou.
+- **`BoxEntry.margem`**, e ele entra **no fim** da lista de campos. `from_state` carrega o
+  estado por posição, então um campo enfiado no meio faria um estado de nove campos virar
+  outro box em silêncio, com o `angulo` lido como margem.
+  `test_estado_anterior_a_margem_continua_carregando` guarda isso.
+- **A margem viaja por fora do `ler_pagina`**, num dicionário por `id(box)` — o mesmo idioma
+  que o `faixas` daquele laço já usa. Ela é do reconhecimento do caractere, não da leitura
+  da linha, e enfiá-la na tupla mudaria o contrato de um módulo que o `searchable_pdf`
+  também usa.
+
+O contrato do `learner` mudou — a cadeia agora pede `predict_e_margem` —, e isso alcançou
+os quatro envelopes de `medir_cadeia.py` e dois dublês de teste. Foi o preço de não ter dois
+caminhos, e está pago.
+
+### O que fica de fora, e é pergunta de interface
+
+**A cor do box continua na confiança.** `cor_do_box` não mudou: ela diz "o quanto esta
+leitura se parece com o que a base conhece", que é o número que a F25 mediu contra a
+calibração da rede. A consequência é que um box pode sair **verde e mesmo assim entrar na
+fila** — quer dizer "parecidíssimo com algo que eu já vi, e quase igualmente parecido com
+outra coisa".
+
+São dois fatos diferentes sobre o mesmo box, e nada os impede de discordar. O que não foi
+medido é se mostrar os dois separados ajuda ou confunde quem revisa, e isso não se decide
+com script: é medida com gente, como a F31 registrou sobre o custo de consertar um box.
+
+Cobertura: `tests/test_f72_knn.py` (3 novos), `tests/test_f38_historico.py` (1 novo, o do
+estado antigo), mais os dublês de `test_f16_easyocr.py` e `test_f32_confianca.py`
+acompanhando o contrato. Suíte em 1.332. Reproduzir:
+`python medir_cadeia.py` e `python medir_cadeia.py --so page-0020 page-0128 page-0033`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
