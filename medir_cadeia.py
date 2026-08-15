@@ -42,11 +42,22 @@ que a cadeia mandaria para eles: é o que a tabela de roteamento exige. São
 ~16 ms por caractere, então uma página sai em ~30 s e as onze em poucos minutos.
 `--paginas` limita.
 
+## Os dois laços
+
+A cadeia é a mesma; os laços que a chamam são dois. O da janela é o `ler_pagina`
+de `leitura_de_linha`, e é o padrão deste arquivo. O do PDF pesquisável é o
+`_ler_boxes` de `searchable_pdf`, com `--pdf` (F40) — ele não passa `contexto`
+ao reconhecedor, tem trava própria e não devolve a fonte de quem respondeu.
+Medir só um deixava o outro com uma tabela de 2.278 caracteres tirada de script
+que não ficou, que é a lacuna que este arquivo veio fechar.
+
 ## O que ele não mede
 
 Segmentação — box espúrio ou perdido é assunto de `medir_paginas.py`, e a conta
-aqui é sobre os boxes que casaram com um rótulo, como na F14. E não mede o
-caminho do PDF pesquisável, que usa a mesma cadeia por outro laço.
+aqui é sobre os boxes que casaram com um rótulo, como na F14. E não mede a
+**renderização** do PDF: o caminho real rasteriza a 300 dpi e segmenta o que sai
+dali, enquanto aqui as páginas são as rotuladas, para as tabelas serem
+comparáveis entre si.
 """
 
 import argparse
@@ -418,6 +429,79 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
             verdade = p.verdade.get(id(b))
             if verdade is not None:
                 saida.append((fonte, conf, char, verdade, p.nome, id(b)))
+    return saida
+
+
+def _padrao_de(funcao, parametro):
+    """
+    O valor padrão que a assinatura declara, lido em vez de copiado.
+
+    A UI não passa `conf_linha_maxima` — ela chama `gerar_pdf_pesquisavel` sem
+    o argumento —, então o número de produção é o padrão da assinatura. Copiá-lo
+    para cá criaria a terceira cópia de um limiar neste projeto, que é como o
+    0,85 da F23 e o 0,9 da F39 chegaram onde chegaram.
+    """
+    import inspect
+
+    return inspect.signature(funcao).parameters[parametro].default
+
+
+def rodar_pdf(cadeia, paginas, learner_threshold, trava):
+    """
+    O **outro laço**: o do PDF pesquisável, nas mesmas páginas (F40).
+
+    `searchable_pdf._ler_boxes` é código de produção e é chamado de verdade,
+    como o `ler_pagina` do laço da janela. Ele não é o mesmo laço com outro
+    nome, e as diferenças são o motivo desta função existir:
+
+    - **não passa `contexto`.** A janela manda o recorte justo *e* o mesmo box
+      esticado até a faixa da linha, e a F14 mediu que isso leva o elo do
+      EasyOCR de 66,9% para 74,2% — é o que devolve a altura relativa que a
+      normalização apaga. Aqui só vai o justo;
+    - **a trava é independente.** `conf_linha_maxima` é 0,70 e não acompanha o
+      `learner_threshold`, ao contrário do híbrido;
+    - **a fonte não sai do laço.** `_ler_boxes` devolve `(box, char, conf)` sem
+      dizer quem respondeu, então quem quiser a composição precisa espiar o
+      `reconhecer` — é o que o `fontes` faz aqui.
+
+    **O que isto não reproduz** é a página. O caminho real renderiza o PDF a 300
+    dpi e segmenta o que sai dali; aqui as páginas são as rotuladas, para a
+    tabela ser comparável às outras deste arquivo. O que se mede é a leitura,
+    não a renderização.
+    """
+    from core.searchable_pdf import _ler_boxes
+
+    saida = []
+    for p in paginas:
+        # `(fonte, char)` da cadeia, por bytes do recorte. O `char` entra junto
+        # porque é ele que denuncia a troca: `_ler_boxes` devolve o caractere
+        # final sem dizer se veio da linha, e comparar com o que a cadeia
+        # respondeu é o que separa `easyocr_linha` de quem só foi confirmado —
+        # a mesma regra de fonte que o `ler_pagina` aplica no outro laço.
+        cadeia_disse = {}
+
+        def reconhecer(recorte):
+            char, fonte, c = cadeia.ocr.fallback_chain(
+                recorte, predictor=cadeia.predictor, learner=cadeia.learner,
+                neural_threshold=NEURAL_THRESHOLD,
+                learner_threshold=learner_threshold,
+            )
+            cadeia_disse[recorte.tobytes()] = (fonte, char)
+            return char, c
+
+        resumo = {"corrigidos_pela_linha": 0}
+        lidos = _ler_boxes(p.arr, p.boxes, reconhecer,
+                           cadeia.ocr.easyocr_linha_conf, trava, resumo)
+
+        for b, char, conf in lidos:
+            verdade = p.verdade.get(id(b))
+            if verdade is None:
+                continue
+            fonte, antes = cadeia_disse.get(
+                vertical.recorte_de_pe(p.arr, b).tobytes(), ("none", char))
+            if char != antes:
+                fonte = "easyocr_linha"
+            saida.append((fonte, conf, char, verdade, p.nome, id(b)))
     return saida
 
 
@@ -949,6 +1033,9 @@ def main():
     ap.add_argument("--com-filtro", action="store_true",
                     help="liga o filtro de glifo da F36 em todas as tabelas; "
                          "produção não o passa, então o padrão é sem")
+    ap.add_argument("--pdf", type=float, nargs="*", default=None,
+                    help="mede o laço do PDF pesquisável (F40) e varre a trava "
+                         "dele; sem valores, a tabela da F18")
     ap.add_argument("--combinada", action="store_true",
                     help="varre o roteamento com min(absoluta, margem) **e** com "
                          "a de produção, no mesmo processo e na mesma base — a "
@@ -1149,6 +1236,36 @@ def main():
             linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
         tabela_varredura("trava da leitura por linha (F18)",
                          ["acerto", "trocados"], linhas_da_tabela)
+
+    if args.pdf is not None:
+        if not args.neural:
+            print("\n--pdf precisa de --neural: o PDF pesquisável monta a cadeia"
+                  "\ncom a rede, e medi-lo sem ela mediria outro caminho.")
+        else:
+            from core.searchable_pdf import gerar_pdf_pesquisavel
+            padrao_pdf = _padrao_de(gerar_pdf_pesquisavel, "conf_linha_maxima")
+            print(f"\n=== O laço do PDF pesquisável (F40), trava {padrao_pdf} ===")
+            producao_pdf = rodar_pdf(cadeia, paginas, padrao_learner, padrao_pdf)
+            print(f"Como está em produção: **{acerto(producao_pdf):.2f}%**, "
+                  f"contra {acerto(producao):.2f}% do laço da janela")
+            tabela_composicao(producao_pdf)
+
+            valores = [("sem linha", 0.0)]
+            valores += [(f"{t:.2f}", t) for t in (args.pdf or
+                                                  [0.70, 0.90, 0.99])]
+            # **`inf`, e não `None`.** O `--trava` usa `None` como "a linha manda
+            # sempre" porque é assim que `ler_pagina` lê o parâmetro; o
+            # `_ler_boxes` compara `conf < conf_linha_maxima` direto, e `None`
+            # ali é `TypeError`. Os dois laços têm o mesmo limiar com dois
+            # contratos, e copiar o sentinela de um para o outro quebra.
+            valores.append(("sempre", float("inf")))
+            linhas_da_tabela = []
+            for rotulo, t in valores:
+                r = rodar_pdf(cadeia, paginas, padrao_learner, t)
+                trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
+                linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
+            tabela_varredura("conf_linha_maxima do PDF (a tabela da F18)",
+                             ["acerto", "trocados"], linhas_da_tabela)
 
     return 0
 

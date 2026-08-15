@@ -6671,6 +6671,81 @@ como ele estava. Suíte em 1.328.
 
 ---
 
+## F40 — O outro laço ganha instrumento — CONCLUÍDA, e a F18 se confirma
+
+`medir_cadeia.py` dizia no cabeçalho que não media o PDF pesquisável, "que usa a mesma
+cadeia por outro laço". A tabela da F18 saiu de script que não ficou, sobre 2.278
+caracteres, e a F36 teve de deixar aquele caminho sem medida por não haver com o quê. Era o
+último caminho de leitura sem instrumento.
+
+`--pdf` chama `searchable_pdf._ler_boxes` de verdade — código de produção, como o
+`ler_pagina` do outro laço —, nas mesmas páginas, com os mesmos modelos memorizados e no
+mesmo processo.
+
+### A tabela da F18, refeita com 4,6x mais caracteres
+
+| a linha manda quando | acerto | trocados |
+|---|---:|---:|
+| nunca | 96,90% | 0 |
+| **confiança < 0,70** | **97,13%** | 41 |
+| confiança < 0,90 | 97,09% | 56 |
+| confiança < 0,99 | 96,73% | 121 |
+| sempre | 89,82% | 954 |
+
+Mesmo formato, mesmo vencedor, e o 0,70 continua sendo o corte. O que muda é o tamanho do
+prêmio: a F18 mediu o ganho como "**um caractere em 2.278**" e concluiu "rende quase nada".
+Em 10.504 são **24 caracteres**, 0,23 ponto. Não é muito, mas é cinco vezes o que a amostra
+pequena deixava ver — e o "sempre" continua custando 7,3 pontos, que é a lei da F21 no seu
+caso mais extremo.
+
+### Os dois laços empatam, e a diferença entre eles explica por quê
+
+| | acerto | neural | k-NN | EasyOCR | linha |
+|---|---:|---:|---:|---:|---:|
+| laço da janela (`ler_pagina`) | 97,13% | 10.144 | 165 | 163 | 32 |
+| laço do PDF (`_ler_boxes`) | 97,13% | 10.144 | 165 | 154 | 41 |
+
+**O laço do PDF não passa `contexto`** ao reconhecedor — o mesmo box esticado até a faixa da
+linha, que a F14 mediu levar o elo do EasyOCR de 66,9% para 74,2%, porque devolve a altura
+relativa que a normalização de 32x32 apaga. A janela passa; o PDF não. E os dois empatam.
+
+A razão está na coluna: esse elo responde **1,5% dos boxes**. Melhorá-lo em 7 pontos move
+0,1 ponto no total, que se perde no arredondamento. É a lei da F21 mais uma vez — o ganho
+de um elo lateral é inverso à força da âncora —, e aqui a âncora responde 96,6% dos boxes
+com 98,12% de acerto.
+
+**Isto não diz que o `contexto` é dispensável**, diz que ele é invisível *nesta*
+composição. Num livro que a rede leia pior, o elo cresce e a diferença aparece. Fica
+registrado onde se procura: quem for atrás de por que dois caminhos com a mesma cadeia dão
+números diferentes, esta é a primeira diferença a olhar.
+
+### Dois defeitos do próprio instrumento, e um é do tipo que esta fase veio caçar
+
+O `--pdf` nasceu com o sentinela errado. O `--trava` usa `None` para "a linha manda sempre",
+porque é assim que `ler_pagina` lê o parâmetro; `_ler_boxes` compara
+`conf < conf_linha_maxima` direto, e `None` ali é `TypeError`. **O mesmo limiar tem dois
+contratos nos dois laços**, e copiar o sentinela de um para o outro quebra — que é
+exatamente a classe de divergência que ter um instrumento só para os dois serve para expor.
+
+E o bloco novo estava no meio do `main`, então a exceção dele levou junto a tabela do
+`learner_threshold`, que já estava calculada. Bloco novo entra por último.
+
+A trava do PDF o instrumento **lê da assinatura** (`inspect.signature`) em vez de copiar: a
+UI chama `gerar_pdf_pesquisavel` sem o argumento, então o número de produção é o padrão
+declarado. Copiá-lo criaria a terceira cópia de um limiar neste projeto, que é como o 0,85
+da F23 e o 0,9 da F39 chegaram onde chegaram.
+
+### O que ficou
+
+`rodar_pdf` e `--pdf` em `medir_cadeia.py`, e o cabeçalho do arquivo trocou a seção "o que
+ele não mede" por uma seção "os dois laços". O que ele continua não medindo é a
+**renderização**: o caminho real rasteriza o PDF a 300 dpi e segmenta o que sai dali,
+enquanto aqui as páginas são as rotuladas, para as tabelas serem comparáveis entre si.
+
+Cobertura: nenhum teste novo — é instrumento, como `medir_paginas.py`. Suíte em 1.328.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
