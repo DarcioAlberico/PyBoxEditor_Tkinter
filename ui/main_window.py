@@ -2103,15 +2103,21 @@ class MainWindow(tk.Frame):
     def auto_fill_characters_easyocr(self):
         def preparar(h):
             def classificar(justo, com_faixa):
+                # `easyocr_so` e não `easyocr`: aqui ele é o **leitor**, e na
+                # cadeia ele é o último recurso. Ver a F53 e
+                # `FONTES_SEMPRE_REVISADAS` — a regra da F48 foi medida na
+                # segunda população, em que 57% dos boxes estão errados, e
+                # nesta o mesmo elo acerta 89,5%.
                 ch, c = self.ocr_service.easyocr_ocr_conf(
                     justo, contexto=com_faixa)
-                return (ch, "easyocr" if ch else "vazio", c)
+                return (ch, "easyocr_so" if ch else "vazio", c)
             return classificar
 
         self._preencher_boxes(
             "OCR (EasyOCR)", preparar,
             lambda fontes, n: (f"Processados: {n} boxes.\n"
-                               f"Caracteres preenchidos: {fontes.get('easyocr', 0)}"),
+                               f"Caracteres preenchidos: "
+                               f"{fontes.get('easyocr_so', 0)}"),
         )
 
     def generate_and_fill_easyocr(self):
@@ -2139,14 +2145,15 @@ class MainWindow(tk.Frame):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
                 ch, cf = self.ocr_service.easyocr_ocr_conf(
                     justo, contexto=contexto)
-                return ch, cf, "easyocr"
+                # Ver `auto_fill_characters_easyocr`: aqui ele é o leitor.
+                return ch, cf, "easyocr_so"
             return ler_caractere
 
         self._preencher_por_linha(
             "OCR (EasyOCR por linha)", preparar,
             lambda fontes: (
                 f"Decididos pela linha: {fontes.get('easyocr_linha', 0)}\n"
-                f"Só pelo caractere: {fontes.get('easyocr', 0)}"),
+                f"Só pelo caractere: {fontes.get('easyocr_so', 0)}"),
         )
 
     def _recortes_do_box(self, pagina, b, faixas):

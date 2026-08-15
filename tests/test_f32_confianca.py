@@ -193,18 +193,22 @@ def test_lista_lateral_colore_e_mostra_confianca():
         w = app.win
         w.boxes = [
             BoxEntry("a", 0, 0, 9, 9, confidence=0.95, source="neural"),
-            BoxEntry("b", 10, 0, 19, 9, confidence=0.40, source="easyocr"),
+            BoxEntry("b", 10, 0, 19, 9, confidence=0.40, source="easyocr_so"),
             BoxEntry("", 20, 0, 29, 9),
+            # Régua plana: sem número, e vermelho apesar do 0,99 (F53).
+            BoxEntry("d", 30, 0, 39, 9, confidence=0.99, source="easyocr"),
         ]
         w.update_sidebar()
 
-        assert w.listbox.size() == 3
+        assert w.listbox.size() == 4
         assert "95%" in w.listbox.get(0)
         assert "40%" in w.listbox.get(1)
+        assert "!" in w.listbox.get(3) and "99%" not in w.listbox.get(3)
 
         assert w.listbox.itemcget(0, "foreground") == cf.COR_ALTA
         assert w.listbox.itemcget(1, "foreground") == cf.COR_BAIXA
         assert w.listbox.itemcget(2, "foreground") == cf.COR_VAZIO
+        assert w.listbox.itemcget(3, "foreground") == cf.COR_BAIXA
 
 
 def test_contador_de_pendentes():
@@ -337,6 +341,31 @@ def test_as_outras_fontes_continuam_no_corte():
         BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="learner")) is False
     assert cf.precisa_revisao(
         BoxEntry("e", 1, 1, 9, 9, confidence=0.50, source="neural")) is True
+
+
+def test_o_easyocr_como_leitor_nao_entra_na_regra():
+    """
+    A regra da F48 foi medida onde o EasyOCR é **último recurso** — 57% de erro,
+    o que sobra depois de a rede e o k-NN recusarem. Na ação em que ele é o
+    **leitor** o mesmo elo acerta 89,5%, e marcar a página inteira não é filtro
+    nenhum. Por isso a fonte tem nome próprio (F53).
+    """
+    leitor = BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="easyocr_so")
+    assert cf.precisa_revisao(leitor) is False
+    assert cf.cor_do_box(leitor) == cf.COR_ALTA
+    assert cf.rotulo(leitor) == " 99%"
+
+
+def test_a_cor_e_a_fila_nao_discordam():
+    """
+    O que a F44 levantou como pergunta e a F48 tornou realidade: um box do
+    EasyOCR com 0,99 saía **verde** e entrava na fila. O usuário navegava
+    pendentes e via verde.
+    """
+    b = BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="easyocr")
+    assert cf.precisa_revisao(b) is True
+    assert cf.cor_do_box(b) == cf.COR_BAIXA
+    assert cf.rotulo(b) == "   !", "o 99% mentiria ao lado do vermelho"
 
 
 def test_o_manual_nao_e_arrastado_junto():

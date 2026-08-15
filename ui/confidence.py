@@ -49,6 +49,13 @@ def cor_do_box(box) -> str:
         return COR_VAZIO
     if not box.source:
         return COR_SEM_INFO
+    if box.source in FONTES_SEMPRE_REVISADAS:
+        # **A cor segue a fila, e não a confiança** (F53). Sem isto um box do
+        # EasyOCR com 0,99 saía verde e mesmo assim entrava na fila: o usuário
+        # navegava pendentes e via verde. Não é contradição a resolver
+        # escolhendo um dos dois — é que naquele elo o número **não quer dizer
+        # nada**, e a cor não pode fingir que quer.
+        return COR_BAIXA
     if box.confidence >= LIMIAR_ALTO:
         return COR_ALTA
     if box.confidence >= LIMIAR_MEDIO:
@@ -144,9 +151,18 @@ def precisa_revisao(box) -> bool:
 
 
 def rotulo(box) -> str:
-    """Coluna curta de confiança para a lista lateral (4 caracteres)."""
+    """
+    Coluna curta de confiança para a lista lateral (4 caracteres).
+
+    Fonte de régua plana não mostra número: escrever "99%" ao lado de um box
+    vermelho e pendente seria contradizer duas vezes na mesma linha. O `!` diz
+    o que é verdade ali — **há leitura, e o número dela não vale** —, que não é
+    o mesmo que o `?` de "não avaliado" nem que uma porcentagem baixa.
+    """
     if not box.char:
         return "   -"
     if not box.source:
         return "   ?"
+    if box.source in FONTES_SEMPRE_REVISADAS:
+        return "   !"
     return f"{box.confidence * 100:3.0f}%"

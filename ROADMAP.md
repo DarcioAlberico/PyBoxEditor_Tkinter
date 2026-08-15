@@ -7584,6 +7584,56 @@ impresso.
 
 ---
 
+## F53 — A regra da F48 valia onde não foi medida, e a cor discordava da fila — CONCLUÍDA
+
+Duas consequências da F48 que apareceram ao olhar a interface, e a primeira é um defeito
+dela.
+
+### `easyocr` é dois elos com o mesmo nome
+
+A F48 mediu os boxes em que o EasyOCR é o **último recurso** — o que sobra depois de a rede
+recusar a 0,80 e o k-NN recusar a 0,30. Ali são 57% de erro, e marcar todos é a decisão
+certa.
+
+Mas `"easyocr"` também era a fonte gravada pelas duas ações em que ele é o **leitor**: «OCR
+(EasyOCR)» e «OCR (EasyOCR por linha)». Nessas, o mesmo elo lê a página inteira e acerta
+89,5% (F17). Depois da F48, elas passaram a marcar **todos os boxes da página** — que não é
+filtro nenhum.
+
+A fonte ganhou nome próprio, `easyocr_so`, e a regra ficou onde foi medida. O nome está nas
+duas ações com o motivo escrito, porque a diferença não é de implementação e sim de
+população: **o mesmo classificador tem duas taxas de erro conforme o que lhe é entregue.**
+
+### A cor dizia verde e a fila dizia pendente
+
+Levantei isto na F44 como pergunta aberta — "um box pode sair verde e mesmo assim entrar na
+fila" — e naquele momento era hipótese. A F48 tornou realidade: um box do EasyOCR com
+confiança 0,99 saía **verde**, com **"99%"** na lista lateral, e entrava nos pendentes. O
+usuário navega os pendentes com `F3` e vê verde.
+
+Não é uma contradição que se resolva escolhendo um dos dois lados. **Naquele elo o número
+não quer dizer nada** — separação 0,582, quase moeda (F51) —, e a cor não pode fingir que
+quer. Fonte de régua plana sai vermelha, e o rótulo vira `!`.
+
+O `!` não é o `?` de "não avaliado" nem uma porcentagem baixa. Ele diz o que é verdade ali:
+**há leitura, e o número dela não vale.** Escrever "99%" ao lado de um box vermelho e
+pendente seria contradizer duas vezes na mesma linha.
+
+### O que isto fecha, e o que não
+
+Fecha a coerência: as três coisas que a interface diz sobre um box — cor, rótulo e fila —
+passam a concordar, e passam a concordar **pela mesma regra**, não por coincidência de
+limiar.
+
+Não fecha a pergunta da F44 no caso geral. Se um dia a margem voltar (F47), a fila terá um
+critério que a cor não tem, e a divergência volta — desta vez entre dois números que ambos
+querem dizer alguma coisa, que é um problema mais difícil que este.
+
+Cobertura: `tests/test_f32_confianca.py`, 3 testes novos — o leitor não entra na regra, a cor
+não discorda da fila, e a lista lateral mostra `!` em vez de `99%`. Suíte em 1.346.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
