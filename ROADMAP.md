@@ -7348,6 +7348,61 @@ e `--so page-0020 page-0128 page-0033` nas quatro combinações.
 
 ---
 
+## F48 — O ponto cego do EasyOCR fecha, e sem dado novo — CONCLUÍDA
+
+A F45 mediu que a concordância com o k-NN separa os boxes que o EasyOCR responde: onde ele
+concorda o acerto é 90,5%, onde diverge é 35,3%. E registrou o custo de usar isso: um
+terceiro dado por box, do mesmo tamanho da F44.
+
+Aplicando a lição da F47 desde o começo — medir a regra nova contra a antiga **varrida**, e
+não contra um ponto dela —, apareceu uma linha que faltava: **a alternativa trivial**.
+
+**Os 160 boxes que o EasyOCR respondeu, com 92 erros:**
+
+| regra | marcados | pegos | à toa | escapam |
+|---|---:|---:|---:|---:|
+| conf < 0,50 | 23 | 16 | 7 | 76 |
+| conf < 0,70 | 39 | 30 | 9 | 62 |
+| **conf < 0,90 (a régua de então)** | 63 | **39** | 24 | **53** |
+| conf < 0,99 | 98 | 59 | 39 | 33 |
+| **marcar todos (esta fase)** | 160 | **92** | 68 | **0** |
+| o k-NN diverge | 139 | 90 | 49 | 2 |
+| diverge e conf < 0,90 | 52 | 39 | 13 | 53 |
+
+**A concordância não é um filtro fino, é uma aparadora.** Ela tira 19 alarmes de um
+subconjunto que é **57% errado** — e custa 2 erros e um campo novo em `BoxEntry`, na
+`Leitura` e nas três ações de preenchimento. Dezenove boxes em 10.504 não pagam isso.
+
+O achado que importa é a linha do meio: a régua de então deixava **53 dos 92 erros
+escaparem** ali, e o remédio não precisa de dado nenhum. `FONTES_SEMPRE_REVISADAS =
+{"easyocr"}` custa 68 boxes a mais na fila em dez páginas — sete por página.
+
+Nas 3 páginas menos contaminadas a forma se repete: 26 erros em 44 boxes, a régua antiga
+pegava 9 e deixava 17 escapar.
+
+**A razão é da régua, não do elo.** A F43 mediu ali mediana de confiança **0,9708 no erro e
+no acerto** — o CRNN é confiante do mesmo jeito quando acerta e quando erra, então nenhum
+corte separa nada. E o que sobra para ele é o pior da página: só vê o que a rede recusou e o
+k-NN recusou, que é recorte-lixo, fragmento e glifo colado. 57% de erro contra 2,3% da página
+inteira.
+
+`manual` não é arrastado junto, e tem teste: mandar revisar o que o usuário digitou seria
+circular.
+
+### E o instrumento voltou a copiar a regra de produção
+
+A tabela do corte tinha `r[1] < conf_ui.LIMIAR_ALTO` escrito à mão em três lugares. Com a
+mudança desta fase, a linha "hoje" teria continuado medindo a regra **velha**, calada — que
+é exatamente o defeito da F44 outra vez, três fases depois.
+
+Passou a chamar `conf_ui.precisa_revisao` através do `_BoxFalso`, que existe desde a F23 com
+o docstring "o mínimo que `ui.confidence` olha num box, **para não copiar a regra**". A
+ferramenta estava lá; eu é que não a usei ao escrever a tabela.
+
+Cobertura: `tests/test_f32_confianca.py`, 3 testes novos.
+
+---
+
 ## F49 — Salvar e reabrir zerava a fila de revisão — CONCLUÍDA
 
 Toda a série da F43 à F47 discutiu **qual régua** usa a fila de revisão. Nenhuma perguntou

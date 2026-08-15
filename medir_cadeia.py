@@ -803,9 +803,25 @@ def tabela_ponto_cego(linhas, char_knn):
         n_erros = sum(1 for r in parte if not certo(r))
         print(f"{nome:<24}{len(parte):>8}{acerto(parte):>9.1f}%{n_erros:>8}")
 
-    if divergem and erros:
-        print(f"  marcar só os divergentes pega {100.0 * sum(1 for r in divergem if not certo(r)) / erros:.0f}% "
-              f"dos erros abrindo {sum(1 for r in divergem if certo(r))} acerto(s) à toa")
+    # **A regra nova contra a antiga varrida, e não contra um ponto dela.** É a
+    # lição da F47: cinco cortes de uma régua contra o 0,90 fixo da outra não é
+    # comparação, é escolher o pior lugar da curva alheia. Aqui a régua antiga é
+    # a confiança **restrita a estes boxes**, que é o que a fila faz com eles
+    # hoje.
+    print(f"\n{'regra':<24}{'marcados':>10}{'pegos':>8}"
+          f"{'à toa':>8}{'escapam':>9}")
+
+    def compara(nome, marcados):
+        pegos = sum(1 for r in marcados if not certo(r))
+        print(f"{nome:<24}{len(marcados):>10}{pegos:>8}"
+              f"{len(marcados) - pegos:>8}{erros - pegos:>9}")
+
+    for corte in (0.50, 0.70, 0.90, 0.99):
+        compara(f"conf < {corte:.2f}", [r for r in doOCR if r[1] < corte])
+    compara("o k-NN diverge", divergem)
+    for corte in (0.70, 0.90):
+        compara(f"diverge e conf < {corte:.2f}",
+                [r for r in divergem if r[1] < corte])
 
 
 def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
@@ -1326,16 +1342,6 @@ def main():
                     if mr is not None}
     tabela_revisao(producao, margem_de=margens)
     tabela_corte_da_revisao(producao, margens, margens_rede)
-    tabela_ponto_cego(producao,
-                      {chave: ck
-                       for chave, _fk, ck, _co, _d, _m, _mr in aquecidos})
-    tabela_fila_e_linha(ancora, producao)
-    tabela_do_knn(aquecidos, verdade)
-    tabela_roteamento(aquecidos, verdade)
-    tabela_por_distancia(aquecidos, verdade)
-
-    if args.alfabeto:
-        tabela_alfabeto(cadeia, paginas, caminho, padrao_learner, padrao_trava)
 
     if args.learner is not None or args.combinada:
         limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]

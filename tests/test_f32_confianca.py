@@ -313,3 +313,33 @@ def _main():
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+# ----------------------------------------------------------------------
+# F48 — o que o EasyOCR respondeu entra sempre
+# ----------------------------------------------------------------------
+
+def test_easyocr_entra_na_fila_com_confianca_alta():
+    """
+    A régua do CRNN é plana onde importa: naqueles boxes a mediana de confiança
+    é 0,9708 **no erro e no acerto** (F43). Medido, a regra antiga deixava 53
+    de 92 erros escaparem ali (F48).
+    """
+    alto = BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="easyocr")
+    assert cf.precisa_revisao(alto) is True
+
+
+def test_as_outras_fontes_continuam_no_corte():
+    """A mudança é só para quem tem régua plana, e não desconfiança geral."""
+    assert cf.precisa_revisao(
+        BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="neural")) is False
+    assert cf.precisa_revisao(
+        BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="learner")) is False
+    assert cf.precisa_revisao(
+        BoxEntry("e", 1, 1, 9, 9, confidence=0.50, source="neural")) is True
+
+
+def test_o_manual_nao_e_arrastado_junto():
+    """`manual` é autoridade do usuário — mandá-lo revisar seria circular."""
+    assert cf.precisa_revisao(
+        BoxEntry("e", 1, 1, 9, 9, confidence=1.0, source="manual")) is False

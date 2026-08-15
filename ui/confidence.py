@@ -94,6 +94,33 @@ def cor_do_box(box) -> str:
 LIMIAR_DE_MARGEM = 0.50
 
 
+#: Fontes cuja confiança não diz nada, e que por isso entram na fila inteiras.
+#:
+#: **O EasyOCR está aqui porque a régua dele é plana** e porque o que sobra para
+#: ele é ruim. Ele é o último elo: só vê o que a rede recusou e o k-NN recusou —
+#: recorte-lixo, fragmento, glifo colado. Medido nesses boxes (F48):
+#:
+#:     regra                    marcados   pegos   à toa   escapam
+#:     conf < 0,90 (antes)            63      39      24        53
+#:     marcar todos (esta)           160      92      68         0
+#:     o k-NN diverge do EasyOCR     139      90      49         2
+#:
+#: São **160 boxes com 92 erros** — 57% de erro, contra 2,3% da página inteira.
+#: A régua antiga deixava 53 deles escaparem, e a razão está na F43: ali a
+#: mediana de confiança é 0,9708 **no erro e no acerto**, então nenhum corte
+#: separa nada.
+#:
+#: A linha do meio é a que entrou. A de baixo apara 19 alarmes à toa, e custa um
+#: terceiro dado por box (o que o elo anterior respondeu) — não paga: 19 boxes
+#: em 10.504, para perder 2 erros.
+#:
+#: Nas 3 páginas menos contaminadas a forma se repete: 26 erros em 44 boxes, a
+#: régua antiga pegava 9 e deixava 17 escapar.
+#:
+#: **O custo é 68 boxes a mais na fila em 10 páginas** — sete por página.
+FONTES_SEMPRE_REVISADAS = frozenset({"easyocr"})
+
+
 def precisa_revisao(box) -> bool:
     """
     Verdadeiro para o que o revisor deveria olhar: vazio ou confiança baixa.
@@ -102,11 +129,17 @@ def precisa_revisao(box) -> bool:
     `LIMIAR_DE_MARGEM`. A F44 a pôs no comando com uma medida furada e o efeito
     real foi achar menos erro; a regra voltou ao que era enquanto a comparação
     honesta não fica pronta.
+
+    **Quem o EasyOCR respondeu entra sempre** — ver `FONTES_SEMPRE_REVISADAS`.
+    Não é desconfiança do elo, é que a confiança dele não ordena nada: naqueles
+    boxes a mediana é a mesma no erro e no acerto.
     """
     if not box.char:
         return True
     if not box.source:
         return False          # não avaliado não é o mesmo que suspeito
+    if box.source in FONTES_SEMPRE_REVISADAS:
+        return True
     return box.confidence < LIMIAR_ALTO
 
 
