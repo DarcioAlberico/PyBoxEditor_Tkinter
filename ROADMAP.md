@@ -7348,6 +7348,74 @@ e `--so page-0020 page-0128 page-0033` nas quatro combinações.
 
 ---
 
+## F49 — Salvar e reabrir zerava a fila de revisão — CONCLUÍDA
+
+Toda a série da F43 à F47 discutiu **qual régua** usa a fila de revisão. Nenhuma perguntou
+se a fila sobrevive a fechar o arquivo. Não sobrevivia.
+
+Medido no caminho de ida e volta pelo próprio programa, com três boxes dos quais dois
+pendentes:
+
+    pendentes antes  : 2 de 3
+    pendentes depois : 0 de 3
+    cores depois     : azul, azul, azul   ("sem informação")
+
+A página inteira volta como não avaliada, e a revisão responde "nada pendente" com tudo por
+conferir. O `F3` — pular para o próximo pendente, que é o que transforma "reler 2.000
+caracteres" em "conferir os 80 duvidosos" — não anda.
+
+### O defeito estava documentado como desenho
+
+`ui/confidence.py` explica, e a explicação está certa: "um box carregado de um `.box` não
+traz confiança nenhuma (o formato do Tesseract não guarda isso), e pintá-lo de vermelho
+diria 'confira este' quando o correto é 'não sei'".
+
+**Mas isso vale para um arquivo que veio de fora.** Para o arquivo que este programa acabou
+de gravar, a informação existia e estava sendo jogada fora — e "não sei" é justamente o que
+ele **não** deveria dizer sobre o que ele próprio mediu meia hora antes.
+
+E havia um teste travando a perda como contrato: `test_box_carregado_de_arquivo_fica_sem_info`
+salvava pelo programa, recarregava e **exigia** `source == ""`. Ele misturava os dois casos
+num só, e o round-trip pelo próprio programa é o caso em que a perda é defeito. Foi separado
+em dois: o arquivo de fora é escrito à mão no teste, que é o que ele sempre quis dizer.
+
+### O formato já tinha a resposta
+
+O `.box` do Tesseract tem seis campos, e este projeto já o estendeu duas vezes pela mesma
+regra: sétimo campo para o ângulo (F8.1), oitavo para o negativo (F10), **escritos só quando
+não são o padrão**, de modo que uma página comum grava o arquivo byte a byte igual e um
+leitor de seis campos não vê diferença.
+
+Origem e confiança entram como nono e décimo pela mesma regra:
+
+    a 1 6 3 8 0                              <- box sem fonte, seis campos como sempre
+    a 1 6 3 8 0 0 0 learner 0.2000           <- com fonte, os de trás vêm junto
+    c 9 6 12 8 0 90 1 easyocr 0.5500         <- e convivem com ângulo e negativo
+
+Os campos são posicionais, então escrever o nono obriga a escrever o sétimo e o oitavo — a
+mesma regra que a F10 fixou, e há teste para ela. Campo estranho ou confiança fora de
+[0, 1] é ignorado em vez de derrubar a linha, também como os anteriores: perder a origem
+custa menos que perder o box.
+
+**A margem (F44) não entra**, e é decisão e não esquecimento. Ela não está em produção
+decidindo nada desde a F47, e gravar num formato de arquivo um número que nenhum código lê é
+a forma mais cara de guardar uma ideia. Se a F47 for revisitada e a margem voltar, ela entra
+como décimo primeiro campo, pela mesma regra.
+
+### O que isto muda no uso
+
+O `.box` deste programa passa a ser um arquivo de trabalho e não só de rótulo: fechar e
+reabrir mantém a fila, as cores e o `F3`. Um `.box` de terceiro continua chegando sem os
+campos e continua sendo lido como "não avaliado", que ali é a verdade.
+
+Cobertura: `tests/test_f52_formato_box.py`, 6 testes novos — a ida e volta preserva a fila,
+o box sem fonte grava a linha de sempre, a fonte obriga os campos de trás, o arquivo de fora
+continua sem informação, campo estranho não derruba o box, e fonte com espaço passa pelo
+escape (nenhuma fonte de hoje tem espaço, e a trava entra agora justamente por isso). Mais o
+teste da F3.2 partido em dois. Suíte em 1.339.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

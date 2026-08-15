@@ -246,3 +246,86 @@ def test_os_dois_leitores_concordam_nos_arquivos_do_projeto():
     caminho = os.path.join(pasta, sorted(arquivos)[0])
     assert (formato_box.ler(caminho, 3000)
             == avaliacao_pagina.carregar_box(caminho, 3000))
+
+
+# ----------------------------------------------------------------------
+# F49 — a origem e a confiança sobrevivem ao arquivo
+# ----------------------------------------------------------------------
+
+def test_a_fila_de_revisao_sobrevive_a_ida_e_volta(tmp_path):
+    """
+    O defeito que a F49 achou, medido no caminho de ida e volta.
+
+    Antes: dois boxes pendentes viravam **zero** ao voltar do disco, e a página
+    reaparecia inteira como "sem informação" — com a revisão dizendo que não há
+    nada a conferir, que é o contrário do que "sem informação" quer dizer.
+    """
+    from ui import confidence as conf_ui
+
+    boxes = [BoxEntry("a", 1, 2, 3, 4, confidence=0.20, source="learner"),
+             BoxEntry("b", 5, 2, 8, 4, confidence=0.99, source="neural")]
+    caminho = str(tmp_path / "p.box")
+    formato_box.escrever(caminho, boxes, ALTURA)
+
+    volta = formato_box.ler(caminho, ALTURA)
+    assert [b.source for b in volta] == ["learner", "neural"]
+    assert [round(b.confidence, 4) for b in volta] == [0.20, 0.99]
+    assert (sum(1 for b in volta if conf_ui.precisa_revisao(b))
+            == sum(1 for b in boxes if conf_ui.precisa_revisao(b)) == 1)
+
+
+def test_box_sem_fonte_grava_a_linha_de_sempre(tmp_path):
+    """
+    Seis campos, byte a byte como antes. É o que garante que uma página vinda
+    de fora, ou ainda não lida, não passe a gravar arquivo diferente.
+    """
+    caminho = str(tmp_path / "p.box")
+    formato_box.escrever(caminho, [BoxEntry("a", 1, 2, 3, 4)], ALTURA)
+    assert open(caminho, encoding="utf-8").read().strip().split() == [
+        "a", "1", str(ALTURA - 4), "3", str(ALTURA - 2), "0"]
+
+
+def test_a_fonte_obriga_a_escrever_os_campos_de_tras(tmp_path):
+    """
+    Os campos de 7 a 10 são posicionais: escrever o nono sem o sétimo e o oitavo
+    faria o leitor tomar a fonte por ângulo. Mesma regra que a F10 fixou.
+    """
+    caminho = str(tmp_path / "p.box")
+    formato_box.escrever(
+        caminho, [BoxEntry("a", 1, 2, 3, 4, confidence=0.5, source="neural")],
+        ALTURA)
+    campos = open(caminho, encoding="utf-8").read().strip().split()
+    assert len(campos) == 10
+    assert campos[6:8] == ["0", "0"], "o ângulo e o negativo têm de estar lá"
+
+
+def test_box_do_tesseract_continua_sem_informacao():
+    """
+    Seis campos e nada mais: `source` vazio, que é a verdade sobre um arquivo
+    que não veio daqui. É o estado que `ui/confidence` pinta de azul.
+    """
+    box = formato_box.analisar_linha("a 1 6 3 8 0", ALTURA)
+    assert box.source == "" and box.confidence == 0.0
+
+
+def test_campo_estranho_nao_derruba_o_box():
+    """Mesma tolerância do ângulo e do negativo: perder a origem custa menos."""
+    box = formato_box.analisar_linha("a 1 6 3 8 0 0 0 neural xx", ALTURA)
+    assert box is not None and box.char == "a"
+    assert box.source == "" and box.confidence == 0.0
+
+    fora_de_faixa = formato_box.analisar_linha("a 1 6 3 8 0 0 0 neural 7.5", ALTURA)
+    assert fora_de_faixa.source == ""
+
+
+def test_fonte_com_espaco_nao_quebra_a_linha(tmp_path):
+    """
+    A fonte passa pelo mesmo escape do caractere. Nenhuma fonte de hoje tem
+    espaço, e é justamente por isso que a trava entra agora: quando alguém criar
+    uma, o box não some.
+    """
+    caminho = str(tmp_path / "p.box")
+    formato_box.escrever(
+        caminho, [BoxEntry("a", 1, 2, 3, 4, confidence=0.5, source="dois nomes")],
+        ALTURA)
+    assert formato_box.ler(caminho, ALTURA)[0].source == "dois nomes"

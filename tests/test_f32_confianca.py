@@ -224,22 +224,52 @@ def test_contador_de_pendentes():
         assert "nada pendente" in w.lbl_revisao.cget("text")
 
 
-def test_box_carregado_de_arquivo_fica_sem_info():
-    """Salvar e recarregar perde a confiança — o .box do Tesseract não a guarda.
-    O comportamento correto é 'não avaliado', não 'suspeito'."""
+def test_box_de_arquivo_de_fora_fica_sem_info():
+    """
+    Um `.box` que não veio daqui não traz confiança, e "não avaliado" é a
+    verdade sobre ele — pintá-lo de vermelho diria "confira este" quando o
+    certo é "não sei".
+
+    **Este teste já cobriu o caso errado.** Ele round-trippava pelo próprio
+    programa e exigia que a confiança se perdesse, o que fazia da perda um
+    contrato em vez de um defeito — ver `test_a_ida_e_volta_preserva_a_revisao`
+    logo abaixo e a F49. O arquivo de fora é escrito à mão aqui, que é o que
+    ele sempre quis dizer.
+    """
     with tempfile.TemporaryDirectory() as tmp:
+        destino = os.path.join(tmp, "p.box")
+        with open(destino, "w", encoding="utf-8") as f:
+            f.write("e 1 1 9 9 0\n")     # seis campos, como o Tesseract grava
         with _App() as app:
             w = app.win
-            w.boxes = [BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="neural")]
-            destino = os.path.join(tmp, "p.box")
-            w._save_box_to_path(destino)
-
             w._load_box_from_path(destino)
             b = w.boxes[0]
 
             assert b.char == "e"
             assert b.source == "" and b.confidence == 0.0
             assert cf.cor_do_box(b) == cf.COR_SEM_INFO
+
+
+def test_a_ida_e_volta_preserva_a_revisao():
+    """
+    O arquivo que **este** programa gravou volta sabendo o que ele mediu (F49).
+
+    Antes, salvar e reabrir zerava a fila: a página inteira voltava azul e a
+    revisão respondia "nada pendente" com tudo por conferir.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        with _App() as app:
+            w = app.win
+            w.boxes = [BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="neural"),
+                       BoxEntry("o", 11, 1, 19, 9, confidence=0.20, source="learner")]
+            pendentes = sum(1 for b in w.boxes if cf.precisa_revisao(b))
+            destino = os.path.join(tmp, "p.box")
+            w._save_box_to_path(destino)
+
+            w._load_box_from_path(destino)
+            assert [b.source for b in w.boxes] == ["neural", "learner"]
+            assert sum(1 for b in w.boxes if cf.precisa_revisao(b)) == pendentes == 1
+            assert cf.cor_do_box(w.boxes[0]) == cf.COR_ALTA
 
 
 def test_box_novo_nasce_vazio():

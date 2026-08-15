@@ -42,6 +42,26 @@ Mesma regra, um campo adiante: `1` quando o glifo está impresso claro sobre
 escuro, e nada quando não está. Escrever o oitavo obriga a escrever o sétimo —
 um `0` de ângulo aparece nessa linha para o campo seguinte ter onde ficar, e é
 a única situação em que ele é gravado.
+
+## O nono e o décimo, de quem leu e do quanto se confiou (F49)
+
+**Salvar e reabrir zerava a fila de revisão.** Medido no caminho de ida e volta:
+três boxes, dois deles pendentes, viram zero pendentes ao voltar do disco — e a
+página inteira reaparece como "sem informação", azul, com a revisão dizendo que
+não há nada a conferir. Não é o que "sem informação" quer dizer; é o contrário
+dela.
+
+A origem (`neural`, `learner`, `easyocr`, `manual`…) e a confiança entram como
+nono e décimo campos, pela regra dos anteriores: só são escritos quando há o que
+dizer, e escrevê-los obriga a escrever os de trás. Um `.box` vindo do Tesseract
+continua chegando sem eles e continua sendo lido como "não avaliado", que ali é
+a verdade — o que muda é o arquivo que **este programa** gravou, que parava de
+saber o que ele próprio tinha acabado de medir.
+
+A margem (F44) **não** entra. Ela não está em produção decidindo nada, e gravar
+num formato de arquivo um número que nenhum código lê é a forma mais cara de
+guardar uma ideia. Quando a F47 for revisitada e a margem voltar, ela entra
+como décimo primeiro campo, pela mesma regra.
 """
 
 from typing import List, Optional, Sequence
@@ -89,11 +109,26 @@ def decodificar_char(campo: str) -> str:
 
 
 def formatar_linha(box: BoxEntry, altura: int, pagina: int = 0) -> str:
-    """Uma linha do `.box`, com o y já invertido para a base da imagem."""
+    """
+    Uma linha do `.box`, com o y já invertido para a base da imagem.
+
+    Os campos de 7 a 10 são extensão nossa e **posicionais**, então escrever um
+    obriga a escrever os de trás. Cada um só aparece quando tem o que dizer, e é
+    o que mantém byte a byte igual o arquivo de uma página sem nada de especial.
+    """
     linha = (f"{codificar_char(box.char)} {box.x1} {altura - box.y2} "
              f"{box.x2} {altura - box.y1} {pagina}")
     angulo = getattr(box, "angulo", 0) % 360
-    if getattr(box, "negativo", False):
+    negativo = getattr(box, "negativo", False)
+    fonte = getattr(box, "source", "") or ""
+
+    if fonte:
+        # `source` é a chave: sem ele a confiança não quer dizer nada — é a
+        # distinção entre "não avaliado" e "avaliado como duvidoso" que o
+        # `ui/confidence` faz.
+        return (f"{linha} {angulo} {1 if negativo else 0} "
+                f"{codificar_char(fonte)} {box.confidence:.4f}")
+    if negativo:
         return f"{linha} {angulo} 1"
     return f"{linha} {angulo}" if angulo else linha
 
@@ -119,6 +154,7 @@ def analisar_linha(linha: str, altura: int,
         return None
 
     angulo, negativo = 0, False
+    fonte, confianca = "", 0.0
     if len(campos) >= 6:
         char, coords = decodificar_char(campos[0]), campos[1:5]
         if len(campos) >= 7:
@@ -129,6 +165,17 @@ def analisar_linha(linha: str, altura: int,
             angulo = candidato if candidato in (0, 90, 180, 270) else 0
         if len(campos) >= 8:
             negativo = campos[7] == "1"
+        if len(campos) >= 10:
+            # Mesma tolerância dos dois anteriores: campo estranho é ignorado
+            # em vez de derrubar a linha. Perder a origem custa menos que perder
+            # o box.
+            fonte = decodificar_char(campos[8])
+            try:
+                confianca = float(campos[9])
+            except ValueError:
+                fonte, confianca = "", 0.0
+            if not 0.0 <= confianca <= 1.0:
+                fonte, confianca = "", 0.0
     elif len(campos) == 5:
         char, coords = " ", campos[0:4]
     else:
@@ -141,7 +188,8 @@ def analisar_linha(linha: str, altura: int,
 
     if origem_inferior:
         y1, y2 = altura - y2, altura - y1
-    return BoxEntry(char, x1, y1, x2, y2, angulo=angulo, negativo=negativo)
+    return BoxEntry(char, x1, y1, x2, y2, confidence=confianca, source=fonte,
+                    angulo=angulo, negativo=negativo)
 
 
 def ler(caminho: str, altura: int,
