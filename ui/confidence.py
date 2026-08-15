@@ -71,7 +71,21 @@ def cor_do_box(box) -> str:
 #:
 #: Com a régua certa não há domínio, e o corte que foi embarcado **pega menos
 #: erro que o que ele substituiu**: 88 contra 123, em 10.504 boxes com 246 erros.
-#: Por isso a regra volta a ser a confiança enquanto a medição da F47 não sai.
+#:
+#: **A F47 fechou a medição, e a resposta é ficar na confiança.** Varridas as
+#: duas réguas, as curvas se cruzam:
+#:
+#:     à toa    conf pega   margem pega
+#:       ~180          65            69
+#:     ~1.050          91           112
+#:     ~2.270         123           125     <- o ponto de operação de hoje
+#:     ~4.200         195           176
+#:
+#: A margem ganha no meio (uns 20% a mais de erro a custo igual), **empata onde
+#: o programa opera** e perde na cauda. Empate não paga troca. O que mudaria
+#: isso é escolher outro ponto de operação: com orçamento para mil boxes em vez
+#: de dois mil, a margem entrega 112 erros onde a confiança entrega 91 — e aí a
+#: régua muda junto com a política, não antes dela.
 #:
 #: O campo `BoxEntry.margem` continua sendo preenchido, e isso é de propósito:
 #: ele não custa consulta nenhuma (`predict_e_margem` faz a busca uma vez só) e

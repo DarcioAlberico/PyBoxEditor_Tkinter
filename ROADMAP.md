@@ -6910,7 +6910,7 @@ Cobertura: nenhum teste novo — é instrumento. Reproduzir:
 
 ---
 
-## F43 — Um número serve dois usos — MEDIDO, e separá-los rende muito
+## F43 — Um número serve dois usos — MEDIDO, e separá-los rende pouco (números refeitos na F47)
 
 A F24 fechou com este item, marcado lá como "a pergunta anterior a qualquer nova fórmula":
 
@@ -6927,28 +6927,33 @@ uma fração dos erros, quantos **acertos** o revisor abre à toa. Caminho híbr
 limiares de produção. Onde não há margem — EasyOCR e linha — vale a confiança crua, e
 aquele box não sai do lugar.
 
+> **As tabelas desta fase foram refeitas na F47, e os números abaixo são os corrigidos.** A
+> versão original media a margem do k-NN em **todos** os boxes, inclusive nos que outro elo
+> respondeu, e comparava os cortes de margem contra um **único** ponto da confiança. Os dois
+> defeitos empurravam para o mesmo lado. Os números antigos e o que os produziu estão na F47.
+
 **10 páginas, 10.504 caracteres:**
 
 | ordenação | 25% dos erros | 50% dos erros | 75% dos erros |
 |---|---:|---:|---:|
-| confiança crua (hoje) | 156 | 2.257 | 3.877 |
-| percentil por fonte (F25) | 757 | 2.653 | 4.571 |
-| **margem onde há** | **57** | **240** | 2.412 |
-| mín. das duas | 58 | 206 | 2.417 |
+| confiança crua (hoje) | **155** | 2.261 | 3.894 |
+| percentil por fonte (F25) | 864 | 2.691 | 4.617 |
+| margem onde há | 411 | **2.160** | **3.658** |
+| mín. das duas | 313 | 2.227 | 3.865 |
 
 **As 3 páginas menos contaminadas** (0,7%, 31,5% e 0,0% dos boxes já na base), 3.440
 caracteres:
 
 | ordenação | 25% dos erros | 50% dos erros | 75% dos erros |
 |---|---:|---:|---:|
-| confiança crua (hoje) | 94 | 845 | 1.987 |
-| percentil por fonte | 295 | 977 | 1.935 |
-| margem onde há | 35 | 154 | 1.252 |
-| **mín. das duas** | **35** | **116** | **1.128** |
+| confiança crua (hoje) | 94 | 914 | 1.988 |
+| percentil por fonte | 378 | 997 | 1.936 |
+| **margem onde há** | **93** | **775** | **1.689** |
+| mín. das duas | 89 | 851 | 1.820 |
 
-Para achar metade dos erros, a fila de hoje faz o revisor abrir **845** boxes certos; a
-margem, 154; o mínimo das duas, 116. É **7x menos trabalho** na amostra limpa e 11x na
-completa.
+Para achar metade dos erros, a fila de hoje faz o revisor abrir **914** boxes certos; a
+margem, 775. É **15% menos trabalho**, e só na cauda — no topo da fila a confiança ganha nas
+dez páginas e empata nas limpas.
 
 ### A contaminação era a suspeita óbvia, e ela não explica
 
@@ -6958,8 +6963,8 @@ as mesmas em que se rodou "Aprender com Página Atual", metade delas tem mais de
 boxes já na base, e a saturação favoreceria a margem por artefato.
 
 Por isso a segunda tabela. Nas três páginas em que a base quase não viu a página, a
-vantagem **encolhe e não desaparece**: 845 para 154 em vez de 2.257 para 240. O mecanismo
-não é a contaminação.
+vantagem **sobrevive e é pequena**: 914 para 775. O mecanismo não é a contaminação — mas
+também não é grande, e a F47 explica por que a primeira versão desta fase o mediu enorme.
 
 ### O motivo, e ele estava escrito na F24 sem que ela o visse
 
@@ -7008,7 +7013,7 @@ Cobertura: nenhum teste novo — é instrumento. Reproduzir:
 
 ---
 
-## F44 — A margem chega ao box, e o corte da revisão muda — CONCLUÍDA
+## F44 — A margem chega ao box, e o corte da revisão muda — DESFEITA na F47
 
 A F43 mediu que separar os dois usos da confiança rende, e parou ali: "produção não mudou,
 e a razão é que a mudança não é de fórmula, é de estrutura". Esta fase faz a estrutura.
@@ -7024,25 +7029,26 @@ direta.
 `margem < X` onde há margem, e a regra de antes onde não há — rede, EasyOCR e linha não têm
 margem, e para elas nada muda. Nas 10 páginas (246 erros) e nas 3 menos contaminadas (105):
 
+> **As tabelas desta fase foram refeitas na F47, e os números abaixo são os corrigidos.** A
+> versão original media a margem do k-NN em **todos** os boxes, inclusive nos que outro elo
+> respondeu, e comparava os cortes de margem contra um **único** ponto da confiança. Os dois
+> defeitos empurravam para o mesmo lado. Os números antigos e o que os produziu estão na F47.
+
 | | 10 páginas | | 3 limpas | |
 |---|---:|---:|---:|---:|
 | **regra** | **pegos** | **à toa** | **pegos** | **à toa** |
-| conf < 0,90 (antes) | 123 | 2.266 | 53 | 918 |
-| margem < 0,30 | 111 | 196 | 36 | 64 |
-| **margem < 0,50** | **141** | **501** | **55** | **189** |
-| margem < 0,70 | 165 | 1.115 | 62 | 420 |
-| margem < 0,90 | 178 | 2.331 | 72 | 951 |
+| conf < 0,90 (antes) | **123** | 2.266 | **53** | 918 |
+| margem < 0,30 | 69 | 163 | 25 | 56 |
+| margem < 0,50 | 88 | 458 | 38 | 177 |
+| margem < 0,70 | 112 | 1.071 | 45 | 408 |
+| margem < 0,90 | 125 | 2.287 | 55 | 939 |
 
-**0,50 domina a regra antiga nos dois eixos e nas duas amostras**: acha mais erros abrindo
-quatro a cinco vezes menos acerto à toa. Não é troca, é ganho nas duas colunas.
+**Não há domínio, e o corte que esta fase escolheu — `margem < 0,50` — pega menos erro que a
+regra que ele substituiu**: 88 contra 123. Foi regressão, e foi desfeita.
 
-As linhas de baixo também dominam, e a escolha entre elas é de política, não de medição —
-`margem < 0,90` acharia 55 erros a mais pelo mesmo trabalho de antes. O 0,50 é o ponto que
-melhora as duas colunas sem aumentar nenhuma, e foi por isso o escolhido.
-
-A contaminação era a suspeita óbvia — a distância absoluta satura quando o vizinho é cópia
-da própria página, e saturada ela não ordena nada. A coluna das limpas responde: o fator
-quase não se move.
+Com a confiança também varrida (o que esta fase não fez, e a F47 fez), as duas curvas se
+cruzam: a margem ganha no meio, empata no ponto de operação de hoje e perde na cauda. A
+decisão final está na F47, e é **ficar na confiança**.
 
 ### O que a estrutura exigiu, e o que ela custou
 
@@ -7200,6 +7206,145 @@ mais base de referência que resolve — é mais página rotulada.
 Cobertura: nenhum teste novo; a tabela entra ao lado da constante em
 `ui/main_window.py`. Reproduzir:
 `python medir_cadeia.py --learner 0.10 0.20 0.30 0.40 0.50`.
+
+---
+
+## F47 — A margem não ganha da confiança, e as duas fases que disseram que sim estavam medindo errado — CONCLUÍDA
+
+Esta fase ia perguntar se a razão de Lowe da **rede** filtra a fila do caminho neural como a
+do k-NN filtrou a do híbrido. Ao instrumentar isso, o defeito apareceu — e ele estava embaixo
+da F43 e da F44, que são as duas fases que decidiram trocar a régua da revisão.
+
+### Os dois defeitos, e eles empurravam para o mesmo lado
+
+**Um: a margem valia para quem não tinha respondido.** O mapa de margens vem do aquecimento,
+que consulta o k-NN em **todos** os boxes — inclusive nos que o roteamento mandou ao EasyOCR.
+A F43 (ordenação) e a F44 (corte) usavam esse mapa sem olhar a fonte, então um box lido pelo
+EasyOCR era julgado pela ambiguidade de um classificador que tinha sido recusado por estar
+longe de tudo. É justamente ali que os erros se concentram — 46% de acerto —, e marcá-los em
+bloco fazia a margem parecer excelente. A F24 já tinha escrito o que essa margem vale nesse
+caso: "um recorte-lixo pode estar duas vezes mais perto de `a` que de `b` e tirar margem
+0,50".
+
+**Dois: a comparação era torta.** Cinco cortes de margem contra **um** ponto da confiança, o
+0,90 do `LIMIAR_ALTO`. Duas réguas só se comparam a recall igual ou a custo igual, e para
+isso as duas precisam de curva. Sem isso eu não comparei réguas, comparei uma régua com um
+ponto — e o ponto era o pior lugar da outra curva para ela.
+
+Produção sempre implementou a regra certa (`b.margem` só é preenchida onde a fonte é
+`learner`), então o código estava coerente; o que não estava era a justificativa. E o corte
+escolhido com base nela, `margem < 0,50`, **pegava menos erro que a regra que substituiu**.
+
+### O corte, com as duas curvas
+
+Cortes de confiança e de margem na mesma tabela, nos dois caminhos, com e sem a contaminação
+da base.
+
+**Híbrido, 10 páginas, 246 erros:**
+
+| regra | marcados | pegos | à toa | | regra | marcados | pegos | à toa |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| conf < 0,50 | 248 | 65 | 183 | | margem < 0,30 | 232 | 69 | 163 |
+| conf < 0,70 | 1.108 | 91 | 1.017 | | margem < 0,70 | 1.183 | **112** | 1.071 |
+| **conf < 0,90** | 2.389 | **123** | 2.266 | | margem < 0,90 | 2.412 | **125** | 2.287 |
+| conf < 0,99 | 4.461 | **195** | 4.266 | | margem < 0,99 | 4.319 | 176 | 4.143 |
+
+**Híbrido, 3 páginas limpas, 105 erros:**
+
+| regra | marcados | pegos | à toa | | regra | marcados | pegos | à toa |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| conf < 0,50 | 67 | 23 | 44 | | margem < 0,30 | 81 | 25 | 56 |
+| conf < 0,70 | 348 | 33 | 315 | | margem < 0,70 | 453 | **45** | 408 |
+| **conf < 0,90** | 971 | **53** | 918 | | margem < 0,90 | 994 | **55** | 939 |
+| conf < 0,99 | 2.429 | **88** | 2.341 | | margem < 0,99 | 2.363 | 82 | 2.281 |
+
+**As duas curvas se cruzam.** No meio a margem ganha — a custo igual, +20 erros nas dez
+páginas e +9 nas limpas, uns 20 a 25% a mais. No **ponto de operação de hoje** elas empatam:
+123 contra 125, e 53 contra 55. Na cauda a confiança ganha: 195 contra 176.
+
+Isso é o oposto de dominar, e o que ele diz sobre a decisão é direto: **no ponto onde o
+programa opera, trocar a régua não muda nada.** A vantagem da margem existe, mas mora num
+lugar da curva que ninguém escolheu — e chegar lá significa revisar mil boxes em vez de dois
+mil e achar 112 erros em vez de 123, que é troca e não ganho.
+
+### A margem da rede, que era a pergunta original
+
+`NeuralPredictor.margem_de_confianca` — `1 - p2/p1` sobre as duas classes mais prováveis,
+irmã da razão de Lowe do k-NN. No caminho neural a rede responde 96,6% dos boxes, então é
+ela que decide se a fila daquele caminho tem régua.
+
+**Neural, 10 páginas, 263 erros** (a margem do k-NN sozinha quase não move nada ali, porque
+o k-NN responde 2,7% dos boxes):
+
+| regra | marcados | pegos | à toa |
+|---|---:|---:|---:|
+| conf < 0,70 | 73 | 24 | 49 |
+| conf < 0,90 (hoje) | 762 | 72 | 690 |
+| conf < 0,99 | 2.270 | 117 | 2.153 |
+| margem < 0,30 (k-NN e rede) | 91 | **33** | 58 |
+| margem < 0,90 (k-NN e rede) | 563 | 68 | 495 |
+| margem < 0,99 (k-NN e rede) | 2.145 | 108 | 2.037 |
+
+Nas 3 limpas (102 erros) a forma se repete: `conf < 0,90` dá 28 erros por 263 alarmes e
+`margem < 0,90` dá 27 por 212.
+
+**O sinal existe e é o mesmo do k-NN**: no topo a margem é mais precisa — 33 erros em 91
+marcados contra 24 em 73 —, e no resto empata. A rede ser peaked não impediu a razão de
+funcionar, que era o risco herdado da F19; o que impede é a mesma coisa que impede no k-NN,
+que é não haver folga no ponto de operação.
+
+### A ordenação da F43, refeita
+
+| | 25% dos erros | 50% | 75% | | 25% | 50% | 75% |
+|---|---:|---:|---:|---|---:|---:|---:|
+| | **10 páginas** | | | | **3 limpas** | | |
+| confiança crua (hoje) | **155** | 2.261 | 3.894 | | 94 | 914 | 1.988 |
+| percentil por fonte (F25) | 864 | 2.691 | 4.617 | | 378 | 997 | 1.936 |
+| margem onde há | 411 | **2.160** | **3.658** | | **93** | **775** | **1.689** |
+| mín. das duas | 313 | 2.227 | 3.865 | | 89 | 851 | 1.820 |
+
+A F43 publicou "**7x menos trabalho**". O número certo é **15% menos**, e só na cauda: para
+metade dos erros, 775 contra 914 nas páginas limpas. No topo da fila a confiança ganha nas
+dez páginas (155 contra 411) e empata nas limpas.
+
+O achado de mecanismo da F43 — o roteamento **gasta** a informação da absoluta, e o que sobra
+por decidir na fila é ambiguidade — **continua de pé e continua valendo**. Ele explica por que
+a margem ordena melhor a cauda. O que não se sustenta é o tamanho.
+
+### O que fica em produção
+
+**Nada muda: a fila continua na confiança.** O `precisa_revisao` já tinha voltado atrás
+quando o defeito apareceu, e a medição completa confirma que voltar foi certo — no ponto de
+operação as duas réguas empatam, e empate não paga troca.
+
+Ficam `BoxEntry.margem`, `predict_e_margem`, `fallback_chain_detalhado` e a margem da rede.
+Nenhum deles custa consulta a mais (`predict_e_margem` faz a busca uma vez só) e todos são o
+que qualquer nova tentativa aqui vai precisar. É a mesma decisão que a F19 tomou com
+`altura_relativa` e a F24 com `voto` e `margem_de_confianca`: o instrumento fica, a conclusão
+é não.
+
+**O que mudaria isto** é escolher outro ponto de operação. Se um dia a revisão tiver orçamento
+para mil boxes em vez de dois mil, a margem entrega 112 erros onde a confiança entrega 91 —
+e aí a régua muda junto com a política, não antes dela.
+
+### O que este erro ensina, e não é sobre índice de lista
+
+Os dois defeitos empurravam para o mesmo lado, e o resultado saiu redondo demais: sete vezes
+melhor. **A F24 passou uma fase inteira medindo a margem e concluindo que ela perdia.** Eu a
+fiz ganhar por sete vezes numa tarde e tratei isso como boa notícia.
+
+O sintoma não estava na aritmética, estava no **tamanho**. Um resultado que contradiz uma
+fase anterior inteira exige explicar o que mudou desde ela — e a explicação que eu dei ("a
+F24 mediu o elo isolado, esta mede a fila") era plausível, o que é pior que ser falsa: ela
+me impediu de olhar o instrumento.
+
+O que teria pego: rodar a régua nova **contra a antiga varrida**, que é o que esta fase fez e
+a F44 não. Uma régua que domina outra em toda a curva é raro; quando aparecer, é para
+desconfiar da medida antes de comemorar.
+
+Cobertura: nenhum teste novo — os defeitos eram do instrumento, e o que os pega é a
+comparação completa, não uma asserção. Reproduzir: `python medir_cadeia.py`, com `--neural`
+e `--so page-0020 page-0128 page-0033` nas quatro combinações.
 
 ---
 
