@@ -7471,6 +7471,57 @@ teste da F3.2 partido em dois. Suíte em 1.339.
 
 ---
 
+## F50 — O léxico é aditivo, e agora está medido — CONCLUÍDA
+
+`ui/main_window.py` justifica o filtro do léxico duas vezes com a mesma frase: **"um sinal
+independente da confiança"**. A F9.1 mediu a fatia alcançável (53,8% dos erros em palavra de
+prosa) e o custo (5,8% das palavras certas acendendo). **Independência não estava medida** — e
+é a diferença entre um filtro que acrescenta e um que repete. Um léxico que acendesse
+exatamente nos boxes já vermelhos teria os mesmos dois números da F9.1 e não valeria nada.
+
+É a mesma pergunta que a F47 obrigou a fazer da margem, feita antes de o número desmentir
+alguém.
+
+| | 10 páginas (246 erros) | 3 limpas (105 erros) |
+|---|---:|---:|
+| boxes que o léxico acende | 1.333 | 475 |
+| destes, a fila já mostrava | 321 | 140 |
+| destes, **novos para o revisor** | 1.012 | 335 |
+| erros dentro do que ele acende | 83 | 29 |
+| **erros que só o léxico pega** | **41** | **13** |
+| — em fração dos erros da página | 16,7% | 12,4% |
+| precisão do que ele acrescenta | 4,1% | 3,9% |
+
+**A afirmação se sustenta.** Metade dos erros que o léxico acende — 41 de 83 — estava fora da
+fila, e são 16,7% de todos os erros da página. A independência não é total, e nem precisava
+ser: o que ela precisava era não ser zero.
+
+O número que fecha o argumento é o último. A precisão marginal do léxico — erros novos por
+box novo aberto — é **4,1%**, contra os **5,1%** da própria fila (123 erros em 2.389
+marcados). Ou seja, **o léxico entrega erro por box aberto quase na mesma taxa que a fila**,
+e o faz num conjunto que a fila não alcança. Não é um sinal barato pendurado ao lado de um
+caro: é outro sinal do mesmo preço, olhando para outro lugar.
+
+Isso explica o mecanismo que a F1.9 tinha registrado e ninguém tinha ligado ao léxico: a
+mediana de confiança de um erro é **1,000**, então há uma família inteira de erros que
+nenhum corte de confiança alcança — e é nela que o dicionário morde.
+
+### O que fica
+
+Nenhuma mudança de código: a fase mediu uma afirmação que já estava em produção e a
+confirmou. O que entra é a tabela, ao lado das duas frases que a alegavam sem número, e
+`tabela_lexico` em `medir_cadeia.py`, montada sobre o mesmo `suspeitas_da_pagina` que a UI
+consome — a população é a de produção, com a leitura que a cadeia deu.
+
+**O que não foi medido**, e vale registrar: se os 41 erros que só o léxico pega são *úteis*
+ao revisor. Eles estão em palavra de prosa, então provavelmente sim — palavra errada é mais
+fácil de ver que caractere errado. Mas "mais fácil de ver" é medida com gente, como a F31
+registrou sobre o custo de consertar um box.
+
+Cobertura: nenhum teste novo — é instrumento. Reproduzir: `python medir_cadeia.py`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

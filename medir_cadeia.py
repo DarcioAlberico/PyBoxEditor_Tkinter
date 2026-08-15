@@ -824,6 +824,74 @@ def tabela_ponto_cego(linhas, char_knn):
                 [r for r in divergem if r[1] < corte])
 
 
+def tabela_lexico(paginas, producao):
+    """
+    O léxico é **aditivo** à fila, ou pega o que ela já pegava? (F50)
+
+    `ui/main_window.py` justifica o filtro do léxico duas vezes com a mesma
+    frase — "um sinal **independente da confiança**" — e independência é
+    justamente o que a F9.1 não mediu. Ela mediu a fatia alcançável (quanto do
+    erro cai dentro de palavra de prosa) e o custo (quantas palavras certas
+    acendem). A sobreposição com `precisa_revisao` ficou de fora.
+
+    É a mesma pergunta que a F47 obrigou a fazer da margem: um sinal só vale
+    contra a alternativa, não contra o vazio. Um léxico que acendesse exatamente
+    nos boxes que a fila já mostra em vermelho não acrescentaria nada, e a
+    medição da F9.1 não distinguiria esse caso do bom.
+
+    A população é a de produção: o mesmo `suspeitas_da_pagina` que a UI consome,
+    sobre os boxes com a leitura que a cadeia deu.
+    """
+    from core import lexico as core_lexico
+
+    lex = core_lexico.carregar()
+    if not getattr(lex, "sinaliza", False):
+        print("\n(sem dicionário carregado — o léxico não é medido)")
+        return
+
+    por_id = {reg[5]: reg for reg in producao}
+    marcados_lex, erros_lex, na_fila = 0, 0, 0
+    erros_lex_fora_da_fila = 0
+    total_erros = sum(1 for reg in producao
+                      if normalizar(reg[2]) != normalizar(reg[3]))
+
+    for p in paginas:
+        # Os boxes da página com a leitura da cadeia, que é o que a UI tem na
+        # mão quando o usuário liga o filtro.
+        for b in p.boxes:
+            reg = por_id.get(id(b))
+            if reg is None:
+                continue
+            b.char, b.confidence, b.source = reg[2], reg[1], reg[0]
+
+        for suspeita in core_lexico.suspeitas_da_pagina(p.boxes, lex):
+            for i in suspeita.indices:
+                if i >= len(p.boxes):
+                    continue
+                reg = por_id.get(id(p.boxes[i]))
+                if reg is None:
+                    continue
+                marcados_lex += 1
+                errado = normalizar(reg[2]) != normalizar(reg[3])
+                pendente = reg[1] < conf_ui.LIMIAR_ALTO
+                erros_lex += errado
+                na_fila += pendente
+                erros_lex_fora_da_fila += errado and not pendente
+
+    print(f"\n--- o léxico contra a fila (F50), {total_erros} erros ---")
+    novos = marcados_lex - na_fila
+    print(f"boxes que o léxico acende{'':<10}{marcados_lex:>8}")
+    print(f"  destes, a fila já mostrava{'':<8}{na_fila:>8}")
+    print(f"  destes, novos para o revisor{'':<6}{novos:>8}")
+    print(f"erros dentro do que ele acende{'':<5}{erros_lex:>8}")
+    print(f"**erros que só o léxico pega**{'':<6}{erros_lex_fora_da_fila:>8}"
+          f"   ({100.0 * erros_lex_fora_da_fila / total_erros if total_erros else 0:.1f}% "
+          f"dos erros da página)")
+    if novos:
+        print(f"  precisão do que ele acrescenta{'':<4}"
+              f"{100.0 * erros_lex_fora_da_fila / novos:>7.1f}%")
+
+
 def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
     """
     O **corte** da revisão, e não a ordem dela (F44).
@@ -1342,6 +1410,17 @@ def main():
                     if mr is not None}
     tabela_revisao(producao, margem_de=margens)
     tabela_corte_da_revisao(producao, margens, margens_rede)
+    tabela_lexico(paginas, producao)
+    tabela_ponto_cego(producao,
+                      {chave: ck
+                       for chave, _fk, ck, _co, _d, _m, _mr in aquecidos})
+    tabela_fila_e_linha(ancora, producao)
+    tabela_do_knn(aquecidos, verdade)
+    tabela_roteamento(aquecidos, verdade)
+    tabela_por_distancia(aquecidos, verdade)
+
+    if args.alfabeto:
+        tabela_alfabeto(cadeia, paginas, caminho, padrao_learner, padrao_trava)
 
     if args.learner is not None or args.combinada:
         limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]
