@@ -135,7 +135,13 @@ class _Memo:
         return self._cache[chave]
 
     def margem(self, crop):
-        """A alternativa que a F24 mediu e devolveu. Só o k-NN tem."""
+        """
+        A razão de Lowe do modelo envolvido.
+
+        Serve o k-NN desde a F24 e a rede desde a F47 — as duas a implementam
+        com o mesmo nome e o mesmo significado, e o memo não precisa saber qual
+        das duas está segurando.
+        """
         chave = ("margem", crop.tobytes())
         if chave not in self._cache:
             self._cache[chave] = self._alvo.margem_de_confianca(crop)
@@ -410,10 +416,12 @@ class Cadeia:
             co = ""
             if com_ocr:
                 co, _ = self.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            mr = None
             if com_rede:
                 self.predictor.predict(justo)
+                mr = self.predictor.margem(justo)
             saida.append((id(b), fk, ck, co, dist,
-                          self.learner.margem(justo)))
+                          self.learner.margem(justo), mr))
         if com_ocr:
             for uma in pagina.linhas:
                 if ldl.em_bloco(uma):
@@ -732,9 +740,15 @@ def tabela_revisao(linhas, margem_de=None):
                   ("percentil por fonte", por_percentil)]
 
     if margem_de:
-        # `margem_de.get(id, conf)`: onde não há margem, a chave da ordenação é
-        # a própria confiança crua, e aquele box não sai do lugar.
+        # **Só onde o k-NN respondeu**, e essa condição faltava na F43 — ver o
+        # mesmo conserto em `tabela_corte_da_revisao`. O `margem_de` tem entrada
+        # para todo box, porque o aquecimento consulta o k-NN em todos; usá-la
+        # onde outro elo respondeu ordena a fila por um número que não fala
+        # daquela leitura. Onde não há margem, a chave é a confiança crua e o
+        # box não sai do lugar.
         def com_margem(reg):
+            if reg[0] != "learner":
+                return reg[1]
             return margem_de.get(reg[5], reg[1])
 
         ordenacoes.append(
@@ -794,7 +808,7 @@ def tabela_ponto_cego(linhas, char_knn):
               f"dos erros abrindo {sum(1 for r in divergem if certo(r))} acerto(s) à toa")
 
 
-def tabela_corte_da_revisao(linhas, margem_de):
+def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
     """
     O **corte** da revisão, e não a ordem dela (F44).
 
@@ -828,11 +842,41 @@ def tabela_corte_da_revisao(linhas, margem_de):
         print(f"{nome:<26}{n:>10}{pegos:>13}{toa:>9}{total_erros - pegos:>10}")
 
     linha(f"hoje (conf < {conf_ui.LIMIAR_ALTO})", marcados_hoje)
+
+    # **A régua velha também tem dial, e varrer só a nova era comparação torta.**
+    # A primeira versão desta tabela punha cinco cortes de margem contra **um**
+    # ponto da confiança, o 0,90 que está em `LIMIAR_ALTO`. Duas curvas só se
+    # comparam em recall igual ou em custo igual, e para isso as duas precisam
+    # de curva. Ver F47.
     for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
-        marcados = [r for r in linhas
-                    if (margem_de[r[5]] < corte if r[5] in margem_de
-                        else r[1] < conf_ui.LIMIAR_ALTO)]
-        linha(f"margem < {corte:.2f}", marcados)
+        linha(f"conf < {corte:.2f}",
+              [r for r in linhas if r[1] < corte])
+    # **A margem vale para quem respondeu, e essa condição é o conserto de um
+    # defeito da F44.** A primeira versão aplicava a do k-NN a todo box que
+    # tivesse uma no aquecimento — o que é todo box, porque o aquecimento
+    # consulta o k-NN em todos. Produção não faz isso, e tem de não fazer: a
+    # margem de um box que o roteamento mandou ao EasyOCR mede a ambiguidade de
+    # um classificador recusado por estar longe de tudo, e a F24 já dissera o
+    # que ela vale ali — recorte-lixo pode estar duas vezes mais perto de `a`
+    # que de `b` e tirar margem alta.
+    def margem_de(reg, com_rede):
+        if reg[0] == "learner":
+            return margem_knn.get(reg[5])
+        if com_rede and reg[0] == "neural" and margem_rede:
+            return margem_rede.get(reg[5])
+        return None
+
+    def marca(corte, com_rede):
+        return [r for r in linhas
+                if ((m < corte) if (m := margem_de(r, com_rede)) is not None
+                    else r[1] < conf_ui.LIMIAR_ALTO)]
+
+    fontes = [("k-NN", False)]
+    if margem_rede:
+        fontes.append(("k-NN e rede", True))
+    for nome, com_rede in fontes:
+        for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
+            linha(f"margem < {corte:.2f} ({nome})", marca(corte, com_rede))
 
 
 def tabela_do_knn(aquecidos, verdade):
@@ -845,7 +889,7 @@ def tabela_do_knn(aquecidos, verdade):
     mediu e devolveu.
     """
     medidos = [(fk, ck, margem, verdade[chave])
-               for chave, fk, ck, _co, _d, margem in aquecidos
+               for chave, fk, ck, _co, _d, margem, _mr in aquecidos
                if chave in verdade]
     if not medidos:
         return
@@ -940,7 +984,7 @@ def tabela_por_distancia(aquecidos, verdade):
           f"{'':>4}{'quem ganha':<12}")
     for lo, hi in zip(DISTANCIAS, DISTANCIAS[1:]):
         parte = [(ck, co, verdade[chave])
-                 for chave, _fk, ck, co, dist, _m in aquecidos
+                 for chave, _fk, ck, co, dist, _m, _mr in aquecidos
                  if lo <= dist < hi and chave in verdade]
         if not parte:
             continue
@@ -967,7 +1011,7 @@ def tabela_roteamento(aquecidos, verdade):
           f"{'':>4}{'quem ganha':<12}")
     for lo, hi in zip(FAIXAS, FAIXAS[1:]):
         parte = [(ck, co, verdade[chave])
-                 for chave, fk, ck, co, _d, _m in aquecidos
+                 for chave, fk, ck, co, _d, _m, _mr in aquecidos
                  if lo <= fk < hi and chave in verdade]
         if not parte:
             continue
@@ -1242,7 +1286,7 @@ def main():
         verdade.update(p.verdade)
     total = sum(p.medidos for p in paginas)
 
-    na_base = {chave for chave, _fk, _ck, _co, dist, _m in aquecidos if dist == 0.0}
+    na_base = {chave for chave, _fk, _ck, _co, dist, _m, _mr in aquecidos if dist == 0.0}
 
     # O tamanho da base entra no cabeçalho porque **duas rodadas só são
     # comparáveis se ele não mudou**, e ele muda sozinho: "Aprender com Página
@@ -1276,12 +1320,15 @@ def main():
     tabela_por_pagina(producao, na_base)
     tabela_linha(ancora, producao)
     margens = {chave: margem
-               for chave, _fk, _ck, _co, _d, margem in aquecidos}
+               for chave, _fk, _ck, _co, _d, margem, _mr in aquecidos}
+    margens_rede = {chave: mr
+                    for chave, _fk, _ck, _co, _d, _m, mr in aquecidos
+                    if mr is not None}
     tabela_revisao(producao, margem_de=margens)
-    tabela_corte_da_revisao(producao, margens)
+    tabela_corte_da_revisao(producao, margens, margens_rede)
     tabela_ponto_cego(producao,
                       {chave: ck
-                       for chave, _fk, ck, _co, _d, _m in aquecidos})
+                       for chave, _fk, ck, _co, _d, _m, _mr in aquecidos})
     tabela_fila_e_linha(ancora, producao)
     tabela_do_knn(aquecidos, verdade)
     tabela_roteamento(aquecidos, verdade)

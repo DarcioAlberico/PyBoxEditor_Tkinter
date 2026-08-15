@@ -779,6 +779,30 @@ class NeuralPredictor:
         return [(self.idx_to_char.get(int(i), "?"), float(v))
                 for v, i in zip(valores, indices)]
 
+    def margem_de_confianca(self, img_np) -> float:
+        """
+        `1 - p2/p1` sobre as duas classes mais prováveis — a razão de Lowe da rede.
+
+        É a irmã de `CharacterLearner.margem_de_confianca`, e responde a mesma
+        pergunta: **o vencedor estava claramente à frente?** A F44 mediu que essa
+        pergunta filtra a revisão muito melhor que "o quanto isto se parece com
+        o que eu conheço", e trocou o corte da fila onde havia margem. Só o k-NN
+        produzia uma; no caminho neural a rede responde 96,6% dos boxes, e para
+        eles a fila continuou na régua velha. Esta função é o que falta para
+        fechar isso — ver F47.
+
+        1,0 é certeza (a segunda candidata é desprezível), 0,0 é empate. Vale
+        0,0 quando a rede não carregou ou só conhece uma classe, que é o mesmo
+        que dizer "não há do que duvidar aqui, mas também não há o que afirmar".
+        """
+        topo = self.predict_topk(img_np, k=2)
+        if len(topo) < 2:
+            return 0.0
+        p1, p2 = topo[0][1], topo[1][1]
+        if p1 <= 0.0:
+            return 0.0
+        return float(min(1.0, max(0.0, 1.0 - p2 / p1)))
+
     def _probabilidades(self, img_np):
         """O softmax da rede para um recorte, ou None se ela não carregou."""
         if not self.loaded:
