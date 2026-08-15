@@ -6422,6 +6422,100 @@ código é a oposta — o parâmetro está ali, a lista está ali, e ligá-los p
 
 ---
 
+## F37 — A altura relativa apontada ao k-NN — MEDIDA, e a premissa estava invertida
+
+A F19 mediu o canal geométrico contra a rede e o descartou com uma conta explícita: "uma
+base a 98% não tolera um canal lateral a 97%". Ficou de pé o argumento de que contra uma
+âncora **mais fraca** ele renderia — e o k-NN parecia essa âncora, com o número de 96,10%
+que a F24 registrou. A F21 tinha mostrado exatamente essa lei para a leitura por linha: o
+ganho é inverso à força da âncora.
+
+**Medido, o k-NN não é a âncora mais fraca. Nesta amostra ele é a mais forte.**
+
+### As duas âncoras, na mesma amostra e no mesmo dia
+
+9.178 caracteres — a mesma amostra da F19 —, base de 85.151 referências em 216 classes.
+"Tocou" é quantos boxes o desempate de fato trocou; consertos e quebras decompõem essa
+troca. Cada linha é o melhor ponto daquela margem, sobre as combinações de normalizador,
+corte e faixa de incerteza:
+
+| âncora | margem | melhor | delta | tocou | consertos | quebras |
+|---|---:|---:|---:|---:|---:|---:|
+| **rede**, 98,21% de base | 1e-6 | 98,01% | −0,21 | 22 | 1 | 20 |
+| | 1e-4 | 98,12% | −0,10 | 12 | 1 | 10 |
+| | 1e-3 | 98,16% | −0,05 | 8 | 1 | 6 |
+| **k-NN**, 98,53% de base | 0,00 | 97,61% | −0,92 | 90 | 2 | 86 |
+| | 0,30 | 98,50% | −0,03 | 3 | 0 | 3 |
+| | 0,50 | 98,51% | −0,02 | 2 | 0 | 2 |
+| | 0,70 | 98,53% | ±0,00 | 0 | 0 | 0 |
+
+Nenhum dos 63 pontos da rede nem dos 84 do k-NN supera a própria âncora, e a monotonia diz
+o resto: **quanto mais o canal fala, pior fica**. A única linha que empata é a que não fala.
+
+### A coluna que a F19 não tinha, e é ela que fecha a questão
+
+A F19 registrou um erro de percurso: a primeira varredura usou margem de 0,02 sobre uma
+rede peaked, o desambiguador tocou **1 box em 2.257**, e "não mudou nada" quase passou por
+"não tem sinal" quando era "o filtro estava fechado". A correção foi abrir a margem; o que
+faltou foi **imprimir quantos boxes foram tocados**, que é o que separa as duas leituras.
+
+Agora está na tabela, e ela dá o número que a F19 estimou e não mediu. Aquela fase supôs
+"a 2% de falso positivo já seriam 44 quebras contra 21 consertos". O que se mede é mais
+duro: a **precisão** do canal quando ele fala é 1 em 22 na rede e **2 em 90** no k-NN. Ele
+não é um canal a 97% que erra 2% das vezes; ele acerta ~2% das vezes em que abre a boca.
+
+O mecanismo explica. `desambiguar` só dispara quando a classe tipográfica da vencedora
+**discorda** da medida geométrica. Com uma âncora forte, essas discordâncias não são
+dominadas por erro da âncora — são dominadas por erro da medida: a faixa da linha é
+`max(y2) - min(y1)` dos boxes dela, e uma linha sem descendente ou sem ascendente encolhe a
+faixa e desloca todas as frações juntas. O conjunto "âncora e geometria discordam" é quase
+todo composto de linhas em que a geometria escorregou.
+
+### O 98,53% é contaminado, e dizê-lo é metade do resultado
+
+O k-NN aparece **acima** da rede nesta amostra, e isso não quer dizer que ele leia melhor.
+As páginas rotuladas de `Box/` e `ilovepdf_pages-to-jpg/` são as mesmas em que se rodou
+"Aprender com Página Atual", então boa parte delas está dentro de `training_data` byte a
+byte — ali o k-NN não generaliza, consulta a própria cópia. Foi por isso que a F24 mediu o
+voto **nas três páginas menos contaminadas** e obteve 96,10%.
+
+Para esta fase a contaminação não atrapalha, e vale dizer por quê: ela torna a âncora
+**mais forte**, que é o caso mais desfavorável ao canal lateral. Um resultado negativo sob
+a âncora inflada precisaria ser reconferido; mas o negativo aqui vem com precisão de 2%, e
+2% não vira positivo baixando a âncora de 98,5% para 96,1%.
+
+**O que isso faz com a premissa.** A conta que sustentava esta fase era um orçamento de erro
+três vezes maior, vindo de uma base a 94,8%. Esse número não existe: o k-NN sozinho mede
+96,10% nas páginas limpas e 98,53% nestas, e a cadeia inteira 97,6%. O orçamento é o mesmo
+da F19, e a F19 já o tinha gasto.
+
+### O que ficou
+
+Produção não mudou. Ficaram:
+
+- **`CharacterLearner.candidatas(crop, n)`** — o `predict_topk` **por classe**, e ele fazia
+  falta. `vizinhos` devolve as `n` amostras mais próximas, e depois da dedup byte a byte da
+  F7.2 elas são quase sempre a mesma classe: é a razão de o voto da F24 medir pior, e era
+  também a razão de não haver o que desempatar. Desempatar precisa da segunda *classe*, que
+  é a generalização de `margem_de_confianca` de duas para `n`. A confiança devolvida é a de
+  `predict`, para a `margem` do desempate ficar na mesma escala que roteia a cadeia.
+- **`medir_altura.py --knn`**, e a coluna `tocou` **nas duas âncoras** — a da rede foi
+  refeita junto, e é dela que sai o 1-em-22 que a F19 não tinha.
+- `core/altura_relativa.py` continua sem nenhum chamador em produção, agora com duas
+  medições contra si em vez de uma.
+
+**O que esta fase não fecha.** A F14 pediu a altura **dentro** da rede, treinada junto, e
+isso continua de pé e continua caro pelo mesmo motivo: `training_data` são PNGs de 32x32 já
+normalizados, e a escala foi descartada na gravação. O que a F19 e a F37 fecham é a versão
+barata — pendurar a geometria depois, como votante. Ela não funciona contra âncora nenhuma
+que este projeto tenha.
+
+Cobertura: `tests/test_f72_knn.py`, 4 testes novos para `candidatas` — que ela devolve
+classes onde `vizinhos` devolve amostras, que a primeira é o que `predict` responde, que
+não repete classe e que aguenta base vazia.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

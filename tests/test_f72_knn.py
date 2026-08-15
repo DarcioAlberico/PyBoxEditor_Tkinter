@@ -297,6 +297,54 @@ def test_recorte_de_outro_tamanho_e_redimensionado(tmp_path):
 
 
 # ----------------------------------------------------------------------
+# F37 — as candidatas por classe
+# ----------------------------------------------------------------------
+
+def test_candidatas_sao_classes_e_vizinhos_sao_amostras(tmp_path):
+    """
+    A distinção que fez a F37 precisar de método novo, no menor caso que a
+    mostra: uma classe com muitas amostras vizinhas afoga as outras.
+
+    `vizinhos(k=3)` devolve três amostras de `a`, e não há o que desempatar.
+    `candidatas(n=3)` devolve `a`, `b`, `c` — a melhor de cada. É a mesma razão
+    pela qual o voto da F24 mediu pior: com a dedup, o vizinho mais próximo é
+    quase o mesmo PNG.
+    """
+    caminho = _base(tmp_path, {"a": [_amostra(100), _amostra(101),
+                                     _amostra(102)],
+                               "b": [_amostra(140)],
+                               "c": [_amostra(180)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+
+    assert [c for c, _d in L.vizinhos(_amostra(100), k=3)] == ["a", "a", "a"]
+    assert [c for c, _p in L.candidatas(_amostra(100), n=3)] == ["a", "b", "c"]
+
+
+def test_a_primeira_candidata_e_o_que_predict_responde(tmp_path):
+    """A ordem é a da distância, invertida pela confiança — e a mesma escala."""
+    caminho = _base(tmp_path, {"a": [_amostra(100)], "b": [_amostra(180)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+
+    alvo = _amostra(110)
+    char, conf = L.predict(alvo)
+    assert L.candidatas(alvo, n=2)[0] == (char, pytest.approx(conf))
+
+
+def test_candidatas_nao_repete_classe(tmp_path):
+    """Pedir mais classes do que existem devolve as que existem, sem repetir."""
+    caminho = _base(tmp_path, {"a": [_amostra(100)] * 4, "b": [_amostra(180)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+
+    chars = [c for c, _p in L.candidatas(_amostra(100), n=9)]
+    assert chars == ["a", "b"]
+
+
+def test_candidatas_em_base_vazia(tmp_path):
+    L = CharacterLearner(str(tmp_path / "vazia"), usar_cache=False)
+    assert L.candidatas(_amostra(100)) == []
+
+
+# ----------------------------------------------------------------------
 # A duplicata some, e some sem mudar nada
 # ----------------------------------------------------------------------
 

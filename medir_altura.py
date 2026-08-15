@@ -2,11 +2,14 @@
 A altura relativa à linha separa os pares que a F14 nomeou — e mesmo assim não
 melhora a leitura. Este script produz as duas tabelas da F19.
 
-    python medir_altura.py             # separação (d') e a varredura
-    python medir_altura.py --separacao # só a separação, não carrega a rede
+    python medir_altura.py             # separação (d') e a varredura, na rede
+    python medir_altura.py --knn       # a mesma varredura, no k-NN (F37)
+    python medir_altura.py --separacao # só a separação, não carrega classificador
 
-**A separação não precisa da rede**; a varredura precisa, porque a pergunta
-dela é se desempatar as candidatas do modelo melhora o resultado.
+**A separação não precisa de classificador**; a varredura precisa, porque a
+pergunta dela é se desempatar as candidatas de alguém melhora o resultado — e
+esse alguém pode ser a rede (F19) ou o k-NN (F37), que são âncoras de força
+diferente e por isso têm orçamentos de erro diferentes.
 
 A verdade são os `.box` rotulados: eles têm o caractere **e** a coordenada real.
 A base de treino não serve para isto — são 32x32 já normalizados, e a altura foi
@@ -114,7 +117,7 @@ def medir_separacao():
     print("a base não distingue nada; o que muda é até onde o glifo sobe.")
 
 
-def _amostras_com_topk(predictor):
+def _amostras_com_topk(topk_de):
     """[(verdade, y1, ângulo, top-k, geometria da linha)] de todas as páginas."""
     saida = []
     for img_path, box_path in paginas_rotuladas():
@@ -125,7 +128,7 @@ def _amostras_com_topk(predictor):
                 recorte = vertical.recorte_de_pe(pagina, b)
                 if recorte.size == 0:
                     continue
-                topk = predictor.predict_topk(recorte, k=5)
+                topk = topk_de(recorte)
                 if topk:
                     saida.append((normalizar(b.char), b.y1,
                                   getattr(b, "angulo", 0), topk, geo))
@@ -146,68 +149,127 @@ def _referencia_mediana(geo):
     return x_topo, max(ys2[len(ys2) // 2] - x_topo, 1)
 
 
-def medir_varredura():
-    """A varredura que fecha a questão: desempatar não melhora."""
+#: As margens de cada âncora, e elas **não** estão na mesma escala.
+#:
+#: A margem é o mínimo que a substituta precisa valer para ser considerada. Na
+#: rede é probabilidade de softmax, e ela é peaked — a F14 mediu 0,9994 num
+#: acerto, então a segunda candidata vem com ~0,0005 e qualquer margem "redonda"
+#: fecha o filtro. Foi o erro de percurso da F19: a primeira varredura usou 0,02,
+#: o desambiguador tocou **1 box em 2.257**, e "não mudou nada" passou por "não
+#: tem sinal" quando era "o filtro estava fechado".
+#:
+#: No k-NN a escala é `1 - d/2000`, a mesma que roteia a cadeia, e ali os números
+#: redondos querem dizer alguma coisa: 0,30 é o `LEARNER_THRESHOLD_HIBRIDO`, o
+#: ponto em que a cadeia já confia no k-NN para responder sozinho.
+MARGENS = {"rede": (1e-6, 1e-4, 1e-3),
+           "knn": (0.0, 0.30, 0.50, 0.70)}
+
+
+def _ancora(caminho):
+    """`(nome, topk(recorte) -> [(char, peso)])` do classificador pedido."""
     from core.services.learning_service import LearningService
 
     servico = LearningService()
+    if caminho == "knn":
+        learner = servico._get_learner()
+        if learner.total == 0:
+            print("A base de referência está vazia.")
+            return None
+        print(f"k-NN com {learner.total} referências")
+        return "k-NN (argmin)", lambda crop: learner.candidatas(crop, n=5)
+
     if not servico.load_predictor():
         print("O modelo neural não carregou; a varredura precisa dele.")
+        return None
+    return "rede (argmax)", lambda crop: servico._predictor.predict_topk(crop, k=5)
+
+
+def medir_varredura(caminho="rede"):
+    """A varredura: desempatar as candidatas com a geometria melhora?"""
+    ancora = _ancora(caminho)
+    if ancora is None:
         return
-    amostras = _amostras_com_topk(servico._predictor)
+    rotulo, topk_de = ancora
+    amostras = _amostras_com_topk(topk_de)
+    if not amostras:
+        print("nenhuma amostra")
+        return
 
     n = len(amostras)
     base = sum(1 for v, _y, _a, tk, _g in amostras if normalizar(tk[0][0]) == v)
-    print(f"\n=== {n} caracteres ===")
-    print(f"rede como está hoje (argmax): {100 * base / n:.2f}%\n")
+    print(f"\n=== {n} caracteres, âncora {rotulo} ===")
+    print(f"como está hoje: {100 * base / n:.2f}%\n")
 
     referencias = (("faixa", _referencia_faixa, (0.17, 0.19, 0.21)),
                    ("mediana", _referencia_mediana, (-0.5, -0.3, -0.15, 0.0)))
-    melhor, quantas = (base, None), 0
-    for nome, referencia, cortes in referencias:
-        for corte in cortes:
-            for incerteza in (0.02, 0.05, 0.10):
-                for margem in (1e-6, 1e-4, 1e-3):
+
+    # **A coluna `tocou` não é decoração.** Sem ela, "não melhorou" não distingue
+    # "não há sinal" de "o filtro nunca disparou", que é o erro que a F19
+    # registrou. Uma linha com `tocou = 0` não mediu nada.
+    print(f"{'margem':>8} {'melhor':>8} {'delta':>7} {'tocou':>7} "
+          f"{'consertos':>10} {'quebras':>8}  config")
+    melhor_geral = (base, None)
+    quantas = 0
+    for margem in MARGENS[caminho]:
+        linha_melhor = None
+        for nome, referencia, cortes in referencias:
+            for corte in cortes:
+                for incerteza in (0.02, 0.05, 0.10):
                     quantas += 1
-                    ok = _acerto(amostras, referencia, corte, incerteza, margem)
-                    if ok > melhor[0]:
-                        melhor = (ok, (nome, corte, incerteza, margem))
+                    r = _avaliar(amostras, referencia, corte, incerteza, margem)
+                    if linha_melhor is None or r[0] > linha_melhor[0][0]:
+                        linha_melhor = (r, (nome, corte, incerteza))
+                    if r[0] > melhor_geral[0]:
+                        melhor_geral = (r[0], (nome, corte, incerteza, margem))
+        (ok, tocou, consertos, quebras), cfg = linha_melhor
+        print(f"{margem:>8} {100.0 * ok / n:>7.2f}% {100.0 * (ok - base) / n:>+6.2f} "
+              f"{tocou:>7} {consertos:>10} {quebras:>8}  {cfg}")
 
-    print(f"combinações varridas: {quantas}")
-    print(f"melhor: {100 * melhor[0] / n:.2f}% "
-          f"({100 * (melhor[0] - base) / n:+.2f} pontos)")
-    if melhor[1] is None:
-        print("\nNENHUMA supera o argmax. Ver `core/altura_relativa.py`: o sinal")
-        print("existe, mas uma base a 97% não tolera um canal lateral a 97% —")
-        print("os falsos positivos sobre os acertos superam os consertos.")
+    print(f"\ncombinações varridas: {quantas}")
+    if melhor_geral[1] is None:
+        print("NENHUMA supera a âncora. Ver `core/altura_relativa.py`: o sinal")
+        print("existe, e o que decide é a aritmética da precisão — os falsos")
+        print("positivos sobre os acertos superam os consertos.")
     else:
-        print(f"  config: {melhor[1]}")
+        print(f"melhor: {100 * melhor_geral[0] / n:.2f}% "
+              f"({100 * (melhor_geral[0] - base) / n:+.2f} pontos), "
+              f"config {melhor_geral[1]}")
 
 
-def _acerto(amostras, referencia, corte, incerteza, margem):
-    ok = 0
+def _avaliar(amostras, referencia, corte, incerteza, margem):
+    """`(acertos, tocou, consertos, quebras)` desta combinação."""
+    ok = tocou = consertos = quebras = 0
     for verdade, y1, angulo, topk, geo in amostras:
         ref, h = referencia(geo)
         t = (y1 - ref) / h if h > 0 else None
         medida = (None if (angulo or t is None or abs(t - corte) < incerteza)
                   else ("x" if t > corte else "alto"))
         troca = ar.desambiguar(topk, medida, margem)
-        if normalizar(troca[0] if troca else topk[0][0]) == verdade:
-            ok += 1
-    return ok
+        antes = normalizar(topk[0][0]) == verdade
+        depois = normalizar(troca[0]) == verdade if troca else antes
+        if troca:
+            tocou += 1
+            consertos += depois and not antes
+            quebras += antes and not depois
+        ok += depois
+    return ok, tocou, consertos, quebras
 
 
 def main():
     _console_em_utf8()
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--separacao", action="store_true",
-                   help="só a tabela de d'; não carrega a rede")
+                   help="só a tabela de d'; não carrega classificador nenhum")
+    p.add_argument("--knn", action="store_true",
+                   help="desempata as candidatas do k-NN em vez das da rede "
+                        "(F37); a separação é a mesma, ela não depende de "
+                        "quem classifica")
     args = p.parse_args()
 
     medir_separacao()
     if not args.separacao:
         print()
-        medir_varredura()
+        medir_varredura("knn" if args.knn else "rede")
     return 0
 
 

@@ -459,6 +459,42 @@ class CharacterLearner:
         return [(self._chars[i], float(np.sqrt(max(float(d2[i]), 0.0))))
                 for i in idx]
 
+    def candidatas(self, crop_np: np.ndarray,
+                   n: int = 5) -> List[Tuple[str, float]]:
+        """
+        As `n` **classes** mais próximas, `[(char, confiança)]`, da melhor à pior.
+
+        Não é `vizinhos` com outro nome. Aquele devolve as k amostras mais
+        próximas, e nesta base elas são quase sempre a **mesma** classe: 211
+        classes em 84 mil referências sobreviventes de uma dedup byte a byte, com
+        o vizinho mais próximo quase sempre um PNG quase igual. Foi essa a razão
+        de o voto da F24 medir pior. Quem quer desempatar precisa da segunda
+        *classe*, não da segunda amostra — a mesma distinção que
+        `margem_de_confianca` já fazia, ali para duas classes e aqui para `n`.
+
+        A confiança é a de `predict`, `1 - d/DISTANCIA_MAXIMA`, e não uma escala
+        nova: quem consumir isto compara com os limiares de produção sem
+        converter nada. Ordem por confiança é ordem por distância invertida, e
+        `candidatas(crop, 1)[0][0]` é o que `predict` responde.
+
+        **Nada em produção chama isto** — entrou na F37, para apontar o canal
+        geométrico da F19 ao k-NN.
+        """
+        if self.total == 0:
+            return []
+        d2 = self._quadrados_ate(crop_np)
+        # A melhor amostra de cada classe: ordenado por distância, a primeira
+        # ocorrência de cada `id` é a mais próxima daquela classe.
+        ordem = np.argsort(d2, kind="stable")
+        _classes, primeiro = np.unique(self._ids[ordem], return_index=True)
+        melhores = ordem[np.sort(primeiro)[:max(1, n)]]
+        saida = []
+        for i in melhores:
+            d = float(np.sqrt(max(float(d2[i]), 0.0)))
+            saida.append((self._chars[i],
+                          max(0.0, 1.0 - d / DISTANCIA_MAXIMA)))
+        return saida
+
     def predict(self, crop_np: np.ndarray,
                 threshold: float = DISTANCIA_MAXIMA) -> Tuple[str, float]:
         """
