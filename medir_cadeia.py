@@ -69,18 +69,14 @@ from ui import confidence as conf_ui
 from medir_paginas import MIN_ROTULADOS, paginas_rotuladas, segmentar
 from ui.main_window import (CONF_MAXIMA_PARA_A_LINHA,
                             CONF_MAXIMA_PARA_A_LINHA_HIBRIDO,
-                            LEARNER_THRESHOLD_HIBRIDO, NEURAL_THRESHOLD)
+                            LEARNER_THRESHOLD_HIBRIDO,
+                            LEARNER_THRESHOLD_NEURAL, NEURAL_THRESHOLD)
 
 
 #: As faixas da tabela de roteamento. Apertadas em cima de propósito: é lá que
 #: o k-NN vive. A base de referência foi colhida destes mesmos livros, então o
 #: vizinho mais próximo costuma ser quase o mesmo PNG e a confiança encosta em 1.
 FAIXAS = (0.0, 0.50, 0.70, 0.80, 0.85, 0.90, 0.95, 0.99, 1.01)
-
-#: O `learner_threshold` do caminho neural ainda mora dentro do `preparar` da
-#: ação, como literal, e por isso está copiado aqui. O do híbrido deixou de
-#: estar: virou `LEARNER_THRESHOLD_HIBRIDO` na F23, e é importado.
-LEARNER_NEURAL = 0.9
 
 #: As figurinas, para separar a causa da exclusão na tabela do alfabeto (F36).
 #: Sai do mapa da avaliação em vez de ser reescrita: é lá que a lista mora.
@@ -960,7 +956,8 @@ def main():
     args = ap.parse_args()
 
     caminho = "neural" if args.neural else "hibrido"
-    padrao_learner = LEARNER_NEURAL if args.neural else LEARNER_THRESHOLD_HIBRIDO
+    padrao_learner = (LEARNER_THRESHOLD_NEURAL if args.neural
+                      else LEARNER_THRESHOLD_HIBRIDO)
     if args.limiar is not None:
         padrao_learner = args.limiar
     padrao_trava = (CONF_MAXIMA_PARA_A_LINHA if args.neural
@@ -1076,16 +1073,23 @@ def main():
             for lt in limiares:
                 so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0,
                                   deslocam=deslocam)
-                # A trava acompanha o limiar: a razão do 0,30 de hoje é ser o
-                # mesmo número do `learner_threshold`, para a linha agir
-                # exatamente onde o k-NN se recusou (F21/F23). Movido um, o
-                # outro move junto.
-                com_linha = rodar(cadeia, paginas, caminho, lt, lt,
+                # **A trava acompanha o limiar só no híbrido**, e a distinção é
+                # a F39. Lá os dois são o mesmo número por desenho: a trava
+                # existe para a linha agir exatamente onde o k-NN se recusou, e
+                # `CONF_MAXIMA_PARA_A_LINHA_HIBRIDO` é literalmente
+                # `LEARNER_THRESHOLD_HIBRIDO` (F21/F23). No caminho neural são
+                # independentes — a trava é 0,70 e o limiar do k-NN é outro
+                # número —, e amarrá-los aqui punha na tabela uma configuração
+                # que produção nunca roda.
+                trava_do_ponto = lt if caminho == "hibrido" else padrao_trava
+                com_linha = rodar(cadeia, paginas, caminho, lt, trava_do_ponto,
                                   deslocam=deslocam)
                 linhas_da_tabela.append(
                     (f"{lt:.2f}", [acerto(so_ancora), acerto(com_linha)]))
+            coluna = ("com a linha" if caminho == "hibrido"
+                      else f"linha @{padrao_trava:.2f}")
             tabela_varredura(f"learner_threshold — {nome}",
-                             ["âncora", "com a linha"], linhas_da_tabela)
+                             ["âncora", coluna], linhas_da_tabela)
         cadeia.learner = original
 
     if args.rede is not None:

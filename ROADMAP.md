@@ -6585,6 +6585,92 @@ inteira em 1.328 confirma a resposta idêntica.
 
 ---
 
+## F39 — O último limiar sem tabela, no outro caminho — CONCLUÍDA, e ele cai para 0,30
+
+A F23 achou dois limiares que se justificavam um pelo outro e nenhum pela página, mediu, e
+o do k-NN no caminho híbrido caiu de 0,85 para 0,30. **O irmão dele no caminho neural ficou
+onde estava**: o literal `0.9`, escrito dentro do `preparar` de `generate_and_fill_neural`
+e de novo no do PDF pesquisável — duas cópias, sem nome e sem tabela. `medir_cadeia.py`
+mantinha uma terceira cópia (`LEARNER_NEURAL`) só para conseguir falar dele, com um
+comentário explicando que produção o deixava inline.
+
+### Medido, é o mesmo veredito
+
+10.504 caracteres em 10 páginas, 85.151 referências. A trava da linha fica presa em 0,70,
+que é onde produção a deixa — ver o defeito de instrumento mais abaixo:
+
+| limiar | âncora | com a linha (trava 0,70) |
+|---:|---:|---:|
+| 0,00 | 97,46% | 97,51% |
+| 0,10 | 97,46% | 97,50% |
+| 0,15 | 97,47% | 97,51% |
+| **0,20** | **97,48%** | **97,51%** |
+| 0,25 | 97,47% | 97,50% |
+| 0,30 | 97,44% | 97,50% |
+| 0,50 | 97,42% | 97,48% |
+| 0,70 | 97,32% | 97,43% |
+| 0,90 | 97,03% | 97,13% |
+
+**O 0,90 custava 0,38 ponto** — 40 caracteres. E a composição diz o mecanismo sem sobra:
+
+    fonte      boxes       %    acerto
+    neural     10.144   96,6%   98,12%
+    learner       165    1,6%   96,36%
+    easyocr       163    1,6%   46,01%
+
+Em 0,90 o k-NN respondia 165 boxes e acertava 96,4%; 163 caíam no EasyOCR, que acerta
+**46,0%**. Baixar o limiar move box do pior classificador para o melhor, e é só isso.
+
+### O 0,20 não é pico, é platô — e o número sai do mecanismo
+
+A primeira varredura foi de 0,20 para cima e a tabela ainda subia na borda, o que faria de
+0,20 um pico aparente. Varrida a região de baixo, **de 0,00 a 0,30 é platô**: seis linhas
+separadas por um caractere. Escolher pelo máximo aqui seria afinar contra o ruído, que é o
+que a F24 registrou ao recusar mover uma constante por três caracteres.
+
+O desempate vem da F35. A confiança é `1 - d/2000`, então o corte em distância é
+`2000·(1-t)`, e a tabela por distância diz onde o k-NN deixa de ganhar do EasyOCR: acima de
+~1.700.
+
+| limiar | corte em distância | região |
+|---:|---:|---|
+| 0,30 | 1.400 | dentro da faixa em que o k-NN ganha |
+| 0,15 | 1.700 | em cima da travessia |
+| 0,00 | 2.000 | inclui 1.700–2.000, onde o k-NN faz 24,4% contra 56,1% |
+
+Hoje essa faixa tem ~40 boxes e não move o total; numa base pior, move. **0,30 é o ponto do
+platô que só entrega ao k-NN o que ele demonstradamente ganha.**
+
+Que dê no mesmo número do híbrido é consequência e **não é a razão** — a F23 desmontou
+exatamente o raciocínio inverso. Haver uma constante a menos no projeto é desempate de
+terceira ordem, atrás da varredura e do mecanismo.
+
+### O defeito de instrumento que quase entrou na tabela
+
+A varredura do `learner_threshold` amarrava a trava da linha ao limiar em **todo** caminho:
+`rodar(cadeia, paginas, caminho, lt, lt)`. No híbrido isso é o desenho —
+`CONF_MAXIMA_PARA_A_LINHA_HIBRIDO` **é** `LEARNER_THRESHOLD_HIBRIDO`, para a linha agir
+exatamente onde o k-NN se recusou (F21/F23). No caminho neural os dois são independentes: a
+trava é 0,70 e o limiar é outro número. A coluna "com a linha" do neural mostrava, em cada
+ponto, uma configuração que produção nunca roda.
+
+Corrigido, com a distinção escrita no lugar em que alguém repetiria o erro. A primeira
+rodada desta fase saiu com a coluna errada; a decisão não dependia dela — a coluna "âncora"
+é limpa nos dois casos —, mas a tabela publicada é a refeita.
+
+### O que ficou
+
+`LEARNER_THRESHOLD_NEURAL = 0.30` em `ui/main_window.py`, com a tabela ao lado, substituindo
+as duas cópias do literal. `medir_cadeia.py` deixou de manter a terceira e passou a
+importar. Com isso **nenhum limiar de roteamento deste projeto continua sem tabela**: os
+dois do k-NN, o da rede, as duas travas da linha e o `DISTANCIA_MAXIMA` (F35) carregam a
+medição que os produziu e o comando que a refaz.
+
+Cobertura: nenhum teste novo — nenhum fixava o 0,9, o que por si só é o comentário sobre
+como ele estava. Suíte em 1.328.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

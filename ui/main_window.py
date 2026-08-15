@@ -174,6 +174,46 @@ CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = LEARNER_THRESHOLD_HIBRIDO
 #: Reproduzir: `python medir_cadeia.py --neural --rede 0.4 0.6 0.7 0.8 0.9`.
 NEURAL_THRESHOLD = 0.80
 
+#: Confiança mínima para o k-NN responder sozinho **no caminho com a rede**, e
+#: no PDF pesquisável, que usa a mesma cadeia.
+#:
+#: Era o literal `0.9` escrito dentro das duas ações, em duas cópias, e **sem
+#: tabela** — a última situação da F23 ainda de pé quando a F39 olhou. O irmão
+#: dele no híbrido era `0.85` pela mesma razão (ninguém tinha medido), a F23
+#: mediu e ele caiu para 0,30. Aqui a varredura deu o mesmo veredito.
+#:
+#: Medido em 10.504 caracteres das 10 páginas rotuladas, com a trava da linha
+#: presa em 0,70, que é onde produção a deixa (F39):
+#:
+#:     limiar   âncora   com a linha
+#:     0,00     97,46%        97,51%
+#:     0,15     97,47%        97,51%
+#:     0,20     97,48%        97,51%
+#:     0,30     97,44%        97,50%
+#:     0,50     97,42%        97,48%
+#:     0,70     97,32%        97,43%
+#:     0,90     97,03%        97,13%   <- era este
+#:
+#: **De 0,00 a 0,30 é platô** — um caractere separa as seis linhas —, e o 0,90
+#: custava 0,38 ponto, 40 caracteres. A composição diz o mecanismo: em 0,90 o
+#: k-NN respondia 165 boxes acertando 96,4% e 163 caíam no EasyOCR, que acerta
+#: **46,0%**. Baixar o limiar move box do pior classificador para o melhor.
+#:
+#: **Dentro do platô o número sai do mecanismo, e não do empate.** A confiança é
+#: `1 - d/2000`, então o corte em distância é `2000·(1-t)`; e a tabela por
+#: distância (F35) diz que o k-NN só perde do EasyOCR acima de ~1.700. Em 0,30 o
+#: corte cai em 1.400, dentro da região em que ele ganha; em 0,00 cai em 2.000, e
+#: aí ele também leva a faixa de 1.700–2.000, onde perde de 24,4% a 56,1%. Hoje
+#: isso são ~40 boxes e não move o total — numa base pior, move.
+#:
+#: Que dê no mesmo número do híbrido é consequência, **não é a razão**. A F23
+#: desmontou exatamente o raciocínio inverso: lá os dois limiares se
+#: justificavam um pelo outro e nenhum pela página.
+#:
+#: Reproduzir:
+#: `python medir_cadeia.py --neural --learner 0.0 0.15 0.2 0.3 0.5 0.7 0.9`.
+LEARNER_THRESHOLD_NEURAL = 0.30
+
 
 # Símbolos do "Key to symbols used" destes livros, por família. O agrupamento é o
 # da própria página do livro, e serve para achar o botão: numa fileira única de 23
@@ -1882,7 +1922,8 @@ class MainWindow(tk.Frame):
             def reconhecer(recorte):
                 char, _fonte, conf = self.ocr_service.fallback_chain(
                     recorte, predictor=predictor, learner=learner,
-                    neural_threshold=NEURAL_THRESHOLD, learner_threshold=0.9,
+                    neural_threshold=NEURAL_THRESHOLD,
+                    learner_threshold=LEARNER_THRESHOLD_NEURAL,
                 )
                 return char, conf
 
@@ -2218,7 +2259,8 @@ class MainWindow(tk.Frame):
                 char, fonte, c = self.ocr_service.fallback_chain(
                     justo, predictor=predictor, learner=learner,
                     contexto=contexto,
-                    neural_threshold=NEURAL_THRESHOLD, learner_threshold=0.9,
+                    neural_threshold=NEURAL_THRESHOLD,
+                    learner_threshold=LEARNER_THRESHOLD_NEURAL,
                 )
                 return (char, c, fonte)
             return ler_caractere
