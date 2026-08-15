@@ -134,18 +134,126 @@ def test_box_em_negativo_tira_a_linha_do_bloco():
     assert ldl.em_bloco(bs) is False
 
 
-def test_fora_do_alfabeto_tira_a_linha_do_bloco():
+def test_figurina_tira_a_linha_do_bloco():
     bs = _boxes("ab") + [BoxEntry("♗", 30, 10, 38, 30)]
-    assert ldl.em_bloco(bs, alfabeto="abcdefgh") is False
+    assert ldl.em_bloco(bs, ldl.GLIFOS_QUE_DESLOCAM) is False
 
 
-def test_sem_alfabeto_nao_filtra():
-    """
-    Num preenchimento os boxes ainda não têm caractere, então o filtro não tem
-    o que olhar. Medido, a linha aguenta: 89,5% sem filtro contra 91,7% com.
-    """
+def test_sem_lista_nao_filtra():
+    """`None` é "sem filtro", e continua sendo — é o padrão do módulo."""
     bs = _boxes("ab") + [BoxEntry("♗", 30, 10, 38, 30)]
-    assert ldl.em_bloco(bs, alfabeto=None) is True
+    assert ldl.em_bloco(bs, deslocam=None) is True
+
+
+# ----------------------------------------------------------------------
+# F36 — o filtro que ninguém alimentava, e o que ele deve pegar
+# ----------------------------------------------------------------------
+
+def test_o_box_vazio_nao_engana_mais_o_filtro():
+    """
+    O furo da F36, no menor caso que o mostra.
+
+    Numa ação «Detectar e Preencher» os boxes acabaram de ser gerados e
+    `b.char` está vazio em todos. Olhando o box, o filtro não vê figurina
+    nenhuma e manda a linha para o bloco; olhando a **leitura da âncora**, vê.
+    """
+    bs = _boxes("   ")                      # três boxes sem caractere
+    for b in bs:
+        b.char = ""
+
+    assert ldl.em_bloco(bs, ldl.GLIFOS_QUE_DESLOCAM) is True
+    assert ldl.em_bloco(bs, ldl.GLIFOS_QUE_DESLOCAM,
+                        ["♗", "e", "4"]) is False
+
+
+def test_ligadura_na_ancora_tira_a_linha_do_bloco():
+    """
+    A cadeia neural emite `fi` num box só (SPEC §5.2), e a linha o lê como
+    dois. A ligadura entra pelo **comprimento**, e não pela lista: `fi` é feito
+    de duas letras que estão no alfabeto do EasyOCR, e mesmo assim desloca.
+    """
+    bs = _boxes("abc")
+    assert ldl.em_bloco(bs, ldl.GLIFOS_QUE_DESLOCAM, ["a", "fi", "c"]) is False
+
+
+def test_simbolo_de_avaliacao_nao_tira_a_linha_do_bloco():
+    """
+    O que a F36 mediu e corrigiu: `±` está **fora** do alfabeto do
+    `english_g2` e mesmo assim não desloca nada — sai como um caractere errado
+    numa casa certa, que é o erro comum. Filtrar pelo alfabeto tirava metade das
+    linhas do modo bloco por causa disto, e custava um caractere.
+    """
+    assert "±" not in ldl.ALFABETO_EASYOCR
+    bs = _boxes("abc")
+    assert ldl.em_bloco(bs, ldl.GLIFOS_QUE_DESLOCAM,
+                        ["a", "±", "c"]) is True
+
+
+def test_o_alfabeto_e_o_do_easyocr():
+    """
+    A cópia literal contra a biblioteca. `ALFABETO_EASYOCR` não está em
+    produção — é o filtro largo que a F36 mediu e devolveu —, e fica pelo mesmo
+    motivo que `margem_de_confianca` ficou na F24: sem ele o instrumento não
+    reproduz a tabela que decidiu. Uma cópia sem conferência envelhece calada.
+    """
+    config = pytest.importorskip("easyocr.config")
+    do_modelo = config.recognition_models["gen2"]["english_g2"]["characters"]
+    assert set(ldl.ALFABETO_EASYOCR) == set(do_modelo)
+
+
+def test_a_linha_com_figurina_nao_e_lida_em_bloco():
+    """De ponta a ponta: a faixa não chega a ser lida, e a âncora sobrevive."""
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("xyz")
+    tabela = {"x": ("♗", 0.9), "y": ("e", 0.9), "z": ("4", 0.9)}
+
+    chamadas = []
+
+    def ler_faixa(tira):
+        chamadas.append(tira)
+        return "Be4", 0.95
+
+    saida = ldl.ler_pagina(pagina, [linha], ler_faixa=ler_faixa,
+                           ler_caractere=_ler_char_falso(tabela),
+                           deslocam=ldl.GLIFOS_QUE_DESLOCAM)
+
+    assert chamadas == [], "leu a faixa de uma linha que tem figurina"
+    assert [ch for _b, ch, _c, _f in saida] == ["♗", "e", "4"]
+
+
+def test_sem_o_filtro_a_mesma_linha_perde_a_figurina():
+    """O outro lado do teste acima: é isto que acontecia até a F36."""
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("xyz")
+    tabela = {"x": ("♗", 0.9), "y": ("e", 0.9), "z": ("4", 0.9)}
+
+    saida = ldl.ler_pagina(pagina, [linha], ler_faixa=lambda t: ("Be4", 0.95),
+                           ler_caractere=_ler_char_falso(tabela))
+
+    assert [ch for _b, ch, _c, _f in saida] == ["B", "e", "4"]
+
+
+def test_nenhum_caminho_de_producao_filtra_a_linha():
+    """
+    **Nada em produção passa `deslocam`, e é de propósito** — mesma forma que a
+    F24 deu ao `voto` e à `margem_de_confianca`.
+
+    O filtro foi alimentado, medido nos dois caminhos e desligado: no neural ele
+    quebra 6 caracteres para consertar 1. O teste existe porque a leitura óbvia
+    do código é a oposta — o parâmetro está ali, a lista está ali, e ligá-los
+    parece um esquecimento. Conferido na fonte porque instanciar a janela traria
+    o Tk junto.
+    """
+    import inspect
+
+    from core.searchable_pdf import _ler_boxes
+    from ui.main_window import MainWindow
+
+    acao = inspect.getsource(MainWindow._preencher_por_linha)
+    assert "deslocam=" not in acao, "a ação voltou a filtrar a linha (ver F36)"
+
+    pdf = inspect.getsource(_ler_boxes)
+    assert "GLIFOS_QUE_DESLOCAM" not in pdf, "o PDF voltou a filtrar (ver F36)"
 
 
 # ----------------------------------------------------------------------

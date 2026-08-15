@@ -60,7 +60,8 @@ from PIL import Image
 from core import learner as core_learner
 from core import leitura_de_linha as ldl
 from core import vertical
-from core.avaliacao_pagina import carregar_box, comparar, normalizar
+from core.avaliacao_pagina import (EQUIVALENTES, carregar_box, comparar,
+                                   normalizar)
 from core.services.box_service import faixas_de_linha
 from core.services.learning_service import LearningService
 from core.services.ocr_service import OCRService
@@ -80,6 +81,10 @@ FAIXAS = (0.0, 0.50, 0.70, 0.80, 0.85, 0.90, 0.95, 0.99, 1.01)
 #: ação, como literal, e por isso está copiado aqui. O do híbrido deixou de
 #: estar: virou `LEARNER_THRESHOLD_HIBRIDO` na F23, e é importado.
 LEARNER_NEURAL = 0.9
+
+#: As figurinas, para separar a causa da exclusão na tabela do alfabeto (F36).
+#: Sai do mapa da avaliação em vez de ser reescrita: é lá que a lista mora.
+FIGURINAS = frozenset(EQUIVALENTES)
 
 
 def _console_em_utf8():
@@ -350,7 +355,7 @@ class Cadeia:
 
 
 def rodar(cadeia, paginas, caminho, learner_threshold, trava,
-          neural_threshold=None, alfabeto=None):
+          neural_threshold=None, deslocam=None):
     """
     `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
 
@@ -358,7 +363,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
     linha não encosta em nada" — toda confiança é >= 0, então todo box fica
     travado e o resultado é idêntico a não ler linha nenhuma.
 
-    `alfabeto` é o filtro da F36, e o padrão `None` reproduz o que a ação fazia
+    `deslocam` é o filtro da F36, e o padrão `None` reproduz o que a ação fazia
     antes dela — que é o que as tabelas da F18 à F35 mediram.
     """
     saida = []
@@ -368,7 +373,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
             ler_faixa=cadeia.ocr.easyocr_linha_conf,
             ler_caractere=cadeia.leitor(p, caminho, learner_threshold,
                                         neural_threshold),
-            alfabeto=alfabeto,
+            deslocam=deslocam,
             conf_maxima_para_trocar=trava,
         )
         for b, char, conf, fonte in lidos:
@@ -743,32 +748,65 @@ def tabela_linha(sem_linha, com_linha):
         print(f"Saldo: {consertos - quebras:+d} caractere(s).")
 
 
+class _ForaDoAlfabeto:
+    """
+    `ch in isto` é "o `english_g2` não escreve `ch`" — o filtro **largo** da F36.
+
+    Existe para `em_bloco` ter uma polaridade só: ele pergunta "este glifo
+    desloca?", e o filtro largo responde por complemento. Sem isto o parâmetro
+    teria de aceitar as duas leituras, que é como se escreve um `if` invertido
+    seis meses depois.
+    """
+
+    def __init__(self, alfabeto):
+        self._alfabeto = set(alfabeto)
+
+    def __contains__(self, ch):
+        return bool(ch) and ch not in self._alfabeto
+
+
 def tabela_alfabeto(cadeia, paginas, caminho, learner_threshold, trava):
     """
-    O filtro de alfabeto ligado e desligado, nos mesmos boxes (F36).
+    Os dois filtros contra nenhum, nos mesmos boxes (F36).
 
-    O filtro tira do modo bloco a linha cuja **âncora** leu algo que o
-    `english_g2` não sabe escrever — figurina e ligadura. A linha que sai do
-    bloco não fica sem leitura: cai no modo por caractere, que é a âncora
-    sozinha.
+    O filtro tira do modo bloco a linha cuja **âncora** leu um glifo que o
+    reconhecedor de linha não escreve casa a casa. A linha que sai do bloco não
+    fica sem leitura: cai no modo por caractere, que é a âncora sozinha.
 
-    As duas contas que importam não são a mesma:
+    **São dois filtros e não um, e a diferença entre eles é a fase inteira.**
 
-    - **quantas linhas o filtro tira**, que diz se ele encosta em alguma coisa —
-      o cabeçalho da F17 estima 19% das linhas, e essa estimativa é de uma
-      contagem de rótulo, não da âncora;
+    - **largo** — tudo que está fora do alfabeto do `english_g2`. Foi a primeira
+      tentativa, e é o que o cabeçalho da F17 sugere ao falar em "alfabeto".
+    - **estreito** — só o que gasta um número de casas diferente de um: figurina
+      e ligadura. Um `±` ou uma aspa curva estão fora do alfabeto e saem como
+      **um** caractere errado, que é o erro comum — o alinhamento absorve e a
+      trava filtra.
+
+    As três contas que decidem:
+
+    - **quantas linhas cada um tira**, com a causa separada. A F17 estimou 19%
+      das linhas por causa de figurina; o que passar muito disso é o filtro
+      pegando outra coisa;
     - **o saldo em caracteres**, separado em melhorou e piorou. Um filtro que
-      acerta 30 e erra 28 tem saldo 2 e não é o mesmo que um que acerta 2 e não
-      erra nenhum, e a coluna do meio é a que distingue os dois.
+      conserta 30 e quebra 28 tem saldo 2 e não é o mesmo que um que conserta 2
+      e não quebra nenhum;
+    - **o acerto**, que é o que decide, mas só depois das duas de cima — em
+      10.484 caracteres, um ponto decimal é uma dúzia de casos.
     """
-    com = rodar(cadeia, paginas, caminho, learner_threshold, trava,
-                alfabeto=ldl.ALFABETO_EASYOCR)
-    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
-                alfabeto=None)
+    largo = _ForaDoAlfabeto(ldl.ALFABETO_EASYOCR)
+    estreito = ldl.GLIFOS_QUE_DESLOCAM
+    filtros = [("sem filtro", None), ("estreito (F36)", estreito),
+               ("largo (alfabeto)", largo)]
+
+    corridas = {nome: rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                            deslocam=d)
+                for nome, d in filtros}
 
     # As linhas, contadas sobre a mesma âncora que a cadeia leu. Tudo aqui já
     # está memorizado pelo aquecimento, então a contagem não custa consulta.
-    dentro = fora = 0
+    dentro = 0
+    fora = {nome: 0 for nome, _d in filtros[1:]}
+    causas = {"ligadura": 0, "figurina": 0, "outro símbolo": 0}
     for p in paginas:
         leitor = cadeia.leitor(p, caminho, learner_threshold)
         for uma in p.linhas:
@@ -776,30 +814,52 @@ def tabela_alfabeto(cadeia, paginas, caminho, learner_threshold, trava):
             if not ldl.em_bloco(uma, None, chars):
                 continue
             dentro += 1
-            if not ldl.em_bloco(uma, ldl.ALFABETO_EASYOCR, chars):
-                fora += 1
+            for nome, d in filtros[1:]:
+                if not ldl.em_bloco(uma, d, chars):
+                    fora[nome] += 1
+            if ldl.em_bloco(uma, largo, chars):
+                continue
+            # A causa é do **largo**, que é o que tira mais: é a decomposição
+            # dele que mostra o que o estreito deixa de tirar, e por quê.
+            culpados = [c for c in chars if c and (len(c) > 1 or c in largo)]
+            if any(len(c) > 1 for c in culpados):
+                causas["ligadura"] += 1
+            elif any(c in FIGURINAS for c in culpados):
+                causas["figurina"] += 1
+            else:
+                causas["outro símbolo"] += 1
 
-    melhorou = piorou = mudou = 0
-    for a, b in zip(sem, com):
-        if a[2] == b[2]:
-            continue
-        mudou += 1
-        antes = normalizar(a[2]) == normalizar(a[3])
-        depois = normalizar(b[2]) == normalizar(b[3])
-        if depois and not antes:
-            melhorou += 1
-        elif antes and not depois:
-            piorou += 1
+    print("\n--- Os filtros da F36 ---")
+    print(f"linhas lidas em bloco, sem filtro{'':<6}{dentro:>8}")
+    for nome, _d in filtros[1:]:
+        pct = 100.0 * fora[nome] / dentro if dentro else 0.0
+        print(f"  que o {nome:<26}tira{fora[nome]:>8}   ({pct:.1f}%)")
+    print("a causa da exclusão, no largo:")
+    for causa, n in causas.items():
+        print(f"    {causa:<20}{n:>8}")
 
-    print(f"\n--- O filtro de alfabeto (F36) ---")
-    print(f"linhas lidas em bloco{'':<8}{dentro:>8}")
-    print(f"  que o filtro tira{'':<11}{fora:>8}"
-          f"   ({100.0 * fora / dentro if dentro else 0.0:.1f}%)")
-    print(f"caracteres que mudaram{'':<7}{mudou:>8}"
-          f"   ({melhorou} melhoraram, {piorou} pioraram)")
-    tabela_varredura("com e sem o filtro", ["acerto"],
-                     [("sem (até a F35)", [acerto(sem)]),
-                      ("com (F36)", [acerto(com)])])
+    base = corridas["sem filtro"]
+    linhas_da_tabela = []
+    for nome, _d in filtros:
+        r = corridas[nome]
+        melhorou = piorou = mudou = 0
+        for a, b in zip(base, r):
+            if a[2] == b[2]:
+                continue
+            mudou += 1
+            antes = normalizar(a[2]) == normalizar(a[3])
+            depois = normalizar(b[2]) == normalizar(b[3])
+            if depois and not antes:
+                melhorou += 1
+            elif antes and not depois:
+                piorou += 1
+        trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
+        linhas_da_tabela.append(
+            (nome, [acerto(r), trocados, mudou, melhorou, piorou]))
+    tabela_varredura(
+        "o filtro da linha (F36), contra a corrida sem filtro",
+        ["acerto", "trocados", "mudaram", "consertos", "quebras"],
+        linhas_da_tabela)
 
 
 def tabela_varredura(titulo, colunas, linhas_da_tabela):
@@ -845,11 +905,12 @@ def main():
                     help="varre o DISTANCIA_MAXIMA do k-NN (F35), recontando a "
                          "confiança a partir da distância já medida")
     ap.add_argument("--alfabeto", action="store_true",
-                    help="mede o filtro de alfabeto da F36 ligado contra "
-                         "desligado, nos mesmos boxes")
-    ap.add_argument("--sem-alfabeto", action="store_true",
-                    help="desliga o filtro da F36 em todas as tabelas — é como "
-                         "se reproduz uma tabela da F18 à F35")
+                    help="mede os dois filtros da linha (F36) contra nenhum, "
+                         "nos mesmos boxes: o estreito de produção e o largo "
+                         "que foi tentado antes dele")
+    ap.add_argument("--com-filtro", action="store_true",
+                    help="liga o filtro de glifo da F36 em todas as tabelas; "
+                         "produção não o passa, então o padrão é sem")
     ap.add_argument("--combinada", action="store_true",
                     help="varre o roteamento com min(absoluta, margem) **e** com "
                          "a de produção, no mesmo processo e na mesma base — a "
@@ -924,14 +985,14 @@ def main():
         tabela_do_knn(aquecidos, verdade)
         return 0
 
-    # O padrão espelha produção, que desde a F36 passa o alfabeto. `--sem-alfabeto`
-    # volta ao que a ação fazia antes, que é a base de comparação das tabelas
-    # anteriores.
-    alfabeto = None if args.sem_alfabeto else ldl.ALFABETO_EASYOCR
+    # O padrão espelha produção, que **não** passa filtro — a F36 mediu e
+    # desligou. `--com-filtro` liga em todas as tabelas, para quem quiser ver o
+    # efeito dele em outra coluna que não a do `--alfabeto`.
+    deslocam = ldl.GLIFOS_QUE_DESLOCAM if args.com_filtro else None
     producao = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava,
-                     alfabeto=alfabeto)
+                     deslocam=deslocam)
     ancora = rodar(cadeia, paginas, caminho, padrao_learner, 0.0,
-                   alfabeto=alfabeto)
+                   deslocam=deslocam)
 
     print(f"\nComo está em produção "
           f"(learner_threshold {padrao_learner}, trava {padrao_trava}): "
@@ -966,13 +1027,13 @@ def main():
             linhas_da_tabela = []
             for lt in limiares:
                 so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0,
-                                  alfabeto=alfabeto)
+                                  deslocam=deslocam)
                 # A trava acompanha o limiar: a razão do 0,30 de hoje é ser o
                 # mesmo número do `learner_threshold`, para a linha agir
                 # exatamente onde o k-NN se recusou (F21/F23). Movido um, o
                 # outro move junto.
                 com_linha = rodar(cadeia, paginas, caminho, lt, lt,
-                                  alfabeto=alfabeto)
+                                  deslocam=deslocam)
                 linhas_da_tabela.append(
                     (f"{lt:.2f}", [acerto(so_ancora), acerto(com_linha)]))
             tabela_varredura(f"learner_threshold — {nome}",
@@ -992,7 +1053,7 @@ def main():
             for nt in (args.rede or [0.4, 0.6, 0.7, 0.8, 0.9]):
                 r = rodar(cadeia, paginas, caminho, padrao_learner,
                           padrao_trava, neural_threshold=nt,
-                          alfabeto=alfabeto)
+                          deslocam=deslocam)
                 conta = {}
                 for reg in r:
                     conta[reg[0]] = conta.get(reg[0], 0) + 1
@@ -1011,7 +1072,7 @@ def main():
             memo = cadeia.learner
             cadeia.learner = _MemoComDistancia(memo, D)
             r = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava,
-                      alfabeto=alfabeto)
+                      deslocam=deslocam)
             cadeia.learner = memo
             conta = {}
             for reg in r:
@@ -1031,7 +1092,7 @@ def main():
         linhas_da_tabela = []
         for rotulo, t in valores:
             r = rodar(cadeia, paginas, caminho, padrao_learner, t,
-                      alfabeto=alfabeto)
+                      deslocam=deslocam)
             trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
             linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
         tabela_varredura("trava da leitura por linha (F18)",

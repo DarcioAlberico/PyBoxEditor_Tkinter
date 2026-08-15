@@ -170,6 +170,10 @@ def _ler_boxes(img, boxes, reconhecer, ler_linha, conf_linha_maxima, resumo):
             continue
 
         texto = ""
+        # Sem filtro de glifo, como o outro laço e pela mesma razão medida na
+        # F36 — ver `leitura_de_linha.em_bloco`. Se um dia voltar, o que ele tem
+        # de olhar é a leitura da cadeia (`lidos`) e não `b.char`, que aqui está
+        # vazio: o box acabou de sair da segmentação da página do PDF.
         if ldl.em_bloco([b for b, _c, _f in lidos]):
             faixa = ldl.faixa_da_linha(img, [b for b, _c, _f in lidos])
             if faixa is not None:

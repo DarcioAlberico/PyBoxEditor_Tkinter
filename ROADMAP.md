@@ -6307,6 +6307,121 @@ distância crua. Reproduzir:
 
 ---
 
+## F36 — O filtro de glifo que ninguém alimentava — MEDIDO, e ele custa
+
+A F17 escreveu no cabeçalho do módulo que a linha com figurina (♗, ♘) ou ligadura fica de
+fora do modo bloco, e como: "o módulo não sabe disso sozinho: quem chama informa por
+`alfabeto`". **Ninguém informava.** As três ações de preenchimento chamavam `ler_pagina`
+sem o parâmetro, e o laço do PDF pesquisável chamava `em_bloco` sem ele. A exclusão estava
+escrita, testada e morta — a mesma forma do `aviso` da F26.
+
+E passar o parâmetro não teria resolvido. `em_bloco` olhava `b.char`, e numa ação «Detectar
+e Preencher» isso está vazio em **todos** os boxes: a ação acabou de gerá-los e ainda não
+leu nada. Quem sabe o que a linha tem é a leitura da âncora, que o `ler_pagina` calcula
+três linhas antes de decidir e jogava fora. Consertado o contrato, dava para medir.
+
+### Alimentado, o filtro mede pior — nos dois caminhos
+
+10.514 caracteres em 10 páginas rotuladas, 84.741 referências. As três corridas de cada
+tabela saem do **mesmo processo e da mesma base** — o cuidado que a F24 aprendeu à força —,
+e "consertos" e "quebras" são contra a corrida sem filtro, caractere a caractere. As 441
+linhas são as que chegam a ser lidas em bloco, já descontados girado, negativo e linha de
+um box só.
+
+**Caminho híbrido** (`medir_cadeia.py --alfabeto`), trava em 0,30:
+
+| filtro | linhas tiradas | acerto | trocados pela linha | consertos | quebras |
+|---|---:|---:|---:|---:|---:|
+| nenhum | 0 | **97,65%** | 10 | — | — |
+| estreito (figurina + ligadura) | 207 de 441 (46,9%) | 97,64% | 3 | 0 | 1 |
+| largo (fora do alfabeto) | 224 de 441 (50,8%) | 97,64% | 3 | 0 | 1 |
+
+A causa da exclusão, no largo: **188 figurina, 19 ligadura, 17 outro símbolo**.
+
+**Caminho neural** (`--neural --alfabeto`), trava em 0,70:
+
+| filtro | linhas tiradas | acerto | trocados pela linha | consertos | quebras |
+|---|---:|---:|---:|---:|---:|
+| nenhum | 0 | **97,58%** | 24 | — | — |
+| estreito (figurina + ligadura) | 236 de 441 (53,5%) | 97,54% | 10 | 1 | 6 |
+| largo (fora do alfabeto) | 246 de 441 (55,8%) | 97,53% | 9 | 1 | 7 |
+
+A causa da exclusão, no largo: **172 figurina, 64 ligadura, 10 outro símbolo**.
+
+No híbrido é empate técnico com uma quebra, e a coluna que explica é `trocados`: com a
+trava em 0,30 a linha encosta em **10 boxes de 10.514**, então qualquer filtro sobre ela
+mede quase nada. O neural é onde a pergunta tem resposta — a trava em 0,70 deixa a linha
+agir em 24 boxes, e ali o filtro **quebra 6 para consertar 1**. As duas tabelas concordam
+no sinal; a segunda tem tamanho para ser lida.
+
+### O motivo: o `_alinhar` já absorvia o deslocamento
+
+A hipótese da F17 é explícita: um glifo fora do alfabeto faz a linha "ler outra coisa no
+lugar dele — o que desloca o alinhamento em vez de errar um caractere só". **Ele desloca, e
+o deslocamento não sobrevive: o `_alinhar` absorve.**
+
+É para isso que a distância de edição entrou na F17. O desvio mais comum já era a linha
+trazer caractere **a mais** que boxes — +1 em 34 das 275 linhas medidas, +2 em 29 —, e um
+glifo que o reconhecedor troca por duas letras é exatamente esse caso. A F17 mediu o
+remédio e o instalou; a mesma F17 escreveu a seção que diz que o remédio não basta. As duas
+coisas não foram confrontadas até aqui.
+
+O que o filtro faz de fato é jogar fora as correções do **resto** da linha. Uma linha de
+notação tem uma figurina e dez outros caracteres, e são esses dez que a leitura por linha
+conserta.
+
+### O estreito também não salva, e ele existia por um argumento correto
+
+A primeira tentativa foi o filtro largo — tudo fora dos 96 caracteres do `english_g2`. Ele
+tira metade das linhas, o que parecia largo demais: `±`, `½`, travessão e aspa curva também
+estão fora do alfabeto, e saem do reconhecedor como **um** caractere errado numa casa
+certa, que é o erro comum e não deslocamento. Daí o estreito: só o que gasta um número de
+casas diferente de um, com a ligadura entrando por `len(char) > 1` — `fi` é feito de duas
+letras que estão no alfabeto e mesmo assim desloca.
+
+O argumento está certo e **não é o que movia o número.** As linhas de causa nas duas tabelas
+acima dizem por quê: no híbrido os `±` explicam **17 de 224** exclusões, e no neural **10 de
+246**. O que enche o filtro é figurina, e essa o estreito tira igual. Todo o refinamento
+valeu 17 linhas no híbrido, 10 no neural, e um caractere de acerto.
+
+### Quase metade das linhas, e não 19%
+
+A F17 estimou 19% das linhas com glifo fora do alfabeto. Medido pela âncora, são **46,9%**
+no híbrido e **53,5%** no neural, das 441 que chegam a ser lidas em bloco. A estimativa
+antiga era de contagem de rótulo; esta é do que a cadeia lê, que é o que o filtro veria.
+
+Isto muda o tamanho da aposta e não o sinal dela: filtrar metade das linhas seria a maior
+mudança de comportamento desta série, e ela custa.
+
+### O que ficou
+
+Produção voltou ao que era — nenhum caminho passa filtro de glifo. Ficaram:
+
+- **`em_bloco(linha, deslocam, chars)`** — o `chars` é o conserto do contrato, e fica
+  mesmo com o filtro desligado: sem ele não há como medir o filtro, e a próxima pessoa a
+  tentar o caminho cairia no mesmo `b.char` vazio. A polaridade é uma só ("este glifo
+  desloca?"); o complemento do alfabeto é `_ForaDoAlfabeto` no instrumento, e não um `not
+  in` escondido dentro do `if`.
+- **`GLIFOS_QUE_DESLOCAM` e `ALFABETO_EASYOCR`** — os dois filtros, com a tabela no
+  docstring e nenhum chamador em produção. Mesma decisão que a F19 tomou com
+  `core/altura_relativa.py` e a F24 com `voto` e `margem_de_confianca`.
+- No instrumento: `--alfabeto` mede os três de uma vez com a causa da exclusão decomposta,
+  e `--com-filtro` liga o filtro nas outras tabelas.
+
+**O cabeçalho do módulo mentia, e essa é a correção que sobra.** A seção "o que fica de
+fora" listava a linha com figurina há dezenove fases; agora ela lista só girado e negativo,
+e diz por que a figurina não está lá.
+
+Cobertura: `tests/test_f17_leitura_de_linha.py`, 43 testes. O que muda de sentido fica
+registrado: `test_fora_do_alfabeto_tira_a_linha_do_bloco` virou
+`test_figurina_tira_a_linha_do_bloco`, e `test_sem_alfabeto_nao_filtra` perdeu um docstring
+que explicava o furo como se fosse desenho ("num preenchimento os boxes ainda não têm
+caractere, então o filtro não tem o que olhar"). O teste que guarda a decisão é
+`test_nenhum_caminho_de_producao_filtra_a_linha`: ele existe porque a leitura óbvia do
+código é a oposta — o parâmetro está ali, a lista está ali, e ligá-los parece esquecimento.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

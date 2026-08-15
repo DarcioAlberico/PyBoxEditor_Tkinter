@@ -51,16 +51,20 @@ concentra (ver F17 no ROADMAP).
 
 ## O que fica de fora, e volta para o modo por caractere
 
-- **Linha com glifo fora do alfabeto do EasyOCR** — figurinha (♗, ♘) e ligadura.
-  São 19% das linhas, e são as de notação, que é o coração do livro; ali a rede
-  própria já vai bem. O módulo não sabe disso sozinho: quem chama informa por
-  `alfabeto`.
 - **Linha com box girado (F8.1) ou em negativo (F10)** — a faixa da linha deixa
   de ser um retângulo em pé na página, e endireitar a faixa inteira é outro
   problema. Uma linha assim não é lida em bloco.
+
+E só. **A linha com figurina (♗, ♘) ou ligadura não fica de fora**, embora esta
+seção tenha dito por muito tempo que ficava: o filtro estava escrito e ninguém o
+alimentava, e a F36 o alimentou, mediu e desligou. A razão está em `em_bloco` e
+é a mesma que justifica o alinhamento: um glifo que o reconhecedor troca por
+duas letras é o caso `+1` que o `_alinhar` já absorvia desde a F17. Quase metade
+das linhas destes livros carrega figurina — filtrá-las custa as correções do
+resto de cada uma.
 """
 
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import (Callable, Container, List, Optional, Sequence, Tuple)
 
 import numpy as np
 
@@ -74,6 +78,35 @@ MARCA_DE_VAZIO = "\x00"
 #: Margem branca em volta da faixa. O reconhecedor foi treinado em recorte com
 #: folga; colar no glifo da ponta corta traço.
 MARGEM = 8
+
+#: Os glifos que o reconhecedor de linha não escreve casa a casa (F36).
+#:
+#: **O critério não é "o EasyOCR sabe escrever", é "o EasyOCR gasta uma casa".**
+#: Quem poderia quebrar o alinhamento é o glifo que sai do reconhecedor com um
+#: número de caracteres diferente de um: a figurina, que ele não tem no alfabeto
+#: e troca por nada ou por duas letras, e a ligadura, que ocupa uma casa da
+#: âncora e duas da linha. Um `±` ou uma aspa curva também estão fora do
+#: alfabeto dele e **não** entram aqui: saem como um caractere errado numa casa
+#: certa, que é o erro comum.
+#:
+#: A ligadura não está nesta lista porque não é um glifo e sim um comprimento —
+#: `em_bloco` a reconhece por `len(char) > 1`.
+#:
+#: **Nada em produção passa isto**, e a F36 mediu que tem de ser assim — ver a
+#: tabela em `em_bloco`.
+GLIFOS_QUE_DESLOCAM = frozenset("♔♕♖♗♘♙♚♛♜♝♞♟")
+
+#: O que o `english_g2` sabe escrever: os 96 caracteres em que ele foi treinado,
+#: copiados de `easyocr.config`
+#: (`recognition_models["gen2"]["english_g2"]["characters"]`).
+#:
+#: É o filtro **largo**, o primeiro que a F36 tentou, e mede igual ou pior que o
+#: estreito nos dois caminhos. Fica porque sem ele `medir_cadeia.py --alfabeto`
+#: não reproduz a comparação que decidiu, e `test_o_alfabeto_e_o_do_easyocr`
+#: confere a cópia contra a biblioteca.
+ALFABETO_EASYOCR = (
+    "0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ €"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
 
 def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
@@ -135,21 +168,52 @@ def faixa_da_linha(pagina: np.ndarray,
     return np.pad(tira, pad, mode="constant", constant_values=255)
 
 
-def em_bloco(linha: Sequence[BoxEntry], alfabeto: Optional[str] = None) -> bool:
+def em_bloco(linha: Sequence[BoxEntry],
+             deslocam: Optional[Container[str]] = None,
+             chars: Optional[Sequence[str]] = None) -> bool:
     """
     A linha pode ser lida de uma vez?
 
-    Ver o cabeçalho do módulo: girado e negativo não têm faixa retangular em pé,
-    e glifo fora do alfabeto do reconhecedor faz a linha ler outra coisa no
-    lugar dele — o que desloca o alinhamento em vez de errar um caractere só.
+    Girado e negativo não têm faixa retangular em pé, e por isso ficam de fora
+    sempre. **`deslocam` fica de fora do filtro em produção**, e o resto deste
+    texto é o porquê — ele foi medido na F36, e não passa.
+
+    **`chars` é a leitura da âncora**, um item por box e na ordem de `linha`. Sem
+    ela sobra `b.char`, que é o que já estava gravado no box — e nas ações
+    «Detectar e Preencher» isso é sempre vazio, porque a ação acabou de gerar os
+    boxes e ainda não leu nada. Era esse o furo que a F36 foi consertar: o filtro
+    existia desde a F17, ninguém o alimentava, e passar a lista sozinha **não o
+    teria acordado**. A leitura, essa existe — o `ler_pagina` a calcula antes de
+    decidir, e o `searchable_pdf` também.
+
+    **E, alimentado, ele custa.** Medido em 10.484 caracteres de 10 páginas,
+    contra a mesma corrida sem filtro (`medir_cadeia.py --alfabeto`):
+
+        filtro                    linhas tiradas   híbrido   neural   quebras
+        nenhum                                 0    97,65%   97,58%         0
+        estreito (figurina+ligadura)  207 de 441    97,64%   97,54%       1/6
+        largo (fora do alfabeto)      224 de 441    97,64%   97,53%       1/7
+
+    A hipótese era que a figurina desloca o alinhamento da linha inteira. **Ela
+    não desloca: o `_alinhar` absorve.** É para isso que a distância de edição
+    entrou na F17 — o desvio mais comum já era a linha trazer caractere a mais
+    (+1 em 34 linhas de 275), e um glifo que o reconhecedor troca por duas letras
+    é exatamente esse caso. O filtro joga fora as correções do **resto** da linha
+    para evitar um estrago que não acontece, e no caminho neural isso é 6 quebras
+    contra 1 conserto.
+
+    Fica porque `medir_cadeia.py --alfabeto` precisa dele para reproduzir a
+    tabela, pela mesma razão que `margem_de_confianca` ficou na F24.
     """
     if len(linha) < 2:
         return False
-    for b in linha:
+    for i, b in enumerate(linha):
         if getattr(b, "angulo", 0) or getattr(b, "negativo", False):
             return False
-        if alfabeto is not None and (len(b.char or "") > 1
-                                     or (b.char and b.char not in alfabeto)):
+        if deslocam is None:
+            continue
+        ch = (b.char if chars is None else chars[i]) or ""
+        if len(ch) > 1 or ch in deslocam:
             return False
     return True
 
@@ -203,7 +267,7 @@ def ler_pagina(
     linhas: Sequence[Sequence[BoxEntry]],
     ler_faixa: Callable[[np.ndarray], Tuple[str, float]],
     ler_caractere: Callable[[BoxEntry], Tuple[str, float, str]],
-    alfabeto: Optional[str] = None,
+    deslocam: Optional[Container[str]] = None,
     conf_maxima_para_trocar: Optional[float] = None,
     cancelado: Optional[Callable[[], bool]] = None,
     progresso: Optional[Callable[[int, int], None]] = None,
@@ -218,6 +282,11 @@ def ler_pagina(
     confirmou fica com a fonte de quem leu — foi a rede que respondeu aquele
     box, e dizer `easyocr_linha` esconderia isso da revisão. Que a linha tenha
     corroborado está na confiança, que sobe quando as duas concordam.
+
+    `deslocam` são os glifos que tiram a linha do modo bloco
+    (`GLIFOS_QUE_DESLOCAM`), e o padrão `None` desliga o filtro. Quem decide se a
+    linha tem um deles é a **âncora**, que já foi lida quando `em_bloco` é
+    chamado — ver `em_bloco`.
 
     `conf_maxima_para_trocar` é a trava da F18, e o padrão `None` quer dizer
     "sem trava" — a linha manda sempre, que é o certo quando a âncora é o
@@ -237,7 +306,7 @@ def ler_pagina(
         fontes = [fo for _c, _cf, fo in por_char]
 
         texto, conf_linha = "", 0.0
-        if em_bloco(linha, alfabeto):
+        if em_bloco(linha, deslocam, chars):
             tira = faixa_da_linha(pagina, linha)
             if tira is not None:
                 texto, conf_linha = ler_faixa(tira)

@@ -2126,6 +2126,10 @@ class MainWindow(tk.Frame):
                 pagina, linhas,
                 ler_faixa=self.ocr_service.easyocr_linha_conf,
                 ler_caractere=preparar(h, pagina, faixas),
+                # **Sem `deslocam`, e a F36 mediu que tem de ser.** A linha com
+                # figurina parece a que mais precisa de filtro e é a que menos:
+                # o `_alinhar` absorve o deslocamento, e filtrar joga fora as
+                # correções do resto da linha. Ver `leitura_de_linha.em_bloco`.
                 conf_maxima_para_trocar=conf_maxima_para_trocar,
                 cancelado=lambda: h.cancelled,
                 progresso=lambda i, n: h.progress(i, n, f"linha {i}/{n}"),
