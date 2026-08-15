@@ -134,6 +134,13 @@ class _Memo:
             self._cache[chave] = self._alvo.margem_de_confianca(crop)
         return self._cache[chave]
 
+    def voto(self, crop, k):
+        """A outra alternativa da F24. Memorizada por `k`, como `vizinhos`."""
+        chave = ("voto", k, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.voto(crop, k=k)
+        return self._cache[chave]
+
 
 class _MemoCombinado:
     """
@@ -165,9 +172,14 @@ class _MemoComDistancia:
     O k-NN com outro `DISTANCIA_MAXIMA`, sem tocar em produção (F35).
 
     A confiança é `1 - d/D`, e `d` já está no cache do aquecimento — trocar `D`
-    é recontar, não reconsultar. Precisa ser assim: o `D` de produção é valor
-    padrão de argumento, ligado em tempo de `def`, então trocar o global do
-    módulo não teria efeito nenhum.
+    é recontar, não reconsultar, e é isso que torna a varredura barata.
+
+    **A razão mudou na F38.** Na F35 este envelope era obrigatório: o `D` de
+    produção era valor padrão de argumento, ligado em tempo de `def`, então
+    trocar o global do módulo não teria efeito nenhum. Hoje `predict` lê o global
+    na chamada e trocá-lo funcionaria — só que as respostas já estão memorizadas
+    por bytes da imagem, e trocar o global não as invalidaria. O envelope fica
+    por ser o jeito certo, e não por ser o único.
     """
 
     def __init__(self, memo, distancia_maxima):
@@ -180,6 +192,36 @@ class _MemoComDistancia:
         perto = self._memo.vizinhos(crop, k=1)
         d = perto[0][1] if perto else float("inf")
         return char, max(0.0, 1.0 - d / self._D) if d < self._D else 0.0
+
+    def vizinhos(self, crop, k=1):
+        return self._memo.vizinhos(crop, k=k)
+
+    def margem(self, crop):
+        return self._memo.margem(crop)
+
+
+class _MemoComVoto:
+    """
+    O k-NN respondendo por **voto entre os k**, e não pelo mais próximo (F24).
+
+    A confiança continua a do 1-NN: o voto muda quem vence, não o quanto o
+    recorte se parece com a base, e trocar as duas coisas de uma vez mediria
+    duas mudanças numa tabela só.
+
+    **Precisa existir porque `predict` é 1-NN e não tem `k`.** O `--k` mexia em
+    `core_learner.K_VIZINHOS`, que era valor padrão de argumento de `voto` e de
+    `vizinhos` — ligado em tempo de `def` — e além disso nada no instrumento
+    chamava `voto`. A F38 achou o botão desligado dos dois jeitos.
+    """
+
+    def __init__(self, memo, k):
+        self._memo = memo
+        self._k = int(k)
+        self.loaded = True
+
+    def predict(self, crop):
+        _char, conf = self._memo.predict(crop)
+        return self._memo.voto(crop, self._k), conf
 
     def vizinhos(self, crop, k=1):
         return self._memo.vizinhos(crop, k=k)
@@ -917,11 +959,6 @@ def main():
                          "ideia aberta na F24")
     args = ap.parse_args()
 
-    if args.k is not None:
-        # O `predict` lê o global a cada chamada, então trocá-lo aqui vale para
-        # a medição inteira sem tocar no código de produção.
-        core_learner.K_VIZINHOS = args.k
-
     caminho = "neural" if args.neural else "hibrido"
     padrao_learner = LEARNER_NEURAL if args.neural else LEARNER_THRESHOLD_HIBRIDO
     if args.limiar is not None:
@@ -947,6 +984,17 @@ def main():
         return 1
 
     cadeia = Cadeia(com_rede=args.neural)
+
+    # Guardado antes de envelopar: o cabeçalho precisa do tamanho da base, e a
+    # partir daqui `cadeia.learner` pode não ser mais o memo cru.
+    learner_cru = cadeia.learner._alvo
+
+    # O voto envolve o memo, e não o k-NN: as distâncias do aquecimento já estão
+    # no cache, então varrer `k` não custa consulta nova nenhuma. É a mesma forma
+    # de `_MemoComDistancia`, e pela mesma razão.
+    k_efetivo = core_learner.K_VIZINHOS if args.k is None else args.k
+    if args.k is not None:
+        cadeia.learner = _MemoComVoto(cadeia.learner, args.k)
 
     print(f"Preparando {len(achadas)} página(s)...")
     paginas, aquecidos = [], []
@@ -978,8 +1026,8 @@ def main():
     # base tinha crescido de 70.755 para 73.900 entre uma rodada e a outra, e
     # nada na saída dizia isso.
     print(f"\n=========== {total} caracteres em {len(paginas)} página(s), "
-          f"caminho {caminho}, k = {core_learner.K_VIZINHOS}, "
-          f"{cadeia.learner._alvo.total} referências ===========")
+          f"caminho {caminho}, k = {k_efetivo}, "
+          f"{learner_cru.total} referências ===========")
 
     if args.knn:
         tabela_do_knn(aquecidos, verdade)

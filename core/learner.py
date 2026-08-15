@@ -442,18 +442,20 @@ class CharacterLearner:
         return self._normas - 2.0 * (self._X @ alvo) + float(alvo @ alvo)
 
     def vizinhos(self, crop_np: np.ndarray,
-                 k: int = K_VIZINHOS) -> List[Tuple[str, float]]:
+                 k: Optional[int] = None) -> List[Tuple[str, float]]:
         """
         Os `k` mais próximos, `[(char, distância)]`, do mais perto ao mais longe.
 
         É o `predict_topk` deste elo, e existe pelo mesmo motivo do da rede: sem
         ver as candidatas não há como desempatar nada — nem por voto aqui dentro,
         nem por um canal lateral fora (F19).
+
+        `k` é lido na chamada — ver `predict` e a F38.
         """
         if self.total == 0:
             return []
         d2 = self._quadrados_ate(crop_np)
-        k = max(1, min(k, self.total))
+        k = max(1, min(K_VIZINHOS if k is None else k, self.total))
         idx = np.argpartition(d2, k - 1)[:k]
         idx = idx[np.argsort(d2[idx])]
         return [(self._chars[i], float(np.sqrt(max(float(d2[i]), 0.0))))
@@ -496,12 +498,20 @@ class CharacterLearner:
         return saida
 
     def predict(self, crop_np: np.ndarray,
-                threshold: float = DISTANCIA_MAXIMA) -> Tuple[str, float]:
+                threshold: Optional[float] = None) -> Tuple[str, float]:
         """
         O vizinho mais próximo, e o quanto ele está perto.
 
         A distância é a L2 de sempre, pela conta de matriz da F7.2, e a resposta
         é idêntica à do laço ingênuo — ver `test_a_busca_e_a_mesma_do_laco`.
+
+        `threshold` **é lido na chamada**, e não ligado em tempo de `def`. Era
+        `threshold=DISTANCIA_MAXIMA` na assinatura, e aí trocar o global do
+        módulo em execução não tinha efeito nenhum: o valor já estava capturado.
+        A F35 tropeçou nisso e precisou de um envelope no instrumento para poder
+        varrer o que a constante controla; o `None` é o que dispensa o envelope.
+        Todas as outras constantes ajustáveis do projeto são lidas assim
+        (`BoxService.MARGEM_ARBITRO` é o modelo). Ver F38.
 
         **A confiança é distância absoluta, e a F24 mediu que tem de ser.** A
         alternativa natural é a margem (`margem_de_confianca`, aqui ao lado):
@@ -519,6 +529,9 @@ class CharacterLearner:
         """
         if self.total == 0:
             return "?", 0.0
+
+        if threshold is None:
+            threshold = DISTANCIA_MAXIMA
 
         d2 = self._quadrados_ate(crop_np)
         i = int(np.argmin(d2))
@@ -538,7 +551,7 @@ class CharacterLearner:
     # `medir_cadeia.py` não reproduz a tabela que decidiu. **Nada em produção as
     # chama**, e é de propósito.
 
-    def voto(self, crop_np: np.ndarray, k: int = K_VIZINHOS) -> str:
+    def voto(self, crop_np: np.ndarray, k: Optional[int] = None) -> str:
         """
         O caractere que os `k` mais próximos votam, empate pelo mais perto.
 

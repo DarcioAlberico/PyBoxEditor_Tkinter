@@ -297,6 +297,63 @@ def test_recorte_de_outro_tamanho_e_redimensionado(tmp_path):
 
 
 # ----------------------------------------------------------------------
+# F38 — as constantes são lidas na chamada
+# ----------------------------------------------------------------------
+
+def test_distancia_maxima_vale_em_tempo_de_chamada(tmp_path, monkeypatch):
+    """
+    O botão tem que girar. Era `threshold=DISTANCIA_MAXIMA` na assinatura, e aí
+    o valor ligava em tempo de `def`: trocar o global não tinha efeito nenhum, e
+    a F35 precisou de um envelope no instrumento por causa disso.
+    """
+    caminho = _base(tmp_path, {"a": [_amostra(100)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    alvo = _amostra(140)
+
+    antes = L.predict(alvo)[1]
+    monkeypatch.setattr("core.learner.DISTANCIA_MAXIMA", 10.0)
+    assert L.predict(alvo)[1] != pytest.approx(antes), (
+        "DISTANCIA_MAXIMA voltou a ligar em tempo de def")
+
+    # E o explícito continua vencendo o global.
+    monkeypatch.setattr("core.learner.DISTANCIA_MAXIMA", 1e9)
+    assert L.predict(alvo, threshold=10.0)[1] == 0.0
+
+
+def test_k_vizinhos_vale_em_tempo_de_chamada(tmp_path, monkeypatch):
+    """
+    O mesmo botão, no outro parafuso — e este estava desligado **duas** vezes: o
+    padrão ligava em tempo de `def`, e nada no instrumento chamava `voto`, então
+    `medir_cadeia.py --k N` imprimia o `k` no cabeçalho e media sempre 1-NN.
+    """
+    # Duas amostras de `0` cercando uma de `o`: o mais próximo é `o`, a maioria
+    # entre três é `0`. É o mesmo caso do teste do voto, aqui pelo global.
+    caminho = _base(tmp_path, {"o": [_amostra(100)],
+                               "0": [_amostra(96), _amostra(104)]})
+    L = CharacterLearner(caminho, usar_cache=False)
+    consulta = _amostra(100)
+
+    assert L.voto(consulta) == "o", "sem k, é o mais próximo"
+    monkeypatch.setattr("core.learner.K_VIZINHOS", 3)
+    assert L.voto(consulta) == "0", "K_VIZINHOS voltou a ligar em tempo de def"
+    assert len(L.vizinhos(consulta)) == 3
+
+
+def test_o_instrumento_varre_o_voto_de_verdade():
+    """
+    `--k` só quer dizer alguma coisa se alguém chamar `voto`, e ninguém chamava.
+    Conferido na fonte porque montar a cadeia inteira aqui traria o EasyOCR.
+    """
+    import inspect
+
+    import medir_cadeia
+
+    fonte = inspect.getsource(medir_cadeia)
+    assert "_MemoComVoto" in fonte
+    assert "self._memo.voto(" in fonte, "o envelope do voto parou de votar"
+
+
+# ----------------------------------------------------------------------
 # F37 — as candidatas por classe
 # ----------------------------------------------------------------------
 

@@ -6516,6 +6516,75 @@ não repete classe e que aguenta base vazia.
 
 ---
 
+## F38 — Os botões que não giravam — CONCLUÍDA
+
+A F35 fechou registrando uma dívida por escrito: `DISTANCIA_MAXIMA` era **valor padrão de
+argumento** em `predict`, então ligava em tempo de `def` — editar o arquivo funcionava,
+trocar o global em execução não. Foi por isso que aquela fase precisou de
+`_MemoComDistancia` no instrumento em vez de simplesmente trocar o global. Ela não mexeu:
+"esta fase concluiu que nada muda em produção, e emendar uma alteração de código numa fase
+dessas é o jeito de ela passar sem ser lida".
+
+Vim consertar essa linha. **O mesmo defeito estava vivo no botão ao lado, e lá ele tinha
+uma medição em cima.**
+
+### O `--k` estava desligado, e de dois jeitos
+
+`medir_cadeia.py --k N` faz uma coisa só: `core_learner.K_VIZINHOS = args.k`. Para isso
+valer, alguém teria de ler o global depois. Ninguém lê:
+
+- `K_VIZINHOS` é o padrão de argumento de `vizinhos` e de `voto`, ligado em tempo de `def`
+  como o `DISTANCIA_MAXIMA` — trocar o global não muda o padrão;
+- e **nada no instrumento chamava `voto`**. O `aquecer` chama `predict`, que é 1-NN e não
+  tem `k`; as três chamadas de `vizinhos` passam `k=1` explícito. Fora dos testes, `voto`
+  não tinha chamador nenhum no projeto.
+
+O agravante é o cabeçalho: ele imprime `k = {core_learner.K_VIZINHOS}`, que **mostra o valor
+novo**. O botão se anunciava como aplicado e não estava ligado a nada. Uma varredura de `k`
+rodada hoje devolveria quatro linhas idênticas, e o relatório diria `k = 7` em cima.
+
+A tabela de `k` da F24 (96,10 / 95,90 / 95,90 / 95,79) tem valores distintos, então naquele
+momento o caminho existia — a fase estava com o voto **em produção**, dentro de `predict`,
+antes de desfazer. A reversão devolveu `predict` ao argmin e deixou o `--k` órfão. Não é o
+achado desta fase, mas explica por que o instrumento ficou parecendo certo.
+
+### O conserto, e ele é o mínimo
+
+`predict`, `vizinhos` e `voto` passaram a receber `None` e a ler a constante **no corpo**.
+Nenhum valor mudou, nenhuma resposta mudou; o que muda é que o global volta a ser um botão.
+No instrumento entrou `_MemoComVoto`, irmão de `_MemoComDistancia`: ele envolve o memo, e
+não o k-NN, então varrer `k` não custa consulta nova — as distâncias já estão no cache do
+aquecimento. Com ele, `--k` faz o que o `--help` promete.
+
+Os testes travam a propriedade certa, que não é "a constante vale tanto" e sim **"o botão
+gira"**: trocam o global com `monkeypatch` e exigem que a resposta mude. Um teste que só
+conferisse o valor padrão passaria com o defeito de volta.
+
+### A frase da F35 estava errada, e a correção fica registrada
+
+A F35 escreveu que "todas as outras constantes ajustáveis do projeto são lidas na chamada
+(`BoxService.MARGEM_ARBITRO` é o modelo)". Não são. Varrendo `core/`, ligam em tempo de
+`def`: `SEMENTE_PADRAO` e `MIN_PARA_DIVIDIR` (`avaliacao`), `BINS_PADRAO` (`calibracao`),
+`CHESS_UNICODE` (`chess_pdf_processor`), `MIN_AMOSTRAS_POR_CLASSE` (`dataset_check`),
+`CONF_MINIMA`, `DPI_FIGURA` e `TONS_DA_FIGURA` (`livro`), `CONCORDANCIA_MINIMA` e
+`CONFIANCA_MINIMA` (`mapa_glifos`), `TETO_DE_REPETICAO` (`neural_trainer`),
+`TEXTURA_ALTURA` (`preprocess`).
+
+**Ficam como estão, e a razão é a diferença entre as duas situações.** Um padrão de
+argumento ligado em tempo de `def` só é defeito quando alguém troca o global esperando
+efeito — e é isso que um `medir_*.py` faz. As de cima ninguém troca assim: elas são
+parâmetro de chamada, e quem mede passa o valor explícito. Os dois desta fase eram
+diferentes porque havia instrumento tentando girá-los, e num deles havia tabela publicada.
+
+O critério, para a próxima vez: **constante que um instrumento varre é lida no corpo.** As
+outras podem ficar na assinatura, onde documentam melhor.
+
+Cobertura: `tests/test_f72_knn.py`, 58 testes (3 novos) — o `DISTANCIA_MAXIMA` gira, o
+`K_VIZINHOS` gira, e o instrumento chama `voto` de verdade. Nada muda em produção; a suíte
+inteira em 1.328 confirma a resposta idêntica.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
