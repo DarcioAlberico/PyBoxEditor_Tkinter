@@ -695,7 +695,7 @@ def tabela_revisao(linhas, margem_de=None):
     for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
         erros = [r for r in parte if normalizar(r[2]) != normalizar(r[3])]
         acertos = [r for r in parte if normalizar(r[2]) == normalizar(r[3])]
-        abaixo = [r for r in parte if r[1] < conf_ui.LIMIAR_ALTO]
+        abaixo = [r for r in parte if conf_ui.precisa_revisao(_BoxFalso(r))]
         pegos = sum(1 for r in abaixo
                     if normalizar(r[2]) != normalizar(r[3]))
         me = float(np.median([r[1] for r in erros])) if erros else float("nan")
@@ -824,6 +824,57 @@ def tabela_ponto_cego(linhas, char_knn):
                 [r for r in divergem if r[1] < corte])
 
 
+def tabela_regua_por_fonte(linhas):
+    """
+    A régua de cada fonte **separa** erro de acerto? (F51)
+
+    A F48 pôs o EasyOCR em `FONTES_SEMPRE_REVISADAS` porque ali a mediana de
+    confiança é a mesma no erro e no acerto — a régua é plana e nenhum corte
+    funciona. Mas aquela fase tratou **um caso**, não a classe: `easyocr_linha`
+    acerta 33% e ninguém perguntou se a régua dele separa.
+
+    A medida é a **separação**: a fração de pares (erro, acerto) da mesma fonte
+    em que o erro tem confiança menor que o acerto. É a estatística U de
+    Mann-Whitney normalizada, que é o mesmo que a área sob a curva ROC, e ela
+    responde exatamente a pergunta certa — "dado um erro e um acerto ao acaso,
+    a régua os põe na ordem certa?".
+
+        1,00   régua perfeita: todo erro abaixo de todo acerto
+        0,50   moeda: a régua não sabe nada
+        0,00   invertida
+
+    Não é acerto e não é confiança média: uma fonte pode acertar pouco e ainda
+    assim **saber** quando errou, e é essa a que a fila consegue usar. A que não
+    sabe entra inteira, que é o que a F48 fez com o EasyOCR.
+    """
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    print("\n--- a régua de cada fonte (F51) ---")
+    print(f"{'fonte':<16}{'boxes':>7}{'erros':>7}{'acerto':>9}"
+          f"{'separação':>12}{'':>3}{'na fila hoje':>13}")
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        if fonte == "vazio":
+            continue
+        erros = [r[1] for r in parte if normalizar(r[2]) != normalizar(r[3])]
+        acertos = [r[1] for r in parte if normalizar(r[2]) == normalizar(r[3])]
+        if not erros or not acertos:
+            sep = float("nan")
+        else:
+            # Pares (erro, acerto): quantas vezes o erro vem antes. Empate vale
+            # meio, que é o que torna a conta a U de Mann-Whitney.
+            ganhos = sum((1.0 if e < a else 0.5 if e == a else 0.0)
+                         for e in erros for a in acertos)
+            sep = ganhos / (len(erros) * len(acertos))
+        na_fila = sum(1 for r in parte
+                      if conf_ui.precisa_revisao(_BoxFalso(r)))
+        print(f"{fonte:<16}{len(parte):>7}{len(erros):>7}"
+              f"{acerto(parte):>8.1f}%{sep:>12.3f}{'':>3}"
+              f"{100.0 * na_fila / len(parte):>12.0f}%")
+    print("  separação 0,50 é moeda: a régua daquela fonte não sabe quando errou")
+
+
 def tabela_lexico(paginas, producao):
     """
     O léxico é **aditivo** à fila, ou pega o que ela já pegava? (F50)
@@ -873,7 +924,7 @@ def tabela_lexico(paginas, producao):
                     continue
                 marcados_lex += 1
                 errado = normalizar(reg[2]) != normalizar(reg[3])
-                pendente = reg[1] < conf_ui.LIMIAR_ALTO
+                pendente = conf_ui.precisa_revisao(_BoxFalso(reg))
                 erros_lex += errado
                 na_fila += pendente
                 erros_lex_fora_da_fila += errado and not pendente
@@ -907,7 +958,13 @@ def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
     É o que torna a troca implementável sem mexer no que a F25 mediu: a
     `b.confidence` continua sendo a absoluta, e é ela que colore o box.
     """
-    marcados_hoje = [r for r in linhas if r[1] < conf_ui.LIMIAR_ALTO]
+    # **`precisa_revisao`, e não uma cópia da regra dele.** A linha "hoje" tem
+    # de ser a de produção mesmo quando produção muda: a F48 acrescentou uma
+    # fonte que entra na fila inteira, e uma cópia de `conf < LIMIAR_ALTO` teria
+    # continuado medindo a regra velha, calada. `_BoxFalso` existe desde a F23
+    # com o docstring "para não copiar a regra"; a ferramenta estava aqui.
+    marcados_hoje = [r for r in linhas
+                     if conf_ui.precisa_revisao(_BoxFalso(r))]
 
     def conta(marcados):
         erros = sum(1 for r in marcados if normalizar(r[2]) != normalizar(r[3]))
@@ -953,7 +1010,7 @@ def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
     def marca(corte, com_rede):
         return [r for r in linhas
                 if ((m < corte) if (m := margem_de(r, com_rede)) is not None
-                    else r[1] < conf_ui.LIMIAR_ALTO)]
+                    else conf_ui.precisa_revisao(_BoxFalso(r)))]
 
     fontes = [("k-NN", False)]
     if margem_rede:
@@ -1410,6 +1467,7 @@ def main():
                     if mr is not None}
     tabela_revisao(producao, margem_de=margens)
     tabela_corte_da_revisao(producao, margens, margens_rede)
+    tabela_regua_por_fonte(producao)
     tabela_lexico(paginas, producao)
     tabela_ponto_cego(producao,
                       {chave: ck

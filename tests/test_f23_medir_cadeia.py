@@ -188,3 +188,68 @@ def test_os_dois_limiares_do_hibrido_sao_o_mesmo_numero():
     from ui.main_window import (CONF_MAXIMA_PARA_A_LINHA_HIBRIDO,
                                 LEARNER_THRESHOLD_HIBRIDO)
     assert CONF_MAXIMA_PARA_A_LINHA_HIBRIDO == LEARNER_THRESHOLD_HIBRIDO
+
+
+# ----------------------------------------------------------------------
+# F52 — o instrumento não reimplementa a regra de produção
+# ----------------------------------------------------------------------
+
+def test_o_instrumento_nao_copia_a_regra_da_fila():
+    """
+    A trava do defeito que apareceu quatro vezes nesta série.
+
+    `medir_cadeia.py` mede o que produção faz, e a única forma de continuar
+    medindo isso quando produção muda é **chamar** a regra dela. Copiá-la —
+    `conf < LIMIAR_ALTO` escrito à mão — funciona no dia em que se escreve e
+    passa a mentir no dia seguinte, calado. Foi o que aconteceu na F43/F44 (a
+    margem aplicada fora da fonte), e de novo na F48, quando
+    `FONTES_SEMPRE_REVISADAS` entrou e a linha "hoje" das tabelas continuou
+    medindo a regra anterior.
+
+    `_BoxFalso` existe desde a F23 exatamente para isto: ele é o mínimo que
+    `ui.confidence` olha num box, para o instrumento poder perguntar em vez de
+    responder por conta própria.
+
+    A trava é de **uso**, não de texto: comparar `LIMIAR_ALTO` num `if` é o que
+    denuncia. Citá-lo dentro de uma f-string de rótulo é legítimo, e por isso a
+    varredura olha comparações e não menções.
+    """
+    import ast
+    import inspect
+
+    import medir_cadeia
+
+    arvore = ast.parse(inspect.getsource(medir_cadeia))
+    ofensas = []
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Compare):
+            continue
+        for lado in [no.left] + list(no.comparators):
+            if (isinstance(lado, ast.Attribute)
+                    and lado.attr in ("LIMIAR_ALTO", "LIMIAR_MEDIO",
+                                      "LIMIAR_DE_MARGEM")):
+                ofensas.append((lado.attr, getattr(no, "lineno", "?")))
+
+    assert not ofensas, (
+        "o instrumento voltou a comparar contra um limiar de produção em vez de "
+        f"chamar `precisa_revisao`: {ofensas}")
+
+
+def test_o_box_falso_responde_o_que_a_regra_pergunta():
+    """
+    A trava acima só vale se `_BoxFalso` continuar servindo para a pergunta.
+    Se `precisa_revisao` passar a olhar um campo que ele não tem, o instrumento
+    quebra alto — e é o que se quer, em vez de divergir calado.
+    """
+    from ui import confidence as conf_ui
+
+    import medir_cadeia
+
+    # (fonte, confiança, lido, verdade, página, id)
+    alto = medir_cadeia._BoxFalso(("neural", 0.99, "a", "a", "p", 1))
+    baixo = medir_cadeia._BoxFalso(("neural", 0.10, "a", "a", "p", 2))
+    ocr = medir_cadeia._BoxFalso(("easyocr", 0.99, "a", "a", "p", 3))
+
+    assert conf_ui.precisa_revisao(alto) is False
+    assert conf_ui.precisa_revisao(baixo) is True
+    assert conf_ui.precisa_revisao(ocr) is True, "a regra da F48 tem de valer aqui"

@@ -7389,15 +7389,25 @@ inteira.
 `manual` não é arrastado junto, e tem teste: mandar revisar o que o usuário digitou seria
 circular.
 
-### E o instrumento voltou a copiar a regra de produção
+### E o instrumento voltou a copiar a regra de produção — mas o conserto só veio na F51
 
-A tabela do corte tinha `r[1] < conf_ui.LIMIAR_ALTO` escrito à mão em três lugares. Com a
-mudança desta fase, a linha "hoje" teria continuado medindo a regra **velha**, calada — que
-é exatamente o defeito da F44 outra vez, três fases depois.
+A tabela do corte tinha `r[1] < conf_ui.LIMIAR_ALTO` escrito à mão em quatro lugares. Com a
+mudança desta fase, a linha "hoje" continuou medindo a regra **velha**, calada — que é
+exatamente o defeito da F44 outra vez, três fases depois.
 
-Passou a chamar `conf_ui.precisa_revisao` através do `_BoxFalso`, que existe desde a F23 com
-o docstring "o mínimo que `ui.confidence` olha num box, **para não copiar a regra**". A
-ferramenta estava lá; eu é que não a usei ao escrever a tabela.
+> **Esta seção afirmava, quando foi escrita, que o conserto tinha entrado aqui. Não tinha.**
+> O script que o aplicava morreu numa asserção, e o `sintaxe ok` que apareceu na saída era do
+> comando seguinte — eu li a vizinhança em vez do comando. A afirmação foi para o ROADMAP e
+> para a mensagem do commit desta fase antes de alguém conferir. O conserto de verdade está
+> na F51, junto com a trava que o teria pegado.
+>
+> **A tabela desta fase não é afetada**: ela vem de `tabela_ponto_cego`, que nunca usou
+> `LIMIAR_ALTO` — os cortes de confiança dela são explícitos. O que estava errado era esta
+> seção, não a medida.
+
+O que deveria ter entrado, e entrou na F51: chamar `conf_ui.precisa_revisao` através do
+`_BoxFalso`, que existe desde a F23 com o docstring "o mínimo que `ui.confidence` olha num
+box, **para não copiar a regra**". A ferramenta estava lá; eu é que não a usei.
 
 Cobertura: `tests/test_f32_confianca.py`, 3 testes novos.
 
@@ -7519,6 +7529,58 @@ fácil de ver que caractere errado. Mas "mais fácil de ver" é medida com gente
 registrou sobre o custo de consertar um box.
 
 Cobertura: nenhum teste novo — é instrumento. Reproduzir: `python medir_cadeia.py`.
+
+---
+
+## F52 — A trava contra o instrumento copiar a regra de produção — CONCLUÍDA
+
+O mesmo defeito apareceu quatro vezes nesta série, e o custo dele cresceu a cada vez:
+
+- **F43 e F44** — a margem do k-NN aplicada a boxes que outro elo respondeu. Duas fases
+  publicaram conclusões erradas, uma delas virou mudança de produção, e a F47 desfez;
+- **F48** — `conf < LIMIAR_ALTO` copiado à mão. A própria fase mudou a regra
+  (`FONTES_SEMPRE_REVISADAS`) e a linha "hoje" das tabelas continuou medindo a anterior.
+
+Em todos, o instrumento **respondia** a pergunta que devia **fazer** a produção. E em todos
+havia ferramenta pronta: `_BoxFalso` existe desde a F23 com o docstring "o mínimo que
+`ui.confidence` olha num box, **para não copiar a regra**".
+
+### A trava
+
+`test_o_instrumento_nao_copia_a_regra_da_fila` varre a AST de `medir_cadeia.py` atrás de
+**comparações** contra `LIMIAR_ALTO`, `LIMIAR_MEDIO` ou `LIMIAR_DE_MARGEM`. Comparação e não
+menção: citar o limiar dentro de uma f-string de rótulo é legítimo — o que denuncia é usá-lo
+para decidir.
+
+O segundo teste guarda o outro lado: `_BoxFalso` tem de continuar servindo à pergunta. Se
+`precisa_revisao` passar a olhar um campo que ele não tem, o instrumento quebra alto, que é
+o que se quer em vez de divergir calado.
+
+### A trava foi conferida contra o defeito, e não contra si mesma
+
+Um teste que nunca viu o defeito que promete pegar é a mesma classe de coisa que esta fase
+conserta. Reintroduzi a cópia — `marcados_hoje = [r for r in linhas if r[1] <
+conf_ui.LIMIAR_ALTO]` — e confirmei que a varredura acusa (`LIMIAR_ALTO`, linha 966) antes de
+desfazer.
+
+### E o conserto da F48 não existia
+
+Ao aplicar a trava, os quatro sítios apareceram — o que significava que o conserto anunciado
+na F48 nunca tinha entrado. **O script que o aplicava morreu numa asserção, e o `sintaxe ok`
+que apareceu na saída era do comando seguinte.** Eu li a vizinhança em vez do comando, e a
+afirmação foi para o ROADMAP e para a mensagem de commit sem ninguém conferir.
+
+A F48 foi corrigida no lugar, com o aviso. A tabela dela não é afetada — vem de
+`tabela_ponto_cego`, cujos cortes de confiança são explícitos —, mas a seção que descrevia o
+conserto era falsa.
+
+É a lição da série aplicada a mim mesmo, e ela vale escrita como regra: **conferir o
+comando, não a vizinhança dele.** Um `ok` numa saída de terminal pertence a algum comando; a
+qual, é preciso olhar.
+
+Cobertura: `tests/test_f23_medir_cadeia.py`, 2 testes novos. Os quatro sítios foram
+consertados de fato — confirmado por `grep`, que agora só encontra `LIMIAR_ALTO` em rótulo
+impresso.
 
 ---
 
