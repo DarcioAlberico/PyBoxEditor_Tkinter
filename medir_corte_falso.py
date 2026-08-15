@@ -88,7 +88,7 @@ def filhos_de(pai, filhos):
 ESTADOS = ("certo", "errado_visivel", "errado_invisivel", "sem_box")
 
 
-def estado_por_rotulo(img, caminho_box, predizer, margem, lex):
+def _estado_por_rotulo(filhos, rotulados, pares, suspeitos):
     """
     `{índice do rotulado: estado}` — o destino de cada caractere da verdade.
 
@@ -99,23 +99,13 @@ def estado_por_rotulo(img, caminho_box, predizer, margem, lex):
     O índice é o do rotulado, que **não muda com a margem** — é a mesma verdade
     lida do mesmo `.box`. É o que permite acompanhar o mesmo caractere de uma
     margem para a outra.
+
+    Recebe o que `medir_pagina` já calculou, e não a página: até a F34 esta
+    função segmentava de novo por conta própria, e cada margem custava duas
+    passadas em vez de uma.
     """
-    rotulados = carregar_box(caminho_box, img.size[1])
-    if len(rotulados) < MIN_ROTULADOS:
-        return None
-
-    arr = np.array(img)
-    _pais, filhos = segmentar(img, "arbitrado", arbitro=predizer, margem=margem)
-    for b in filhos:
-        b.char, b.confidence = predizer(arr[b.y1:b.y2, b.x1:b.x2])
-
-    suspeitos = set()
-    if not lex.vazio:
-        for s in lexico.suspeitas_da_pagina(filhos, lex):
-            suspeitos.update(s.indices)
-
     estado = {j: "sem_box" for j in range(len(rotulados))}
-    for i, j in comparar(filhos, rotulados).pares:
+    for i, j in pares:
         b = filhos[i]
         if normalizar(b.char) == normalizar(rotulados[j].char):
             estado[j] = "certo"
@@ -127,7 +117,13 @@ def estado_por_rotulo(img, caminho_box, predizer, margem, lex):
 
 
 def medir_pagina(img, caminho_box, predizer, margem, lex):
-    """As contas de uma página, para uma margem."""
+    """
+    `(contas, estado por rótulo)` de uma página, para uma margem.
+
+    **Uma segmentação só.** As duas metades saem do mesmo trabalho: segmentar,
+    classificar e emparelhar com a verdade custa o mesmo para as duas, e fazê-lo
+    duas vezes era o dobro do tempo pela mesma resposta (F34).
+    """
     rotulados = carregar_box(caminho_box, img.size[1])
     if len(rotulados) < MIN_ROTULADOS:
         return None
@@ -182,7 +178,8 @@ def medir_pagina(img, caminho_box, predizer, margem, lex):
             conta["espurio_so_pelo_lexico"] += 1
         else:
             conta["espurio_invisivel"] += 1
-    return conta
+
+    return conta, _estado_por_rotulo(filhos, rotulados, r.pares, suspeitos)
 
 
 def main():
@@ -215,12 +212,11 @@ def main():
         soma, por_pagina = Counter(), {}
         for imagem, caminho_box in paginas:
             img = Image.open(imagem).convert("L")
-            conta = medir_pagina(img, caminho_box, predizer, margem, lex)
-            if conta is None:
+            saida = medir_pagina(img, caminho_box, predizer, margem, lex)
+            if saida is None:
                 continue
+            conta, por_pagina[imagem] = saida
             soma.update(conta)
-            por_pagina[imagem] = estado_por_rotulo(img, caminho_box, predizer,
-                                                   margem, lex)
             print(f"  {os.path.basename(imagem)[-28:]:<30}"
                   f"falsos {conta['cortes_falsos']:>3}   "
                   f"invisíveis {conta['invisivel']:>3}", flush=True)

@@ -6174,6 +6174,60 @@ mediu não ser mais verdade. Suíte em 1.314.
 
 ---
 
+## F34 — A segmentação duplicada do instrumento — CONCLUÍDA
+
+A F33 fechou anotando uma dívida: `medir_pagina` e `estado_por_rotulo` segmentavam a mesma
+página cada um, então cada margem custava duas passadas em vez de uma — 100 segmentações
+naquela rodada em vez de 50.
+
+`medir_pagina` passou a devolver `(contas, estado por rótulo)` de uma segmentação só, e
+`_estado_por_rotulo` virou função pura do que já foi calculado: recebe `filhos`,
+`rotulados`, os pares e as suspeitas, em vez de refazer o caminho a partir da imagem.
+
+### O que estava em jogo não era o tempo
+
+As duas funções partilhavam a intenção e não o código. Cada uma segmentava, classificava e
+montava as suspeitas do léxico por conta própria — **duas cópias do mesmo caminho, que
+podem divergir sem nada quebrar**. É o defeito que a F1.5 registrou e que fez
+`medir_paginas.py` passar a chamar o separador de produção em vez de uma cópia dele.
+
+E aqui isso não era hipótese ociosa: foi com esses números que a **F33 mudou uma constante
+de produção**. Se as duas metades tivessem discordado, a decisão teria saído de uma média
+de duas medições diferentes sem ninguém saber.
+
+Por isso a verificação foi a mesma da F7.2 — comparar a saída inteira, e não confiar em que
+"deve dar no mesmo":
+
+    diff da rodada de 5 margens, antiga contra nova:
+    131a132
+    >
+
+Uma linha em branco a mais no fim. **Todo número idêntico**, incluindo as dez linhas da
+quebra por página, que é onde uma divergência apareceria primeiro. Os números da F33 ficam
+de pé, agora conferidos por duas implementações independentes em vez de uma.
+
+### O custo, medido e não estimado
+
+| | 2 margens, 10 páginas |
+|---|---:|
+| antes | 58,8 s |
+| **depois** | **32,5 s** |
+
+1,81×, e não 2× exatos porque ~6 s são custo fixo — carregar o modelo, o léxico e os
+imports. Cada margem custa ~13 s de trabalho real. A varredura de cinco margens da F33,
+que era o caso pesado, sai agora em 1m17s.
+
+Não é ganho grande em segundos, e é ganho em outra coisa: o instrumento passou a ter **um**
+caminho onde tinha dois, e a rodada da F33 deixou de ser cara o bastante para desencorajar
+refazê-la. Instrumento que ninguém quer rodar de novo é instrumento que envelhece com
+número velho dentro.
+
+Cobertura: nenhum teste novo — a garantia desta fase é a saída idêntica, e ela é do tipo
+que se confere rodando, não afirmando. Reproduzir:
+`python medir_corte_falso.py --margens 0.0 0.05 0.10 0.15 0.30`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
