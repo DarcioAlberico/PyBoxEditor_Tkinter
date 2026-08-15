@@ -7136,6 +7136,73 @@ Cobertura: nenhum teste novo — é instrumento. Reproduzir: as mesmas duas linh
 
 ---
 
+## F46 — O limiar do híbrido remedido — MEDIDO, e o 0,30 fica por um motivo novo
+
+A F24 fechou registrando este como pendência com condição escrita:
+
+> Na base de hoje (73.900 referências, contra 70.755 quando a F23 mediu) o pico da varredura
+> caiu em 0,20 com 97,64%, contra 97,61% de 0,30 — **três caracteres em 10.481**. (…) mover
+> uma constante por três caracteres é afinar contra o ruído de uma base que muda sozinha.
+
+A base está em **86.897**, 17% maior. Refeita a varredura, o pico volta a cair em 0,20.
+
+| limiar | âncora | com a linha | corte em distância |
+|---:|---:|---:|---:|
+| 0,10 | 97,57% | 97,57% | 1.800 |
+| **0,20** | **97,67%** | **97,67%** | 1.600 |
+| 0,30 | 97,61% | 97,64% | 1.400 |
+| 0,40 | 97,38% | 97,55% | 1.200 |
+| 0,50 | 97,01% | 97,37% | 1.000 |
+
+### Repetir não é confirmar, e essa é a primeira metade
+
+O resultado parece confirmação independente — duas bases, dois picos em 0,20, mesma
+diferença de três caracteres. **Não é.** O que mudou entre a F24 e agora foi o tamanho da
+base de *referência*; as **páginas medidas são as mesmas dez**. Os boxes que separam 0,20 de
+0,30 são em grande parte os mesmos boxes, olhados duas vezes.
+
+Uma medida repetida sobre a mesma amostra estreita o intervalo do *método*, não o da
+*população*. Se os 34 boxes em disputa forem atípicos, repetir a conta os mantém atípicos
+nas duas vezes. Isso vale para todas as tabelas desta série, e é a razão de a coluna "já na
+base" e o `--so` existirem.
+
+### O que decide é a tabela por distância, e ela não existia na F24
+
+A confiança é `1 - d/2000`, então o corte em distância é `2000·(1-t)` e é ele que roteia. A
+tabela por distância entrou na F35:
+
+| distância | boxes | k-NN | EasyOCR |
+|---|---:|---:|---:|
+| 1.200 – 1.400 | 81 | 75,3% | 45,7% |
+| **1.400 – 1.700** | **34** | **58,8%** | **47,1%** |
+| 1.700 – 2.000 | 41 | 24,4% | 56,1% |
+
+Ela explica a curva inteira. Mover de 0,30 para 0,20 leva o corte de 1.400 para 1.600 e
+entrega ao k-NN a faixa de 1.400–1.700: **34 boxes**, 11,7 pontos de vantagem, cerca de 4
+caracteres. Erro padrão binomial de ~3 boxes. Mover de 0,20 para 0,10 leva o corte a 1.800
+e engole a faixa seguinte, onde o k-NN faz 24,4% contra 56,1% — e é por isso que a curva
+despenca ali.
+
+**O único ponto em disputa é uma faixa de 34 boxes cujo vencedor está dentro do ruído.** A
+queda dos dois lados é sólida; o pico não é.
+
+### O 0,30 fica, e agora com mecanismo
+
+A F24 recusou mover por não ter razão além de três caracteres. Hoje há razão, e ela aponta
+para o mesmo lado: **o corte de produção deve ficar dentro da região em que o k-NN
+demonstradamente ganha**, e 1.400 está; 1.600 encosta na travessia apoiado numa faixa fina.
+É o mesmo critério que a F39 usou para escolher o 0,30 do caminho neural, e os dois
+caminhos ficarem no mesmo número continua sendo consequência e não razão.
+
+O que mudaria a decisão: uma amostra com **páginas novas** na faixa de 1.400–1.700. Não é
+mais base de referência que resolve — é mais página rotulada.
+
+Cobertura: nenhum teste novo; a tabela entra ao lado da constante em
+`ui/main_window.py`. Reproduzir:
+`python medir_cadeia.py --learner 0.10 0.20 0.30 0.40 0.50`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

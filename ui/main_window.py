@@ -121,7 +121,27 @@ CONF_MAXIMA_PARA_A_LINHA = 0.70
 #: isso é 97% e 95% dos boxes. As duas menos contaminadas (9,5% e 27,1%) sobem
 #: **8,00 pontos** com esta mudança, contra 3,90 do conjunto: o ganho não era
 #: vazamento, e cresce justamente onde a base não ajuda.
-
+#:
+#: **Remedido na F46, com a base em 86.897 referências contra as 73.900 da F24,
+#: e o 0,30 fica.** A varredura fina:
+#:
+#:     limiar   âncora   com a linha   corte em distância
+#:     0,10     97,57%        97,57%                1.800
+#:     0,20     97,67%        97,67%                1.600
+#:     0,30     97,61%        97,64%                1.400
+#:     0,40     97,38%        97,55%                1.200
+#:     0,50     97,01%        97,37%                1.000
+#:
+#: O pico volta a cair em 0,20, como na F24, e **isso não é confirmação
+#: independente**: as páginas são as mesmas, só a base de referência cresceu, e
+#: os boxes que separam 0,20 de 0,30 são em grande parte os mesmos boxes.
+#:
+#: O que decide é a tabela por distância (F35), que a F24 não tinha. Entre 1.400
+#: e 1.600 de corte entra uma faixa de **34 boxes** em que o k-NN faz 58,8%
+#: contra 47,1% do EasyOCR — 4 caracteres, com erro padrão de ~3 boxes. É onde a
+#: curva sobe e é o único ponto em disputa, e o vencedor dele não está
+#: estabelecido. Já a queda de 0,10 é sólida: o corte em 1.800 engole a faixa de
+#: 1.700–2.000, em que o k-NN faz 24,4% contra 56,1%.
 LEARNER_THRESHOLD_HIBRIDO = 0.30
 
 #: A trava da linha no caminho híbrido, **e ela é o mesmo número de propósito**.
