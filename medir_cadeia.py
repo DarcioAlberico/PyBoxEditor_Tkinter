@@ -446,7 +446,7 @@ def _padrao_de(funcao, parametro):
     return inspect.signature(funcao).parameters[parametro].default
 
 
-def rodar_pdf(cadeia, paginas, learner_threshold, trava):
+def rodar_pdf(cadeia, paginas, learner_threshold, trava, com_contexto=False):
     """
     O **outro laço**: o do PDF pesquisável, nas mesmas páginas (F40).
 
@@ -480,9 +480,24 @@ def rodar_pdf(cadeia, paginas, learner_threshold, trava):
         # a mesma regra de fonte que o `ler_pagina` aplica no outro laço.
         cadeia_disse = {}
 
+        # **O `contexto` simulado, sem tocar em `searchable_pdf` (F42).** O laço
+        # do PDF chama `reconhecer(recorte)` e só; quem monta esse `reconhecer`
+        # aqui sou eu, e a faixa da linha é recuperável pelos bytes do recorte
+        # justo — `_ler_boxes` o calcula com o mesmo `recorte_de_pe` que este
+        # laço. Medir primeiro, mexer depois: trocar a assinatura de
+        # `reconhecer` em produção para depois descobrir que não paga é a ordem
+        # errada.
+        faixa_de = {}
+        if com_contexto:
+            for caixa in p.boxes:
+                justo, contexto = p.recortes(caixa)
+                if justo.size:
+                    faixa_de[justo.tobytes()] = contexto
+
         def reconhecer(recorte):
             char, fonte, c = cadeia.ocr.fallback_chain(
                 recorte, predictor=cadeia.predictor, learner=cadeia.learner,
+                contexto=faixa_de.get(recorte.tobytes()),
                 neural_threshold=NEURAL_THRESHOLD,
                 learner_threshold=learner_threshold,
             )
@@ -1249,6 +1264,26 @@ def main():
             print(f"Como está em produção: **{acerto(producao_pdf):.2f}%**, "
                   f"contra {acerto(producao):.2f}% do laço da janela")
             tabela_composicao(producao_pdf)
+
+            # A diferença que a F40 achou entre os dois laços, medida (F42).
+            com_ctx = rodar_pdf(cadeia, paginas, padrao_learner, padrao_pdf,
+                                com_contexto=True)
+            tabela_varredura(
+                "o `contexto` no laço do PDF (F42)", ["acerto", "EasyOCR"],
+                [("sem (hoje)",
+                  [acerto(producao_pdf),
+                   sum(1 for r in producao_pdf if r[0] == "easyocr")]),
+                 ("com a faixa",
+                  [acerto(com_ctx),
+                   sum(1 for r in com_ctx if r[0] == "easyocr")])])
+            # O total esconde o efeito: o elo responde ~1,5% dos boxes. A conta
+            # que importa é sobre quem passou por ele em alguma das duas.
+            so_ocr = [(x, y) for x, y in zip(producao_pdf, com_ctx)
+                      if "easyocr" in (x[0], y[0])]
+            if so_ocr:
+                print(f"  nos {len(so_ocr)} boxes que passaram pelo EasyOCR em "
+                      f"alguma das duas: {acerto([x for x, _y in so_ocr]):.2f}% "
+                      f"sem contexto, {acerto([y for _x, y in so_ocr]):.2f}% com")
 
             valores = [("sem linha", 0.0)]
             valores += [(f"{t:.2f}", t) for t in (args.pdf or

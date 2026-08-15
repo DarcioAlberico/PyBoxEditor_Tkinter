@@ -154,6 +154,13 @@ def _ler_boxes(img, boxes, reconhecer, ler_linha, conf_linha_maxima, resumo):
     def do_box(b):
         # De pé para classificar (F8.1): o modelo aprendeu glifo em pé, e o
         # mesmo recorte deitado desce de 94,2% para 8,4%.
+        #
+        # **Só o recorte justo, e a F42 mediu que tem de ser.** O laço da janela
+        # manda também o box esticado até a faixa da linha, que a F14 mediu valer
+        # 66,9% para 74,2% no elo do EasyOCR — mas lá o EasyOCR lê a página
+        # inteira, e aqui ele só vê o que a rede e o k-NN recusaram: recorte-lixo
+        # e fragmento, em que a faixa traz tinta do vizinho junto. Medido com
+        # `medir_cadeia.py --neural --pdf`, 97,52% sem contra 97,50% com.
         recorte = vertical.recorte_de_pe(img, b)
         if recorte.size == 0:
             return None

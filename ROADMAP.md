@@ -6691,13 +6691,18 @@ mesmo processo.
 
 ### A tabela da F18, refeita com 4,6x mais caracteres
 
-| a linha manda quando | acerto | trocados |
-|---|---:|---:|
-| nunca | 96,90% | 0 |
-| **confiança < 0,70** | **97,13%** | 41 |
-| confiança < 0,90 | 97,09% | 56 |
-| confiança < 0,99 | 96,73% | 121 |
-| sempre | 89,82% | 954 |
+> **Esta tabela é de antes da F39 entrar em produção**, e a F42 a refez depois. O
+> `learner_threshold` do caminho neural ainda era 0,90 quando ela foi medida — a F39 estava
+> decidida e ainda não estava no código. Os números novos estão na F42; **o vencedor não
+> muda**, e é ele que esta seção afirma.
+
+| a linha manda quando | acerto (t = 0,90) | trocados | | acerto (t = 0,30, F42) | trocados |
+|---|---:|---:|---|---:|---:|
+| nunca | 96,90% | 0 | | 97,46% | 0 |
+| **confiança < 0,70** | **97,13%** | 41 | | **97,52%** | 29 |
+| confiança < 0,90 | 97,09% | 56 | | 97,48% | 49 |
+| confiança < 0,99 | 96,73% | 121 | | 97,04% | 108 |
+| sempre | 89,82% | 954 | | 89,82% | 899 |
 
 Mesmo formato, mesmo vencedor, e o 0,70 continua sendo o corte. O que muda é o tamanho do
 prêmio: a F18 mediu o ganho como "**um caractere em 2.278**" e concluiu "rende quase nada".
@@ -6711,6 +6716,10 @@ caso mais extremo.
 |---|---:|---:|---:|---:|---:|
 | laço da janela (`ler_pagina`) | 97,13% | 10.144 | 165 | 163 | 32 |
 | laço do PDF (`_ler_boxes`) | 97,13% | 10.144 | 165 | 154 | 41 |
+
+Refeito depois da F39 entrar (`t = 0,30`), o empate se mantém: **97,52% do PDF contra
+97,50% da janela**, com o k-NN respondendo 281 boxes em vez de 165 e o EasyOCR 50 em vez de
+154. Dois centésimos separam os dois laços, nas duas configurações.
 
 **O laço do PDF não passa `contexto`** ao reconhecedor — o mesmo box esticado até a faixa da
 linha, que a F14 mediu levar o elo do EasyOCR de 66,9% para 74,2%, porque devolve a altura
@@ -6827,6 +6836,77 @@ a das 63 combinações foi refeita pela F37 e substituída. O que sobra de F19 n
 números históricos, e agora eles dizem de que amostra vieram.
 
 Cobertura: nenhum teste novo — é instrumento. Suíte em 1.328.
+
+---
+
+## F42 — O `contexto` que falta no laço do PDF — MEDIDO, e não paga
+
+A F40 pôs os dois laços no mesmo instrumento e a primeira diferença apareceu sozinha: o da
+janela passa ao reconhecedor o recorte justo **e** o mesmo box esticado até a faixa da
+linha; o do PDF passa só o justo. A F14 mediu que essa faixa leva o elo do EasyOCR de
+66,9% para 74,2%, porque devolve a altura relativa que a normalização de 32x32 apaga. Uma
+diferença de 7 pontos num elo, entre dois caminhos que deveriam ler igual, é candidata
+óbvia a conserto.
+
+**Medida, ela não rende — e o caminho para medi-la importa tanto quanto o número.**
+
+### Medir sem mexer
+
+`searchable_pdf._ler_boxes` chama `reconhecer(recorte)` e mais nada, então dar-lhe o
+contexto exigiria trocar a assinatura de `reconhecer`, que é parâmetro público de
+`gerar_pdf_pesquisavel` e tem dois chamadores. Trocar a assinatura em produção para depois
+descobrir que não paga é a ordem errada.
+
+Não foi preciso: **quem monta o `reconhecer` dentro do instrumento sou eu**. A faixa da
+linha é recuperável pelos bytes do recorte justo, porque `_ler_boxes` o calcula com o mesmo
+`vertical.recorte_de_pe` que o laço do medidor — então `rodar_pdf(com_contexto=True)` serve
+o contexto por dentro, com o código de produção intocado.
+
+### O número
+
+10.504 caracteres, 10 páginas, caminho neural com os limiares de produção:
+
+| | acerto | boxes no EasyOCR |
+|---|---:|---:|
+| sem contexto (hoje) | **97,52%** | 50 |
+| com a faixa da linha | 97,50% | 50 |
+
+O total esconde o efeito, porque o elo responde 0,5% dos boxes. Restringindo aos **53 boxes
+que passaram pelo EasyOCR em alguma das duas** rodadas: 41,51% sem contexto contra 37,74%
+com. São 22 acertos contra 20 — **dois caracteres**, e para o lado errado.
+
+A contagem de boxes no elo não muda, e isso é o esperado: `fallback_chain` só usa o
+`contexto` na chamada final ao EasyOCR, então o roteamento é idêntico e o que varia é
+apenas o que aquele elo lê.
+
+### Por que a F14 não se repete aqui
+
+A F14 mediu os 7 pontos com o EasyOCR lendo **todos** os boxes da página. Aqui os boxes que
+chegam nele são o resto: o que a rede recusou a 0,80 **e** o k-NN recusou a 0,30. É outra
+população — recorte-lixo, glifo colado, fragmento —, e nela a faixa da linha traz tinta do
+vizinho junto com a altura relativa. O ganho da F14 é sobre glifo legível cuja única dúvida
+é o tamanho; não é isso que sobra aqui.
+
+**O que este número não autoriza a dizer.** São 50 boxes, e dois caracteres de diferença
+não separam "não ajuda" de "atrapalha um pouco". O que a medição sustenta é que **não há
+ganho a colher**, e portanto não há razão para mexer na assinatura de `reconhecer`. Num
+livro que a rede leia pior o elo cresce, e aí a pergunta volta — com amostra para respondê-la.
+
+### O que ficou
+
+Produção intocada: o laço do PDF continua sem `contexto`, agora por medição e não por
+descuido, e o comentário em `_ler_boxes` diz isso. No instrumento ficou
+`rodar_pdf(com_contexto=...)` e a tabela, para a pergunta não precisar ser remontada quando
+a composição mudar.
+
+**E uma correção na F40.** As tabelas dela foram medidas com o `learner_threshold` do
+caminho neural ainda em 0,90 — a F39 estava decidida e ainda não estava no código, e as
+duas fases foram escritas na mesma sessão. Refeitas com 0,30, o vencedor da tabela da F18
+não muda (0,70 continua o corte) e o empate entre os dois laços se mantém: 97,52% do PDF
+contra 97,50% da janela. As duas tabelas da F40 agora trazem as duas colunas.
+
+Cobertura: nenhum teste novo — é instrumento. Reproduzir:
+`python medir_cadeia.py --neural --pdf`.
 
 ---
 
