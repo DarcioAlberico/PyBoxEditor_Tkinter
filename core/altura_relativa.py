@@ -29,19 +29,28 @@ oferece as candidatas, a altura escolhe entre elas. É o que `desambiguar` faz, 
 O sinal existe e é forte — a tabela de d' abaixo mostra separação de 3 desvios.
 O que derruba é a aritmética da precisão. `medir_altura.py` varre 63
 combinações de normalizador (faixa da linha; mediana de `y1`/`y2` da linha),
-corte, faixa de incerteza e margem de probabilidade, em 9.178 caracteres:
+corte, faixa de incerteza e margem de probabilidade. Medido na F19 em 9.178
+caracteres e refeito na F41 em 10.565, com o conjunto de páginas corrigido:
 
-    rede como está (argmax)                98,29%
-    melhor combinação com desambiguação    nenhuma passa de 98,29%
+    rede como está (argmax)                98,19%
+    melhor combinação com desambiguação    nenhuma passa disso
 
 Testei também restringir a troca só aos pares confundíveis, em vez de a toda
 divergência de classe: também sem ganho.
 
-A conta que explica: numa amostra de 2.257 caracteres a rede erra 62, e 21 deles
-são de classe de topo — o alvo. Para render, a medida geométrica teria de
-disparar nesses 21 e quase nunca nos 2.195 acertos; a 2% de falso positivo já
-seriam 44 quebras contra 21 consertos possíveis. **Uma base a 98% não tolera um
-canal lateral a 97%.**
+**E contra o k-NN é pior, o que desmonta o argumento que sobrava.** A F19
+descartou o canal contra a rede e deixou de pé a ideia de que contra uma âncora
+mais fraca ele renderia. Medido (F37), o k-NN é a âncora **mais forte** desta
+amostra — 98,49% — e o desempate mede pior contra ele.
+
+A conta que explica: a F19 supôs "a 2% de falso positivo, 44 quebras contra 21
+consertos". A conta suposta era otimista. Medida, a **precisão do canal quando
+ele fala** é 0 em 72 na rede e 2 em 105 no k-NN — ele não é um canal a 97% que
+erra 2% das vezes, ele quase nunca acerta quando abre a boca. O motivo é que
+`desambiguar` só dispara quando a âncora e a geometria **discordam**, e com
+âncora forte esse conjunto é quase todo erro da geometria: a faixa da linha é
+`max(y2) - min(y1)` dos boxes dela, então uma linha sem descendente ou sem
+ascendente encolhe a faixa e desloca todas as frações juntas.
 
 Isso não desmente a F14 — reforça a parte dela que este módulo não alcança. A
 altura tem de entrar **na** rede, treinada junto, onde o modelo aprende quanto

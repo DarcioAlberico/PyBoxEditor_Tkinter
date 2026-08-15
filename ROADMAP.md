@@ -6434,20 +6434,26 @@ ganho é inverso à força da âncora.
 
 ### As duas âncoras, na mesma amostra e no mesmo dia
 
-9.178 caracteres — a mesma amostra da F19 —, base de 85.151 referências em 216 classes.
+> **A tabela abaixo foi refeita na F41.** A primeira versão desta fase saiu com 9.178
+> caracteres de 10 páginas — o conjunto que `medir_altura.py` montava por conta própria, e
+> que diverge do de todas as outras tabelas do projeto. Corrigido o instrumento, são 10.565
+> caracteres de 11 páginas. **A conclusão não se moveu; ficou mais dura.** Os números
+> antigos estão na F41, lado a lado com estes.
+
+10.565 caracteres em 11 páginas rotuladas, base de 85.151 referências em 216 classes.
 "Tocou" é quantos boxes o desempate de fato trocou; consertos e quebras decompõem essa
 troca. Cada linha é o melhor ponto daquela margem, sobre as combinações de normalizador,
 corte e faixa de incerteza:
 
 | âncora | margem | melhor | delta | tocou | consertos | quebras |
 |---|---:|---:|---:|---:|---:|---:|
-| **rede**, 98,21% de base | 1e-6 | 98,01% | −0,21 | 22 | 1 | 20 |
-| | 1e-4 | 98,12% | −0,10 | 12 | 1 | 10 |
-| | 1e-3 | 98,16% | −0,05 | 8 | 1 | 6 |
-| **k-NN**, 98,53% de base | 0,00 | 97,61% | −0,92 | 90 | 2 | 86 |
-| | 0,30 | 98,50% | −0,03 | 3 | 0 | 3 |
-| | 0,50 | 98,51% | −0,02 | 2 | 0 | 2 |
-| | 0,70 | 98,53% | ±0,00 | 0 | 0 | 0 |
+| **rede**, 98,19% de base | 1e-6 | 97,52% | −0,67 | 72 | 0 | 71 |
+| | 1e-4 | 97,88% | −0,31 | 34 | 0 | 33 |
+| | 1e-3 | 97,92% | −0,27 | 32 | 1 | 30 |
+| **k-NN**, 98,49% de base | 0,00 | 97,55% | −0,94 | 105 | 2 | 101 |
+| | 0,30 | 98,46% | −0,03 | 3 | 0 | 3 |
+| | 0,50 | 98,47% | −0,02 | 2 | 0 | 2 |
+| | 0,70 | 98,49% | ±0,00 | 0 | 0 | 0 |
 
 Nenhum dos 63 pontos da rede nem dos 84 do k-NN supera a própria âncora, e a monotonia diz
 o resto: **quanto mais o canal fala, pior fica**. A única linha que empata é a que não fala.
@@ -6461,8 +6467,9 @@ faltou foi **imprimir quantos boxes foram tocados**, que é o que separa as duas
 
 Agora está na tabela, e ela dá o número que a F19 estimou e não mediu. Aquela fase supôs
 "a 2% de falso positivo já seriam 44 quebras contra 21 consertos". O que se mede é mais
-duro: a **precisão** do canal quando ele fala é 1 em 22 na rede e **2 em 90** no k-NN. Ele
-não é um canal a 97% que erra 2% das vezes; ele acerta ~2% das vezes em que abre a boca.
+duro: a **precisão** do canal quando ele fala é **0 em 72** na rede e **2 em 105** no k-NN.
+Ele não é um canal a 97% que erra 2% das vezes; na rede ele não acerta nenhuma das vezes em
+que abre a boca, e no k-NN acerta ~2%.
 
 O mecanismo explica. `desambiguar` só dispara quando a classe tipográfica da vencedora
 **discorda** da medida geométrica. Com uma âncora forte, essas discordâncias não são
@@ -6743,6 +6750,83 @@ ele não mede" por uma seção "os dois laços". O que ele continua não medindo
 enquanto aqui as páginas são as rotuladas, para as tabelas serem comparáveis entre si.
 
 Cobertura: nenhum teste novo — é instrumento, como `medir_paginas.py`. Suíte em 1.328.
+
+---
+
+## F41 — Duas definições de "página rotulada", e uma tabela publicada sobre a errada — CONCLUÍDA
+
+A F37 saiu na véspera com 9.178 caracteres, o mesmo número da F19, e eu escrevi "a mesma
+amostra da F19" como se isso fosse garantia. Era o contrário: os dois números batem porque
+**os dois vêm do mesmo instrumento errado**.
+
+`medir_altura.py` montava a própria lista de páginas rotuladas — `PASTAS` e um
+`paginas_rotuladas` de onze linhas. A canônica mora em `core/calibracao_de_pagina` e é a
+que `medir_paginas.py`, `medir_cadeia.py` e `calibrar_modelo.py` usam. As duas divergem em
+duas pontas, e cada uma erra para um lado:
+
+| | canônica | a de `medir_altura` |
+|---|---|---|
+| onde procura a imagem | na pasta do `.box` **e** na outra | só na pasta do `.box` |
+| corte de tamanho | `MIN_ROTULADOS = 50`, aplicado por quem chama | nenhum |
+| resultado | 11 páginas | 10 páginas |
+
+A página que faltava é a `Kasparov ... page-0108`, cuja imagem está na outra pasta. A que
+sobrava é `boxes.box`, com **28 rótulos** — o retalho que o `MIN_ROTULADOS` existe para
+recusar, e cujo comentário diz "abaixo disto a página é um retalho e não uma amostra".
+
+Corrigido: **10.565 caracteres em 11 páginas**, contra 9.178 em 10.
+
+### Refeita, a F37 fica mais dura
+
+Nenhuma conclusão se moveu; a evidência engrossou. Os dois conjuntos, lado a lado:
+
+| âncora | margem | tocou | consertos | quebras | | tocou | consertos | quebras |
+|---|---:|---:|---:|---:|---|---:|---:|---:|
+| | | **9.178 (errado)** | | | | **10.565 (certo)** | | |
+| rede | 1e-6 | 22 | 1 | 20 | | 72 | **0** | 71 |
+| rede | 1e-4 | 12 | 1 | 10 | | 34 | **0** | 33 |
+| rede | 1e-3 | 8 | 1 | 6 | | 32 | 1 | 30 |
+| k-NN | 0,00 | 90 | 2 | 86 | | 105 | 2 | 101 |
+| k-NN | 0,30 | 3 | 0 | 3 | | 3 | 0 | 3 |
+| k-NN | 0,70 | 0 | 0 | 0 | | 0 | 0 | 0 |
+
+O acerto da âncora quase não se move — rede de 98,21% para 98,19%, k-NN de 98,53% para
+98,49% —, o que era de esperar: entrou uma página inteira e saiu um retalho. O que muda é o
+**volume de disparos**, que triplica na rede, e com ele o único conserto que a rede tinha
+desaparece. A frase da F37 sobre a precisão do canal passou de "1 em 22" para **0 em 72**.
+
+A tabela da F37 no ROADMAP foi substituída pelos números novos, com o aviso de que foi
+refeita aqui e os antigos ficam nesta fase. Substituir e não emendar é a escolha certa
+quando os números velhos são de um conjunto que ninguém mais consegue reproduzir: o
+instrumento que os produziu não existe mais.
+
+### O que o instrumento não dizia, e agora diz
+
+**Nada na saída denunciava o conjunto.** As duas rodadas se apresentavam com o total de
+caracteres e mais nada, então "9.178" parecia uma amostra e era duas coisas ao mesmo tempo.
+É a mesma forma do achado da F24 — a base cresceu no meio da medição e nada na saída dizia
+—, e é a segunda vez que este projeto aprende a mesma lição.
+
+`medir_altura.py` passou a imprimir **quantas páginas** entraram, e a marcar na listagem a
+que ficou de fora por poucos rótulos. `medir_cadeia.py` já fazia isso (páginas, caracteres,
+tamanho da base) desde a F24, o que é justamente por que a divergência ficou visível: as
+duas saídas, lidas lado a lado, não fechavam.
+
+### O que ficou
+
+`medir_altura.py` importa `paginas_rotuladas` e `MIN_ROTULADOS` de
+`core/calibracao_de_pagina` — a definição de "página rotulada" volta a ser uma só no
+projeto. `core/altura_relativa.py` teve a seção da aritmética reescrita: ela citava 9.178
+caracteres e a estimativa de 2% de falso positivo da F19, e agora carrega a medida da F37
+com o conjunto certo.
+
+**Fica registrado o que não foi feito.** A F19 mediu com o instrumento antigo, e as tabelas
+dela — a de d' e a de 63 combinações — não foram refeitas. A de d' não depende do conjunto
+da mesma forma (é separação entre classes, e o retalho de 28 rótulos contribui quase nada);
+a das 63 combinações foi refeita pela F37 e substituída. O que sobra de F19 no ROADMAP são
+números históricos, e agora eles dizem de que amostra vieram.
+
+Cobertura: nenhum teste novo — é instrumento. Suíte em 1.328.
 
 ---
 

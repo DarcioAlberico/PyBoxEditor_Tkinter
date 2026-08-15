@@ -29,6 +29,7 @@ from core import altura_relativa as ar
 from core import leitura_de_linha as ldl
 from core import vertical
 from core.avaliacao_pagina import normalizar
+from core.calibracao_de_pagina import MIN_ROTULADOS, paginas_rotuladas
 from core.formato_box import ler as ler_box
 from core.services.box_service import BoxService
 
@@ -38,7 +39,6 @@ PARES = [("c", "C"), ("o", "O"), ("o", "0"), ("s", "S"), ("x", "X"),
          ("l", "1"), ("i", "1"), ("g", "9"), ("y", "Y"), ("k", "K")]
 
 MIN_AMOSTRAS = 8
-PASTAS = ("Box", "ilovepdf_pages-to-jpg")
 
 
 def _console_em_utf8():
@@ -49,27 +49,18 @@ def _console_em_utf8():
             pass
 
 
-def paginas_rotuladas():
-    for pasta in PASTAS:
-        if not os.path.isdir(pasta):
-            continue
-        for f in sorted(os.listdir(pasta)):
-            if not f.endswith(".box"):
-                continue
-            base = os.path.splitext(f)[0]
-            for ext in (".png", ".jpg", ".jpeg"):
-                img = os.path.join(pasta, base + ext)
-                if os.path.exists(img):
-                    yield img, os.path.join(pasta, f)
-                    break
-
-
 def linhas_rotuladas(img_path, box_path, minimo=3):
-    """[(imagem da página, [boxes da linha])] das linhas com pelo menos `minimo`."""
+    """
+    `(imagem da página, [linhas com pelo menos `minimo` boxes])`.
+
+    Devolve `(pagina, [])` para a página que não passa em `MIN_ROTULADOS` — o
+    corte é o mesmo de `medir_paginas.py` e de `medir_cadeia.py`, e a F41 o
+    trouxe para cá. Sem ele este arquivo media um conjunto de páginas só dele.
+    """
     pagina = np.array(Image.open(img_path).convert("L"))
     boxes = [b for b in ler_box(box_path, pagina.shape[0])
              if b.char and b.x2 > b.x1 and b.y2 > b.y1]
-    if not boxes:
+    if len(boxes) < MIN_ROTULADOS:
         return pagina, []
     boxes = BoxService.sort_boxes_reading_order(boxes)
     return pagina, [L for L in ldl.quebrar_em_linhas(boxes) if len(L) >= minimo]
@@ -118,10 +109,19 @@ def medir_separacao():
 
 
 def _amostras_com_topk(topk_de):
-    """[(verdade, y1, ângulo, top-k, geometria da linha)] de todas as páginas."""
-    saida = []
+    """
+    `([(verdade, y1, ângulo, top-k, geometria da linha)], páginas usadas)`.
+
+    A contagem de páginas sai junto porque **duas rodadas só são comparáveis se
+    o conjunto for o mesmo** — foi a lição que a F24 tirou de uma base que
+    cresceu no meio da medição, e que a F41 teve de aprender de novo: este
+    arquivo montava a sua própria lista de páginas rotuladas, e nada na saída
+    dizia que era outra.
+    """
+    saida, usadas = [], 0
     for img_path, box_path in paginas_rotuladas():
         pagina, linhas = linhas_rotuladas(img_path, box_path)
+        usadas += bool(linhas)
         for linha in linhas:
             geo = [(b.y1, b.y2) for b in linha]
             for b in linha:
@@ -132,8 +132,9 @@ def _amostras_com_topk(topk_de):
                 if topk:
                     saida.append((normalizar(b.char), b.y1,
                                   getattr(b, "angulo", 0), topk, geo))
-        print(f"  {os.path.basename(img_path)}", flush=True)
-    return saida
+        print(f"  {os.path.basename(img_path)}"
+              f"{'' if linhas else '   (poucos rótulos, fora)'}", flush=True)
+    return saida, usadas
 
 
 def _referencia_faixa(geo):
@@ -190,14 +191,14 @@ def medir_varredura(caminho="rede"):
     if ancora is None:
         return
     rotulo, topk_de = ancora
-    amostras = _amostras_com_topk(topk_de)
+    amostras, paginas = _amostras_com_topk(topk_de)
     if not amostras:
         print("nenhuma amostra")
         return
 
     n = len(amostras)
     base = sum(1 for v, _y, _a, tk, _g in amostras if normalizar(tk[0][0]) == v)
-    print(f"\n=== {n} caracteres, âncora {rotulo} ===")
+    print(f"\n=== {n} caracteres em {paginas} página(s), âncora {rotulo} ===")
     print(f"como está hoje: {100 * base / n:.2f}%\n")
 
     referencias = (("faixa", _referencia_faixa, (0.17, 0.19, 0.21)),
