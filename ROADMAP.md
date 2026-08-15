@@ -6910,6 +6910,104 @@ Cobertura: nenhum teste novo — é instrumento. Reproduzir:
 
 ---
 
+## F43 — Um número serve dois usos — MEDIDO, e separá-los rende muito
+
+A F24 fechou com este item, marcado lá como "a pergunta anterior a qualquer nova fórmula":
+
+> Roteamento quer novidade, fila de revisão quer as duas coisas. Toda esta fase mediu qual
+> fórmula única serve melhor aos dois; ninguém mediu ainda o que acontece **separando-os** —
+> `b.confidence` continuaria a absoluta, e a fila passaria a ordenar por outro critério.
+
+Medido, separar rende — e rende mais do que qualquer coisa que esta série mexeu.
+
+### A fila, ordenada de quatro jeitos
+
+A conta é a de recall igual, que é a única que compara duas escalas diferentes: para pegar
+uma fração dos erros, quantos **acertos** o revisor abre à toa. Caminho híbrido, com os
+limiares de produção. Onde não há margem — EasyOCR e linha — vale a confiança crua, e
+aquele box não sai do lugar.
+
+**10 páginas, 10.504 caracteres:**
+
+| ordenação | 25% dos erros | 50% dos erros | 75% dos erros |
+|---|---:|---:|---:|
+| confiança crua (hoje) | 156 | 2.257 | 3.877 |
+| percentil por fonte (F25) | 757 | 2.653 | 4.571 |
+| **margem onde há** | **57** | **240** | 2.412 |
+| mín. das duas | 58 | 206 | 2.417 |
+
+**As 3 páginas menos contaminadas** (0,7%, 31,5% e 0,0% dos boxes já na base), 3.440
+caracteres:
+
+| ordenação | 25% dos erros | 50% dos erros | 75% dos erros |
+|---|---:|---:|---:|
+| confiança crua (hoje) | 94 | 845 | 1.987 |
+| percentil por fonte | 295 | 977 | 1.935 |
+| margem onde há | 35 | 154 | 1.252 |
+| **mín. das duas** | **35** | **116** | **1.128** |
+
+Para achar metade dos erros, a fila de hoje faz o revisor abrir **845** boxes certos; a
+margem, 154; o mínimo das duas, 116. É **7x menos trabalho** na amostra limpa e 11x na
+completa.
+
+### A contaminação era a suspeita óbvia, e ela não explica
+
+A distância absoluta satura: quando o vizinho mais próximo é uma cópia byte a byte da
+própria página, `1 - d/2000` dá ~1,00 e não ordena mais nada. Como as páginas rotuladas são
+as mesmas em que se rodou "Aprender com Página Atual", metade delas tem mais de 40% dos
+boxes já na base, e a saturação favoreceria a margem por artefato.
+
+Por isso a segunda tabela. Nas três páginas em que a base quase não viu a página, a
+vantagem **encolhe e não desaparece**: 845 para 154 em vez de 2.257 para 240. O mecanismo
+não é a contaminação.
+
+### O motivo, e ele estava escrito na F24 sem que ela o visse
+
+A F24 mediu margem contra absoluta **no elo do k-NN isolado** e a absoluta ganhou no topo
+da fila — 0 alarmes falsos contra 37 para pegar 25% dos erros. Aqui, na fila de verdade, o
+resultado se inverte: 94 contra 35. As duas medições estão certas, e a diferença entre elas
+é a resposta.
+
+No elo isolado, o conjunto inclui o recorte-lixo, aquele que a base nunca viu. A absoluta o
+detecta — é o detector de novidade que a F24 descreveu — e o põe no topo da fila, onde ele
+deve estar. **Na cadeia esse box nunca chega à fila com a confiança do k-NN**: a absoluta
+já o usou para *roteá-lo* ao EasyOCR, e o que aparece na fila é a confiança do CRNN.
+
+Ou seja: **o trabalho da absoluta é gasto no roteamento.** Quando o box chega à fila, a
+pergunta "isto é novidade?" já foi feita e respondida por quem escolheu o classificador. O
+que sobra por decidir é "o vencedor estava claramente à frente?", e essa é a pergunta da
+margem. Um número não serve dois usos porque o primeiro uso **consome** a informação.
+
+### O que isto não conserta
+
+Os boxes que o EasyOCR responde. Nas páginas limpas são 44 boxes com 40,9% de acerto e
+mediana de confiança **0,9708 tanto no erro quanto no acerto** — a confiança do CRNN não
+separa nada ali, e nenhuma das quatro ordenações melhora isso, porque para eles não há
+margem e todas caem na crua. São 26 erros escondidos no topo da fila. É o pior ponto cego
+da revisão hoje, e é outra fase.
+
+### O que ficou, e o que falta para isto entrar
+
+Só instrumento: `tabela_revisao` ganhou as duas ordenações e a comparação de quatro linhas.
+**Produção não mudou**, e a razão é que a mudança não é de fórmula, é de estrutura: a fila
+ordena por `b.confidence`, e passar a ordenar pela margem exige um **segundo número por
+box**. `BoxEntry` teria de carregá-lo, as três ações de preenchimento teriam de preenchê-lo
+onde a fonte for `learner`, e `ui/confidence.py` teria de escolher qual dos dois olhar —
+com o cuidado de que `b.confidence` **continua** sendo a absoluta, porque é ela que colore
+o box e é ela que a F25 mediu contra a calibração da rede.
+
+Isso é fase de código, com decisão de formato no meio (o `.box` não guarda confiança
+nenhuma hoje), e emendá-la no fim de uma fase de medição é o jeito de ela passar sem ser
+lida — a mesma razão que a F35 deu para não consertar o `DISTANCIA_MAXIMA` na hora.
+
+Fica registrado com o número que a justifica: **7x menos trabalho de revisão para achar
+metade dos erros**, medido fora da contaminação.
+
+Cobertura: nenhum teste novo — é instrumento. Reproduzir:
+`python medir_cadeia.py` e `python medir_cadeia.py --so page-0020 page-0128 page-0033`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

@@ -634,7 +634,7 @@ def tabela_fila_e_linha(ancora, producao):
           f"{entrou_errado - saiu_errado:+d}")
 
 
-def tabela_revisao(linhas):
+def tabela_revisao(linhas, margem_de=None):
     """
     A fila de revisão (F3.2) medida **como fila**: custo para achar os erros.
 
@@ -648,6 +648,14 @@ def tabela_revisao(linhas):
     a fila pela confiança crua e ordená-la pelo **percentil dentro da própria
     fonte** dariam curvas parecidas. Se a do percentil for melhor, as fontes
     estão descalibradas entre si e o número único está custando revisão.
+
+    `margem_de` acrescenta as duas linhas que fecham o item aberto da F24 (F43):
+    **um número serve dois usos, e eles pedem coisas diferentes.** O roteamento
+    quer detectar *novidade* — "isto se parece com o que já vi?" —, e a fila
+    quer as duas coisas, novidade e *ambiguidade*. A F24 mediu a margem contra a
+    absoluta no **elo do k-NN isolado**; a fila de verdade mistura fontes, e é
+    ela que está aqui. Onde não há margem — rede, EasyOCR, linha — vale a
+    confiança crua, que é o que "trocar o critério só onde dá" quer dizer.
     """
     por_fonte = {}
     for reg in linhas:
@@ -700,10 +708,25 @@ def tabela_revisao(linhas):
     por_percentil = [ok(r)
                      for r in sorted(linhas, key=lambda r: percentil[r[5]])]
 
+    ordenacoes = [("confiança crua (hoje)", crua),
+                  ("percentil por fonte", por_percentil)]
+
+    if margem_de:
+        # `margem_de.get(id, conf)`: onde não há margem, a chave da ordenação é
+        # a própria confiança crua, e aquele box não sai do lugar.
+        def com_margem(reg):
+            return margem_de.get(reg[5], reg[1])
+
+        ordenacoes.append(
+            ("margem onde há", [ok(r) for r in sorted(linhas, key=com_margem)]))
+        ordenacoes.append(
+            ("mín. das duas",
+             [ok(r) for r in sorted(linhas,
+                                    key=lambda r: min(r[1], com_margem(r)))]))
+
     print(f"\n{'ordenação da fila':<22}" + "".join(
         f"{f'{p}% dos erros':>18}" for p in (25, 50, 75)))
-    for nome, ordenados in (("confiança crua (hoje)", crua),
-                            ("percentil por fonte", por_percentil)):
+    for nome, ordenados in ordenacoes:
         celulas = "".join(f"{('—' if c is None else f'{c} à toa'):>18}"
                           for c in custo(ordenados))
         print(f"{nome:<22}{celulas}")
@@ -1149,7 +1172,9 @@ def main():
     tabela_composicao(producao)
     tabela_por_pagina(producao, na_base)
     tabela_linha(ancora, producao)
-    tabela_revisao(producao)
+    tabela_revisao(producao,
+                   margem_de={chave: margem
+                              for chave, _fk, _ck, _co, _d, margem in aquecidos})
     tabela_fila_e_linha(ancora, producao)
     tabela_do_knn(aquecidos, verdade)
     tabela_roteamento(aquecidos, verdade)
