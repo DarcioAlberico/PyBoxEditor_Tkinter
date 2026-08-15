@@ -7532,6 +7532,76 @@ Cobertura: nenhum teste novo — é instrumento. Reproduzir: `python medir_cadei
 
 ---
 
+## F51 — A régua de cada fonte, medida — e a mais plana é a que cobre a página
+
+A F48 pôs o EasyOCR em `FONTES_SEMPRE_REVISADAS` porque ali "a mediana de confiança é a
+mesma no erro e no acerto". É um argumento por anedota de duas medianas, e ele tratou **um
+caso** e não a classe: `easyocr_linha` acerta 33% e ninguém tinha perguntado se a régua dele
+separa.
+
+A medida certa é a **separação**: dado um erro e um acerto da mesma fonte, com que
+frequência a régua os põe na ordem certa. É a U de Mann-Whitney normalizada, que é a área
+sob a curva ROC. 1,00 é régua perfeita, 0,50 é moeda. Não é acerto e não é confiança média —
+uma fonte pode acertar pouco e ainda assim **saber** quando errou, e é essa que a fila
+consegue usar.
+
+| caminho | fonte | boxes | erros | acerto | **separação** | na fila hoje |
+|---|---|---:|---:|---:|---:|---:|
+| híbrido | learner | 10.335 | 148 | 98,6% | **0,795** | 22% |
+| | easyocr | 160 | 92 | 42,5% | 0,582 | 100% |
+| | easyocr_linha | 9 | 6 | 33,3% | 0,667 | 100% |
+| neural | **neural** | **10.144** | 191 | 98,1% | **0,634** | **6%** |
+| | learner | 281 | 23 | 91,8% | 0,726 | 39% |
+| | easyocr | 50 | 32 | 36,0% | 0,531 | 100% |
+| | easyocr_linha | 29 | 17 | 41,4% | 0,659 | 100% |
+| 3 limpas | learner | 3.393 | 76 | 97,8% | 0,696 | 28% |
+| | easyocr | 44 | 26 | 40,9% | 0,536 | 100% |
+
+### Nenhuma fonte nova entra na lista, e por dois motivos diferentes
+
+O `easyocr_linha` era o candidato óbvio — 33% de acerto no híbrido, 41% no neural. **Ele já
+está 100% na fila, e por construção, não por sorte.** A F17 decidiu que leitura divergente
+vale a *menor* das duas confianças ("a linha venceu, mas há dúvida real, e vale a menor, que
+é o que põe o box na fila de revisão"), e isso empurra todos abaixo do corte. Uma decisão de
+dezessete fases atrás já tinha resolvido o caso.
+
+O `easyocr` confirma a F48 com número em vez de anedota: 0,582 e 0,531, encostado na moeda.
+
+### O achado é outro, e é o maior desta série sobre a fila
+
+**A rede tem separação 0,634 e responde 96,6% dos boxes — e só 6% deles estão na fila.**
+
+Ela acerta 98,1%, então a régua dela parecer ruim não é contradição: acertar muito e saber
+quando errou são coisas diferentes, e é exatamente o que esta medida separa. 0,634 está mais
+perto de moeda que de régua boa, e é a régua que governa quase toda a página no caminho que
+usa a rede.
+
+Isso põe número na frase que a F1.9 deixou solta e que `ui/main_window.py` cita duas vezes —
+"1,000 é a confiança mediana de um erro". Não é um detalhe de calibração: é a régua
+principal do programa mal ordenando erro contra acerto, e é o teto da fila de revisão como
+ela existe hoje.
+
+**E não há remédio pela lista.** Pôr `neural` em `FONTES_SEMPRE_REVISADAS` marcaria a página
+inteira, que é o não-filtro que a F53 acabou de tirar das ações de OCR puro. O caminho, se
+houver, é outra régua para a rede — e a F47 já mediu a candidata natural, a razão entre as
+duas primeiras probabilidades: ela ordena melhor no topo (33 erros em 91 marcados contra 24
+em 73) e empata no ponto de operação. **A F47 mediu a coisa certa e concluiu "não paga
+trocar"; esta fase mostra por que a pergunta vai voltar.**
+
+### O que fica
+
+Só instrumento: `tabela_regua_por_fonte` em `medir_cadeia.py`, com a separação ao lado do
+acerto e da fração já na fila. `FONTES_SEMPRE_REVISADAS` não muda.
+
+O que a tabela dá e as anteriores não davam é **uma pergunta comparável entre fontes**. Até
+aqui cada elo era discutido com a sua própria evidência — mediana aqui, tabela de corte ali —
+e a comparação era impossível. Agora é uma coluna.
+
+Cobertura: nenhum teste novo — é instrumento. Reproduzir: `python medir_cadeia.py`, com
+`--neural` e `--so page-0020 page-0128 page-0033`.
+
+---
+
 ## F52 — A trava contra o instrumento copiar a regra de produção — CONCLUÍDA
 
 O mesmo defeito apareceu quatro vezes nesta série, e o custo dele cresceu a cada vez:
