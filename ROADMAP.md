@@ -7087,6 +7087,55 @@ acompanhando o contrato. Suíte em 1.332. Reproduzir:
 
 ---
 
+## F45 — O ponto cego do EasyOCR — MEDIDO, e a concordância o abre
+
+A F43 fechou apontando o pior ponto cego da revisão: nos boxes que o EasyOCR responde, a
+mediana de confiança é **0,9708 tanto no erro quanto no acerto**. A régua do CRNN não separa
+nada ali, e a F44 não os alcança — para eles não existe margem, e a regra cai na confiança,
+que é justamente a que falha.
+
+O sinal que sobra é o que a F17 já usava para a linha: **concordância**. E ele está
+disponível de graça, o que é o ponto: o k-NN respondeu esses mesmos boxes antes de ser
+recusado pelo roteamento. Foi recusado por confiança baixa, não por silêncio — a resposta
+dele existe e foi jogada fora.
+
+| | boxes | acerto | erros |
+|---|---:|---:|---:|
+| **10 páginas**, 160 boxes, 92 erros | | | |
+| o k-NN concorda | 21 | 90,5% | 2 |
+| o k-NN diverge | 139 | 35,3% | 90 |
+| **3 limpas**, 44 boxes, 26 erros | | | |
+| o k-NN concorda | 8 | 100,0% | 0 |
+| o k-NN diverge | 36 | 27,8% | 26 |
+
+**Marcar só os divergentes pega 98% dos erros nas dez páginas e 100% nas três limpas**,
+abrindo 49 e 10 acertos à toa. Contra uma régua que hoje não distingue erro de acerto, é a
+diferença entre ter e não ter filtro.
+
+O mecanismo é o da F17 dito de outro jeito: duas leituras independentes que concordam se
+corroboram, e onde divergem é onde o erro se concentra. A novidade é que aqui a segunda
+leitura vem de um elo que a cadeia **descartou**, e o descarte não a torna inútil — torna-a
+inútil para *responder*, não para *duvidar*.
+
+### O que falta para isto entrar
+
+Um terceiro dado por box: o que o elo anterior disse. `Leitura` teria de carregá-lo,
+`BoxEntry` também, e `precisa_revisao` compararia. É a mesma forma da F44 e o mesmo tamanho,
+e fica registrado com o número que a justifica em vez de emendado no fim desta.
+
+**E há uma pergunta anterior a essa.** Se a leitura do k-NN é bom sinal quando a do EasyOCR
+está errada, vale perguntar por que ela não é a resposta: 44 boxes com 27,8% de acerto do
+EasyOCR contra o k-NN concordando em 8 e acertando todos. Pode ser que o roteamento esteja
+mandando ao EasyOCR box que o k-NN responderia melhor mesmo com confiança baixa — e isso é
+a varredura do `learner_threshold` outra vez, agora olhando o **acerto por faixa** em vez do
+total. A tabela por distância da F35 já diz que não: abaixo de 1.700 o k-NN ganha e é ele
+que responde; acima, ele perde e é lá que estes 44 boxes vivem. Fica anotado que a resposta
+já existe, para ninguém refazer a pergunta.
+
+Cobertura: nenhum teste novo — é instrumento. Reproduzir: as mesmas duas linhas da F44.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

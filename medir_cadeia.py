@@ -752,6 +752,48 @@ def tabela_revisao(linhas, margem_de=None):
         print(f"{nome:<22}{celulas}")
 
 
+def tabela_ponto_cego(linhas, char_knn):
+    """
+    Os boxes que o EasyOCR respondeu, e por que a fila não os vê (F45).
+
+    A F43 achou o pior ponto cego da revisão: nesses boxes a mediana de
+    confiança é a **mesma no erro e no acerto** — a do CRNN não separa nada — e
+    nenhuma ordenação por confiança conserta, porque para eles não existe margem.
+
+    O sinal que sobra é o que o `ler_pagina` já usa para a linha (F17):
+    **concordância**. O k-NN respondeu esses mesmos boxes no aquecimento, mesmo
+    tendo sido recusado pelo roteamento — foi por confiança baixa, não por
+    silêncio. Duas leituras independentes que dizem o mesmo se corroboram, e
+    onde divergem é onde o erro se concentra. A pergunta desta tabela é se isso
+    vale aqui, onde a confiança falhou.
+    """
+    doOCR = [r for r in linhas if r[0] == "easyocr"]
+    if not doOCR:
+        return
+
+    def certo(r):
+        return normalizar(r[2]) == normalizar(r[3])
+
+    concordam = [r for r in doOCR
+                 if normalizar(char_knn.get(r[5], "")) == normalizar(r[2])]
+    divergem = [r for r in doOCR if r not in concordam]
+    erros = sum(1 for r in doOCR if not certo(r))
+
+    print(f"\n--- o ponto cego do EasyOCR (F45), {len(doOCR)} boxes, "
+          f"{erros} erros ---")
+    print(f"{'':<24}{'boxes':>8}{'acerto':>10}{'erros':>8}")
+    for nome, parte in (("o k-NN concorda", concordam),
+                        ("o k-NN diverge", divergem)):
+        if not parte:
+            continue
+        n_erros = sum(1 for r in parte if not certo(r))
+        print(f"{nome:<24}{len(parte):>8}{acerto(parte):>9.1f}%{n_erros:>8}")
+
+    if divergem and erros:
+        print(f"  marcar só os divergentes pega {100.0 * sum(1 for r in divergem if not certo(r)) / erros:.0f}% "
+              f"dos erros abrindo {sum(1 for r in divergem if certo(r))} acerto(s) à toa")
+
+
 def tabela_corte_da_revisao(linhas, margem_de):
     """
     O **corte** da revisão, e não a ordem dela (F44).
@@ -1237,6 +1279,16 @@ def main():
                for chave, _fk, _ck, _co, _d, margem in aquecidos}
     tabela_revisao(producao, margem_de=margens)
     tabela_corte_da_revisao(producao, margens)
+    tabela_ponto_cego(producao,
+                      {chave: ck
+                       for chave, _fk, ck, _co, _d, _m in aquecidos})
+    tabela_fila_e_linha(ancora, producao)
+    tabela_do_knn(aquecidos, verdade)
+    tabela_roteamento(aquecidos, verdade)
+    tabela_por_distancia(aquecidos, verdade)
+
+    if args.alfabeto:
+        tabela_alfabeto(cadeia, paginas, caminho, padrao_learner, padrao_trava)
 
     if args.learner is not None or args.combinada:
         limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]
