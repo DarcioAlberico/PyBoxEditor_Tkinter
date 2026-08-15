@@ -135,12 +135,44 @@ NOME_DO_CACHE = ".learner_cache.npz"
 #: A distância acima da qual o vizinho mais próximo não conta como resposta, e
 #: o divisor da confiança de `predict`.
 #:
-#: **Nunca foi medido contra nada** — veio junto com a primeira versão do k-NN.
-#: A F24 mediu a alternativa que dispensaria a constante (a margem, invariante
-#: de escala) e ela saiu pior; o número em si continua sem tabela. Quem for
-#: mexer: `medir_cadeia.py --knn` mostra o efeito na fila de revisão e
-#: `medir_cadeia.py --learner ...` o efeito no roteamento, e os dois limiares do
-#: caminho híbrido saem desta escala — mudar aqui os invalida em silêncio.
+#: Veio junto com a primeira versão do k-NN e passou a série inteira sem tabela;
+#: a F35 mediu, e **o valor está certo**.
+#:
+#: **Ele não é um parâmetro independente do `learner_threshold`.** A confiança é
+#: `1 - d/D` e o roteamento é `conf > t`, ou seja `d < D(1-t)`: os dois números
+#: têm um grau de liberdade só, e quem decide é o **corte em distância**. O que
+#: `D` controla sozinho é o teto — com `t` em [0, 1), o corte nunca passa de `D`,
+#: e é por isso que a varredura da F23 não podia enxergar esta região.
+#:
+#: Onde o k-NN deixa de ganhar do EasyOCR, medido em 10.484 boxes (F35):
+#:
+#:     distância        boxes    k-NN   EasyOCR
+#:       0 – 1.000     10.130   97-99%    55-80%
+#:   1.000 – 1.200        133    86,5%     51,9%
+#:   1.200 – 1.400         85    74,1%     45,9%
+#:   1.400 – 1.700         33    63,6%     48,5%
+#:   1.700 – 2.000         34    29,4%     52,9%     <- a travessia
+#:   2.000 – ∞             99     4-26%    25-38%
+#:
+#: E a cadeia inteira, com `t = 0,30` fixo:
+#:
+#:     D        acerto   corte efetivo
+#:       800    93,52%             560
+#:     1400     97,18%             980
+#:     2000     97,65%           1.400     <- o pico
+#:     3000     97,62%           2.100
+#:     5000     97,43%           3.500
+#:    20000     97,43%          14.000
+#:
+#: **O teto de 2.000 cai depois da travessia**, então ele não corta nada que o
+#: k-NN ainda ganhasse; e o corte efetivo de produção (1.400) fica dentro da
+#: região em que o k-NN ganha. Subir `D` só entrega ao k-NN os boxes das faixas
+#: em que ele perde.
+#:
+#: **Se um dia mudar, mexe em duas coisas e não numa.** Além do roteamento, `D` é
+#: a escala da fila de revisão: `conf >= 0,90` é `d <= 0,10·D`, comparado contra
+#: um limiar da UI que é fixo e compartilhado com as outras fontes. A F25 mediu
+#: que desencontrar as réguas entre fontes piora a fila.
 DISTANCIA_MAXIMA = 2000.0
 
 #: Quantos vizinhos votam em `CharacterLearner.voto` (F24), que **não** é o

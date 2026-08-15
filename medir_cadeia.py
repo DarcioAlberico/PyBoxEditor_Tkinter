@@ -155,6 +155,34 @@ class _MemoCombinado:
         return self._memo.margem(crop)
 
 
+class _MemoComDistancia:
+    """
+    O k-NN com outro `DISTANCIA_MAXIMA`, sem tocar em produção (F35).
+
+    A confiança é `1 - d/D`, e `d` já está no cache do aquecimento — trocar `D`
+    é recontar, não reconsultar. Precisa ser assim: o `D` de produção é valor
+    padrão de argumento, ligado em tempo de `def`, então trocar o global do
+    módulo não teria efeito nenhum.
+    """
+
+    def __init__(self, memo, distancia_maxima):
+        self._memo = memo
+        self._D = float(distancia_maxima)
+        self.loaded = True
+
+    def predict(self, crop):
+        char, _conf = self._memo.predict(crop)
+        perto = self._memo.vizinhos(crop, k=1)
+        d = perto[0][1] if perto else float("inf")
+        return char, max(0.0, 1.0 - d / self._D) if d < self._D else 0.0
+
+    def vizinhos(self, crop, k=1):
+        return self._memo.vizinhos(crop, k=k)
+
+    def margem(self, crop):
+        return self._memo.margem(crop)
+
+
 class ServicoMemorizado(OCRService):
     """
     O serviço de produção, com o EasyOCR consultado uma vez por recorte.
@@ -322,13 +350,16 @@ class Cadeia:
 
 
 def rodar(cadeia, paginas, caminho, learner_threshold, trava,
-          neural_threshold=None):
+          neural_threshold=None, alfabeto=None):
     """
     `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
 
     `trava` segue `ler_pagina`: `None` é "a linha manda sempre" e `0.0` é "a
     linha não encosta em nada" — toda confiança é >= 0, então todo box fica
     travado e o resultado é idêntico a não ler linha nenhuma.
+
+    `alfabeto` é o filtro da F36, e o padrão `None` reproduz o que a ação fazia
+    antes dela — que é o que as tabelas da F18 à F35 mediram.
     """
     saida = []
     for p in paginas:
@@ -337,6 +368,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
             ler_faixa=cadeia.ocr.easyocr_linha_conf,
             ler_caractere=cadeia.leitor(p, caminho, learner_threshold,
                                         neural_threshold),
+            alfabeto=alfabeto,
             conf_maxima_para_trocar=trava,
         )
         for b, char, conf, fonte in lidos:
@@ -623,6 +655,37 @@ def _custo_por_recall(medidos, certos, conf_de, alvos):
     return saida + [None] * len(restantes)
 
 
+#: Faixas de distância crua do vizinho mais próximo (F35).
+#:
+#: É a tabela de roteamento **sem escala**: quem decide o corte é a distância, e
+#: `DISTANCIA_MAXIMA` com o `learner_threshold` são só uma parametrização dela —
+#: `conf > t` é `d < D(1-t)`, então os dois limiares têm um grau de liberdade só.
+#: Em unidade de distância a pergunta fica direta: **até onde o k-NN ainda ganha
+#: do EasyOCR?**
+DISTANCIAS = (0, 200, 500, 800, 1000, 1200, 1400, 1700, 2000, 2500, 3000,
+              float("inf"))
+
+
+def tabela_por_distancia(aquecidos, verdade):
+    """O k-NN contra o EasyOCR nos mesmos boxes, por distância crua."""
+    print(f"\n{'distância ao vizinho':<24}{'boxes':>8}{'k-NN':>9}{'EasyOCR':>10}"
+          f"{'':>4}{'quem ganha':<12}")
+    for lo, hi in zip(DISTANCIAS, DISTANCIAS[1:]):
+        parte = [(ck, co, verdade[chave])
+                 for chave, _fk, ck, co, dist, _m in aquecidos
+                 if lo <= dist < hi and chave in verdade]
+        if not parte:
+            continue
+        knn = 100.0 * sum(1 for c, _o, v in parte
+                          if normalizar(c) == normalizar(v)) / len(parte)
+        ocr = 100.0 * sum(1 for _c, o, v in parte
+                          if normalizar(o) == normalizar(v)) / len(parte)
+        ganha = "k-NN" if knn > ocr else ("EasyOCR" if ocr > knn else "empate")
+        rotulo = f"{lo} – {'∞' if hi == float('inf') else int(hi)}"
+        print(f"{rotulo:<24}{len(parte):>8}{knn:>8.1f}%{ocr:>9.1f}%"
+              f"{'':>4}{ganha:<12}")
+
+
 def tabela_roteamento(aquecidos, verdade):
     """
     O k-NN e o EasyOCR nos **mesmos** boxes, por faixa de confiança do k-NN.
@@ -680,6 +743,65 @@ def tabela_linha(sem_linha, com_linha):
         print(f"Saldo: {consertos - quebras:+d} caractere(s).")
 
 
+def tabela_alfabeto(cadeia, paginas, caminho, learner_threshold, trava):
+    """
+    O filtro de alfabeto ligado e desligado, nos mesmos boxes (F36).
+
+    O filtro tira do modo bloco a linha cuja **âncora** leu algo que o
+    `english_g2` não sabe escrever — figurina e ligadura. A linha que sai do
+    bloco não fica sem leitura: cai no modo por caractere, que é a âncora
+    sozinha.
+
+    As duas contas que importam não são a mesma:
+
+    - **quantas linhas o filtro tira**, que diz se ele encosta em alguma coisa —
+      o cabeçalho da F17 estima 19% das linhas, e essa estimativa é de uma
+      contagem de rótulo, não da âncora;
+    - **o saldo em caracteres**, separado em melhorou e piorou. Um filtro que
+      acerta 30 e erra 28 tem saldo 2 e não é o mesmo que um que acerta 2 e não
+      erra nenhum, e a coluna do meio é a que distingue os dois.
+    """
+    com = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                alfabeto=ldl.ALFABETO_EASYOCR)
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                alfabeto=None)
+
+    # As linhas, contadas sobre a mesma âncora que a cadeia leu. Tudo aqui já
+    # está memorizado pelo aquecimento, então a contagem não custa consulta.
+    dentro = fora = 0
+    for p in paginas:
+        leitor = cadeia.leitor(p, caminho, learner_threshold)
+        for uma in p.linhas:
+            chars = [leitor(b)[0] for b in uma]
+            if not ldl.em_bloco(uma, None, chars):
+                continue
+            dentro += 1
+            if not ldl.em_bloco(uma, ldl.ALFABETO_EASYOCR, chars):
+                fora += 1
+
+    melhorou = piorou = mudou = 0
+    for a, b in zip(sem, com):
+        if a[2] == b[2]:
+            continue
+        mudou += 1
+        antes = normalizar(a[2]) == normalizar(a[3])
+        depois = normalizar(b[2]) == normalizar(b[3])
+        if depois and not antes:
+            melhorou += 1
+        elif antes and not depois:
+            piorou += 1
+
+    print(f"\n--- O filtro de alfabeto (F36) ---")
+    print(f"linhas lidas em bloco{'':<8}{dentro:>8}")
+    print(f"  que o filtro tira{'':<11}{fora:>8}"
+          f"   ({100.0 * fora / dentro if dentro else 0.0:.1f}%)")
+    print(f"caracteres que mudaram{'':<7}{mudou:>8}"
+          f"   ({melhorou} melhoraram, {piorou} pioraram)")
+    tabela_varredura("com e sem o filtro", ["acerto"],
+                     [("sem (até a F35)", [acerto(sem)]),
+                      ("com (F36)", [acerto(com)])])
+
+
 def tabela_varredura(titulo, colunas, linhas_da_tabela):
     print(f"\n--- {titulo} ---")
     print(f"{'':<14}" + "".join(f"{c:>14}" for c in colunas))
@@ -719,6 +841,15 @@ def main():
     ap.add_argument("--rede", type=float, nargs="*", default=None,
                     help="varre o NEURAL_THRESHOLD (a tabela da F22), com a "
                          "composição da cadeia em cada ponto")
+    ap.add_argument("--distancia", type=float, nargs="*", default=None,
+                    help="varre o DISTANCIA_MAXIMA do k-NN (F35), recontando a "
+                         "confiança a partir da distância já medida")
+    ap.add_argument("--alfabeto", action="store_true",
+                    help="mede o filtro de alfabeto da F36 ligado contra "
+                         "desligado, nos mesmos boxes")
+    ap.add_argument("--sem-alfabeto", action="store_true",
+                    help="desliga o filtro da F36 em todas as tabelas — é como "
+                         "se reproduz uma tabela da F18 à F35")
     ap.add_argument("--combinada", action="store_true",
                     help="varre o roteamento com min(absoluta, margem) **e** com "
                          "a de produção, no mesmo processo e na mesma base — a "
@@ -793,8 +924,14 @@ def main():
         tabela_do_knn(aquecidos, verdade)
         return 0
 
-    producao = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava)
-    ancora = rodar(cadeia, paginas, caminho, padrao_learner, 0.0)
+    # O padrão espelha produção, que desde a F36 passa o alfabeto. `--sem-alfabeto`
+    # volta ao que a ação fazia antes, que é a base de comparação das tabelas
+    # anteriores.
+    alfabeto = None if args.sem_alfabeto else ldl.ALFABETO_EASYOCR
+    producao = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                     alfabeto=alfabeto)
+    ancora = rodar(cadeia, paginas, caminho, padrao_learner, 0.0,
+                   alfabeto=alfabeto)
 
     print(f"\nComo está em produção "
           f"(learner_threshold {padrao_learner}, trava {padrao_trava}): "
@@ -808,6 +945,10 @@ def main():
     tabela_fila_e_linha(ancora, producao)
     tabela_do_knn(aquecidos, verdade)
     tabela_roteamento(aquecidos, verdade)
+    tabela_por_distancia(aquecidos, verdade)
+
+    if args.alfabeto:
+        tabela_alfabeto(cadeia, paginas, caminho, padrao_learner, padrao_trava)
 
     if args.learner is not None or args.combinada:
         limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]
@@ -824,12 +965,14 @@ def main():
             cadeia.learner = memo
             linhas_da_tabela = []
             for lt in limiares:
-                so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0)
+                so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0,
+                                  alfabeto=alfabeto)
                 # A trava acompanha o limiar: a razão do 0,30 de hoje é ser o
                 # mesmo número do `learner_threshold`, para a linha agir
                 # exatamente onde o k-NN se recusou (F21/F23). Movido um, o
                 # outro move junto.
-                com_linha = rodar(cadeia, paginas, caminho, lt, lt)
+                com_linha = rodar(cadeia, paginas, caminho, lt, lt,
+                                  alfabeto=alfabeto)
                 linhas_da_tabela.append(
                     (f"{lt:.2f}", [acerto(so_ancora), acerto(com_linha)]))
             tabela_varredura(f"learner_threshold — {nome}",
@@ -848,7 +991,8 @@ def main():
             linhas_da_tabela = []
             for nt in (args.rede or [0.4, 0.6, 0.7, 0.8, 0.9]):
                 r = rodar(cadeia, paginas, caminho, padrao_learner,
-                          padrao_trava, neural_threshold=nt)
+                          padrao_trava, neural_threshold=nt,
+                          alfabeto=alfabeto)
                 conta = {}
                 for reg in r:
                     conta[reg[0]] = conta.get(reg[0], 0) + 1
@@ -859,6 +1003,26 @@ def main():
                              ["acerto", "rede", "k-NN", "EasyOCR"],
                              linhas_da_tabela)
 
+    if args.distancia is not None:
+        # O corte efetivo é `D * (1 - t)`, e é ele que roteia. A coluna existe
+        # para a tabela poder ser lida sem refazer a conta de cabeça.
+        linhas_da_tabela = []
+        for D in (args.distancia or [1000, 1500, 2000, 3000, 5000]):
+            memo = cadeia.learner
+            cadeia.learner = _MemoComDistancia(memo, D)
+            r = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                      alfabeto=alfabeto)
+            cadeia.learner = memo
+            conta = {}
+            for reg in r:
+                conta[reg[0]] = conta.get(reg[0], 0) + 1
+            linhas_da_tabela.append((f"{D:.0f}", [
+                acerto(r), int(round(D * (1 - padrao_learner))),
+                conta.get("learner", 0), conta.get("easyocr", 0)]))
+        tabela_varredura(
+            f"DISTANCIA_MAXIMA (F35), com learner_threshold {padrao_learner}",
+            ["acerto", "corte efetivo", "k-NN", "EasyOCR"], linhas_da_tabela)
+
     if args.trava is not None:
         valores = [("sem linha", 0.0)]
         valores += [(f"{t:.2f}", t) for t in (args.trava or
@@ -866,7 +1030,8 @@ def main():
         valores.append(("sempre", None))
         linhas_da_tabela = []
         for rotulo, t in valores:
-            r = rodar(cadeia, paginas, caminho, padrao_learner, t)
+            r = rodar(cadeia, paginas, caminho, padrao_learner, t,
+                      alfabeto=alfabeto)
             trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
             linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
         tabela_varredura("trava da leitura por linha (F18)",

@@ -6228,6 +6228,85 @@ que se confere rodando, não afirmando. Reproduzir:
 
 ---
 
+## F35 — O `DISTANCIA_MAXIMA`, o último sem tabela — MEDIDO, e está certo
+
+Era o que sobrava da lista: o único limiar do projeto sem medição ao lado. A F24 o nomeou e
+registrou que continuava sem tabela; a F35 mede, e **o 2.000 fica** — desta vez por número.
+
+### Ele nunca foi um parâmetro independente
+
+A confiança é `1 - d/D` e o roteamento é `conf > t`. Isso é `d < D(1-t)`: **os dois números
+têm um grau de liberdade só**, e quem decide é o corte em distância. O projeto vinha
+carregando dois limiares onde um bastava, e nenhuma fase tinha notado.
+
+O que `D` controla sozinho é o **teto**: com `t` em [0, 1), o corte nunca passa de `D`. É
+por isso que a varredura da F23 — que percorreu `t` de 0,00 a 0,95 com `D = 2.000` — não
+podia enxergar esta região: `t = 0` já é o limite, e ele dá corte 2.000.
+
+### Onde o k-NN deixa de ganhar
+
+Medido em 10.484 boxes, k-NN e EasyOCR nos **mesmos** boxes, por distância crua:
+
+| distância | boxes | k-NN | EasyOCR | ganha |
+|---|---:|---:|---:|---|
+| 0 – 200 | 8.026 | 99,1% | 75,7% | k-NN |
+| 200 – 500 | 733 | 97,4% | 80,2% | k-NN |
+| 500 – 800 | 1.090 | 98,5% | 64,6% | k-NN |
+| 800 – 1.000 | 281 | 98,9% | 55,2% | k-NN |
+| 1.000 – 1.200 | 133 | 86,5% | 51,9% | k-NN |
+| 1.200 – 1.400 | 85 | 74,1% | 45,9% | k-NN |
+| 1.400 – 1.700 | 33 | 63,6% | 48,5% | k-NN |
+| **1.700 – 2.000** | 34 | **29,4%** | 52,9% | **EasyOCR** |
+| 2.000 – 2.500 | 31 | 25,8% | 32,3% | EasyOCR |
+| 2.500 – 3.000 | 44 | 9,1% | 25,0% | EasyOCR |
+| 3.000 – ∞ | 24 | 4,2% | 37,5% | EasyOCR |
+
+**A travessia é em ~1.700.** É a tabela mais informativa desta série inteira, e é a única
+que não depende de escala nenhuma: sobrevive a qualquer mudança futura nos dois limiares,
+porque está em unidade de distância.
+
+### E a varredura confirma o teto
+
+| `D` | acerto | corte efetivo | k-NN | EasyOCR |
+|---:|---:|---:|---:|---:|
+| 800 | 93,52% | 560 | 9.017 | 1.330 |
+| 1.400 | 97,18% | 980 | 10.103 | 380 |
+| **2.000** | **97,65%** | **1.400** | 10.348 | 156 |
+| 3.000 | 97,62% | 2.100 | 10.420 | 90 |
+| 5.000 | 97,43% | 3.500 | 10.512 | 2 |
+| 20.000 | 97,43% | 14.000 | 10.514 | 0 |
+
+O `20.000` está aí de propósito: com ele o k-NN responde **tudo**, e a cadeia cai 0,22
+ponto. O teto está fazendo trabalho, e o trabalho é o certo — ele corta depois da travessia,
+então não tira do k-NN nada que ele ainda ganhasse, e o corte efetivo de produção (1.400)
+cai dentro da região em que o k-NN ganha.
+
+O critério estava fixado antes de rodar: *"se o acerto parar de subir em corte ≤ 2.000, o
+2.000 é teto adequado e nada muda"*. Parou.
+
+### Uma folga que a tabela mostra e que não vale perseguir
+
+A travessia é em 1.700 e o corte está em 1.400 — a faixa 1.400–1.700 tem **33 boxes** em que
+o k-NN faz 63,6% contra 48,5%. Levá-los ao k-NN valeria ~5 caracteres em 10.484, e cairia
+dentro do platô que a F23 já mediu no `learner_threshold`. É a mesma ordem de grandeza que a
+F24 recusou perseguir quando 0,20 media três caracteres acima de 0,30.
+
+### O que fica registrado e não foi feito
+
+`DISTANCIA_MAXIMA` é **valor padrão de argumento** em `predict`, então liga em tempo de
+`def`: editar o arquivo funciona, trocar o global em tempo de execução não. Todas as outras
+constantes ajustáveis do projeto são lidas na chamada (`BoxService.MARGEM_ARBITRO` é o
+modelo). Foi por isso que a medição precisou de `_MemoComDistancia` no instrumento em vez de
+trocar o global. É inconsistência pequena e não foi mexida aqui: esta fase concluiu que nada
+muda em produção, e emendar uma alteração de código numa fase dessas é o jeito de ela passar
+sem ser lida.
+
+Cobertura: nenhum teste novo. `medir_cadeia.py` ganhou `--distancia` e a tabela por
+distância crua. Reproduzir:
+`python medir_cadeia.py --distancia 800 1400 2000 3000 5000 20000`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
