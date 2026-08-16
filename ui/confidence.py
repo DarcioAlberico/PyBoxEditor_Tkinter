@@ -125,6 +125,23 @@ LIMIAR_DE_MARGEM = 0.50
 #: régua antiga pegava 9 e deixava 17 escapar.
 #:
 #: **O custo é 68 boxes a mais na fila em 10 páginas** — sete por página.
+#:
+#: **Quem entra aqui entra por separação, e não por acerto** (F51, F54, F55). A
+#: separação é a fração de pares (erro, acerto) que a régua daquela fonte põe na
+#: ordem certa — 0,50 é moeda, e é o que torna qualquer corte inútil ali:
+#:
+#:     fonte           separação   população
+#:     easyocr             0,582   último recurso da cadeia — **nesta lista**
+#:     easyocr_so          0,776   o EasyOCR como leitor da página (F55)
+#:     easyocr_linha       0,756   o que a linha trocou, na ação do leitor (F55)
+#:     neural              0,634   96,6% da página no caminho neural (F51)
+#:     learner             0,795   quase toda a página no híbrido (F51)
+#:
+#: A F53 manteve `easyocr_so` de fora citando "89,5% de acerto", que é o número
+#: da **outra** ação a gravar essa fonte (F17, por linha; a por caractere acerta
+#: 73,2%). A decisão estava certa e a justificativa não era: o que a sustenta é a
+#: linha de cima — 0,776 é régua melhor que a da rede, que ninguém propõe marcar
+#: inteira.
 FONTES_SEMPRE_REVISADAS = frozenset({"easyocr"})
 
 

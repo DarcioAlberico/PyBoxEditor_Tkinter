@@ -7674,6 +7674,11 @@ Mas `"easyocr"` também era a fonte gravada pelas duas ações em que ele é o *
 89,5% (F17). Depois da F48, elas passaram a marcar **todos os boxes da página** — que não é
 filtro nenhum.
 
+> **Corrigido na F55:** os 89,5% são da leitura **por linha**, e são duas ações a gravar essa
+> fonte. A por caractere acerta **73,2%**. A isenção continua de pé, por outro motivo —
+> separação 0,776 contra os 0,582 do último recurso —, mas esta seção defendeu uma das duas
+> ações com a medida da outra.
+
 A fonte ganhou nome próprio, `easyocr_so`, e a regra ficou onde foi medida. O nome está nas
 duas ações com o motivo escrito, porque a diferença não é de implementação e sim de
 população: **o mesmo classificador tem duas taxas de erro conforme o que lhe é entregue.**
@@ -7786,6 +7791,87 @@ teste.
 Cobertura: `tests/test_f23_medir_cadeia.py`, 3 testes novos — a definição da separação, a
 invariância por reescala e a trava da margem emprestada. Suíte em 1.349. Reproduzir:
 `python medir_cadeia.py`, com `--neural` e `--so page-0020 page-0128 page-0033`.
+
+---
+
+## F55 — O número que isentou o leitor era da outra ação, e a isenção estava certa por outro motivo — CONCLUÍDA
+
+A F53 tirou o leitor da regra da F48 com esta frase, que está no código, no teste e na
+mensagem de commit: *"na ação em que ele é o leitor o mesmo elo acerta 89,5%"*.
+
+**89,5% é o número da F17, que é a leitura por linha.** A fonte `easyocr_so` é gravada por
+**duas** ações — «OCR (EasyOCR)», caractere a caractere, e «OCR (EasyOCR por linha)» —, e a
+primeira é a que a F16 mediu em 74,9%. A isenção foi decidida com o número da outra.
+
+É a F41 de novo em outra roupa: duas populações com o mesmo nome, e a tabela publicada saiu
+da errada.
+
+### As duas ações, medidas
+
+| ação | fonte | boxes | erros | acerto | separação | na fila | pegos | escapam |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| **OCR (EasyOCR)** | easyocr_so | 10.502 | 2.808 | **73,3%** | **0,776** | 4.366 | 2.005 | **803** |
+| | a ação inteira | 10.504 | 2.810 | 73,2% | | 4.368 | 2.007 | 803 |
+| **OCR (EasyOCR por linha)** | easyocr_so | 7.963 | 457 | 94,3% | 0,794 | 2.399 | 326 | 131 |
+| | easyocr_linha | 2.541 | 670 | 73,6% | 0,756 | 2.466 | 668 | 2 |
+| | a ação inteira | 10.504 | 1.127 | **89,3%** | | 4.865 | 994 | 133 |
+
+Os dois números da F16 e da F17 se reproduzem — 73,2% e 89,3% —, o que confirma que são
+mesmo duas ações e não duas leituras da mesma.
+
+### A decisão estava certa, e o motivo é outro
+
+`easyocr_so` fica fora de `FONTES_SEMPRE_REVISADAS`, e agora por uma razão comparável entre
+fontes em vez de por acerto: **separação 0,776**, contra os 0,582 que puseram `easyocr` na
+lista. É régua melhor que a da rede (0,634), que ninguém propõe marcar inteira.
+
+O que muda é a justificativa escrita — no código, no teste e nesta tabela. A F51 já tinha
+estabelecido que acerto não responde a pergunta ("uma fonte pode acertar pouco e ainda assim
+saber quando errou"), e o converso é o que estava valendo aqui sem ninguém conferir: **uma
+fonte pode acertar bastante e ter régua ruim.** Não é o caso desta, e ninguém sabia disso
+antes desta fase.
+
+### O que a linha faz, medido onde ela age
+
+|  | boxes | a âncora acertava | e depois da linha |
+|---|---:|---:|---:|
+| a linha trocou | 2.541 | **7,4%** | **73,6%** |
+| a linha não encostou | 7.963 | 94,3% | 94,3% |
+
+A F17 mediu o efeito na página — 72,9% para 89,5% — e a página é a soma de duas populações
+muito diferentes. Cruzando as duas leituras pelo mesmo box: **o alinhamento troca quase
+exclusivamente os boxes que o leitor por caractere tinha errado**, e nesses o acerto vai de
+7,4% para 73,6%. Nos que ele não encosta, 94,3%.
+
+Isto não estava medido. A F17 mostrou que a linha ganha; esta tabela mostra que ela ganha
+**escolhendo onde agir**, e é a diferença entre um remédio que funciona e um que funciona por
+ser aplicado em todo mundo. É o mesmo mecanismo da F45 — concordância separa —, agora do lado
+do leitor.
+
+### O que a fila entrega em cada ação
+
+Na ação por linha a fila pega 994 dos 1.127 erros: **133 escapam**. Na ação por caractere
+pega 2.007 dos 2.810: **803 escapam, 28,6% deles**, e a página fica com um quarto errado e
+58% dela verde.
+
+Não é defeito da régua — 0,776 é boa. É o ponto de operação: o `LIMIAR_ALTO` é um número só
+para o programa inteiro, e ele cai em lugares muito diferentes de cada curva (6% da página no
+caminho neural, 42% nesta ação). **Fica registrado e não muda aqui**: mexer nesse número mexe
+em todos os caminhos de uma vez, e a F47 já mostrou o que custa trocar régua sem varrer a
+antiga.
+
+### A trava, que não existia
+
+`easyocr_so` é a fonte de que dependem a cor, o rótulo e a fila desde a F53, e **nada prendia
+o nome**. Trocá-lo por `"easyocr"` numa das duas ações põe a página inteira em vermelho e na
+fila, calado, e é uma linha de diferença.
+
+Conferida contra o defeito, como manda a F52: reintroduzi `"easyocr"` em
+`auto_fill_characters_easyocr` e o teste acusou antes de desfazer.
+
+Cobertura: `tests/test_f32_confianca.py`, 1 teste novo cobrindo as duas ações — a por
+caractere e a por linha, esta última nos boxes que a linha confirmou, que é onde a fonte da
+âncora sobrevive. Suíte em 1.350. Reproduzir: `python medir_cadeia.py --leitor`.
 
 ---
 

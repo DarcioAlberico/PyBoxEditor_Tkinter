@@ -346,9 +346,14 @@ def test_as_outras_fontes_continuam_no_corte():
 def test_o_easyocr_como_leitor_nao_entra_na_regra():
     """
     A regra da F48 foi medida onde o EasyOCR é **último recurso** — 57% de erro,
-    o que sobra depois de a rede e o k-NN recusarem. Na ação em que ele é o
-    **leitor** o mesmo elo acerta 89,5%, e marcar a página inteira não é filtro
-    nenhum. Por isso a fonte tem nome próprio (F53).
+    o que sobra depois de a rede e o k-NN recusarem. Por isso a fonte do leitor
+    tem nome próprio (F53).
+
+    **O que sustenta a isenção é a régua, e não o acerto** (F55). A F53 escreveu
+    "89,5%", que é o número da leitura por linha (F17); a ação por caractere,
+    que grava a mesma fonte, acerta 73,2%. O que decide é a separação: 0,776
+    aqui contra 0,582 no último recurso — e 0,634 na rede, que ninguém propõe
+    marcar inteira.
     """
     leitor = BoxEntry("e", 1, 1, 9, 9, confidence=0.99, source="easyocr_so")
     assert cf.precisa_revisao(leitor) is False
@@ -372,3 +377,52 @@ def test_o_manual_nao_e_arrastado_junto():
     """`manual` é autoridade do usuário — mandá-lo revisar seria circular."""
     assert cf.precisa_revisao(
         BoxEntry("e", 1, 1, 9, 9, confidence=1.0, source="manual")) is False
+
+
+# ----------------------------------------------------------------------
+# F55 — o nome da fonte do leitor, que nada prendia
+# ----------------------------------------------------------------------
+
+def _esperar(raiz, condicao, voltas=300):
+    """A ação roda fora da thread da UI; o resultado chega num `update`."""
+    for _ in range(voltas):
+        raiz.update()
+        if condicao():
+            return True
+    return False
+
+
+def test_as_duas_acoes_de_leitor_gravam_easyocr_so(monkeypatch):
+    """
+    A F53 separou `easyocr_so` de `easyocr` para a regra da F48 valer só onde
+    foi medida — e **nada prendia o nome**. Escrever `"easyocr"` de volta numa
+    das duas ações põe a página inteira em vermelho e na fila, calado, e é uma
+    linha de diferença.
+
+    São duas ações e não uma, que é o que a F55 achou: «OCR (EasyOCR)» lê
+    caractere a caractere e «OCR (EasyOCR por linha)» usa a mesma leitura como
+    âncora. As duas gravam a mesma fonte para os boxes que só o caractere
+    decidiu, e é por isso que as duas precisam estar neste teste.
+    """
+    with _App() as app:
+        w = app.win
+
+        # Por caractere: a fonte sai da própria ação.
+        w.boxes = [BoxEntry("", 0, 10, 9, 30), BoxEntry("", 10, 10, 19, 30)]
+        monkeypatch.setattr(w.ocr_service, "easyocr_ocr_conf",
+                            lambda crop, *a, **k: ("x", 0.99))
+        w.auto_fill_characters_easyocr()
+        assert _esperar(app.root, lambda: all(b.char for b in w.boxes)), \
+            "a ação por caractere não chegou aos boxes"
+        assert {b.source for b in w.boxes} == {"easyocr_so"}
+
+        # Por linha: onde a linha **confirma**, a fonte é a da âncora — e a
+        # âncora daquela ação é o mesmo EasyOCR por caractere.
+        w.boxes = [BoxEntry("", 0, 10, 9, 30), BoxEntry("", 10, 10, 19, 30)]
+        monkeypatch.setattr(w.ocr_service, "easyocr_linha_conf",
+                            lambda faixa, *a, **k: ("xx", 0.9))
+        w.auto_fill_characters_linha()
+        assert _esperar(app.root, lambda: all(b.char for b in w.boxes)), \
+            "a ação por linha não chegou aos boxes"
+        assert {b.source for b in w.boxes} == {"easyocr_so"}, \
+            "quem a linha confirmou fica com a fonte de quem leu"

@@ -2106,8 +2106,13 @@ class MainWindow(tk.Frame):
                 # `easyocr_so` e não `easyocr`: aqui ele é o **leitor**, e na
                 # cadeia ele é o último recurso. Ver a F53 e
                 # `FONTES_SEMPRE_REVISADAS` — a regra da F48 foi medida na
-                # segunda população, em que 57% dos boxes estão errados, e
-                # nesta o mesmo elo acerta 89,5%.
+                # segunda população, em que 57% dos boxes estão errados.
+                #
+                # **Esta ação acerta 73,2%, e não os 89,5% que a F53 citou** —
+                # aquele número é da leitura por linha (F17), que é a outra ação
+                # a gravar esta mesma fonte. O que sustenta a isenção não é o
+                # acerto e sim a régua: separação 0,776 (F55), contra os 0,582
+                # que puseram `easyocr` na lista.
                 ch, c = self.ocr_service.easyocr_ocr_conf(
                     justo, contexto=com_faixa)
                 return (ch, "easyocr_so" if ch else "vazio", c)

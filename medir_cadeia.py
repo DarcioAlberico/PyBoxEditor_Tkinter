@@ -973,6 +973,103 @@ def tabela_regua_alternativa(linhas, margem_knn, margem_rede=None):
           "zero é a mesma régua com outra roupa")
 
 
+def tabela_leitor(cadeia, paginas):
+    """
+    As duas ações em que o EasyOCR é o **leitor**, e não o último recurso (F55).
+
+    A F53 deu nome próprio a essa população — `easyocr_so` — e a manteve fora de
+    `FONTES_SEMPRE_REVISADAS` porque "nesta o mesmo elo acerta 89,5%". Esse
+    número é da leitura **por linha** (F17). Quem grava `easyocr_so` são duas
+    ações, e a outra é a por caractere, que a F16 mediu em 74,9%.
+
+    E acerto não é a pergunta, como a F51 estabeleceu: o que decide se a fila
+    consegue filtrar aquela fonte é a **separação**. Esta tabela mede as duas
+    coisas nas duas ações, com os módulos de produção que elas chamam —
+    `easyocr_ocr_conf` com a faixa da linha, e `ler_pagina` sem trava, que é o
+    que `_preencher_por_linha` passa em «OCR (EasyOCR por linha)».
+    """
+    por_caractere, por_linha = [], []
+    for p in paginas:
+        for b in p.boxes:
+            verdade = p.verdade.get(id(b))
+            if verdade is None:
+                continue
+            justo, contexto = p.recortes(b)
+            ch, c = cadeia.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            # A fonte que a ação grava, e não uma inventada aqui: box sem
+            # leitura fica `vazio`, como em `auto_fill_characters_easyocr`.
+            por_caractere.append(("easyocr_so" if ch else "vazio", c, ch,
+                                  verdade, p.nome, id(b)))
+
+        def ler_caractere(b, _p=p):
+            justo, contexto = _p.recortes(b)
+            ch, cf = cadeia.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            return ch, cf, "easyocr_so"
+
+        # `conf_maxima_para_trocar=None` é "a linha manda sempre", e é o que a
+        # ação passa — ela não tem trava, ao contrário do híbrido e do neural.
+        for b, char, conf, fonte in ldl.ler_pagina(
+                p.arr, p.linhas,
+                ler_faixa=cadeia.ocr.easyocr_linha_conf,
+                ler_caractere=ler_caractere,
+                conf_maxima_para_trocar=None):
+            verdade = p.verdade.get(id(b))
+            if verdade is not None:
+                por_linha.append((fonte, conf, char, verdade, p.nome, id(b)))
+
+    def errou(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    print("\n--- as ações em que o EasyOCR é o leitor (F55) ---")
+    print(f"{'ação':<26}{'fonte':<15}{'boxes':>7}{'erros':>7}{'acerto':>9}"
+          f"{'separação':>11}{'na fila':>9}{'pegos':>7}{'escapam':>9}")
+    for titulo, linhas in (("OCR (EasyOCR)", por_caractere),
+                           ("OCR (EasyOCR por linha)", por_linha)):
+        por_fonte = {}
+        for reg in linhas:
+            por_fonte.setdefault(reg[0], []).append(reg)
+        primeira = titulo
+        for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+            erros = [r[1] for r in parte if errou(r)]
+            acertos = [r[1] for r in parte if not errou(r)]
+            # **`precisa_revisao`, e não uma cópia dele** — a trava da F52. Se
+            # esta fase mudar a regra, esta coluna tem de mudar junto.
+            na_fila = [r for r in parte
+                       if conf_ui.precisa_revisao(_BoxFalso(r))]
+            pegos = sum(1 for r in na_fila if errou(r))
+            print(f"{primeira:<26}{fonte:<15}{len(parte):>7}{len(erros):>7}"
+                  f"{acerto(parte):>8.1f}%{_separacao(erros, acertos):>11.3f}"
+                  f"{len(na_fila):>9}{pegos:>7}{len(erros) - pegos:>9}")
+            primeira = ""
+        na_fila = [r for r in linhas if conf_ui.precisa_revisao(_BoxFalso(r))]
+        pegos = sum(1 for r in na_fila if errou(r))
+        erros = sum(1 for r in linhas if errou(r))
+        print(f"{'':<26}{'a ação inteira':<15}{len(linhas):>7}{erros:>7}"
+              f"{acerto(linhas):>8.1f}%{'':>11}"
+              f"{len(na_fila):>9}{pegos:>7}{erros - pegos:>9}")
+    print("  a fila de hoje só conhece a confiança: `easyocr_so` não está em "
+          "FONTES_SEMPRE_REVISADAS")
+
+    # **O que a linha troca, e como estava o box antes dela.** A F17 mediu o
+    # efeito na página inteira — 72,9% para 89,5% — e o efeito na página é a
+    # soma de duas populações muito diferentes. Cruzar as duas leituras pelo
+    # mesmo box separa as duas, e é o que diz se o alinhamento escolhe bem
+    # **onde** agir, que é a parte da F17 que nunca foi medida sozinha.
+    antes_de = {reg[5]: reg for reg in por_caractere}
+    trocados = [reg for reg in por_linha if reg[0] == "easyocr_linha"]
+    parados = [reg for reg in por_linha if reg[0] != "easyocr_linha"]
+    if trocados and antes_de:
+        antes_dos_trocados = [antes_de[reg[5]] for reg in trocados
+                              if reg[5] in antes_de]
+        print(f"\n--- onde a linha age, e o que ela pega (F55) ---")
+        print(f"{'':<34}{'boxes':>7}{'a âncora acertava':>20}"
+              f"{'e depois da linha':>20}")
+        print(f"{'a linha trocou':<34}{len(trocados):>7}"
+              f"{acerto(antes_dos_trocados):>19.1f}%{acerto(trocados):>19.1f}%")
+        print(f"{'a linha não encostou':<34}{len(parados):>7}"
+              f"{acerto(parados):>19.1f}%{acerto(parados):>19.1f}%")
+
+
 def tabela_lexico(paginas, producao):
     """
     O léxico é **aditivo** à fila, ou pega o que ela já pegava? (F50)
@@ -1441,6 +1538,9 @@ def main():
     ap.add_argument("--k", type=int, default=None,
                     help="quantos vizinhos votam no k-NN (F24); sem isto, o "
                          "`K_VIZINHOS` de produção")
+    ap.add_argument("--leitor", action="store_true",
+                    help="mede as duas ações em que o EasyOCR é o leitor (F55) "
+                         "— é a rodada que não precisa da cadeia inteira")
     ap.add_argument("--knn", action="store_true",
                     help="mede só o elo do k-NN, sem carregar o EasyOCR — é a "
                          "rodada rápida, e é como se varre o --k")
@@ -1511,8 +1611,13 @@ def main():
         if len(p.rotulados) < MIN_ROTULADOS:
             continue
         paginas.append(p)
-        aquecidos.extend(cadeia.aquecer(p, com_rede=args.neural,
-                                        com_ocr=not args.knn))
+        # O `--leitor` não passa pela cadeia: as duas ações que ele mede não
+        # consultam o k-NN nem a rede, e aquecê-los custaria 12 ms por box para
+        # nada. As páginas continuam sendo montadas com o árbitro de produção,
+        # que é o que torna a população comparável à das outras tabelas.
+        if not args.leitor:
+            aquecidos.extend(cadeia.aquecer(p, com_rede=args.neural,
+                                            com_ocr=not args.knn))
         print(f"  {p.nome}  {p.medidos} de {len(p.boxes)} boxes com rótulo",
               flush=True)
 
@@ -1536,6 +1641,10 @@ def main():
     print(f"\n=========== {total} caracteres em {len(paginas)} página(s), "
           f"caminho {caminho}, k = {k_efetivo}, "
           f"{learner_cru.total} referências ===========")
+
+    if args.leitor:
+        tabela_leitor(cadeia, paginas)
+        return 0
 
     if args.knn:
         tabela_do_knn(aquecidos, verdade)
