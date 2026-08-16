@@ -7588,6 +7588,10 @@ duas primeiras probabilidades: ela ordena melhor no topo (33 erros em 91 marcado
 em 73) e empata no ponto de operação. **A F47 mediu a coisa certa e concluiu "não paga
 trocar"; esta fase mostra por que a pergunta vai voltar.**
 
+**A F54 respondeu, e a resposta é não.** A margem da rede desarruma 26,6% da ordem e separa
+0,6335 contra os 0,6339 da confiança: ela acrescenta informação, e a informação não é sobre
+erro. O teto de 0,634 fica de pé.
+
 ### O que fica
 
 Só instrumento: `tabela_regua_por_fonte` em `medir_cadeia.py`, com a separação ao lado do
@@ -7701,6 +7705,87 @@ querem dizer alguma coisa, que é um problema mais difícil que este.
 
 Cobertura: `tests/test_f32_confianca.py`, 3 testes novos — o leitor não entra na regra, a cor
 não discorda da fila, e a lista lateral mostra `!` em vez de `99%`. Suíte em 1.346.
+
+---
+
+## F54 — A outra régua da rede desarruma um quarto da ordem e não separa um erro a mais — MEDIDA
+
+A F51 fechou com a rede tendo separação 0,634, governando 96,6% da página e com 6% dos
+boxes na fila, e deixou a pergunta escrita: **existe régua melhor para ela?** A candidata
+tinha nome — a razão de Lowe, `1 - p2/p1` — e a F47 já a tinha medido, mas em **quatro
+pontos de corte**. "Empata no ponto de operação" é uma frase sobre o ponto, não sobre a
+régua.
+
+Separação é a curva inteira num número, e é a única forma de fazer a pergunta certa.
+
+| caminho | fonte | boxes | erros | confiança | margem | mín. das duas | discordam |
+|---|---|---:|---:|---:|---:|---:|---:|
+| neural | **neural** | 10.144 | 191 | **0,6339** | **0,6335** | 0,6344 | **26,6%** |
+| | learner | 281 | 23 | 0,7256 | 0,7264 | 0,7264 | 20,7% |
+| híbrido | learner | 10.335 | 148 | 0,7947 | **0,8122** | 0,8116 | 18,1% |
+| 3 limpas | learner | 3.393 | 76 | 0,6962 | **0,7424** | 0,7325 | 34,4% |
+
+`discordam` é a fração de pares vizinhos em que a margem inverte a ordem da confiança.
+
+### A resposta é não, e a coluna da direita é o que a torna interessante
+
+**A margem da rede não é a mesma régua** — ela desarruma um quarto da ordem — **e mesmo
+assim separa exatamente igual**: 0,6335 contra 0,6339, uma diferença de 0,0004 sobre 1,9
+milhão de pares (191 erros × 9.953 acertos). Ela reordena 26,6% da página e não põe um erro
+a mais abaixo de um acerto.
+
+Isso é diferente de "as duas réguas são a mesma coisa", que é o que eu esperava ver, e é
+uma resposta mais dura: **a informação que a margem acrescenta existe e não é sobre erro.**
+Não há de onde tirar separação melhor mexendo nessas duas quantidades.
+
+No k-NN o quadro é outro e confirma que a medida funciona: **menos discordância e ganho
+real** — 18,1% e +0,018 no híbrido, 34,4% e +0,046 nas páginas limpas. A margem do k-NN é
+uma régua melhor que a confiança dele. É a mesma conclusão que a F24 e a F47 tiveram por
+outros caminhos, agora num número comparável entre fontes.
+
+### A coluna `discordam` existe porque eu não sabia se era achado ou bug
+
+As três colunas saíram idênticas na primeira rodada — 0,634, 0,634, 0,634 no `neural`, e
+0,726 nas três no `learner`. Colunas iguais em duas fontes diferentes é o formato de um
+instrumento quebrado, não o de um resultado, e a F47 é justamente a fase em que eu comemorei
+antes de conferir.
+
+O que resolveu não foi olhar o código: foi perguntar ao instrumento **por que** elas seriam
+iguais. Duas réguas que ordenam igual têm a mesma separação por construção — ela não se move
+por reescala monótona, que é o teste `test_a_separacao_nao_muda_com_o_corte_nem_com_a_escala`.
+Então ou a discordância era zero, e as colunas iguais eram trivialidade, ou não era, e o
+empate era o achado. **A coluna responde qual das duas**, e ficou.
+
+O híbrido tinha respondido antes disso, aliás: lá as colunas divergiram (0,795 contra 0,812)
+na mesma rodada, o que já dizia que o instrumento distinguia.
+
+### Isto não contradiz a F47, e vale dizer onde as duas se encontram
+
+A F47 mediu que no topo da curva a margem da rede é **mais precisa** — 33 erros em 91
+marcados contra 24 em 73 — e que no resto empata. Uma vantagem no topo e um empate na curva
+inteira convivem: o que a margem ganha nos primeiros 90 boxes ela devolve abaixo, e a
+separação, que é a curva toda, registra a soma. As duas medidas estão certas e respondem
+perguntas diferentes; a desta fase é a que a F51 fez.
+
+### O teto da F51 fica de pé
+
+**0,634 continua sendo a régua que governa 96,6% da página**, e nenhuma escolha de limiar
+melhora isso — mexer no 0,90 anda sobre a mesma curva, que é o que o segundo teste fixa. A
+fila do caminho neural tem esse teto até aparecer uma quantidade nova, e as duas que estavam
+na mão não são.
+
+### O que fica
+
+Só instrumento: `_separacao` extraída da F51 e `tabela_regua_alternativa` em
+`medir_cadeia.py`. `FONTES_SEMPRE_REVISADAS` e `precisa_revisao` não mudam.
+
+A margem só vale para quem a produziu — fonte sem régua própria sai com `—` e não com um
+número emprestado de outro elo, que é o conserto que a F47 fez na F43 e na F44, agora com
+teste.
+
+Cobertura: `tests/test_f23_medir_cadeia.py`, 3 testes novos — a definição da separação, a
+invariância por reescala e a trava da margem emprestada. Suíte em 1.349. Reproduzir:
+`python medir_cadeia.py`, com `--neural` e `--so page-0020 page-0128 page-0033`.
 
 ---
 

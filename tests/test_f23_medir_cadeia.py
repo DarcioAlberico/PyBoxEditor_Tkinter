@@ -253,3 +253,84 @@ def test_o_box_falso_responde_o_que_a_regra_pergunta():
     assert conf_ui.precisa_revisao(alto) is False
     assert conf_ui.precisa_revisao(baixo) is True
     assert conf_ui.precisa_revisao(ocr) is True, "a regra da F48 tem de valer aqui"
+
+
+# ----------------------------------------------------------------------
+# F54 — a separação, e o que ela mede que um corte não mede
+# ----------------------------------------------------------------------
+
+def test_separacao_e_a_u_de_mann_whitney():
+    """
+    A definição da coluna que a F51 introduziu e a F54 usa para comparar réguas.
+
+    Erro **abaixo** do acerto é a ordem certa, e é por isso que o teste da
+    régua perfeita põe os erros com nota menor: a régua é de confiança, e
+    confiança baixa é o que manda o box para a fila.
+    """
+    assert mc._separacao([0.1, 0.2], [0.8, 0.9]) == 1.0
+    assert mc._separacao([0.8, 0.9], [0.1, 0.2]) == 0.0
+    # Empate vale meio par, que é o que faz disto a U e não uma contagem
+    # estrita: uma régua que dá a mesma nota a tudo é uma moeda, e não uma
+    # régua perfeita nem uma invertida.
+    assert mc._separacao([0.5, 0.5], [0.5, 0.5]) == 0.5
+    assert mc._separacao([0.4, 0.6], [0.5, 0.5]) == 0.5
+
+    # Um lado vazio é "não dá para perguntar", e não "não separa" — a fonte que
+    # nunca errou nas páginas medidas não tem separação 0,00.
+    import math
+
+    assert math.isnan(mc._separacao([], [0.9]))
+    assert math.isnan(mc._separacao([0.1], []))
+
+
+def test_a_separacao_nao_muda_com_o_corte_nem_com_a_escala():
+    """
+    **É o teto de qualquer corte sobre aquela régua**, e é o que dá sentido à
+    F54 existir depois da F47.
+
+    A F47 comparou confiança e margem em quatro cortes e viu as curvas se
+    cruzarem. Um corte é um ponto; a separação é a curva inteira, e ela não se
+    move por reescala monótona da nota. Consequência prática: se a régua da rede
+    separa 0,634, **nenhuma escolha de limiar** melhora isso — mexer no 0,90 anda
+    sobre a mesma curva. Trocar de régua é outra coisa, e é a pergunta da F54.
+    """
+    erros, acertos = [0.10, 0.55, 0.91], [0.40, 0.80, 0.99]
+    antes = mc._separacao(erros, acertos)
+
+    for transformar in (lambda c: c ** 3,          # aperta o topo
+                        lambda c: c ** (1 / 3),    # estica o topo
+                        lambda c: 0.5 + c / 2):    # comprime a faixa inteira
+        assert mc._separacao([transformar(c) for c in erros],
+                             [transformar(c) for c in acertos]) == antes
+
+
+def test_a_regua_alternativa_nao_empresta_a_margem_de_outro_elo(capsys):
+    """
+    A trava do defeito que a F47 achou embaixo da F43 e da F44.
+
+    O aquecimento consulta o k-NN em **todos** os boxes, inclusive nos que o
+    roteamento mandou ao EasyOCR — então o mapa de margens tem entrada para
+    todo mundo. Julgar um box do EasyOCR pela ambiguidade de um classificador
+    que foi recusado por estar longe de tudo é o que fez a margem parecer
+    excelente por duas fases seguidas.
+    """
+    # (fonte, confiança, lido, verdade, página, id) — o EasyOCR erra e acerta,
+    # então haveria os dois lados para a conta, se ela fosse feita.
+    linhas = [("easyocr", 0.99, "a", "b", "p", 1),
+              ("easyocr", 0.98, "c", "c", "p", 2),
+              ("learner", 0.99, "d", "e", "p", 3),
+              ("learner", 0.98, "f", "f", "p", 4)]
+    margens = {1: 0.10, 2: 0.90, 3: 0.10, 4: 0.90}   # há margem para todos
+
+    mc.tabela_regua_alternativa(linhas, margens)
+    saida = capsys.readouterr().out
+
+    easyocr = next(l for l in saida.splitlines() if l.startswith("easyocr"))
+    assert "não produz margem" in easyocr, (
+        "o instrumento voltou a julgar o EasyOCR pela margem do k-NN")
+    assert "0.10" not in easyocr and "0.90" not in easyocr
+
+    # E o `learner`, que produz a sua, é medido normalmente: a trava é sobre de
+    # quem é a régua, e não sobre desligar a coluna.
+    learner = next(l for l in saida.splitlines() if l.startswith("learner"))
+    assert "1.000" in learner, "a margem do k-NN separa os seus próprios boxes"

@@ -824,6 +824,24 @@ def tabela_ponto_cego(linhas, char_knn):
                 [r for r in divergem if r[1] < corte])
 
 
+def _separacao(erros, acertos):
+    """
+    A U de Mann-Whitney normalizada entre dois conjuntos de notas (F51).
+
+    Dado um erro e um acerto ao acaso, com que frequência a régua os põe na
+    ordem certa. 1,00 é régua perfeita, 0,50 é moeda, 0,00 é invertida — e é a
+    mesma coisa que a área sob a curva ROC. `nan` quando um dos lados está
+    vazio, que é "não dá para perguntar" e não "não separa".
+    """
+    if not erros or not acertos:
+        return float("nan")
+    # Pares (erro, acerto): quantas vezes o erro vem antes. Empate vale meio,
+    # que é o que torna a conta a U de Mann-Whitney.
+    ganhos = sum((1.0 if e < a else 0.5 if e == a else 0.0)
+                 for e in erros for a in acertos)
+    return ganhos / (len(erros) * len(acertos))
+
+
 def tabela_regua_por_fonte(linhas):
     """
     A régua de cada fonte **separa** erro de acerto? (F51)
@@ -859,20 +877,100 @@ def tabela_regua_por_fonte(linhas):
             continue
         erros = [r[1] for r in parte if normalizar(r[2]) != normalizar(r[3])]
         acertos = [r[1] for r in parte if normalizar(r[2]) == normalizar(r[3])]
-        if not erros or not acertos:
-            sep = float("nan")
-        else:
-            # Pares (erro, acerto): quantas vezes o erro vem antes. Empate vale
-            # meio, que é o que torna a conta a U de Mann-Whitney.
-            ganhos = sum((1.0 if e < a else 0.5 if e == a else 0.0)
-                         for e in erros for a in acertos)
-            sep = ganhos / (len(erros) * len(acertos))
+        sep = _separacao(erros, acertos)
         na_fila = sum(1 for r in parte
                       if conf_ui.precisa_revisao(_BoxFalso(r)))
         print(f"{fonte:<16}{len(parte):>7}{len(erros):>7}"
               f"{acerto(parte):>8.1f}%{sep:>12.3f}{'':>3}"
               f"{100.0 * na_fila / len(parte):>12.0f}%")
     print("  separação 0,50 é moeda: a régua daquela fonte não sabe quando errou")
+
+
+def tabela_regua_alternativa(linhas, margem_knn, margem_rede=None):
+    """
+    A régua alternativa de cada fonte, na mesma escala da F51 (F54).
+
+    A F51 mediu que a rede tem separação 0,634 e governa 96,6% da página, e
+    deixou a pergunta: **existe régua melhor para ela?** A F47 já tinha medido a
+    candidata natural — a razão de Lowe, `1 - p2/p1` — mas em quatro pontos de
+    corte, e a conclusão de lá ("empata no ponto de operação") é sobre o ponto,
+    não sobre a régua. Separação é a curva inteira num número, e é o que permite
+    comparar as duas na mesma pergunta.
+
+    `mín. das duas` é a ideia da F24: se a absoluta detecta novidade e a margem
+    detecta ambiguidade, o mínimo acende nos dois casos. Aqui ela não custa
+    consulta nenhuma — as duas metades já vieram do aquecimento.
+
+    **A margem vale só para quem respondeu**, que é o conserto que a F47 fez na
+    F43 e na F44: a margem do k-NN num box que o roteamento mandou ao EasyOCR
+    mede a ambiguidade de um classificador recusado por estar longe de tudo.
+    Fonte sem régua alternativa própria sai com `—`, e não com um número
+    emprestado de outro elo.
+    """
+    def alternativa(reg):
+        if reg[0] == "learner":
+            return margem_knn.get(reg[5])
+        if reg[0] == "neural" and margem_rede:
+            return margem_rede.get(reg[5])
+        return None
+
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    def fora_de_ordem(pares):
+        """
+        Quantas vezes a margem discorda da confiança sobre quem vem antes.
+
+        **É o que separa achado de bug nesta tabela.** Duas réguas que ordenam
+        igual têm, por construção, a mesma separação — ela não se move por
+        reescala monótona (ver o teste da F54). Se as colunas saírem iguais e
+        esta vier zero, as duas réguas são a mesma régua com outra roupa; se
+        vierem iguais com esta alta, é coincidência e precisa de mais casas.
+
+        Ordenar e olhar vizinhos basta: uma sequência é monótona se, e só se,
+        todo par adjacente é — e é O(n log n) em vez dos 10^8 pares da conta
+        direta.
+        """
+        ordenados = sorted(pares)
+        return sum(1 for (c1, m1), (c2, m2) in zip(ordenados, ordenados[1:])
+                   if c2 > c1 and m2 < m1)
+
+    print("\n--- as réguas da mesma fonte, comparadas (F54) ---")
+    print(f"{'fonte':<16}{'boxes':>7}{'erros':>7}"
+          f"{'confiança':>12}{'margem':>10}{'mín. das duas':>15}"
+          f"{'discordam':>11}")
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        if fonte == "vazio":
+            continue
+        # Só os boxes em que a alternativa existe entram nas três colunas. Medir
+        # a confiança em toda a fonte e a margem só em parte dela poria duas
+        # populações na mesma linha, que é a torta que a F47 desfez.
+        com_margem = [(r, m) for r in parte
+                      if (m := alternativa(r)) is not None]
+        if not com_margem:
+            print(f"{fonte:<16}{len(parte):>7}{'':>7}"
+                  f"{'—':>12}{'—':>10}{'—':>15}{'—':>11}"
+                  f"   este elo não produz margem")
+            continue
+
+        erram = [(r, m) for r, m in com_margem
+                 if normalizar(r[2]) != normalizar(r[3])]
+        acertam = [(r, m) for r, m in com_margem
+                   if normalizar(r[2]) == normalizar(r[3])]
+        colunas = [
+            _separacao([r[1] for r, _m in erram], [r[1] for r, _m in acertam]),
+            _separacao([m for _r, m in erram], [m for _r, m in acertam]),
+            _separacao([min(r[1], m) for r, m in erram],
+                       [min(r[1], m) for r, m in acertam]),
+        ]
+        discordam = fora_de_ordem([(r[1], m) for r, m in com_margem])
+        print(f"{fonte:<16}{len(com_margem):>7}{len(erram):>7}"
+              f"{colunas[0]:>12.4f}{colunas[1]:>10.4f}{colunas[2]:>15.4f}"
+              f"{100.0 * discordam / max(1, len(com_margem) - 1):>10.1f}%")
+    print("  a coluna 'boxes' é a dos que têm margem própria, e não a da fonte inteira")
+    print("  'discordam' é o quanto a margem inverte a ordem da confiança: "
+          "zero é a mesma régua com outra roupa")
 
 
 def tabela_lexico(paginas, producao):
@@ -1468,6 +1566,7 @@ def main():
     tabela_revisao(producao, margem_de=margens)
     tabela_corte_da_revisao(producao, margens, margens_rede)
     tabela_regua_por_fonte(producao)
+    tabela_regua_alternativa(producao, margens, margens_rede)
     tabela_lexico(paginas, producao)
     tabela_ponto_cego(producao,
                       {chave: ck
