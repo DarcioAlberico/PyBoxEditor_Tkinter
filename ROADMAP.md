@@ -7952,6 +7952,91 @@ coluna fora da amostra não vê a página que mede. Suíte em 1.356. Reproduzir:
 
 ---
 
+## F57 — A régua de `easyocr_so` não é a confiança dele, é concordar com o k-NN — MEDIDA
+
+A F56 trocou a pergunta: o orçamento da fila já basta, e os 803 erros que escapam da ação
+«OCR (EasyOCR)» são a separação de 0,776. Sobrou "que régua". Esta fase mediu nove
+candidatas na escala da F51, todas feitas de sinal que o roteamento **já produziu e
+descartou naquele mesmo box** — nenhuma pede modelo novo nem rótulo novo.
+
+**Pela primeira vez nesta série a resposta é sim, e não por pouco.**
+
+| régua | separação | marcados | pegos | escapam |
+|---|---:|---:|---:|---:|
+| hoje (confiança do EasyOCR) | 0,7761 | 4.366 | 2.005 | 803 |
+| **concorda com o k-NN** | **0,9781** | 2.864 | 2.733 | 75 |
+| **concorda, e a confiança dentro** | **0,9847** | 4.366 | 2.756 | **52** |
+| mín. das duas confianças | 0,7556 | 4.366 | 1.922 | 886 |
+| margem da rede | 0,6682 | 4.366 | 1.818 | 990 |
+| confiança da rede | 0,6648 | 4.366 | 1.805 | 1.003 |
+| margem do k-NN | 0,5407 | 4.366 | 1.303 | 1.505 |
+| confiança do k-NN | 0,5371 | 4.366 | 1.273 | 1.535 |
+| proximidade da base (−dist) | 0,5371 | 4.366 | 1.273 | 1.535 |
+
+A binária **ganha nos dois eixos ao mesmo tempo**, que é o que quase nunca acontece: 728
+erros a mais que hoje marcando 1.502 boxes a menos. Ela não consegue gastar o orçamento —
+tem dois degraus, e o `marcados` para em 2.864 — e é por isso que a segunda linha existe:
+somar a confiança do EasyOCR ordena *dentro* de cada grupo sem nunca cruzá-los, porque a
+confiança vive em [0, 1].
+
+### A tabela quase não valia, e a trava é a F37
+
+A base do k-NN contém cópia byte a byte destas páginas. Num box desses o k-NN não
+classifica — **lembra do rótulo** —, e "concorda com o k-NN" seria "concorda com o
+gabarito": uma separação de 0,98 mediria a cópia, e a fila funcionaria na medição e falharia
+no livro seguinte. `dist == 0` é a definição direta de cópia exata, a mesma da coluna "já na
+base" desde a F23, e 4.874 dos 10.502 boxes caem nela.
+
+| só os 5.628 que a base não tem | separação | marcados | pegos | escapam |
+|---|---:|---:|---:|---:|
+| hoje | 0,7932 | 2.345 | 1.112 | 381 |
+| concorda com o k-NN | 0,9597 | 1.551 | 1.420 | 73 |
+| **concorda, e a confiança dentro** | **0,9728** | 2.345 | 1.445 | **48** |
+
+**Cai 0,012 e continua de pé.** Fora da base, ao mesmo custo de hoje, a régua nova pega
+1.445 dos 1.493 erros contra 1.112 — os que escapam vão de 381 para 48, 87% a menos. A
+contaminação explica quase nada do ganho, que era o desfecho que esta fase mais arriscava.
+
+### Duas leituras de controle, e a segunda desmente a F24 aqui
+
+A trava da F54 pegou o que devia: `confiança do k-NN` e `proximidade da base` saíram
+idênticas até a quarta casa com a mesma discordância. **Têm de sair**: a confiança do k-NN é
+`1 − d/D`, transformação monótona da distância, e são a mesma régua com outra roupa. A
+tabela disse isso sozinha, que é o que ela existe para fazer.
+
+E o **mínimo das duas** — a ideia da F24, que ganhou lá — perde aqui: 0,7556 contra os
+0,7761 de hoje. Misturar uma régua boa com uma que é quase moeda (0,5371) contamina a boa.
+A F24 mediu o mínimo entre duas réguas *do mesmo elo*; aqui uma delas é de um elo que foi
+recusado neste box, e a diferença aparece no número.
+
+A proibição da F47 — número de outro elo não se empresta calado — sai **confirmada e
+refinada**. Emprestar a *nota* do k-NN é ruim mesmo (0,5371, quase moeda, o pior da tabela).
+O que vale não é a nota dele: é ele **concordar**. Concordância não é um número emprestado,
+é uma medida sobre os dois elos juntos, e é a F45 outra vez.
+
+### O que fica, e o que falta antes de embarcar
+
+Só instrumento: `tabela_regua_do_easyocr` e `_reguas_candidatas` em `medir_cadeia.py`, atrás
+de `--regua`, mais `_fora_de_ordem` promovida a função de módulo para as duas tabelas de
+régua a chamarem em vez de copiarem. `precisa_revisao` não muda **ainda**, e faltam duas
+coisas para que possa mudar:
+
+- **a assimetria do corte.** A separação não tem parâmetro, mas a coluna `marcados` escolhe
+  o corte da candidata *na mesma amostra*, enquanto o `LIMIAR_ALTO` de hoje é fixo e não foi
+  ajustado em lugar nenhum. A comparação a custo igual favorece a candidata nessa medida, e
+  quem responde é a coluna fora da amostra da F56, aplicada a esta régua;
+- **o custo em produção.** Nos caminhos híbrido e neural a concordância é de graça — o k-NN
+  já foi consultado, e foi por ele ter sido recusado que o box chegou ao EasyOCR. Na ação
+  «OCR (EasyOCR)», que é onde estão os 803, o k-NN **não** é consultado hoje: são 12 ms por
+  box sobre os 16 que a ação já paga, +75%.
+
+Cobertura: `tests/test_f23_medir_cadeia.py`, 5 testes novos — a separação lida por régua, a
+binária não prometendo corte que não alcança, sinal ausente saindo `—` em vez de zero, a
+população restrita à fonte medida, e a trava da contaminação (dentro da base perfeita, fora
+dela moeda). Suíte em 1.361. Reproduzir: `python medir_cadeia.py --regua`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

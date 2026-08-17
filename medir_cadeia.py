@@ -842,6 +842,24 @@ def _separacao(erros, acertos):
     return ganhos / (len(erros) * len(acertos))
 
 
+def _fora_de_ordem(pares):
+    """
+    Quantas vezes a segunda régua discorda da primeira sobre quem vem antes.
+
+    **É o que separa achado de bug numa tabela de réguas** (F54). Duas réguas
+    que ordenam igual têm, por construção, a mesma separação — ela não se move
+    por reescala monótona. Se duas colunas saírem iguais e esta vier zero, são a
+    mesma régua com outra roupa; se vierem iguais com esta alta, é coincidência
+    e precisa de mais casas.
+
+    Ordenar e olhar vizinhos basta: uma sequência é monótona se, e só se, todo
+    par adjacente é — e é O(n log n) em vez dos 10^8 pares da conta direta.
+    """
+    ordenados = sorted(pares)
+    return sum(1 for (c1, m1), (c2, m2) in zip(ordenados, ordenados[1:])
+               if c2 > c1 and m2 < m1)
+
+
 def tabela_regua_por_fonte(linhas):
     """
     A régua de cada fonte **separa** erro de acerto? (F51)
@@ -918,24 +936,6 @@ def tabela_regua_alternativa(linhas, margem_knn, margem_rede=None):
     for reg in linhas:
         por_fonte.setdefault(reg[0], []).append(reg)
 
-    def fora_de_ordem(pares):
-        """
-        Quantas vezes a margem discorda da confiança sobre quem vem antes.
-
-        **É o que separa achado de bug nesta tabela.** Duas réguas que ordenam
-        igual têm, por construção, a mesma separação — ela não se move por
-        reescala monótona (ver o teste da F54). Se as colunas saírem iguais e
-        esta vier zero, as duas réguas são a mesma régua com outra roupa; se
-        vierem iguais com esta alta, é coincidência e precisa de mais casas.
-
-        Ordenar e olhar vizinhos basta: uma sequência é monótona se, e só se,
-        todo par adjacente é — e é O(n log n) em vez dos 10^8 pares da conta
-        direta.
-        """
-        ordenados = sorted(pares)
-        return sum(1 for (c1, m1), (c2, m2) in zip(ordenados, ordenados[1:])
-                   if c2 > c1 and m2 < m1)
-
     print("\n--- as réguas da mesma fonte, comparadas (F54) ---")
     print(f"{'fonte':<16}{'boxes':>7}{'erros':>7}"
           f"{'confiança':>12}{'margem':>10}{'mín. das duas':>15}"
@@ -964,7 +964,7 @@ def tabela_regua_alternativa(linhas, margem_knn, margem_rede=None):
             _separacao([min(r[1], m) for r, m in erram],
                        [min(r[1], m) for r, m in acertam]),
         ]
-        discordam = fora_de_ordem([(r[1], m) for r, m in com_margem])
+        discordam = _fora_de_ordem([(r[1], m) for r, m in com_margem])
         print(f"{fonte:<16}{len(com_margem):>7}{len(erram):>7}"
               f"{colunas[0]:>12.4f}{colunas[1]:>10.4f}{colunas[2]:>15.4f}"
               f"{100.0 * discordam / max(1, len(com_margem) - 1):>10.1f}%")
@@ -973,7 +973,176 @@ def tabela_regua_alternativa(linhas, margem_knn, margem_rede=None):
           "zero é a mesma régua com outra roupa")
 
 
-def tabela_leitor(cadeia, paginas):
+#: As candidatas a régua de `easyocr_so`, e o que cada uma pergunta (F57).
+#:
+#: Cada uma devolve a nota do box — **menor é mais suspeito**, na convenção da
+#: confiança e do `conf < t` da fila —, ou `None` quando o sinal não existe
+#: naquele box, e aí ele fica fora da linha inteira em vez de entrar com um
+#: número inventado (o conserto que a F47 fez na F43).
+def _reguas_candidatas():
+    def hoje(reg, s):
+        return reg[1]
+
+    def concorda_knn(reg, s):
+        """O k-NN leu a mesma coisa? Régua binária, e é a ideia da F45."""
+        if s is None:
+            return None
+        return 1.0 if normalizar(s["knn_char"]) == normalizar(reg[2]) else 0.0
+
+    def concorda_e_confianca(reg, s):
+        """
+        Concordância manda, e a confiança do EasyOCR desempata dentro dela.
+
+        A binária acima só tem dois degraus: dentro de cada um a ordem é
+        arbitrária, e uma régua de dois degraus não consegue gastar um orçamento
+        que caia no meio de um deles. Somar a confiança preserva a ordem de hoje
+        *dentro* de cada grupo sem nunca cruzar os grupos, porque a confiança
+        vive em [0, 1].
+        """
+        c = concorda_knn(reg, s)
+        return None if c is None else c + reg[1]
+
+    def confianca_knn(reg, s):
+        """
+        O número do outro elo, que a F47 proibiu de **emprestar** calado.
+
+        Aqui ele não está sendo emprestado: está sendo medido, que é a única
+        forma de saber se a proibição custa recall. Se separar melhor que a
+        régua de casa, a regra da F47 volta à mesa com dado; se não, ela ganha
+        uma medição em vez de só uma justificativa.
+        """
+        return None if s is None else s["knn_conf"]
+
+    def minimo(reg, s):
+        """A ideia da F24: duas perguntas diferentes, e o mínimo acende nas duas."""
+        return None if s is None else min(reg[1], s["knn_conf"])
+
+    def proximidade(reg, s):
+        """Detector de novidade: perto da base é bom, então a nota é `-dist`."""
+        if s is None or s["dist"] == float("inf"):
+            return None
+        return -s["dist"]
+
+    def margem_knn(reg, s):
+        return None if s is None else s["knn_margem"]
+
+    def confianca_rede(reg, s):
+        return None if s is None else s["rede_conf"]
+
+
+
+    def margem_rede(reg, s):
+        if s is None or s["rede_margem"] is None:
+            return None
+        return s["rede_margem"]
+
+    return [
+        ("hoje (confiança do EasyOCR)", hoje),
+        ("concorda com o k-NN", concorda_knn),
+        ("concorda, e a confiança dentro", concorda_e_confianca),
+        ("confiança do k-NN", confianca_knn),
+        ("mín. das duas confianças", minimo),
+        ("proximidade da base (-dist)", proximidade),
+        ("margem do k-NN", margem_knn),
+        ("confiança da rede", confianca_rede),
+        ("margem da rede", margem_rede),
+    ]
+
+
+def tabela_regua_do_easyocr(linhas, sinais):
+    """
+    Existe régua melhor para `easyocr_so`? (F57)
+
+    A F56 fechou trocando a pergunta. Ela mediu que, com os mesmos 4.368 boxes
+    marcados, uma régua perfeita pegaria os 2.810 erros da ação «OCR (EasyOCR)»
+    — o orçamento já basta, e os 803 que escapam são a **separação** de 0,776,
+    não o ponto de corte. Sobrou "que régua", que é o que esta tabela mede, na
+    escala da F51 e com o método da F54.
+
+    As candidatas vêm dos elos que o roteamento **já consultou e recusou** neste
+    mesmo box. É material de graça no sentido que importa: nenhuma delas pede
+    modelo novo nem rótulo novo.
+
+    Três colunas, e cada uma responde uma coisa diferente:
+
+    - **separação** é a curva inteira num número — dado um erro e um acerto ao
+      acaso, a régua os põe na ordem certa?;
+    - **discordam** é a trava da F54: duas réguas que ordenam igual têm a mesma
+      separação por construção, então coluna igual com discordância zero é a
+      mesma régua com outra roupa, e não um empate interessante;
+    - **pegos ao orçamento de hoje** é a consequência, pela regra da F47 — as
+      réguas comparadas no mesmo custo. É a coluna que diz se a separação a mais
+      vira erro a mais na fila, que é a única pergunta que o revisor faz.
+    """
+    todos = [r for r in linhas if r[0] == "easyocr_so"]
+    if not todos:
+        return
+
+    def errou(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    # **A trava desta fase, e ela pode anular a tabela inteira.** A base do k-NN
+    # contém cópia byte a byte destas páginas (F37), e num box desses o k-NN não
+    # está classificando — está lembrando do rótulo. "Concorda com o k-NN" ali é
+    # "concorda com o gabarito", e uma separação alta mediria a contaminação, não
+    # a régua. `dist == 0` é a definição direta de cópia exata, a mesma que a
+    # coluna "já na base" usa desde a F23.
+    fora_da_base = [r for r in todos
+                    if (s := sinais.get(r[5])) is not None and s["dist"] > 0.0]
+
+    for titulo, parte in (("todos os boxes", todos),
+                          ("só os que a base do k-NN não tem", fora_da_base)):
+        if not parte:
+            continue
+        _bloco_de_reguas(titulo, parte, sinais, errou)
+
+
+def _bloco_de_reguas(titulo, parte, sinais, errou):
+    """Uma passada da tabela da F57 sobre uma população."""
+    total_erros = sum(1 for r in parte if errou(r))
+    orcamento = sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+    pegos_hoje = sum(1 for r in parte
+                     if conf_ui.precisa_revisao(_BoxFalso(r)) and errou(r))
+
+    print(f"\n--- as réguas candidatas de `easyocr_so` (F57) — {titulo}: "
+          f"{len(parte)} boxes com {total_erros} erros ---")
+    print(f"o orçamento de hoje é {orcamento} marcados, que pegam {pegos_hoje}")
+    print(f"\n{'régua':<32}{'boxes':>7}{'separação':>11}{'discordam':>11}"
+          f"{'marcados':>10}{'pegos':>7}{'escapam':>9}")
+
+    for nome, regua in _reguas_candidatas():
+        notados = [(r, n) for r in parte
+                   if (n := regua(r, sinais.get(r[5]))) is not None]
+        if not notados:
+            print(f"{nome:<32}{0:>7}{'—':>11}{'—':>11}"
+                  f"{'—':>10}{'—':>7}{'—':>9}   sem sinal nesta amostra")
+            continue
+
+        erram = [n for r, n in notados if errou(r)]
+        acertam = [n for r, n in notados if not errou(r)]
+        sep = _separacao(erram, acertam)
+        discordam = _fora_de_ordem([(r[1], n) for r, n in notados])
+
+        # O ponto de operação que gasta o mesmo orçamento nesta régua. A curva
+        # é a de `_cortes_possiveis`, com a nota da candidata no lugar da
+        # confiança — só nota distinta fecha um ponto, então nada aqui promete
+        # corte que limiar nenhum alcança.
+        reescritos = [(r[0], n) + tuple(r[2:]) for r, n in notados]
+        curva = _cortes_possiveis(reescritos, errou)
+        alcancavel = [p for p in curva if p[0] <= orcamento] or [curva[0]]
+        marcados, pegos, _t = alcancavel[-1]
+
+        print(f"{nome:<32}{len(notados):>7}{sep:>11.4f}"
+              f"{100.0 * discordam / max(1, len(notados) - 1):>10.1f}%"
+              f"{marcados:>10}{pegos:>7}{total_erros - pegos:>9}")
+
+    print("  'discordam' é o quanto a candidata inverte a ordem da régua de "
+          "hoje: zero é a mesma régua com outra roupa")
+    print("  'marcados' é o maior ponto da curva que cabe no orçamento — "
+          "régua de poucos degraus não consegue gastá-lo inteiro")
+
+
+def tabela_leitor(cadeia, paginas, com_sinais=False):
     """
     As duas ações em que o EasyOCR é o **leitor**, e não o último recurso (F55).
 
@@ -988,7 +1157,7 @@ def tabela_leitor(cadeia, paginas):
     `easyocr_ocr_conf` com a faixa da linha, e `ler_pagina` sem trava, que é o
     que `_preencher_por_linha` passa em «OCR (EasyOCR por linha)».
     """
-    por_caractere, por_linha = [], []
+    por_caractere, por_linha, sinais = [], [], {}
     for p in paginas:
         for b in p.boxes:
             verdade = p.verdade.get(id(b))
@@ -1000,6 +1169,27 @@ def tabela_leitor(cadeia, paginas):
             # leitura fica `vazio`, como em `auto_fill_characters_easyocr`.
             por_caractere.append(("easyocr_so" if ch else "vazio", c, ch,
                                   verdade, p.nome, id(b)))
+            if com_sinais:
+                # O que os outros elos diriam **deste mesmo box**, que é o
+                # material das réguas candidatas da F57. Custa 12 ms por box e
+                # é por isso que fica atrás de uma opção: o `--leitor` sozinho
+                # não consulta o k-NN nem a rede, e não deve passar a consultar.
+                # `predict` devolve `(char, confiança)` — nesta ordem. O
+                # `aquecer` aqui do lado nomeia o par ao contrário e monta a
+                # tupla certa mesmo assim; escrever os nomes por extenso é o
+                # que impede a próxima leitura de herdar a confusão.
+                char_knn, conf_knn = cadeia.learner.predict(justo)
+                perto = cadeia.learner.vizinhos(justo, k=1)
+                sinais[id(b)] = {
+                    "knn_char": char_knn,
+                    "knn_conf": conf_knn,
+                    "knn_margem": cadeia.learner.margem(justo),
+                    "dist": perto[0][1] if perto else float("inf"),
+                    "rede_conf": (cadeia.predictor.predict(justo)[1]
+                                  if cadeia.predictor else None),
+                    "rede_margem": (cadeia.predictor.margem(justo)
+                                    if cadeia.predictor else None),
+                }
 
         def ler_caractere(b, _p=p):
             justo, contexto = _p.recortes(b)
@@ -1078,6 +1268,9 @@ def tabela_leitor(cadeia, paginas):
               f"{acerto(antes_dos_trocados):>19.1f}%{acerto(trocados):>19.1f}%")
         print(f"{'a linha não encostou':<34}{len(parados):>7}"
               f"{acerto(parados):>19.1f}%{acerto(parados):>19.1f}%")
+
+    if com_sinais:
+        tabela_regua_do_easyocr(por_caractere, sinais)
 
 
 def tabela_lexico(paginas, producao):
@@ -1954,6 +2147,10 @@ def main():
     ap.add_argument("--leitor", action="store_true",
                     help="mede as duas ações em que o EasyOCR é o leitor (F55) "
                          "— é a rodada que não precisa da cadeia inteira")
+    ap.add_argument("--regua", action="store_true",
+                    help="as réguas candidatas de `easyocr_so` (F57) — a "
+                         "população do --leitor, mais o k-NN e a rede "
+                         "consultados no mesmo box (+12 ms por box)")
     ap.add_argument("--knn", action="store_true",
                     help="mede só o elo do k-NN, sem carregar o EasyOCR — é a "
                          "rodada rápida, e é como se varre o --k")
@@ -2004,7 +2201,10 @@ def main():
         print("nenhuma página rotulada encontrada")
         return 1
 
-    cadeia = Cadeia(com_rede=args.neural)
+    # `--regua` pede a rede porque duas das candidatas são dela. Sem isto o
+    # `predictor` fica `None` e as duas colunas sairiam achatadas em zero — que
+    # é pior que sair vazias, porque zero parece medida.
+    cadeia = Cadeia(com_rede=args.neural or args.regua)
 
     # Guardado antes de envelopar: o cabeçalho precisa do tamanho da base, e a
     # partir daqui `cadeia.learner` pode não ser mais o memo cru.
@@ -2055,8 +2255,8 @@ def main():
           f"caminho {caminho}, k = {k_efetivo}, "
           f"{learner_cru.total} referências ===========")
 
-    if args.leitor:
-        tabela_leitor(cadeia, paginas)
+    if args.leitor or args.regua:
+        tabela_leitor(cadeia, paginas, com_sinais=args.regua)
         return 0
 
     if args.knn:

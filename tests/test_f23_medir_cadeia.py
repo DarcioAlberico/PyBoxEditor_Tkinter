@@ -489,3 +489,154 @@ def test_a_coluna_fora_da_amostra_nao_ve_a_pagina_que_mede(capsys):
     assert campos[1] == "20", f"o ajuste de dentro não achou os 20 erros: {dentro}"
     assert campos[-3:] == ["0", "em", "0"], (
         f"a coluna fora da amostra repetiu o número de dentro: {dentro}")
+
+
+# ----------------------------------------------------------------------
+# F57 — as réguas candidatas de `easyocr_so`
+# ----------------------------------------------------------------------
+
+def _populacao_do_easyocr():
+    """
+    Uma amostra em que a concordância com o k-NN é régua perfeita.
+
+    Os erros discordam do k-NN e têm confiança alta; os acertos concordam e têm
+    confiança baixa. A régua de hoje sai invertida de propósito — é o que torna
+    a tabela capaz de mostrar diferença, se houver.
+    """
+    linhas, sinais = [], {}
+    i = 0
+    for _ in range(20):
+        i += 1
+        linhas.append(("easyocr_so", 0.95, "a", "b", "p0", i))
+        sinais[i] = {"knn_char": "b", "knn_conf": 0.1, "knn_margem": 0.1,
+                     "dist": 9.0, "rede_conf": 0.1, "rede_margem": 0.1}
+    for _ in range(80):
+        i += 1
+        linhas.append(("easyocr_so", 0.10, "a", "a", "p0", i))
+        sinais[i] = {"knn_char": "a", "knn_conf": 0.9, "knn_margem": 0.9,
+                     "dist": 0.0, "rede_conf": 0.9, "rede_margem": 0.9}
+    return linhas, sinais
+
+
+def _coluna(saida, rotulo):
+    linha = next(l for l in saida.splitlines() if l.startswith(rotulo))
+    return linha[len(rotulo):].split()
+
+
+def test_a_regua_candidata_e_medida_na_mesma_escala_da_separacao(capsys):
+    """
+    A tabela mede separação, e uma régua perfeita nesta amostra dá 1,0000.
+
+    Aqui a concordância com o k-NN acerta todos os pares e a confiança de hoje
+    erra todos — 0,0000 —, que é o par de extremos que prova que a coluna está
+    lendo a régua de cada linha, e não a mesma para todas.
+    """
+    linhas, sinais = _populacao_do_easyocr()
+    mc.tabela_regua_do_easyocr(linhas, sinais)
+    saida = capsys.readouterr().out
+
+    assert _coluna(saida, "hoje (confiança do EasyOCR)")[1] == "0.0000"
+    assert _coluna(saida, "concorda com o k-NN")[1] == "1.0000"
+
+
+def test_a_regua_binaria_nao_promete_corte_que_nao_alcanca(capsys):
+    """
+    Régua de dois degraus não gasta um orçamento que caia no meio de um deles.
+
+    É o mesmo cuidado de `_cortes_possiveis`: um corte não separa dois boxes com
+    a mesma nota. Com orçamento de 20 e os 20 erros num degrau só, a binária
+    marca exatamente 20; se a tabela dissesse mais, estaria prometendo ponto de
+    operação que limiar nenhum realiza — o defeito que a F47 registrou.
+    """
+    linhas, sinais = _populacao_do_easyocr()
+    # A regra de hoje marca o que tem confiança < 0,90: os 80 acertos.
+    mc.tabela_regua_do_easyocr(linhas, sinais)
+    saida = capsys.readouterr().out
+
+    marcados, pegos = _coluna(saida, "concorda com o k-NN")[3:5]
+    assert int(marcados) <= 80, "gastou mais que o orçamento de hoje"
+    assert int(pegos) == 20, f"a régua perfeita não pegou os 20 erros: {saida}"
+
+
+def test_a_candidata_sem_sinal_sai_vazia_e_nao_com_zero(capsys):
+    """
+    Sinal ausente é `—`, e não um número emprestado — o conserto da F47.
+
+    Sem a rede carregada, `rede_conf` vem `None`. Uma coluna que respondesse
+    0,0000 ali diria "esta régua não separa nada" sobre uma régua que não foi
+    medida.
+    """
+    linhas, sinais = _populacao_do_easyocr()
+    for s in sinais.values():
+        s["rede_conf"] = None
+        s["rede_margem"] = None
+    mc.tabela_regua_do_easyocr(linhas, sinais)
+    saida = capsys.readouterr().out
+
+    assert "sem sinal nesta amostra" in saida
+    assert _coluna(saida, "confiança da rede")[1] == "—"
+
+
+def test_a_tabela_ignora_quem_nao_e_easyocr_so(capsys):
+    """
+    A população é a fonte medida, e não a ação inteira.
+
+    `easyocr_linha` e `vazio` gravam na mesma ação e têm curvas próprias
+    (F55). Misturá-los aqui poria duas populações na mesma linha, que é a torta
+    que a F47 desfez.
+    """
+    linhas, sinais = _populacao_do_easyocr()
+    linhas += [("easyocr_linha", 0.5, "a", "b", "p0", 9001),
+               ("vazio", 0.0, "", "a", "p0", 9002)]
+    mc.tabela_regua_do_easyocr(linhas, sinais)
+    saida = capsys.readouterr().out
+
+    assert "todos os boxes: 100 boxes com 20 erros" in saida
+
+
+def test_a_tabela_separa_o_que_a_base_do_knn_ja_tem(capsys):
+    """
+    A trava contra a contaminação da F37, e ela pode anular a fase inteira.
+
+    Num box que a base tem byte a byte (`dist == 0`) o k-NN não classifica —
+    lembra do rótulo. "Concorda com o k-NN" ali é "concorda com o gabarito", e
+    uma separação alta mediria a cópia, não a régua.
+
+    Esta amostra é o caso extremo de propósito: **dentro** da base a
+    concordância é perfeita, e **fora** dela é uma moeda. Uma tabela que
+    mostrasse só o agregado diria 0,9 e esconderia que o número inteiro veio de
+    onde não vale.
+    """
+    linhas, sinais = [], {}
+    i = 0
+    for k in range(100):
+        i += 1
+        na_base = k < 50
+        errado = k % 2 == 0
+        linhas.append(("easyocr_so", 0.5, "a", "b" if errado else "a", "p0", i))
+        if na_base:
+            # Cópia exata: o k-NN "acerta" sempre, inclusive em dizer que o
+            # EasyOCR errou.
+            concorda = not errado
+        else:
+            # Fora da base: concorda metade das vezes, sem relação com o erro.
+            concorda = k % 4 in (0, 1)
+        sinais[i] = {"knn_char": "a" if concorda else "z",
+                     "knn_conf": 0.5, "knn_margem": 0.5,
+                     "dist": 0.0 if na_base else 3.0,
+                     "rede_conf": 0.5, "rede_margem": 0.5}
+
+    mc.tabela_regua_do_easyocr(linhas, sinais)
+    saida = capsys.readouterr().out
+
+    assert "todos os boxes: 100 boxes" in saida
+    assert "só os que a base do k-NN não tem: 50 boxes" in saida
+
+    blocos = saida.split("--- as réguas candidatas")
+    dentro = _coluna(blocos[1], "concorda com o k-NN")[1]
+    fora = _coluna(blocos[2], "concorda com o k-NN")[1]
+    assert float(dentro) > float(fora), (
+        "a tabela não mostrou que a separação cai fora da base: "
+        f"{dentro} contra {fora}")
+    assert abs(float(fora) - 0.5) < 0.01, (
+        f"fora da base a régua desta amostra é moeda, e saiu {fora}")
