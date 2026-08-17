@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+import tkinter.font as tkfont
 from dataclasses import replace
 from tkinter import filedialog, messagebox, ttk
 
@@ -28,6 +29,7 @@ from ui.dialogo_diagrama import DialogoDiagrama
 from ui.dialogo_semelhantes import DialogoSemelhantes
 from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
+from ui import fontes
 
 
 #: Confiança da cadeia acima da qual a leitura por linha **não** encosta no box.
@@ -258,10 +260,13 @@ NAGS_POR_FAMILIA = [
         ("□", "Lance único"), ("#", "Mate"),
     ]),
     ("Ideia", [
-        # `≡` é aproximação: o símbolo de compensação do Informator não tem ponto
-        # de código próprio em Unicode, e três barras é como estes livros o
-        # imprimem. Trocá-lo depois é mexer numa linha desta tabela.
-        ("≡", "Com compensação"), ("⇄", "Com contrajogo"),
+        # `⯹` é o U+2BF9, um igual sobre um infinito — o desenho impresso, que a
+        # "Key to symbols used" destes livros põe logo acima do `∞` sozinho de
+        # *unclear*. Escreveu-se `≡` aqui enquanto nenhuma das 559 famílias de
+        # `C:\Windows\Fonts` o desenhava; quem o desenha é a `NotoSansSymbols2`
+        # empacotada em `assets/fonts/`, que `ui.fontes` registra no processo
+        # para o Tk alcançar. Trocá-lo de novo é mexer numa linha desta tabela.
+        ("⯹", "Com compensação"), ("⇄", "Com contrajogo"),
         ("⌓", "Melhor é"), ("Δ", "Com ideia de"), ("⨀", "Zugzwang"),
     ]),
     ("Lado", [
@@ -709,6 +714,14 @@ class MainWindow(tk.Frame):
         # desligado em vez de mentir.
         sem_desenho = nags.sem_glifo([c for c, _ in PECAS_RAPIDAS[1]])
 
+        # A fonte padrão do botão, escrita como tripla para servir de base à
+        # escolha de família. Perguntar ao Tk em vez de fixar "Segoe UI 9" é o
+        # que garante que os 22 botões que não trocam de família fiquem **byte a
+        # byte** com a aparência de antes.
+        padrao = tkfont.nametofont("TkDefaultFont")
+        FONTE_BOTAO_NAG = (padrao.cget("family"), padrao.cget("size"),
+                           padrao.cget("weight"))
+
         for faixa, familias in ((0, NAGS_POR_FAMILIA[:2]),
                                 (1, NAGS_POR_FAMILIA[2:] + [PECAS_RAPIDAS])):
             linha = tk.Frame(nag_frame)
@@ -723,8 +736,15 @@ class MainWindow(tk.Frame):
                                                                padx=(8, 2))
                 for nag_char, tooltip in familia:
                     faltando = nag_char in sem_desenho
+                    # O botão do `⯹` é o caso: o arquivo da fonte estar em
+                    # `assets/fonts/` não basta para o Tk desenhá-lo, e sem esta
+                    # escolha o botão sairia como retângulo vazio — habilitado,
+                    # porque `sem_glifo` (que lê o arquivo) diz que há desenho.
+                    # Os outros 22 não passam por aqui: `fonte_do_rotulo` só
+                    # troca a família do que nenhuma fonte do sistema tem.
                     btn = tk.Button(
                         linha, text=nag_char, width=3,
+                        font=fontes.fonte_do_rotulo(nag_char, FONTE_BOTAO_NAG),
                         state="disabled" if faltando else "normal",
                         command=lambda c=nag_char: self.apply_nag(c))
                     dica = f"{tooltip} (sem fonte)" if faltando else tooltip
@@ -1977,6 +1997,9 @@ class MainWindow(tk.Frame):
                     "têm texto.")
             if resumo["pecas_substituidas"]:
                 linhas.append(f"Peças substituídas: {resumo['pecas_substituidas']}")
+            if resumo.get("simbolos_de_recurso"):
+                linhas.append("Escritos com a fonte de recurso: "
+                              f"{resumo['simbolos_de_recurso']}")
             if resumo["baixa_confianca"]:
                 linhas.append(f"Baixa confiança: {resumo['baixa_confianca']}")
             if resumo["sem_glifo"]:

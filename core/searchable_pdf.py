@@ -21,7 +21,8 @@ import numpy as np
 from PIL import Image
 
 from core import vertical
-from core.chess_pdf_processor import CHESS_UNICODE, resolve_chess_font
+from core.chess_pdf_processor import (CHESS_UNICODE, FONTES_DE_SIMBOLO,
+                                      resolve_chess_font)
 from core.services.box_service import BoxService
 
 
@@ -29,6 +30,18 @@ MODOS = ("searchable", "replace", "both")
 
 FONTE_OCR = "pyboxocr"
 FONTE_PECAS = "pyboxchess"
+
+#: A terceira fonte, e ela existe porque **nenhuma fonte única serve**.
+#:
+#: A principal (`resolve_chess_font`) escreve a camada de texto inteira e precisa
+#: das letras; a `NotoSansSymbols2` desenha o `⯹` (U+2BF9, "com compensação") e
+#: mais nada de latino — 2.655 códigos, nenhum ASCII. Pedir que uma delas fizesse
+#: as duas coisas era o impasse que deixava o `⯹` fora do projeto.
+#:
+#: Um caractere só cai aqui quando a principal não o desenha, e o que **nenhuma
+#: das duas** desenha continua contado em `sem_glifo` e fora do arquivo — nada
+#: vira retângulo vazio por causa desta adição.
+FONTE_SIMBOLOS = "pyboxsym"
 
 # Peças que o modo "replace" desenha por cima do original.
 #
@@ -257,6 +270,11 @@ def gerar_pdf_pesquisavel(
     fonte_path = resolve_chess_font()
     fonte = fitz.Font(fontfile=fonte_path)
 
+    # A de recurso é opcional: sem ela o comportamento é byte a byte o de antes,
+    # e o símbolo que só ela desenha volta a ser contado em `sem_glifo`.
+    fonte_sym_path = next((p for p in FONTES_DE_SIMBOLO if os.path.exists(p)), "")
+    fonte_sym = fitz.Font(fontfile=fonte_sym_path) if fonte_sym_path else None
+
     doc = fitz.open(input_pdf)
     escala = 72.0 / dpi
 
@@ -269,6 +287,7 @@ def gerar_pdf_pesquisavel(
         "baixa_confianca": 0,
         "pecas_substituidas": 0,
         "sem_glifo": 0,
+        "simbolos_de_recurso": 0,
         "corrigidos_pela_linha": 0,
     }
 
@@ -294,6 +313,8 @@ def gerar_pdf_pesquisavel(
             resumo["boxes"] += len(boxes)
 
             page.insert_font(fontname=FONTE_OCR, fontfile=fonte_path)
+            if fonte_sym:
+                page.insert_font(fontname=FONTE_SIMBOLOS, fontfile=fonte_sym_path)
             if modo in ("replace", "both"):
                 page.insert_font(fontname=FONTE_PECAS, fontfile=fonte_path)
 
@@ -305,7 +326,17 @@ def gerar_pdf_pesquisavel(
                 # ligadura escreve dois glifos, e conferir o primeiro deixaria o
                 # segundo virar retângulo vazio no PDF — o defeito do `·` da
                 # SPEC §4.2, que aparece só quando o arquivo já está pronto.
-                if not all(fonte.has_glyph(ord(c)) for c in char):
+                #
+                # A principal manda, e a de recurso só recebe o box inteiro que
+                # ela não sabe desenhar. **Inteiro, e não caractere a caractere**:
+                # uma ligadura partida entre duas fontes sairia com dois corpos e
+                # duas métricas dentro de um box só.
+                if all(fonte.has_glyph(ord(c)) for c in char):
+                    fonte_do_box, metrica = FONTE_OCR, fonte
+                elif fonte_sym and all(fonte_sym.has_glyph(ord(c)) for c in char):
+                    fonte_do_box, metrica = FONTE_SIMBOLOS, fonte_sym
+                    resumo["simbolos_de_recurso"] += 1
+                else:
                     resumo["sem_glifo"] += 1
                     continue
 
@@ -319,9 +350,9 @@ def gerar_pdf_pesquisavel(
                 # Num box girado o texto corre na altura da caixa, e o corpo da
                 # letra é que ocupa a largura.
                 if angulo in (90, 270):
-                    corpo = _corpo_que_preenche(fonte, char, y2 - y1, x2 - x1)
+                    corpo = _corpo_que_preenche(metrica, char, y2 - y1, x2 - x1)
                 else:
-                    corpo = _corpo_que_preenche(fonte, char, x2 - x1, y2 - y1)
+                    corpo = _corpo_que_preenche(metrica, char, x2 - x1, y2 - y1)
                 origem = _origem_do_texto(angulo, x1, y1, x2, y2)
 
                 if modo in ("searchable", "both"):
@@ -330,7 +361,7 @@ def gerar_pdf_pesquisavel(
                     # girado entra girado: assim a seleção no leitor cai sobre
                     # o caractere certo e a ordem de cópia é a de leitura.
                     page.insert_text(
-                        origem, char, fontname=FONTE_OCR, fontsize=corpo,
+                        origem, char, fontname=fonte_do_box, fontsize=corpo,
                         render_mode=3, rotate=angulo,
                     )
 

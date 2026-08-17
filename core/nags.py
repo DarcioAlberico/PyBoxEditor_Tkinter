@@ -27,14 +27,20 @@ já custou a desfazer. Cada divergência está comentada na linha em que acontec
 
 Seis símbolos desta lista — `⯹`, `⯺`, `⯻`, `⯼`, `⯽`, `⯾` (U+2BF9–U+2BFE, o bloco que
 o Unicode 11 reservou para anotação de xadrez) — não são desenhados por **nenhuma**
-das fontes de `chess_pdf_processor.CHESS_FONT_CANDIDATES` presentes numa instalação
-Windows típica. Medido: `Segoe UI Symbol` cobre os outros 36 e falha nesses seis;
-`MS Gothic` falha em 14. Escrever um deles num box produz um retângulo vazio no PDF
-final sem erro nenhum no caminho, que é o defeito do `·` da SPEC §4.2.
+fonte de uma instalação Windows típica. Medido: das 559 famílias de
+`C:\\Windows\\Fonts` deste sistema, nenhuma os cobre; `Segoe UI Symbol` cobre os outros
+36 e falha nesses seis; `MS Gothic` falha em 14. Escrever um deles num box produzia um
+retângulo vazio no PDF final sem erro nenhum no caminho, que é o defeito do `·` da
+SPEC §4.2.
 
-Por isso `sem_glifo()` **mede** em vez de decorar: a lista some sozinha se um dia uma
-fonte que os cubra entrar em `assets/fonts/`. Quem monta o menu desliga o que ela
-devolver.
+**Cinco deles voltaram a ter desenho**, e não por decreto: a `NotoSansSymbols2` de
+`chess_pdf_processor.FONTES_DE_SIMBOLO` cobre U+2BF0–U+2BFD, e `sem_glifo()` a
+consulta junto com as outras. Sobra o `⯾` (U+2BFE), que está acima do fim do bloco
+que ela desenha — o `$255` continua desligado, e é a medição que diz isso.
+
+Por isso `sem_glifo()` **mede** em vez de decorar: a lista encolhe sozinha quando uma
+fonte que os cubra entra em `assets/fonts/`, que foi exatamente o que aconteceu. Quem
+monta o menu desliga o que ela devolver.
 """
 
 import os
@@ -124,10 +130,12 @@ FAMILIAS: List[Tuple[str, List[Nag]]] = [
     )),
     ("Compensação", (
         _lados(42, "{} com compensação insuficiente pelo material")
-        # `≡`, e não o `⯹` (U+2BF9) da Wikipedia: nenhuma fonte do disco desenha o
-        # U+2BF9 (ver `sem_glifo`), e `≡` já é como a barra rápida representa a
-        # compensação — o símbolo do Informator não tem ponto de código próprio.
-        + _lados(44, "{} com compensação pelo material", "≡")
+        # `⯹` (U+2BF9), que é o desenho impresso: um igual sobre um infinito, e é
+        # assim que a p. 4 destes livros o imprime, logo acima do `∞` sozinho de
+        # *unclear*. Escreveu-se `≡` aqui enquanto nenhuma fonte do disco o
+        # desenhava; a `NotoSansSymbols2` de `FONTES_DE_SIMBOLO` desenha, então a
+        # aproximação saiu. A barra rápida usa o mesmo ponto de código.
+        + _lados(44, "{} com compensação pelo material", "⯹")
         + _lados(46, "{} com compensação mais que suficiente pelo material")
     )),
     ("Centro", (
@@ -240,9 +248,10 @@ FAMILIAS: List[Tuple[str, List[Nag]]] = [
         Nag(246, "", "Par de bispos"),
         Nag(247, "", "Bispos de cores opostas"),
         Nag(248, "", "Bispos da mesma cor"),
-        # Os cinco de U+2BF9 em diante: nenhuma fonte do disco os desenha, e o
-        # menu os mostra desligados. Ficam na tabela porque são o símbolo certo —
-        # a falta é da fonte, não da lista.
+        # Os cinco de U+2BFA em diante. Ficaram desligados enquanto nenhuma fonte
+        # do disco os desenhava; a `NotoSansSymbols2` cobre até U+2BFD, e o menu
+        # os liberou sozinho — só o `⯾` do `$255` continua fora, porque está
+        # acima desse fim. Quem responde é `sem_glifo()`, não este comentário.
         Nag(249, "⯺", "Peões ligados"),
         Nag(250, "⯻", "Peões isolados"),
         Nag(251, "⯼", "Peões dobrados"),
@@ -305,12 +314,16 @@ def sem_glifo(simbolos: Optional[Sequence[str]] = None) -> Set[str]:
 
     try:
         from core.chess_pdf_processor import (CHESS_FONT_CANDIDATES,
+                                              FONTES_DE_SIMBOLO,
                                               missing_glyphs)
     except Exception:
         return set()
 
     faltam = set(alvo)
-    for caminho in CHESS_FONT_CANDIDATES:
+    # As duas listas, porque a pergunta é "alguma desenha?" e a resposta pode
+    # estar na fonte de recurso. Ela vem depois de propósito: quem escreve o PDF
+    # consulta a principal primeiro, e esta ordem é a mesma.
+    for caminho in list(CHESS_FONT_CANDIDATES) + list(FONTES_DE_SIMBOLO):
         if not faltam:
             break
         if not os.path.exists(caminho):

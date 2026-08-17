@@ -3,6 +3,7 @@ from typing import Tuple
 from PIL import ImageTk, Image
 
 from core.box_model import BoxEntry
+from ui import fontes
 from ui.confidence import cor_do_box, COR_LEXICO, COR_SELECAO
 
 #: Marca do lado que é o topo do glifo num box de texto girado (F8.1).
@@ -22,6 +23,12 @@ COR_GIRADO = "#8E24AA"
 #:
 #: Trocar a família aqui pede a mesma conferência da SPEC §7.1: fonte que não
 #: cobre a tabela não avisa, só desenha a caixa. `tests/test_nags.py` trava.
+#:
+#: **É a base, e não a palavra final**: o `⯹` (U+2BF9, "com compensação") não
+#: existe nesta família nem em nenhuma outra do disco, e quem desenha é a
+#: `NotoSansSymbols2` empacotada — que por sua vez não tem letra latina. Por isso
+#: o rótulo pergunta a `fontes.fonte_do_rotulo` qual família serve para o texto
+#: que ele vai mostrar, em vez de fixar uma.
 FONTE_ROTULO = ("Segoe UI Symbol", 12, "bold")
 
 
@@ -583,7 +590,7 @@ class CanvasView(tk.Canvas):
                     cx, (py1 + py2)/2,
                     text=char_text,
                     fill="black",
-                    font=FONTE_ROTULO
+                    font=fontes.fonte_do_rotulo(char_text, FONTE_ROTULO)
                 )
 
         # preview do novo box

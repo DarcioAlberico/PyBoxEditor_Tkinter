@@ -1192,9 +1192,41 @@ amarelo sob o box selecionado, que é negrito — sofria: digitar `⩲` devolvia
 interrogação. Quem desenha símbolo em negrito pede a família que tem o glifo de
 verdade (`canvas_view.FONTE_ROTULO`), não a que a reserva salvaria.
 
-Uma aproximação registrada: `≡` (com compensação) não é o símbolo do Informator, que
-não tem ponto de código próprio em Unicode — três barras é como estes livros o
-imprimem.
+#### A compensação, e a fonte que ela obrigou a embutir
+
+O símbolo de "com compensação" é o `⯹` — U+2BF9, *equals sign with infinity below*, um
+igual sobre um infinito. É o que a "Key to symbols used" destes livros imprime (p. 4 do
+Yusupov), logo acima do `∞` sozinho de *unclear*: dois desenhos diferentes, e o texto do
+PDF entrega os dois como `00`. A barra escreveu `≡` no lugar dele durante um tempo, com
+a justificativa de que era assim que os livros o imprimiam — **não era**, e a página é
+quem diz.
+
+O que sustentava a troca era outra coisa, e era real: medidas as 559 famílias de
+`C:\Windows\Fonts`, **nenhuma** desenha o U+2BF9 — nem `Segoe UI Symbol`, nem a
+`AqChessUnicode` de xadrez que estava instalada. 105 desenham o `≡`.
+
+Quem desfez isso foi a **`NotoSansSymbols2` empacotada em `assets/fonts/`** (OFL, no
+repositório junto com a licença), que cobre U+2BF0–U+2BFD. Ela **não entra em
+`CHESS_FONT_CANDIDATES`**, e a razão é a única coisa a lembrar deste parágrafo:
+`resolve_chess_font` devolve a fonte única que o PDF embute, escolhendo a primeira que
+cobre as 12 peças — e a Noto cobre as 12 e **não tem uma letra latina sequer** (2.655
+códigos, nenhum ASCII). Se entrasse na cadeia, ganharia em algum sistema e o livro
+inteiro perderia a camada de texto. Ela vive em `FONTES_DE_SIMBOLO`, uma lista à parte,
+e três lugares a consultam **depois** da principal:
+
+| onde | o que faz |
+|---|---|
+| `nags.sem_glifo()` | percorre as duas listas — a pergunta é "alguma desenha?" |
+| `searchable_pdf` | embute as duas; o box que a principal não desenha vai para ela, e o que nenhuma desenha continua contado em `sem_glifo` e fora do arquivo |
+| `ui.fontes` | registra a fonte no processo (`AddFontResourceExW`/`FR_PRIVATE`) e escolhe a família por texto |
+
+Esse último é o que não se adivinha: **arquivo em `assets/fonts/` o Tk não vê.** O
+PyMuPDF abre o `.ttf` pelo caminho, então a medição e o PDF já a enxergavam; a tela pede
+fonte ao Windows pelo nome da família, e sem registro o botão do `⯹` seria retângulo
+vazio — habilitado, porque o resto do programa acredita na medição. `FR_PRIVATE`
+registra só para este processo: não instala, não pede administrador, não escreve no
+registro. Medido: a família aparece em `tkinter.font.families()` na mesma execução, e o
+`⯹` mede 31 px onde o `hmtx` prevê 30,6 — é o glifo dela, não a caixa de faltante.
 
 #### O menu Notação — a tabela completa do padrão PGN
 
@@ -1214,23 +1246,27 @@ colunas lado a lado e a lista perde a ordem. Montar tudo custa 4 ms.
 |---|---|---|
 | `$14 ⩲ Brancas ligeiramente melhor` | tem símbolo e tem fonte | 43 |
 | `$24 — Brancas com leve vantagem de espaço` | o padrão definiu sem forma impressa | 121 |
-| `$249 ⯺ Peões ligados (sem fonte)` | símbolo existe, nenhuma fonte o desenha | 5 |
+| `$255 ⯾ Sem (sem fonte)` | símbolo existe, nenhuma fonte o desenha | 1 |
 
-A terceira linha é a que importa: `U+2BF9`–`U+2BFE`, o bloco que o Unicode 11
-reservou para xadrez, não é coberto por nenhuma candidata de `CHESS_FONT_CANDIDATES`
-numa instalação Windows típica — nem pelo próprio Tk, que os mostra como retângulo
-vazio no menu. Deixá-los clicáveis escreveria no box um caractere invisível no PDF
-final, sem erro no caminho. `nags.sem_glifo()` **mede** em vez de decorar (17 ms, uma
-vez por processo), então a restrição some sozinha se uma fonte que os cubra chegar a
-`assets/fonts/`.
+A terceira linha é a que importa, e ela **encolheu de 5 para 1 sem que ninguém a
+editasse**. `U+2BF9`–`U+2BFE`, o bloco que o Unicode 11 reservou para xadrez, não era
+coberto por nenhuma fonte de uma instalação Windows típica — nem pelo próprio Tk, que
+os mostrava como retângulo vazio no menu. Deixá-los clicáveis escreveria no box um
+caractere invisível no PDF final, sem erro no caminho. A `NotoSansSymbols2` empacotada
+cobre até U+2BFD, e sobrou só o `⯾` do `$255`, que está acima desse fim.
+
+É o que `nags.sem_glifo()` existe para fazer: **medir** em vez de decorar (17 ms, uma
+vez por processo). A restrição saiu sozinha quando a fonte chegou a `assets/fonts/`, e
+nenhuma lista de exceções precisou ser mantida à mão.
 
 **Onde as duas tabelas se encontram, o ponto de código é o da barra rápida.** `Δ`
 (U+0394) e `∆` (U+2206) têm o mesmo desenho e códigos diferentes, e o mesmo vale para
 `⇄` (U+21C4) contra `⇆` (U+21C6) do `$132`, para `!!` contra `‼` (U+203C) do `$3` e
 para o hífen de `+-` contra o U+2212 do `$18`. Deixar os dois entrarem em `.box`
-diferentes daria **duas classes ensinando o mesmo glifo** ao modelo. `$44` vai além:
-troca o `⯹` do padrão pelo `≡` da barra, que é o mesmo conceito e tem fonte.
-`tests/test_nags.py` trava cada um desses pares.
+diferentes daria **duas classes ensinando o mesmo glifo** ao modelo.
+`tests/test_nags.py` trava cada um desses pares. O `$44` já foi o caso extremo da lista
+— a barra escrevia `≡` onde o padrão manda `⯹` —, e deixou de ser quando a fonte
+chegou: hoje as duas tabelas escrevem o U+2BF9.
 
 ### 7.2 Confiança visível
 

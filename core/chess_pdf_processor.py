@@ -37,6 +37,31 @@ CHESS_FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
 ]
 
+#: A fonte de recurso, para os símbolos que a cadeia acima não desenha.
+#:
+#: **Ela é uma lista à parte, e não mais uma linha em `CHESS_FONT_CANDIDATES`,
+#: porque não serve para o mesmo trabalho.** `resolve_chess_font` devolve a
+#: fonte única que o PDF embute — a mesma que escreve a camada de texto
+#: invisível —, e escolhe a primeira candidata que cobre as 12 peças. A
+#: `NotoSansSymbols2` cobre as 12; entrar na cadeia a faria ganhar em algum
+#: sistema, e aí **o livro inteiro perderia a camada de texto**, porque ela não
+#: tem uma letra latina sequer (medido: `A` e `a` fora do `cmap`, 2.655 códigos,
+#: nenhum deles ASCII). Seria trocar o defeito de um símbolo pelo de todos.
+#:
+#: O que ela tem, e nenhuma das outras: o bloco **U+2BF0–U+2BFD**, que o Unicode
+#: 11 reservou para anotação de xadrez. Medidas as 559 famílias de
+#: `C:\Windows\Fonts` deste sistema, **nenhuma** desenha o `⯹` (U+2BF9, o "com
+#: compensação" da p. 4 destes livros) — nem a `Segoe UI Symbol`, nem a
+#: `AqChessUnicode` instalada. Com ela, `⯹ ⯺ ⯻ ⯼ ⯽ ⯾` passam a ter desenho, e
+#: `nags.sem_glifo` para de desligá-los sozinha.
+#:
+#: Quem escreve num PDF consulta as duas na ordem: a principal manda, e esta só
+#: recebe o caractere que a principal não sabe desenhar (`searchable_pdf`).
+FONTES_DE_SIMBOLO = [
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "assets", "fonts", "NotoSansSymbols2-Regular.ttf"),
+]
+
 
 class ChessFontError(RuntimeError):
     """Nenhuma fonte disponível consegue desenhar as peças de xadrez."""

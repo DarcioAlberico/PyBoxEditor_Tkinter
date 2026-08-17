@@ -25,12 +25,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from conftest import raiz_tk
 
 from core import nags
-from core.chess_pdf_processor import CHESS_FONT_CANDIDATES, missing_glyphs
+from core.chess_pdf_processor import (CHESS_FONT_CANDIDATES, FONTES_DE_SIMBOLO,
+                                      missing_glyphs)
 from ui.main_window import NAGS, NAGS_POR_FAMILIA
 
 
 def _fontes_no_disco():
-    return [p for p in CHESS_FONT_CANDIDATES if os.path.exists(p)]
+    """
+    Todas as fontes que o programa consulta, **nas duas listas**.
+
+    É a mesma pergunta que `nags.sem_glifo` faz — "alguma desenha?" —, e deixar a
+    de recurso de fora daqui faria o teste acusar sem fonte justamente o `⯹` que
+    ela foi embutida para desenhar.
+    """
+    return [p for p in list(CHESS_FONT_CANDIDATES) + list(FONTES_DE_SIMBOLO)
+            if os.path.exists(p)]
 
 
 def test_tabela_achatada_bate_com_as_familias():
@@ -55,39 +64,35 @@ def test_todo_nag_tem_descricao():
 
 def test_a_fonte_do_pdf_desenha_todos_os_simbolos():
     """
-    Alguma fonte candidata cobre a tabela inteira.
+    Todo símbolo da barra tem alguma fonte que o desenhe.
 
-    Conferido quando esta tabela cresceu para 23: `Segoe UI Symbol` desenha
-    todos; `MS Gothic`, a candidata seguinte, não tem `⩲`, `⩱` nem `⌓` — e
-    também não tinha o `⨀`, que já estava na tabela antes. Por isso o teste
-    pergunta se **alguma** cobre, e não se todas cobrem.
+    Conferido quando esta tabela cresceu para 23: `Segoe UI Symbol` desenhava os
+    23; `MS Gothic`, a candidata seguinte, não tem `⩲`, `⩱` nem `⌓` — e também não
+    tinha o `⨀`. Por isso a pergunta sempre foi se **alguma** cobre.
+
+    **Com o `⯹` a pergunta deixou de poder ser feita fonte a fonte.** Nenhuma
+    família desenha os 23: a única que tem o U+2BF9 não tem letra latina, e a que
+    tem as letras não tem o U+2BF9 — é por isso que `searchable_pdf` embute duas e
+    manda cada box para a que o desenha. O teste passou a percorrer os símbolos
+    em vez das fontes, que é a garantia de verdade: nenhum símbolo da barra fica
+    sem quem o escreva.
     """
     fontes = _fontes_no_disco()
     if not fontes:
         pytest.skip("nenhuma fonte candidata neste sistema")
 
-    alvo = "".join(s for s, _ in NAGS if len(s) == 1)
-    faltas = {}
-    for caminho in fontes:
-        try:
-            falta = missing_glyphs(caminho, alvo)
-        except Exception as e:                      # fonte ilegível não é falha
-            faltas[os.path.basename(caminho)] = f"erro: {e}"
-            continue
-        if not falta:
-            return
-        faltas[os.path.basename(caminho)] = "".join(falta)
+    orfaos = {}
+    for simbolo, _ in NAGS:
+        for caminho in fontes:
+            try:
+                if not missing_glyphs(caminho, simbolo):
+                    break
+            except Exception:                       # fonte ilegível não é falha
+                continue
+        else:
+            orfaos[simbolo] = [os.path.basename(c) for c in fontes]
 
-    pytest.fail("nenhuma fonte desenha todos os NAGs: %s" % faltas)
-
-
-#: A família que a tela pede ao Tk pelo nome, e o arquivo dela no disco — o Tk
-#: aceita o nome, `missing_glyphs` precisa do arquivo. Família nova aqui é linha
-#: nova neste dicionário, e é de propósito: é a conferência que a SPEC §7.1
-#: exige antes de trocar a fonte de qualquer coisa que mostre um NAG.
-ARQUIVO_DA_FAMILIA = {
-    "Segoe UI Symbol": r"C:\Windows\Fonts\seguisym.ttf",
-}
+    assert not orfaos, "símbolo da barra sem nenhuma fonte que o desenhe: %s" % orfaos
 
 
 def test_a_fonte_do_rotulo_do_box_desenha_todos_os_simbolos():
@@ -100,19 +105,31 @@ def test_a_fonte_do_rotulo_do_box_desenha_todos_os_simbolos():
 
     Com `Arial`, que era a fonte deste rótulo, isso atingia `⩲`, `⩱`, `∓`, `⇄`,
     `⌓` e `⨀`: o usuário digitava o símbolo e o rótulo respondia interrogação.
+
+    **A pergunta mudou de forma quando o `⯹` entrou na barra**, e o teste
+    acompanhou. Antes era "uma família cobre os 23?"; hoje não existe família que
+    cubra, porque a única que desenha o `⯹` não tem letra latina. A pergunta que
+    vale agora é por símbolo: *a família que `fonte_do_rotulo` escolhe para ele o
+    desenha?* — que é a garantia que o usuário enxerga, e a antiga era só um jeito
+    mais estreito de obtê-la.
     """
+    from ui import fontes
     from ui.canvas_view import FONTE_ROTULO
 
-    familia = FONTE_ROTULO[0]
-    caminho = ARQUIVO_DA_FAMILIA.get(familia)
-    assert caminho, (
-        f"{familia!r} virou a fonte do rótulo sem passar pela medição: "
-        "acrescente o arquivo dela em ARQUIVO_DA_FAMILIA")
-    if not os.path.exists(caminho):
-        pytest.skip(f"{familia} não instalada neste sistema")
+    faltando = []
+    for simbolo, _ in NAGS:
+        familia = fontes.fonte_do_rotulo(simbolo, FONTE_ROTULO)[0]
+        caminho = fontes.ARQUIVO_DA_FAMILIA.get(familia)
+        assert caminho, (
+            f"{familia!r} virou a fonte do rótulo sem passar pela medição: "
+            "acrescente o arquivo dela em fontes.ARQUIVO_DA_FAMILIA")
+        if not os.path.exists(caminho):
+            pytest.skip(f"{familia} não disponível neste sistema")
+        if missing_glyphs(caminho, simbolo):
+            faltando.append((simbolo, familia))
 
-    alvo = "".join(sorted({c for s, _ in NAGS for c in s}))
-    assert missing_glyphs(caminho, alvo) == []
+    assert not faltando, (
+        "o rótulo escolheu uma família que não desenha o símbolo: %s" % faltando)
 
 
 # ----------------------------------------------------------------------
@@ -176,7 +193,10 @@ CONFUNDIVEIS = [
     ("?!", "⁈"),       # U+2048 ($6)
     ("+-", "+−"),      # hífen ASCII x U+2212 ($18)
     ("-+", "−+"),      # ($19)
-    ("≡", "⯹"),        # compensação: U+2BF9 não tem fonte ($44)
+    # A compensação ($44) saiu daqui: `≡` era o substituto de quando nenhuma
+    # fonte desenhava o `⯹`, e agora a `NotoSansSymbols2` desenha. As duas
+    # tabelas escrevem o U+2BF9, e é `test_a_compensacao_escreve_o_simbolo_
+    # impresso` que trava isso.
 ]
 
 
@@ -188,6 +208,32 @@ def test_as_duas_tabelas_escolhem_o_mesmo_ponto_de_codigo():
             f"{gemeo!r} entrou na tabela PGN, mas o projeto já escreve {usado!r}")
         assert usado in do_padrao and usado in da_barra, (
             f"{usado!r} deveria estar nas duas tabelas")
+
+
+def test_a_compensacao_escreve_o_simbolo_impresso():
+    """
+    O `⯹` (U+2BF9, um igual sobre um infinito) é o que a "Key to symbols used"
+    destes livros imprime para "with compensation", logo acima do `∞` sozinho de
+    *unclear*. O projeto escreveu `≡` no lugar enquanto nenhuma fonte do disco
+    desenhava o U+2BF9 — medidas as 559 famílias de `C:\\Windows\\Fonts`, zero.
+
+    O que desfez a troca foi a `NotoSansSymbols2` empacotada, e é ela que este
+    teste guarda: sem o arquivo em `assets/fonts/`, o símbolo volta a não ter
+    desenho e o botão da barra vira retângulo vazio — habilitado, porque o resto
+    do programa acredita na medição.
+    """
+    from core.chess_pdf_processor import FONTES_DE_SIMBOLO
+
+    assert nags.POR_CODIGO[44].simbolo == "⯹"
+    assert "⯹" in {s for s, _ in NAGS}, "a barra rápida ficou com outro símbolo"
+    assert "≡" not in {n.simbolo for n in nags.TABELA} | {s for s, _ in NAGS}, \
+        "o substituto `≡` sobrou em alguma tabela: são duas classes num glifo"
+
+    empacotada = next((p for p in FONTES_DE_SIMBOLO if os.path.exists(p)), "")
+    assert empacotada, ("assets/fonts/ perdeu a fonte de recurso: sem ela o `⯹` "
+                        "não tem desenho em nenhuma fonte deste sistema")
+    assert missing_glyphs(empacotada, "⯹") == []
+    assert "⯹" not in nags.sem_glifo()
 
 
 def test_sem_glifo_aponta_so_o_que_nenhuma_fonte_desenha():
