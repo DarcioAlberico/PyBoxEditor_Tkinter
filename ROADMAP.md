@@ -7875,6 +7875,83 @@ caractere e a por linha, esta última nos boxes que a linha confirmou, que é on
 
 ---
 
+## F56 — A ação que deixava escapar 803 erros tem uma fonte só, e o orçamento de hoje bastaria a uma régua perfeita — MEDIDA
+
+A F55 fechou acusando o ponto de operação: `LIMIAR_ALTO` é um número só para o programa
+inteiro, cai em 6% da página no caminho neural e em 42% da ação «OCR (EasyOCR)», e ali
+**803 erros escapam**. A régua de lá é boa (separação 0,776), então o suspeito era onde ela
+foi cortada. Esta fase construiu o instrumento que precifica o corte **por fonte** e o
+comparou com o número único — a custo igual e a recall igual, que é a regra da F47, e com o
+limiar ajustado em dez páginas e medido na décima primeira.
+
+**A hipótese não sobreviveu ao próprio instrumento**, e por dois motivos independentes.
+
+### Na ação acusada não há o que distribuir
+
+| a custo igual | marcados | erros pegos | à toa | escapam | fora da amostra |
+|---|---:|---:|---:|---:|---:|
+| hoje (um limiar para todos) | 4.368 | 2.007 | 2.361 | 803 | |
+| um percentil por fonte | 4.368 | 2.007 | 2.361 | 803 | 2.007 em 4.369 |
+| um limiar por fonte (teto) | 4.367 | 2.007 | 2.360 | 803 | 2.006 em 4.364 |
+| **oráculo (gasta tudo em erro)** | 4.368 | **2.810** | 1.558 | **0** | |
+
+`easyocr_so` responde 10.502 dos 10.504 boxes — os outros dois entram por regra fixa. **Uma
+fonte só**: um corte por fonte é o corte único com outro nome, e a tabela mostra isso sem
+margem para leitura torta. O percentil cai em 0,9001 e marca os mesmos 42%, o que também
+serve de aferição do instrumento: pedindo a regra de hoje, ele devolve a regra de hoje.
+
+### E o orçamento não é o que falta
+
+A linha do oráculo é a que responde a F55. **Com os mesmos 4.368 boxes marcados, uma régua
+perfeita pegaria os 2.810 erros** — todos. O dinheiro para pegar os 803 já está sendo gasto;
+o que não existe é a separação para saber em quem gastá-lo. Os 803 são os 0,776 da régua, e
+nenhum ponto de operação os alcança.
+
+Isso troca a pergunta que a F55 deixou aberta. Não é "onde cortar", é "que régua" — e a F54
+já mediu o que custa procurar régua melhor sem varrer a antiga.
+
+### Onde havia duas fontes, o ganho não sobreviveu à validação
+
+A ação «OCR (EasyOCR por linha)» é o caso em que o mesmo 0,90 cai mesmo em lugares
+diferentes: marca 30% de `easyocr_so` e 97% de `easyocr_linha`.
+
+| a custo igual | marcados | erros pegos | escapam | fora da amostra |
+|---|---:|---:|---:|---:|
+| hoje | 4.865 | 994 | 133 | |
+| um percentil por fonte | 4.865 | 872 | 255 | 876 em 4.892 |
+| um limiar por fonte (teto) | 4.864 | **998** | 129 | 992 em 4.855 |
+
+| a recall igual | marcados | erros pegos | fora da amostra |
+|---|---:|---:|---:|
+| hoje | 4.865 | 994 | |
+| um percentil por fonte | 6.428 | 994 | 995 em 6.446 |
+| um limiar por fonte (teto) | **4.805** | 994 | 982 em 4.813 |
+
+Dentro da amostra o teto ganha quatro erros a custo igual, e economiza 60 boxes a recall
+igual — 1,2%. **Fora da amostra some**: 992 pegos contra os 994 de hoje, e 982 em 4.813
+contra 994 em 4.865, que é pegar doze erros a menos para poupar 52 boxes. Quatro erros em
+10.504 é o que um limiar por fonte decora de onze páginas, e não o que ele sabe.
+
+O percentil é pior nas duas direções, e a segunda tabela diz por quê: para alcançar o recall
+de hoje ele marca 6.428 boxes, um terço a mais. Igualar a *fração* marcada de cada fonte
+ignora que as duas curvas têm formatos diferentes.
+
+### O que fica
+
+Só instrumento: `tabela_ponto_de_operacao` em `medir_cadeia.py`, com os cortes por
+orçamento, por recall e por percentil, e a coluna fora da amostra. `LIMIAR_ALTO`,
+`precisa_revisao` e `FONTES_SEMPRE_REVISADAS` não mudam.
+
+Fica registrado o que a F55 pedia e esta fase responde: **o ponto de operação estava certo.**
+
+Cobertura: `tests/test_f23_medir_cadeia.py`, 5 testes novos — o corte que não separa dois
+boxes com a mesma nota, o teto respeitando orçamento e recall, o teto nunca ficando abaixo
+de um limiar único, o corte caindo na regra de produção onde não há curva, e a trava de que a
+coluna fora da amostra não vê a página que mede. Suíte em 1.356. Reproduzir:
+`python medir_cadeia.py --leitor`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

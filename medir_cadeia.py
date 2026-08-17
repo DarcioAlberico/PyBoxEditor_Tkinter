@@ -1050,6 +1050,16 @@ def tabela_leitor(cadeia, paginas):
     print("  a fila de hoje só conhece a confiança: `easyocr_so` não está em "
           "FONTES_SEMPRE_REVISADAS")
 
+    # **O ponto de operação de cada ação, medido na ação** (F56). É aqui que a
+    # pergunta da F55 mora: ela mediu que o mesmo 0,90 marca 42% desta ação
+    # contra 6% do caminho neural, e que 803 erros escapam por causa do ponto de
+    # operação, não da régua. A tabela precifica o corte na curva de quem
+    # governa cada uma das duas ações.
+    for titulo, linhas in (("OCR (EasyOCR)", por_caractere),
+                           ("OCR (EasyOCR por linha)", por_linha)):
+        print(f"\n=== «{titulo}» ===")
+        tabela_ponto_de_operacao(linhas)
+
     # **O que a linha troca, e como estava o box antes dela.** A F17 mediu o
     # efeito na página inteira — 72,9% para 89,5% — e o efeito na página é a
     # soma de duas populações muito diferentes. Cruzar as duas leituras pelo
@@ -1213,6 +1223,409 @@ def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
     for nome, com_rede in fontes:
         for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
             linha(f"margem < {corte:.2f} ({nome})", marca(corte, com_rede))
+
+
+#: Os alvos de recall da F56, na mesma escala em que a F14 e a F47 pediram o
+#: custo — "para pegar esta fração dos erros, quantos acertos vão à toa".
+ALVOS_DE_RECALL = (0.25, 0.50, 0.75)
+
+
+def _cortes_possiveis(parte, errou):
+    """
+    Os pontos de operação que um corte `conf < t` alcança **nesta** fonte.
+
+    Do menos confiante para o mais, que é a ordem em que o revisor os veria
+    (F3.2). Cada ponto é `(marcados, erros, t)`, e o `t` é o limiar que
+    *realiza* aquele ponto — é ele que produção embarcaria, e não a posição.
+
+    **Só nota distinta fecha um ponto**, e isto não é detalhe de implementação:
+    o k-NN devolve 1,0 em milhares de boxes, porque a base tem cópia byte a
+    byte destas páginas (F37). Um corte não sabe separar dois boxes com a mesma
+    nota, e uma curva indexada por posição prometeria pontos de operação que
+    limiar nenhum alcança. Prometer ponto inalcançável é a forma que o erro da
+    F47 tomaria aqui.
+    """
+    ordenada = sorted(parte, key=lambda r: r[1])
+    pontos = [(0, 0, 0.0)]
+    erros = 0
+    for i, reg in enumerate(ordenada):
+        erros += errou(reg)
+        proxima = ordenada[i + 1][1] if i + 1 < len(ordenada) else None
+        if proxima is None or proxima > reg[1]:
+            # `conf < t` marca tudo até aqui quando `t` é a nota de cima. No fim
+            # da fonte não há nota de cima, e 1,01 é "marca todos" na mesma
+            # convenção de `FAIXAS`.
+            pontos.append((i + 1, erros,
+                           proxima if proxima is not None else 1.01))
+    return pontos
+
+
+def _melhor_ao_orcamento(curvas, orcamento):
+    """
+    O corte por fonte que pega **o máximo de erro** sem passar do orçamento.
+
+    É o teto de verdade da família "um limiar por fonte", e por isso a linha de
+    hoje nunca pode ficar acima dele: a regra de hoje é o caso particular em que
+    todos os cortes são o mesmo número. Se ela aparecer acima, é bug aqui — e é
+    o que o teste trava.
+
+    **Por que não o multiplicador de Lagrange.** A primeira versão desta fase
+    escolhia por `max(erros - λ·marcados)` e varria o λ. Aquilo percorre a
+    *envoltória concava* e só enxerga os vértices dela: num orçamento de 799 o
+    multiplicador devolveu (420 marcados, 87 erros) enquanto a regra de hoje —
+    que é membro da família, com o mesmo corte em toda fonte — fazia (799, 97).
+    Uma tabela assim declara pior uma família que **contém** a linha de
+    comparação, e isso teria virado a conclusão da fase. É o defeito da F47 em
+    roupa nova: comparar duas réguas em pontos que não são o mesmo ponto.
+
+    A mochila não tem esse buraco — enxerga todo ponto alcançável — e cabe no
+    tempo: cada ponto é um `np.maximum` deslocado sobre o vetor inteiro.
+
+    Ela **olha o rótulo** para escolher, então só vale como teto. A pergunta
+    "isto se sustenta num limiar embarcado?" é a coluna de fora da amostra.
+    """
+    orcamento = int(orcamento)
+    if orcamento <= 0:
+        return {f: p[0] for f, p in curvas.items()}
+
+    melhor = np.full(orcamento + 1, -1, dtype=np.int64)
+    melhor[0] = 0
+    estagios = []
+    for fonte, pontos in curvas.items():
+        uteis = [p for p in pontos if p[0] <= orcamento] or [pontos[0]]
+        novo = np.full(orcamento + 1, -1, dtype=np.int64)
+        escolhido = np.zeros(orcamento + 1, dtype=np.int64)
+        for i, (marcados, erros, _t) in enumerate(uteis):
+            vindo = melhor[:orcamento + 1 - marcados]
+            cand = np.where(vindo >= 0, vindo + erros, -1)
+            alvo = novo[marcados:]
+            troca = cand > alvo
+            alvo[troca] = cand[troca]
+            escolhido[marcados:][troca] = i
+        melhor = novo
+        estagios.append((fonte, uteis, escolhido))
+
+    cortes = {}
+    posicao = int(np.argmax(melhor))
+    for fonte, uteis, escolhido in reversed(estagios):
+        ponto = uteis[escolhido[posicao]]
+        cortes[fonte] = ponto
+        posicao -= ponto[0]
+    return cortes
+
+
+def _melhor_ao_recall(curvas, alvo):
+    """
+    O corte por fonte **mais barato** que ainda pega `alvo` erros.
+
+    A outra metade da regra da F47. Aqui o eixo é o erro pego e o que se
+    minimiza é o custo, então a mochila roda com os papéis trocados e o ganho
+    entra negativo — maximizar `-custo` é minimizar custo.
+
+    Erro além do alvo não vale mais nada, e é por isso que o eixo satura: quem
+    pega 300 erros num alvo de 200 entra como 200. Sem isso a mochila pagaria
+    por recall que ninguém pediu.
+    """
+    alvo = int(alvo)
+    if alvo <= 0:
+        return {f: p[0] for f, p in curvas.items()}
+    melhor = np.full(alvo + 1, np.iinfo(np.int64).min, dtype=np.int64)
+    melhor[0] = 0
+    estagios = []
+    posicoes = np.arange(alvo + 1)
+    for fonte, todos in curvas.items():
+        # **Só o ponto mais barato de cada contagem de erro entra.** A curva é
+        # monótona nos dois eixos, então marcar mais box sem pegar mais erro é
+        # sempre pior — e são a maioria dos pontos numa fonte que acerta muito.
+        # Sem esta poda a fonte de 10.502 boxes entra com 10.502 pontos em vez
+        # de 2.809, e o laço de fora da amostra roda isso onze vezes.
+        pontos, visto = [], set()
+        for ponto in todos:
+            if ponto[1] not in visto:
+                visto.add(ponto[1])
+                pontos.append(ponto)
+        novo = np.full(alvo + 1, np.iinfo(np.int64).min, dtype=np.int64)
+        escolhido = np.zeros(alvo + 1, dtype=np.int64)
+        for i, (marcados, erros, _t) in enumerate(pontos):
+            # A saturação: precisar de `E` erros e ter uma fonte que dá `erros`
+            # deixa `max(E - erros, 0)` para as outras.
+            vindo = melhor[np.maximum(posicoes - erros, 0)]
+            cand = np.where(vindo > np.iinfo(np.int64).min,
+                            vindo - marcados, np.iinfo(np.int64).min)
+            troca = cand > novo
+            novo[troca] = cand[troca]
+            escolhido[troca] = i
+        melhor = novo
+        estagios.append((fonte, pontos, escolhido))
+
+    cortes = {}
+    posicao = alvo
+    for fonte, pontos, escolhido in reversed(estagios):
+        ponto = pontos[escolhido[posicao]]
+        cortes[fonte] = ponto
+        posicao = max(posicao - ponto[1], 0)
+    return cortes
+
+
+def _escolha_por_percentil(curvas, fracao):
+    """
+    O mesmo percentil em toda fonte: marca a fração mais baixa de cada uma.
+
+    É a regra de **um parâmetro só**, como a de hoje, e responde direto ao
+    diagnóstico da F55 — o 0,90 não é um ponto de operação, é um número que cai
+    em 6% de uma curva e em 42% de outra. Igualar a fração marcada é a correção
+    mais barata que existe para isso, e ela não tem como decorar a amostra:
+    não há nada por fonte para ajustar.
+    """
+    escolha = {}
+    for fonte, pontos in curvas.items():
+        alvo = fracao * pontos[-1][0]
+        escolha[fonte] = max((p for p in pontos if p[0] <= alvo + 1e-9),
+                             key=lambda p: p[0], default=pontos[0])
+    return escolha
+
+
+def _percentil_ao_orcamento(curvas, orcamento):
+    """
+    O maior percentil, igual em toda fonte, que ainda cabe no orçamento.
+
+    Busca binária, e ela é legítima porque o custo é monótono na fração: subir
+    o percentil nunca faz uma fonte marcar menos.
+    """
+    baixo, alto = 0.0, 1.0
+    melhor = _escolha_por_percentil(curvas, baixo)
+    for _ in range(60):
+        meio = (baixo + alto) / 2
+        escolha = _escolha_por_percentil(curvas, meio)
+        if sum(p[0] for p in escolha.values()) > orcamento:
+            alto = meio
+        else:
+            melhor, baixo = escolha, meio
+    return melhor
+
+
+def _percentil_ao_recall(curvas, alvo_erros):
+    """O menor percentil, igual em toda fonte, que ainda pega `alvo_erros`."""
+    baixo, alto = 0.0, 1.0
+    melhor = _escolha_por_percentil(curvas, alto)
+    for _ in range(60):
+        meio = (baixo + alto) / 2
+        escolha = _escolha_por_percentil(curvas, meio)
+        if sum(p[1] for p in escolha.values()) >= alvo_erros:
+            melhor, alto = escolha, meio
+        else:
+            baixo = meio
+    return melhor
+
+
+def _aplicar_cortes(cortes, linhas, errou):
+    """
+    `(marcados, erros)` de um corte por fonte, aplicado a estes boxes.
+
+    Fonte que não está em `cortes` cai na **regra de produção**, e não em
+    "marca nada": é a trava da F52 outra vez. Com 11 páginas toda fonte
+    aparece nos dois lados da divisão, mas uma amostra menor (`--paginas 2`)
+    pode não ter, e aí a linha tem de continuar medindo a fila que existe.
+    """
+    marcados = [r for r in linhas
+                if (r[1] < cortes[r[0]][2] if r[0] in cortes
+                    else conf_ui.precisa_revisao(_BoxFalso(r)))]
+    return len(marcados), sum(1 for r in marcados if errou(r))
+
+
+def tabela_ponto_de_operacao(linhas):
+    """
+    O corte **por fonte**, contra o número único de hoje (F56).
+
+    A F55 fechou apontando isto: `LIMIAR_ALTO` é um número só para o programa
+    inteiro, e ele cai em lugares muito diferentes de cada curva — 6% da página
+    no caminho neural, 42% na ação «OCR (EasyOCR)», onde 803 erros escapam. A
+    régua de lá é boa (0,776); o que está errado é o **ponto de operação**.
+
+    Duas coisas já medidas delimitam esta tabela:
+
+    - a F43 mediu a fila como *ordenação* e a F44 corrigiu: o código é um
+      **corte**. `tabela_revisao` já compara a ordenação por percentil de fonte
+      contra a crua; o corte por fonte é o que ninguém mediu;
+    - a F47 fixou a regra de comparação — **duas réguas só se comparam a custo
+      igual ou a recall igual**. As duas metades estão aqui, e as duas são
+      necessárias: uma regra por fonte pode não conseguir *gastar* o orçamento
+      de hoje (marcar box que não acrescenta erro não compra nada), e aí a
+      comparação a custo igual não existe e a de recall igual é a que responde.
+
+    O que **não** entra na conta: quem já entra na fila por outro motivo — box
+    vazio e as `FONTES_SEMPRE_REVISADAS`. Aqueles boxes são marcados em toda
+    linha da tabela, e mexer neles é a decisão da F48, que esta fase não
+    reabre. O orçamento distribuído é o que sobra depois deles.
+
+    **A segunda metade é a que decide.** Um corte por fonte ajustado na mesma
+    amostra em que é medido decora a amostra, e com 5 fontes e 11 páginas decora
+    bastante. `uma página de cada vez` ajusta nas outras dez e mede na que
+    sobrou, somando as onze — é o mesmo cuidado que a F37 tomou com a
+    contaminação da base, aplicado ao limiar em vez de ao vizinho.
+    """
+    def errou(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    def fixo(reg):
+        """Quem entra na fila por regra que esta fase não mexe (F48)."""
+        return not reg[2] or reg[0] in conf_ui.FONTES_SEMPRE_REVISADAS
+
+    fixos = [r for r in linhas if fixo(r)]
+    filtraveis = [r for r in linhas if not fixo(r)]
+    if not filtraveis:
+        return
+
+    custo_fixo = len(fixos)
+    pegos_fixo = sum(1 for r in fixos if errou(r))
+    total_erros = sum(1 for r in linhas if errou(r))
+
+    # A regra de produção, chamada e não copiada (F52).
+    marcados_hoje = [r for r in linhas if conf_ui.precisa_revisao(_BoxFalso(r))]
+    custo_hoje = len(marcados_hoje)
+    pegos_hoje = sum(1 for r in marcados_hoje if errou(r))
+    orcamento = custo_hoje - custo_fixo
+
+    por_fonte = {}
+    for reg in filtraveis:
+        por_fonte.setdefault(reg[0], []).append(reg)
+    curvas = {f: _cortes_possiveis(p, errou) for f, p in por_fonte.items()}
+
+    # Cada regra com o seu ajuste nas duas direções da F47.
+    regras = [("um percentil por fonte",
+               _percentil_ao_orcamento, _percentil_ao_recall),
+              ("um limiar por fonte (teto)",
+               _melhor_ao_orcamento, _melhor_ao_recall)]
+
+    paginas = sorted({r[4] for r in filtraveis})
+
+    def fora_da_amostra(ajustar, alvo_de):
+        """
+        Ajusta em dez páginas, mede na décima primeira, soma as onze.
+
+        O que atravessa da amostra de ajuste para a medida é o **corte**, e não
+        o orçamento: nada da página medida entrou na escolha do limiar dela. É
+        o cuidado que a F37 tomou com a contaminação da base, aplicado ao
+        limiar em vez de ao vizinho.
+        """
+        custo = pegos = 0
+        for pagina in paginas:
+            treino = [r for r in filtraveis if r[4] != pagina]
+            teste = [r for r in filtraveis if r[4] == pagina]
+            if not treino or not teste:
+                continue
+            por_f = {}
+            for reg in treino:
+                por_f.setdefault(reg[0], []).append(reg)
+            cur = {f: _cortes_possiveis(p, errou) for f, p in por_f.items()}
+            cortes = ajustar(cur, alvo_de(treino))
+            c, p = _aplicar_cortes(cortes, teste, errou)
+            custo += c
+            pegos += p
+        return custo + custo_fixo, pegos + pegos_fixo
+
+    print(f"\n--- o ponto de operação, por fonte (F56), em {len(linhas)} boxes "
+          f"com {total_erros} erros ---")
+    print(f"{custo_hoje} marcados hoje, dos quais {custo_fixo} por regra fixa "
+          f"(vazio e F48) — o orçamento distribuído é {orcamento}")
+    print(f"\n{'a custo igual':<30}{'marcados':>10}{'erros pegos':>13}"
+          f"{'à toa':>9}{'escapam':>10}{'':>4}{'fora da amostra':>17}")
+
+    def linha(nome, custo, pegos, fora=None):
+        cauda = ""
+        if fora is not None:
+            cauda = f"{'':>4}{f'{fora[1]} em {fora[0]}':>17}"
+        print(f"{nome:<30}{custo:>10}{pegos:>13}{custo - pegos:>9}"
+              f"{total_erros - pegos:>10}{cauda}")
+
+    linha("hoje (um limiar para todos)", custo_hoje, pegos_hoje)
+
+    def custo_de_hoje(parte):
+        return sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+
+    def recall_de_hoje(parte):
+        return sum(1 for r in parte
+                   if conf_ui.precisa_revisao(_BoxFalso(r)) and errou(r))
+
+    escolhas = {}
+    for nome, ao_orcamento, _ao_recall in regras:
+        cortes = ao_orcamento(curvas, orcamento)
+        escolhas[nome] = cortes
+        custo, pegos = _aplicar_cortes(cortes, filtraveis, errou)
+        linha(nome, custo + custo_fixo, pegos + pegos_fixo,
+              fora=fora_da_amostra(ao_orcamento, custo_de_hoje))
+
+    # O teto que regra nenhuma alcança: gastar o orçamento inteiro em erro. Ele
+    # não é atingível — separa por rótulo —, e está aqui para dizer se a
+    # distância entre as linhas de cima é o que sobra ou o que já foi tirado.
+    linha("oráculo (gasta tudo em erro)",
+          custo_hoje,
+          min(orcamento, sum(1 for r in filtraveis if errou(r))) + pegos_fixo)
+
+    # ------------------------------------------------------------------
+    # A outra metade da regra da F47: mesmo erro pego, quanto cada uma cobra.
+    # ------------------------------------------------------------------
+    print(f"\n{'a recall igual':<30}{'marcados':>10}{'erros pegos':>13}"
+          f"{'à toa':>9}{'escapam':>10}{'':>4}{'fora da amostra':>17}")
+    linha("hoje (um limiar para todos)", custo_hoje, pegos_hoje)
+    alvo = pegos_hoje - pegos_fixo
+    for nome, _ao_orcamento, ao_recall in regras:
+        cortes = ao_recall(curvas, alvo)
+        custo, pegos = _aplicar_cortes(cortes, filtraveis, errou)
+        linha(nome, custo + custo_fixo, pegos + pegos_fixo,
+              fora=fora_da_amostra(ao_recall, recall_de_hoje))
+    print("  'fora da amostra' é 'erros pegos em marcados', com o corte "
+          "ajustado nas outras dez páginas")
+
+    # Os cortes que produção embarcaria, e a coluna que a F55 pediu: onde o
+    # número único cai em cada curva, contra onde a regra de um parâmetro cai.
+    print(f"\n{'fonte':<16}{'boxes':>7}{'erros':>7}{'hoje marca':>12}"
+          f"{'':>4}{'corte do percentil':>20}{'marcaria':>10}")
+    cortes = escolhas["um percentil por fonte"]
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        hoje = sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+        marcados, _erros_do_corte, t = cortes[fonte]
+        print(f"{fonte:<16}{len(parte):>7}"
+              f"{sum(1 for r in parte if errou(r)):>7}"
+              f"{100.0 * hoje / len(parte):>11.0f}%{'':>4}{t:>20.4f}"
+              f"{100.0 * marcados / len(parte):>9.0f}%")
+    print("  'hoje marca' é a coluna da F55: o mesmo limiar em lugares "
+          "diferentes de cada curva")
+
+    # ------------------------------------------------------------------
+    # O limiar de cada fonte, precificado na curva dela.
+    # ------------------------------------------------------------------
+    # **É o bloco que sobrevive mesmo se a redistribuição não pagar**, e o que
+    # a F55 pediu com todas as letras: ela registrou que o `LIMIAR_ALTO` cai em
+    # 6% de uma curva e em 42% de outra, e não tinha como dizer *que número*
+    # cada fonte pediria. Sem esta tabela o 0,90 de cada ação continua sendo
+    # herdado; com ela, escolhido — o que não é a mesma coisa mesmo quando o
+    # número escolhido é o mesmo.
+    print(f"\n{'a curva de cada fonte':<16}{'':>10}"
+          + "".join(f"{f'{int(a * 100)}% dos erros':>22}"
+                    for a in ALVOS_DE_RECALL))
+    print(f"{'fonte':<16}{'hoje':>10}"
+          + "".join(f"{'corte':>10}{'à toa':>12}" for _a in ALVOS_DE_RECALL))
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        pontos = curvas[fonte]
+        erros_da_fonte = pontos[-1][1]
+        hoje = sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+        pegos_hoje_fonte = sum(1 for r in parte
+                               if conf_ui.precisa_revisao(_BoxFalso(r))
+                               and errou(r))
+        celulas = ""
+        for alvo in ALVOS_DE_RECALL:
+            # O ponto mais barato que alcança o alvo. `None` quando a fonte não
+            # tem erro suficiente para a pergunta fazer sentido.
+            alcanca = [p for p in pontos if p[1] >= alvo * erros_da_fonte]
+            if not erros_da_fonte or not alcanca:
+                celulas += f"{'—':>10}{'—':>12}"
+                continue
+            marcados, pegos, t = min(alcanca, key=lambda p: p[0])
+            celulas += f"{t:>10.4f}{marcados - pegos:>12}"
+        print(f"{fonte:<16}{f'{pegos_hoje_fonte}/{hoje}':>10}{celulas}")
+    print("  'hoje' é 'erros pegos/boxes marcados' pela regra de hoje nesta "
+          "fonte; 'à toa' é o acerto aberto para alcançar o alvo")
 
 
 def tabela_do_knn(aquecidos, verdade):
@@ -1674,6 +2087,7 @@ def main():
                     if mr is not None}
     tabela_revisao(producao, margem_de=margens)
     tabela_corte_da_revisao(producao, margens, margens_rede)
+    tabela_ponto_de_operacao(producao)
     tabela_regua_por_fonte(producao)
     tabela_regua_alternativa(producao, margens, margens_rede)
     tabela_lexico(paginas, producao)

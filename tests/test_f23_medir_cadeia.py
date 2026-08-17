@@ -334,3 +334,158 @@ def test_a_regua_alternativa_nao_empresta_a_margem_de_outro_elo(capsys):
     # quem é a régua, e não sobre desligar a coluna.
     learner = next(l for l in saida.splitlines() if l.startswith("learner"))
     assert "1.000" in learner, "a margem do k-NN separa os seus próprios boxes"
+
+
+# ----------------------------------------------------------------------
+# F56 — o ponto de operação por fonte
+# ----------------------------------------------------------------------
+
+def _errou(reg):
+    return reg[2] != reg[3]
+
+
+def test_um_corte_nao_separa_dois_boxes_com_a_mesma_nota():
+    """
+    A curva da F56 só oferece pontos que um limiar **realiza**.
+
+    O k-NN devolve 1,0 em milhares de boxes, porque a base tem cópia byte a
+    byte destas páginas (F37). Uma curva indexada por posição diria "marque
+    2.000 dos 3.000 empatados em 1,0", e limiar nenhum faz isso — a tabela
+    prometeria um ponto de operação inexistente, que é a forma que o erro da
+    F47 tomaria aqui.
+    """
+    # (fonte, confiança, lido, verdade, página, id) — duas notas empatadas em
+    # 0,5, uma errada e uma certa.
+    parte = [("n", 0.1, "a", "b", "p", 1),
+             ("n", 0.5, "a", "a", "p", 2),
+             ("n", 0.5, "a", "b", "p", 3),
+             ("n", 0.9, "a", "a", "p", 4)]
+
+    pontos = mc._cortes_possiveis(parte, _errou)
+
+    assert [p[0] for p in pontos] == [0, 1, 3, 4], (
+        "o empate em 0,5 virou dois pontos, e nenhum limiar os separa")
+    # E o `t` de cada ponto marca exatamente aquele tanto, com aquele erro.
+    for marcados, erros, t in pontos:
+        de_fato = [r for r in parte if r[1] < t]
+        assert len(de_fato) == marcados
+        assert sum(1 for r in de_fato if _errou(r)) == erros
+
+
+def _curvas_de_brinquedo():
+    return {
+        "n": mc._cortes_possiveis([("n", c / 10, "a", "b" if c % 3 else "a",
+                                    "p", c) for c in range(1, 11)], _errou),
+        "k": mc._cortes_possiveis([("k", c / 10, "a", "b" if c % 4 else "a",
+                                    "p", 10 + c) for c in range(1, 11)], _errou),
+    }
+
+
+def test_o_teto_respeita_o_orcamento_e_alcanca_o_recall():
+    """
+    As duas metades da regra da F47, cada uma no seu ajuste.
+
+    O orçamento é um teto que não se pode furar — furá-lo é comparar com a fila
+    de hoje cobrando mais caro que ela, que é o defeito que a F47 achou embaixo
+    da F44. O recall é um piso pelo mesmo motivo, do outro lado.
+    """
+    curvas = _curvas_de_brinquedo()
+    erros_totais = sum(p[-1][1] for p in curvas.values())
+
+    for orcamento in range(0, 21):
+        escolha = mc._melhor_ao_orcamento(curvas, orcamento)
+        assert sum(p[0] for p in escolha.values()) <= orcamento
+
+    for alvo in range(0, erros_totais + 1):
+        escolha = mc._melhor_ao_recall(curvas, alvo)
+        assert sum(p[1] for p in escolha.values()) >= alvo
+
+
+def test_o_teto_nunca_fica_abaixo_de_um_limiar_unico():
+    """
+    A trava do defeito que quase virou a conclusão desta fase.
+
+    A família "um limiar por fonte" **contém** a regra de hoje: basta que todos
+    os cortes sejam o mesmo número. Logo o teto dela não pode pegar menos erro
+    que um corte único no mesmo orçamento — se pegar, o instrumento está
+    declarando pior uma família que contém a linha de comparação.
+
+    A primeira versão desta fase fazia exatamente isso. Ela escolhia por
+    multiplicador de Lagrange, que só enxerga os vértices da envoltória concava,
+    e num orçamento de 799 devolvia 87 erros onde o limiar único pegava 97. É a
+    F47 de novo — duas réguas comparadas em pontos que não são o mesmo ponto.
+    """
+    curvas = _curvas_de_brinquedo()
+
+    for orcamento in range(0, 21):
+        teto = mc._melhor_ao_orcamento(curvas, orcamento)
+        pegos_teto = sum(p[1] for p in teto.values())
+
+        # Todo corte único é membro da família; nenhum pode superar o teto.
+        for corte in [c / 10 for c in range(0, 12)]:
+            unico = {f: max((p for p in pontos if p[2] <= corte),
+                            key=lambda p: p[0], default=pontos[0])
+                     for f, pontos in curvas.items()}
+            if sum(p[0] for p in unico.values()) > orcamento:
+                continue
+            assert sum(p[1] for p in unico.values()) <= pegos_teto, (
+                f"o corte único {corte} pegou mais que o teto no orçamento "
+                f"{orcamento}")
+
+
+def test_o_corte_por_fonte_cai_na_regra_de_producao_onde_nao_ha_curva():
+    """
+    A trava da F52 aplicada ao instrumento novo.
+
+    Fonte sem curva própria — porque não apareceu na amostra de ajuste — não
+    pode sair da fila calada. `easyocr` entra inteira pela F48, e uma tabela que
+    o esquecesse mostraria a fila menor do que ela é.
+    """
+    linhas = [("neural", 0.10, "a", "b", "p", 1),
+              ("neural", 0.99, "a", "a", "p", 2),
+              ("easyocr", 0.99, "a", "b", "p", 3)]
+
+    # Só `neural` tem corte; `easyocr` tem de cair em `precisa_revisao`.
+    custo, pegos = mc._aplicar_cortes({"neural": (1, 1, 0.5)}, linhas, _errou)
+
+    assert (custo, pegos) == (2, 2), (
+        "a fonte sem curva parou de entrar na fila, e a F48 diz que ela entra")
+
+
+def test_a_coluna_fora_da_amostra_nao_ve_a_pagina_que_mede(capsys):
+    """
+    O que separa um ganho de uma decoração da amostra.
+
+    Um limiar por fonte ajustado nas mesmas páginas em que é medido pode achar
+    o erro **pela nota dele**, e com 11 páginas e 5 fontes há folga para isso.
+    Aqui a armadilha é construída de propósito: os erros existem só numa página
+    e numa nota que nenhuma outra página tem. Ajustando dentro, o limiar os
+    acha todos; ajustando fora, não pode achar nenhum — e a coluna tem de dizer
+    isso, em vez de repetir o número de dentro.
+    """
+    linhas = []
+    i = 0
+    for pagina in range(6):
+        for _ in range(100):
+            i += 1
+            # Ruído caro e inútil: entra na fila de hoje e não carrega erro.
+            linhas.append(("learner", 0.50, "a", "a", f"p{pagina}", i))
+        for k in range(100):
+            i += 1
+            if pagina == 0 and k < 20:
+                # Os únicos erros do lote, numa nota que só esta página tem.
+                linhas.append(("neural", 0.95, "a", "b", f"p{pagina}", i))
+            else:
+                linhas.append(("neural", 0.99, "a", "a", f"p{pagina}", i))
+
+    mc.tabela_ponto_de_operacao(linhas)
+    saida = capsys.readouterr().out
+
+    rotulo = "um limiar por fonte (teto)"
+    dentro = next(l for l in saida.splitlines() if l.startswith(rotulo))
+    # "<rótulo>  <marcados> <pegos> <à toa> <escapam>  <pegos> em <marcados>"
+    campos = dentro[len(rotulo):].split()
+
+    assert campos[1] == "20", f"o ajuste de dentro não achou os 20 erros: {dentro}"
+    assert campos[-3:] == ["0", "em", "0"], (
+        f"a coluna fora da amostra repetiu o número de dentro: {dentro}")
