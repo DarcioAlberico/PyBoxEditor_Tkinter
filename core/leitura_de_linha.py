@@ -79,6 +79,48 @@ MARCA_DE_VAZIO = "\x00"
 #: folga; colar no glifo da ponta corta traço.
 MARGEM = 8
 
+#: Abaixo disto a caixa é curta demais para dizer onde fica a linha de base, em
+#: alturas medianas de caractere da página (F63).
+#:
+#: Medido nas 17 páginas rotuladas, com o rótulo à mão como verdade e a altura
+#: normalizada pela mediana da própria página (p05 – p95):
+#:
+#:     hífen e travessão           0,11 – 0,38   (76 casos)
+#:     ponto e vírgula             0,15 – 0,54   (925)
+#:     apóstrofo e aspa simples    0,31 – 0,58   (50)
+#:     minúscula sem ascendente    0,68 – 1,00   (8.147)
+#:     minúscula com ascendente    0,85 – 1,67   (3.798)
+#:     maiúscula                   1,00 – 1,67   (838)
+#:
+#: O vão é de 0,58 a 0,68, e o limiar fica dentro dele. **Fica em 0,65 e não no
+#: meio porque os dois erros não custam o mesmo**: letra tomada por curta só
+#: deixa de atualizar a base — que as outras letras da linha dão igual —,
+#: enquanto apóstrofo tomado por letra crava a base na altura de x e devolve o
+#: defeito que esta constante existe para tirar.
+CAIXA_CURTA = 0.65
+
+#: Quanto a caixa nova precisa passar da base para ter descido de linha, em
+#: alturas medianas de caractere da página (F63).
+#:
+#: **Existe porque a vírgula raspa a base.** Ela desce um fio abaixo da linha de
+#: base, então o centro dela fica **meio pixel** abaixo do fundo das letras — e
+#: sem folga isso é "desceu uma linha". Medido nas 10 páginas rotuladas, os 26
+#: cortes que sobravam depois da régua da linha se separam em dois montes, e
+#: entre eles não há nada:
+#:
+#:     vírgula raspando a base    0,02   (11 casos, todos vírgula)
+#:     quebra de linha de verdade 0,66 – 4,88   (15 casos)
+#:
+#: O limiar fica no vão: 12× acima do maior raspão e 2,6× abaixo da menor quebra
+#: de verdade. As quebras de 0,66 a 1,07 são apóstrofo abrindo a linha seguinte,
+#: e as de 1,44 para cima são número de página e cabeçalho `Game N` centrado —
+#: nenhuma delas volta para a esquerda, então é esta régua que as corta.
+#:
+#: Varrido (`medir_quebra_de_linha.py`), o platô é largo: de 0,10 a 0,60 o
+#: resultado não muda (15 cortes no meio, 68 linhas altas). A 0,90 começa a
+#: comer quebra de verdade — 13 cortes e **69** linhas altas.
+FOLGA_DE_LINHA = 0.25
+
 #: Os glifos que o reconhecedor de linha não escreve casa a casa (F36).
 #:
 #: **O critério não é "o EasyOCR sabe escrever", é "o EasyOCR gasta uma casa".**
@@ -133,23 +175,53 @@ def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
     depois da vírgula continua sendo da linha, e a coluna vizinha, que está
     inteira acima, não.
 
+    **Descer também é contra a linha, e pela mesma razão** (F63). A régua era
+    contra a caixa anterior, e por isso o apóstrofo e o hífen — caixas curtas
+    plantadas *no alto* — faziam a letra seguinte parecer ter descido uma linha:
+    o fundo de um apóstrofo fica acima da altura de x, e qualquer letra normal
+    tem o centro abaixo dele. Medido nas 10 páginas rotuladas
+    (`medir_quebra_de_linha.py`), **69 cortes no meio de linha em 532 (13%)**
+    contra 15 em 476 depois — e no arquivo exportado isso é a prosa picada:
+    `following fresh` / `, high-` / `quality encounter` em três parágrafos.
+
+    **E a caixa curta não fixa a base.** Uma linha que *começa* com aspas teria
+    a régua no fundo das aspas, e o defeito voltaria pela porta dos fundos.
+    Enquanto só houver caixa curta na linha, `desceu` não opina — quem corta ali
+    é o `voltou`, que é o fim de linha de verdade e dispara nos mesmos pontos.
+
+    **E descer é passar da base com folga**, porque a vírgula desce um fio
+    abaixo dela: sem `FOLGA_DE_LINHA` o centro da vírgula fica meio pixel abaixo
+    do fundo das letras, e isso contava como linha nova — `On the whole` e
+    `, the author tries to` saíam separados.
+
     **A pilha girada fica de fora, e não é detalhe**: a 90° o texto se lê de
     baixo para cima (`vertical.ordenar`), então subir ali é o andamento normal
     da linha — cortar faria de cada letra uma linha.
     """
+    if not boxes:
+        return []
+
+    alturas = sorted(b.y2 - b.y1 for b in boxes)
+    mediana = alturas[len(alturas) // 2] or 1
+    curto = mediana * CAIXA_CURTA
+    folga = mediana * FOLGA_DE_LINHA
+
     linhas: List[List[BoxEntry]] = []
     atual: List[BoxEntry] = []
+    base: Optional[int] = None          # o fundo do que já é letra nesta linha
     for b in boxes:
         if atual:
             ant = atual[-1]
-            desceu = (b.y1 + b.y2) / 2 > ant.y2
+            desceu = base is not None and (b.y1 + b.y2) / 2 > base + folga
             voltou = b.x1 < ant.x1 - (ant.y2 - ant.y1)
             girado = getattr(b, "angulo", 0) or getattr(ant, "angulo", 0)
             subiu = not girado and b.y2 < min(a.y1 for a in atual)
             if desceu or voltou or subiu:
                 linhas.append(atual)
-                atual = []
+                atual, base = [], None
         atual.append(b)
+        if (b.y2 - b.y1) >= curto:
+            base = b.y2 if base is None else max(base, b.y2)
     if atual:
         linhas.append(atual)
     return linhas

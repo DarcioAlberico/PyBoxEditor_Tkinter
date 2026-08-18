@@ -8591,6 +8591,99 @@ Cobertura: 8 testes novos em `tests/test_f59_fonte_embutida.py`, que agora tem 2
 > comentários do `box_service`. Duas fases com o mesmo número são duas fases que ninguém
 > acha depois. A F61 está escrita acima, entre a F60 e esta.
 
+## F63 — O apóstrofo deixava a prosa em pedaços — CONCLUÍDA
+
+Conferindo o Kasparov exportado inteiro (322 páginas), a prosa saía picada:
+
+    following fresh        ← três parágrafos, uma frase
+    , high-
+    quality encounter
+
+Não é coluna, não é OCR: é a **quebra de linha**. `quebrar_em_linhas` cortava onde a caixa
+nova descia em relação à **caixa anterior sozinha**, e o apóstrofo é uma caixa curta
+plantada no alto — o fundo dele fica acima da altura de x, então qualquer letra depois
+dele tem o centro abaixo disso e parece ter descido uma linha. O hífen faz o mesmo.
+
+**A régua passa a ser a linha, e não a caixa anterior** — é a mesma correção que a F61 já
+tinha feito no `subiu`, que na época foi só metade do serviço. A base de uma linha é o
+maior fundo do que já entrou nela.
+
+Duas coisas precisaram entrar junto, e cada uma tem um caso que a obriga:
+
+**Caixa curta não fixa a base** (`CAIXA_CURTA = 0,65`). Sem isso, uma linha que *começa*
+com aspas teria a régua cravada no fundo das aspas e o defeito voltaria pela porta dos
+fundos. Medido nas 10 páginas rotuladas, com a altura normalizada pela mediana da própria
+página (p05 – p95):
+
+| | altura relativa | casos |
+|---|---|---:|
+| hífen e travessão | 0,11 – 0,38 | 76 |
+| ponto e vírgula | 0,15 – 0,54 | 925 |
+| apóstrofo e aspa simples | 0,31 – 0,58 | 50 |
+| minúscula sem ascendente | 0,68 – 1,00 | 8.147 |
+| minúscula com ascendente | 0,85 – 1,67 | 3.798 |
+| maiúscula | 1,00 – 1,67 | 838 |
+
+O vão é de 0,58 a 0,68. O limiar fica **em 0,65 e não no meio** porque os dois erros não
+custam o mesmo: letra tomada por curta só deixa de atualizar a base, que as outras letras
+da linha dão igual; apóstrofo tomado por letra crava a base na altura de x e devolve o
+defeito.
+
+**Descer é passar da base com folga** (`FOLGA_DE_LINHA = 0,25`). A vírgula desce um fio
+abaixo da linha de base, então o centro dela fica **meio pixel** abaixo do fundo das
+letras — e sem folga isso conta como linha nova. Medido, os 26 cortes que sobravam depois
+da régua da linha se separam em dois montes, e entre eles não há nada:
+
+| | excesso, em alturas medianas | casos |
+|---|---|---:|
+| vírgula raspando a base | 0,02 | 11 |
+| quebra de linha de verdade | 0,66 – 4,88 | 15 |
+
+O limiar fica no vão: 12× acima do maior raspão e 2,6× abaixo da menor quebra de verdade.
+Varrido, o platô é largo — de 0,10 a 0,60 o resultado não muda; a 0,90 começa a comer
+quebra de verdade.
+
+### O resultado
+
+`medir_quebra_de_linha.py` reproduz a tabela. Duas medidas, e elas puxam para lados
+opostos: **corte no meio** é o defeito (corte que nem `voltou` nem `subiu` explicam) e tem
+de cair; **linha alta** é o risco do conserto (régua frouxa fundindo duas linhas numa) e
+não pode subir.
+
+| | linhas | cortes no meio | linhas altas |
+|---|---:|---:|---:|
+| antes (a régua da F61) | 532 | **69** (13%) | 71 |
+| hoje | 476 | **15** (3%) | **68** |
+
+As linhas altas **caem**, então o conserto não pagou com o outro defeito. Os 15 cortes que
+sobram são todos legítimos e nenhum é de pontuação: apóstrofo abrindo a linha seguinte
+(0,66 – 1,07) e número de página ou cabeçalho `Game N` centrado (1,44 – 4,88) — nenhum
+deles volta para a esquerda, então é esta régua que os corta, e corretamente.
+
+Na página 13 do Kasparov, com o rótulo à mão como entrada:
+
+    antes   'As an illustration on the theme of ' / 'typical' / 'black plans…'
+            'following fresh' / ', high-' / 'quality encounter'
+    hoje    'As an illustration on the theme of 'typical'
+            'following fresh, high-quality encounter'
+
+**A acurácia da cadeia não se move, e era de esperar.** Medido em 10.510 caracteres das 10
+páginas rotuladas, o caminho híbrido dá 97,48% antes e depois: o k-NN responde 98,5% dos
+boxes e a leitura por linha trocou 3. O que a F63 conserta é a **montagem** — o texto que
+sai —, não o reconhecimento de caractere. Quem se beneficia do caractere é a linha do
+EasyOCR, e ela mal entra no caminho de produção.
+
+### O que fica em aberto
+
+**A ordem dentro da linha ainda põe o apóstrofo antes da palavra.** `White's` sai
+`' White s`, porque o `sort_boxes_reading_order` ordena por `x1` e a aspa alta às vezes
+começa antes da letra que ela segue. É outro defeito, na ordenação e não na quebra, e não
+foi medido aqui.
+
+Cobertura: `tests/test_f63_quebra_de_linha.py`, 11 testes. Os dois casos que justificam as
+constantes têm teste que **falha de propósito** com a constante desligada — sem isso o
+teste passaria por acaso e ninguém saberia.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
