@@ -8936,6 +8936,12 @@ defeito e ninguém via — ela mostrava o cabeçalho cortado.
 
 Cobertura: `tests/test_f26_livro.py` sobe para 36 testes.
 
+> **Esta fase nasceu numerada F63.** Ela foi escrita em paralelo com a F63–F66, e os
+> comentários da faixa no `livro.py` diziam F63 enquanto a quebra de linha já tinha
+> tomado esse número. Renumerada para F67 **antes de entrar** — duas fases com o mesmo
+> número são duas fases que ninguém acha depois, que é o mesmo motivo da nota sob a F62.
+> A numeração não ficou com buraco: F60 a F68 estão ocupadas, cada uma com um dono só.
+
 ## F68 — O `✝` era o `+` do xeque — CONCLUÍDA
 
 Estes livros desenham o xeque na fonte de xadrez, com uma cruz mais cheia que o sinal de
