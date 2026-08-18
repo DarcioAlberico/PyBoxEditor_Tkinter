@@ -52,6 +52,35 @@ FIGURINAS = {
     "♚": "K", "♛": "Q", "♜": "R", "♝": "B", "♞": "N",
 }
 
+# Classe do modelo -> o caractere que ela significa no texto (F68).
+#
+# **O `✝` é o `+` de xeque.** Estes livros desenham o xeque na fonte de xadrez,
+# com uma cruz mais cheia que o sinal de mais do texto, e a base de treino
+# separou as duas formas em classes diferentes — o que é certo para o olho do
+# modelo e errado para tudo o que vem depois. Medido na página 11 do Yusupov,
+# 16 ocorrências numa página só: `♘e4✝`, `♖h3✝`, `♗xd4✝`.
+#
+# O estrago é de três tipos, e nenhum deles aparece na tela:
+#
+#   - o livro exportado não responde a uma busca por `Nxe4+`;
+#   - o `SUFIXOS` abaixo não conhece o `✝`, então ele fica colado ao lance e o
+#     `parece_lance` deixa de reconhecer o que é lance;
+#   - o PGN sai com um caractere que nenhum programa de xadrez lê.
+#
+# **A classe continua existindo**, e é de propósito: o desenho é outro, e juntar
+# as duas na base pioraria o reconhecimento das duas. O que muda é a saída — a
+# mesma separação que a `FIGURINAS` faz entre o `♘` que o livro imprime e o `N`
+# que o SAN exige.
+SINONIMOS_DE_SAIDA = {"✝": "+"}
+
+
+def normalizar_saida(texto: str) -> str:
+    """O texto como ele tem de sair do programa. Ver `SINONIMOS_DE_SAIDA`."""
+    if not texto:
+        return texto
+    return "".join(SINONIMOS_DE_SAIDA.get(c, c) for c in texto)
+
+
 # Símbolos de anotação que aparecem colados no lance e não fazem parte dele.
 SUFIXOS = "!?+#±∓□■△▼∞²³=-–—,;:.)("
 
@@ -177,7 +206,10 @@ def _linhas_de_boxes(boxes: Sequence[BoxEntry]) -> List[List[Simbolo]]:
     if atual:
         linhas.append(atual)
 
-    return [[Simbolo(FIGURINAS.get(b.char, b.char), posicao[id(b)],
+    # As duas tabelas compõem sem se cruzar: a figurina vira letra de SAN, e o
+    # que não é figurina passa pela normalização de saída (o `✝` do xeque).
+    return [[Simbolo(FIGURINAS.get(b.char, normalizar_saida(b.char)),
+                     posicao[id(b)],
                      getattr(b, "confidence", 0.0), getattr(b, "source", ""))
              for b in linha]
             for linha in linhas]

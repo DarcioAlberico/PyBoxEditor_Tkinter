@@ -43,7 +43,7 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import diagrama, render_diagrama, vertical
+from core import diagrama, notacao, render_diagrama, vertical
 from core.box_model import BoxEntry
 from core.leitura_de_linha import quebrar_em_linhas
 from core.services.box_service import BoxService
@@ -434,7 +434,11 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
             char, fracos = "", fracos + 1
         if i and b.x1 - linha[i - 1].x2 > largura * VAO_DE_ESPACO:
             partes.append(" ")
-        partes.append(char or "")
+        # **Depois do coletor, e antes do texto.** A base de treino guarda o
+        # recorte sob a classe que o modelo emitiu — é ela que ensina o modelo —,
+        # e o livro recebe o que a classe significa: o `✝` do xeque sai `+`, e
+        # uma busca por `Nxe4+` passa a achar a página. Ver `notacao`.
+        partes.append(notacao.normalizar_saida(char or ""))
     return "".join(partes).strip(), fracos
 
 

@@ -407,5 +407,42 @@ def test_comando_esta_no_menu():
         raise AssertionError("menu Ferramentas não existe")
 
 
+# ----------------------------------------------------------------------
+# O xeque desenhado na fonte de xadrez (F68)
+# ----------------------------------------------------------------------
+
+def test_a_cruz_do_xeque_vira_mais_na_saida():
+    """
+    Estes livros desenham o xeque com uma cruz mais cheia que o sinal de mais
+    do texto, e a base separou as duas formas em classes diferentes — certo
+    para o olho do modelo, errado para tudo o que vem depois.
+    """
+    assert notacao.normalizar_saida("♘e4✝") == "♘e4+"
+    assert notacao.normalizar_saida("") == ""
+    assert notacao.normalizar_saida("♖h3+") == "♖h3+", "o + de verdade não muda"
+
+
+def test_o_xeque_em_cruz_nao_impede_o_lance_de_ser_lido():
+    """
+    Era o segundo estrago, e o mais silencioso: o `✝` não está no `SUFIXOS`,
+    então ficava colado ao lance e o `parece_lance` deixava de reconhecer o que
+    era lance. O PGN saía sem a partida.
+    """
+    rel = montar("1.e4 d5 2.exd5 ♕xd5 3.♘c3 ♕a5 4.♗b5✝")
+    assert len(rel.partidas) == 1
+    assert rel.partidas[0].lances[-1] == "Bb5+"
+    assert relidos(pgn.para_texto(rel)) == [rel.partidas[0].lances], (
+        "o PGN com xeque não foi relido pelo python-chess")
+
+
+def test_a_classe_do_modelo_continua_existindo():
+    """
+    Normalizar a saída não é apagar a classe: o desenho é outro, e juntar as
+    duas na base pioraria o reconhecimento das duas. O que muda é o que sai.
+    """
+    assert "✝" in notacao.SINONIMOS_DE_SAIDA
+    assert notacao.SINONIMOS_DE_SAIDA["✝"] == "+"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

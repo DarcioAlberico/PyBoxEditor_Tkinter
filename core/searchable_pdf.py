@@ -20,7 +20,7 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import vertical
+from core import notacao, vertical
 from core.chess_pdf_processor import (CHESS_UNICODE, FONTES_DE_SIMBOLO,
                                       resolve_chess_font)
 from core.services.box_service import BoxService
@@ -329,6 +329,11 @@ def gerar_pdf_pesquisavel(
                                             conf_linha_maxima, resumo):
                 if not char or conf < conf_minima:
                     continue
+                # A camada é invisível e existe só para a busca, então o que vai
+                # nela é o que a pessoa vai digitar: `+`, e não o `✝` da classe
+                # do xeque (F68). De quebra, tira do caminho um caractere que a
+                # fonte embutida pode não desenhar.
+                char = notacao.normalizar_saida(char)
                 # Todos os caracteres, e não só `char[0]`: uma classe de
                 # ligadura escreve dois glifos, e conferir o primeiro deixaria o
                 # segundo virar retângulo vazio no PDF — o defeito do `·` da

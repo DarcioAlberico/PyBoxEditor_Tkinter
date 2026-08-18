@@ -8936,6 +8936,37 @@ defeito e ninguém via — ela mostrava o cabeçalho cortado.
 
 Cobertura: `tests/test_f26_livro.py` sobe para 36 testes.
 
+## F68 — O `✝` era o `+` do xeque — CONCLUÍDA
+
+Estes livros desenham o xeque na fonte de xadrez, com uma cruz mais cheia que o sinal de
+mais do texto, e a base de treino separou as duas formas em **classes diferentes**. Para o
+olho do modelo isso é certo — são desenhos distintos, e juntá-los pioraria o
+reconhecimento dos dois. Para tudo o que vem depois, é errado.
+
+Medido na página 11 do Yusupov, **16 ocorrências numa página só**: `♘e4✝`, `♕c5✝`,
+`dxc4✝`, `♗g2✝`, `♖h3✝`, `♗xd4✝`. Em quatro páginas, 44 — o segundo caractere não-ASCII
+mais frequente do texto, atrás só da dama.
+
+O estrago é de três tipos, e nenhum deles aparece na tela:
+
+- o livro exportado **não responde a uma busca por `Nxe4+`**, que é o que a pessoa digita;
+- o `notacao.SUFIXOS` não conhece o `✝`, então ele ficava colado ao lance e o
+  `parece_lance` deixava de reconhecer o que era lance — a partida sumia do PGN;
+- a camada invisível do PDF pesquisável saía com um caractere que a fonte embutida pode
+  nem desenhar.
+
+**A classe continua existindo, e a saída é que muda.** É a mesma separação que a
+`notacao.FIGURINAS` já fazia entre o `♘` que o livro imprime e o `N` que o SAN exige — só
+que agora com nome: `SINONIMOS_DE_SAIDA`, aplicado nos três lugares em que caractere de
+modelo vira texto de arquivo (o livro, a notação e a camada do PDF). A base de treino
+recebe o recorte sob a classe original, porque é ela que ensina o modelo.
+
+Depois: `0` ocorrências de `✝` e `17` de `+` na mesma página, com `5.♔xf2 ♘e4+`,
+`♕c5+`, `dxc4+ `, `♗g2+` — e o `+—` de "brancas ganham", que é ligadura e não xeque,
+intacto.
+
+Cobertura: 3 testes em `tests/test_f61_pgn.py` e 1 em `tests/test_f26_livro.py`.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

@@ -892,6 +892,23 @@ def test_do_pdf_ao_desenho_sem_nenhum_dublê():
     assert len(titulos) == 1 and p.blocos.index(titulos[0]) == 0
 
 
+def test_o_livro_sai_com_o_mais_do_xeque_e_nao_com_a_cruz():
+    """
+    Era: `♘e4✝` no EPUB, e uma busca por `Nxe4+` não achava a página. A classe
+    do modelo é a cruz que o livro desenha; o texto exportado é o `+` que a
+    pessoa digita. Medido na página 11 do Yusupov, 16 ocorrências numa página.
+    """
+    doc = _pagina(texto_linhas=("xxx",))
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador("✝"), dpi=150)
+    finally:
+        doc.close()
+
+    assert p.texto, "a página saiu sem texto"
+    assert "✝" not in p.texto
+    assert "+" in p.texto
+
+
 def test_o_texto_alternativo_da_figura_e_o_fen():
     """
     Acessibilidade e busca no mesmo campo: o leitor de tela diz a posição, e uma
