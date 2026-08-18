@@ -121,6 +121,27 @@ CAIXA_CURTA = 0.65
 #: comer quebra de verdade — 13 cortes e **69** linhas altas.
 FOLGA_DE_LINHA = 0.25
 
+#: Quanto a caixa nova precisa subir acima do topo da linha para ser a coluna
+#: vizinha, em alturas medianas de caractere da página (F65).
+#:
+#: **A `FOLGA_DE_LINHA` não serve aqui, e o motivo é físico.** Quem dispara o
+#: `subiu` sem ser troca de coluna é a caixa curta plantada na altura de
+#: ascendente — o apóstrofo de `can't` chegando depois de `can`, que é todo
+#: altura de x. Ela sobe o vão entre as duas alturas, e esse vão chega a ~0,4
+#: altura mediana em fonte comum: mais que os 0,25 que bastam para a vírgula.
+#:
+#: Medido nas 10 páginas rotuladas, o `subiu` dispara 10 vezes e os dois montes
+#: não se tocam nem de longe:
+#:
+#:     apóstrofo subindo dentro da linha   0,08 – 0,14   (3 casos)
+#:     troca de coluna                    66,22 – 104,23  (7 casos)
+#:
+#: O vão é de **470×**, e 1,0 fica dentro dele com folga dos dois lados: 7×
+#: acima do maior apóstrofo e 66× abaixo da menor troca de coluna. É folga e não
+#: "a caixa tem de ser alta" de propósito — uma coluna que **começa** com aspas
+#: continua sendo cortada, porque ali a subida é de centenas de alturas.
+FOLGA_DE_COLUNA = 1.0
+
 #: Os glifos que o reconhecedor de linha não escreve casa a casa (F36).
 #:
 #: **O critério não é "o EasyOCR sabe escrever", é "o EasyOCR gasta uma casa".**
@@ -175,6 +196,12 @@ def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
     depois da vírgula continua sendo da linha, e a coluna vizinha, que está
     inteira acima, não.
 
+    **E subir também é com folga** (F65). O apóstrofo mora na altura de
+    ascendente: chegando depois de `can`, que é todo altura de x, ele fica
+    inteiro acima do topo da linha e a régua o lia como coluna vizinha —
+    `we can` / `'t say that`. Medido, o apóstrofo sobe 0,08–0,14 alturas
+    medianas e a troca de coluna sobe 66–104: o vão é de 470×.
+
     **Descer também é contra a linha, e pela mesma razão** (F63). A régua era
     contra a caixa anterior, e por isso o apóstrofo e o hífen — caixas curtas
     plantadas *no alto* — faziam a letra seguinte parecer ter descido uma linha:
@@ -205,6 +232,7 @@ def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
     mediana = alturas[len(alturas) // 2] or 1
     curto = mediana * CAIXA_CURTA
     folga = mediana * FOLGA_DE_LINHA
+    folga_acima = mediana * FOLGA_DE_COLUNA
 
     linhas: List[List[BoxEntry]] = []
     atual: List[BoxEntry] = []
@@ -215,7 +243,8 @@ def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
             desceu = base is not None and (b.y1 + b.y2) / 2 > base + folga
             voltou = b.x1 < ant.x1 - (ant.y2 - ant.y1)
             girado = getattr(b, "angulo", 0) or getattr(ant, "angulo", 0)
-            subiu = not girado and b.y2 < min(a.y1 for a in atual)
+            subiu = (not girado
+                     and b.y2 < min(a.y1 for a in atual) - folga_acima)
             if desceu or voltou or subiu:
                 linhas.append(atual)
                 atual, base = [], None

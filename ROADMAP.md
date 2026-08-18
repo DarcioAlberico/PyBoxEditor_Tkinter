@@ -8721,6 +8721,55 @@ na tabela da F63 e 79 em 535 com a régua da F61. As linhas altas ficam em 68 na
 Cobertura: `tests/test_f64_banda_da_linha.py`, 8 testes, e `medir_quebra_de_linha.py
 --bandas` reproduz a tabela.
 
+## F65 — O apóstrofo deixa de virar troca de coluna — CONCLUÍDA
+
+O terceiro e último lugar em que o mesmo glifo partia a palavra. Conferindo o Kasparov
+reexportado com a F63 e a F64, sobrou `we can` / `'t say that`.
+
+A F61 corta a linha onde a sequência **sobe**, porque é assim que se sai da coluna da
+esquerda para a da direita. Só que o apóstrofo mora na altura de **ascendente**: chegando
+depois de `can`, que é todo altura de x, ele fica inteiro acima do topo da linha — e a
+régua o lia como coluna vizinha.
+
+**A `FOLGA_DE_LINHA` da F63 não servia aqui, e o motivo é físico.** O vão entre a altura
+de ascendente e a de x chega a ~0,4 altura mediana em fonte comum, mais que os 0,25 que
+bastam para a vírgula. Medido nas 10 páginas rotuladas, o `subiu` dispara 10 vezes e os
+dois montes não se tocam nem de longe:
+
+| | subida, em alturas medianas | casos |
+|---|---|---:|
+| apóstrofo subindo dentro da linha | 0,08 – 0,14 | 3 |
+| troca de coluna | 66,22 – 104,23 | 7 |
+
+O vão é de **470×**. `FOLGA_DE_COLUNA = 1,0` fica dentro dele com 7× de margem acima do
+maior apóstrofo e 66× abaixo da menor troca de coluna. Varrido, o platô vai de 0,25 a 60;
+a 80 começa a comer troca de coluna de verdade (as linhas altas sobem de 68 para 70).
+
+**É folga, e não "a caixa tem de ser alta", de propósito.** Uma coluna que *começa* com
+aspas sobe centenas de alturas e continua sendo cortada — a régua alternativa a perderia.
+
+### O resultado, com as três fases juntas
+
+`medir_quebra_de_linha.py` reproduz a tabela. A régua do "corte no meio" passou a medir a
+troca de coluna **com** a folga desta fase: sem isso, o corte que a F65 conserta era
+contado como legítimo e a tabela não via o defeito.
+
+| | linhas | cortes no meio | linhas altas |
+|---|---:|---:|---:|
+| antes (a régua da F61) | 535 | **84** (16%) | 71 |
+| hoje (F63 + F64 + F65) | 463 | **12** (3%) | **68** |
+
+Na página 13 do Kasparov, as três palavras que abriram cada fase:
+
+    antes   following fresh / , high- / quality encounter
+            ' / Whitesqueensideisruined.
+            we can / 't say that
+    hoje    following fresh, high-quality encounter
+            White's queenside is ruined.
+            can't say that his pawn structure is com-
+
+Cobertura: `tests/test_f65_folga_de_coluna.py`, 6 testes.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

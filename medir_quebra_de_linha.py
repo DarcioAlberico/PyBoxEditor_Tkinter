@@ -114,14 +114,20 @@ def medir(boxes, alto, quebrar=None):
     mediana = alturas[len(alturas) // 2] or 1
 
     # O corte "no meio" é o que nenhuma das duas regras legítimas explica: a
-    # leitura não voltou para a esquerda (fim de linha) e não subiu (troca de
-    # coluna, F61). Sem tirar a troca de coluna, toda página de duas colunas
+    # leitura não voltou para a esquerda (fim de linha) e não subiu para a
+    # coluna vizinha. Sem tirar a troca de coluna, toda página de duas colunas
     # entraria na conta com um corte que está certo.
+    #
+    # **A troca de coluna é medida com a folga da F65**, e não por "subiu um
+    # pixel": o apóstrofo sobe 0,14 altura mediana e a coluna vizinha sobe 66.
+    # Sem a folga aqui, o corte que a F65 conserta era contado como legítimo e
+    # a tabela não via o defeito.
     no_meio = 0
     for anterior, seguinte in zip(linhas, linhas[1:]):
         ant, b = anterior[-1], seguinte[0]
         voltou = b.x1 < ant.x1 - (ant.y2 - ant.y1)
-        subiu = b.y2 < min(a.y1 for a in anterior)
+        subiu = (b.y2 < min(a.y1 for a in anterior)
+                 - mediana * ldl.FOLGA_DE_COLUNA)
         if not voltou and not subiu:
             no_meio += 1
 
