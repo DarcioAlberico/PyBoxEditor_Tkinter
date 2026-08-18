@@ -24,6 +24,8 @@ import fitz
 
 from core.livro import Figura, PaginaExtraida, Paragrafo
 
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 CSS = """\
 body { font-family: serif; line-height: 1.45; margin: 0 6%; }
@@ -88,6 +90,25 @@ TIPOS_DE_FONTE = {".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff"}
 #: sinais de xadrez, e ali a fonte do leitor é moeda: medido, a Times New Roman
 #: não tem uma figurina sequer, e a DejaVu Serif também não.
 PISO_DO_SIMBOLO = 0x2000
+
+#: O idioma que vai no `dc:language` do EPUB.
+#:
+#: **É o idioma do livro, e não o do programa** — a mesma distinção que a §5.8
+#: da SPEC faz para o léxico (`lexico.idioma`, "en", com a nota "o idioma dos
+#: livros, não o do programa"). Era `"pt"` fixo, e todo livro do Yusupov saía
+#: declarado em português: o leitor de tela lia notação inglesa com fonemas
+#: portugueses, e a hifenização do EPUB quebrava as palavras pelas regras
+#: erradas.
+IDIOMA_PADRAO = "en"
+
+#: O recorte da fonte de símbolos, com os glifos que o modelo sabe ler.
+#:
+#: 5,2 KB contra os 641 da fonte inteira, e os mesmos 15 símbolos. Sai do
+#: `gerar_fonte_de_simbolos.py`, que roda à mão e versiona o produto; se ele não
+#: existir, ou se o alfabeto crescer além dele, o `fonte_dos_simbolos` cai
+#: sozinho para a fonte inteira.
+SUBSET_DOS_SIMBOLOS = os.path.join(_RAIZ, "assets", "fonts",
+                                   "SimbolosDeXadrez.ttf")
 
 CSS_DOS_SIMBOLOS = """\
 @font-face { font-family: "%(familia)s"; font-weight: normal; font-style: normal;
@@ -154,7 +175,8 @@ def _diagrama_em_texto(figura: Figura) -> str:
 
 
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
-                     diagramas: str = "png", simbolos: str = "") -> str:
+                     diagramas: str = "png", simbolos: str = "",
+                     idioma: str = IDIOMA_PADRAO) -> str:
     corpo, i = [], 0
     primeiro = True
     for bloco in pagina.blocos:
@@ -167,15 +189,26 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             i += 1
             primeiro = True
         else:
-            classe = ' class="primeira"' if primeiro else ""
             texto = (_com_simbolos(bloco.texto, simbolos) if simbolos
                      else html.escape(bloco.texto))
+            if bloco.titulo:
+                # O `titulo` existe na `Paragrafo` desde a F2.6 e os dois
+                # exportadores o ignoravam: todo cabeçalho saía como parágrafo
+                # comum, e sem `<h2>` o sumário do leitor não tem por onde
+                # navegar. Hoje nada o marca — a marcação é trabalho de quem
+                # detectar título na página —, mas o campo deixou de ser letra
+                # morta do lado de cá.
+                corpo.append(f"<h2>{texto}</h2>")
+                primeiro = True
+                continue
+            classe = ' class="primeira"' if primeiro else ""
             corpo.append(f"<p{classe}>{texto}</p>")
             primeiro = False
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE html>\n'
-        '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="pt">\n'
+        f'<html xmlns="http://www.w3.org/1999/xhtml" '
+        f'xml:lang="{html.escape(idioma)}">\n'
         f"<head><title>Página {pagina.numero + 1}</title>"
         '<link rel="stylesheet" type="text/css" href="estilo.css"/></head>\n'
         "<body>\n" + "\n".join(corpo) + "\n</body>\n</html>\n"
@@ -209,20 +242,31 @@ def fonte_dos_simbolos(texto: str) -> Optional[Tuple[str, str, str]]:
     mesma que o PDF pesquisável usa, e pelo mesmo motivo — medidas as 559
     famílias deste sistema, o bloco de anotação de xadrez do Unicode 11 não
     existe em nenhuma outra.
+
+    **O subset vem primeiro, e a fonte inteira fica de rede.** O recorte tem 5,2
+    KB contra 641, e cobre os mesmos 15 símbolos — mas ele é produto de um
+    script que roda à mão (`gerar_fonte_de_simbolos.py`), e alfabeto de modelo
+    cresce. Escolher pela cobertura, e não pela ordem, faz o dia em que o modelo
+    aprender um símbolo novo custar 641 KB no arquivo em vez de um quadradinho
+    na página.
     """
     from core.chess_pdf_processor import FONTES_DE_SIMBOLO
 
-    candidatos = sorted({c for c in texto if ord(c) >= PISO_DO_SIMBOLO})
-    if not candidatos:
+    precisa = sorted({c for c in texto if ord(c) >= PISO_DO_SIMBOLO})
+    if not precisa:
         return None
-    for caminho in FONTES_DE_SIMBOLO:
+
+    melhor = None
+    for caminho in [SUBSET_DOS_SIMBOLOS] + list(FONTES_DE_SIMBOLO):
         if not os.path.exists(caminho):
             continue
         fonte = fitz.Font(fontfile=caminho)
-        cobertos = "".join(c for c in candidatos if fonte.has_glyph(ord(c)))
-        if cobertos:
-            return _familia(caminho), caminho, cobertos
-    return None
+        cobertos = "".join(c for c in precisa if fonte.has_glyph(ord(c)))
+        if cobertos and (melhor is None or len(cobertos) > len(melhor[2])):
+            melhor = (_familia(caminho), caminho, cobertos)
+        if melhor and len(melhor[2]) == len(precisa):
+            break
+    return melhor
 
 
 def _com_simbolos(texto: str, simbolos: str) -> str:
@@ -260,7 +304,7 @@ def fontes_usadas(paginas: Sequence[PaginaExtraida]) -> dict:
 def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
               titulo: str = "Livro", autor: str = "",
               identificador: str = "pyboxeditor",
-              diagramas: str = "png") -> str:
+              diagramas: str = "png", idioma: str = IDIOMA_PADRAO) -> str:
     """
     Escreve o EPUB. Devolve o caminho.
 
@@ -317,8 +361,8 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         nome = f"pagina-{pagina.numero + 1:04d}.xhtml"
         capitulos.append(nome)
         arquivos.append((f"OEBPS/{nome}",
-                         _xhtml_da_pagina(pagina, imagens, diagramas, simbolos)
-                         .encode("utf-8")))
+                         _xhtml_da_pagina(pagina, imagens, diagramas, simbolos,
+                                          idioma).encode("utf-8")))
 
     itens = [f'<item id="c{i}" href="{n}" media-type="application/xhtml+xml"/>'
              for i, n in enumerate(capitulos)]
@@ -347,7 +391,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
         f'<dc:identifier id="pub-id">{html.escape(identificador)}</dc:identifier>\n'
         f"<dc:title>{html.escape(titulo)}</dc:title>\n"
-        '<dc:language>pt</dc:language>\n'
+        f'<dc:language>{html.escape(idioma)}</dc:language>\n'
         + (f"<dc:creator>{html.escape(autor)}</dc:creator>\n" if autor else "")
         + '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>\n'
         + ibooks
@@ -592,7 +636,9 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 forma._inline.docPr.set("descr", _alternativo(bloco))
                 doc.paragraphs[-1].alignment = 1   # centralizado
             else:
-                escrever_paragrafo(bloco.texto)
+                p = escrever_paragrafo(bloco.texto)
+                if bloco.titulo:
+                    p.style = doc.styles["Heading 2"]
 
     pasta = os.path.dirname(os.path.abspath(caminho))
     if pasta:

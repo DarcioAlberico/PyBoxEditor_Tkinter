@@ -35,7 +35,13 @@ def boxes_de(texto):
         x = 0
         for ch in linha:
             if ch == " ":
-                x += 22
+                # **4 px, e não 22.** O espaço largo desta fixture deixava um vão
+                # de 2,4 larguras de caractere entre palavras, e a régua da calha
+                # remedida na F61 o lê como calha — com razão: a calha mais
+                # estreita medida em 33 páginas tem 1,00 largura, e o maior vão
+                # que não é calha tem 0,75. Uma página em que o espaço de palavra
+                # é mais largo que uma calha de verdade não existe fora daqui.
+                x += 4
                 continue
             saida.append(BoxEntry(ch, x, y, x + 10, y + 14,
                                   confidence=0.99, source="neural"))

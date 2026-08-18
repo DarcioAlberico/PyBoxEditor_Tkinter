@@ -293,9 +293,11 @@ def test_a_fonte_de_recurso_cobre_as_figurinas():
     escolha = exportar.fonte_dos_simbolos(f"1.e4 {FIGURINAS} 2.d4")
     assert escolha, "nenhuma fonte de recurso foi escolhida"
     familia, caminho, cobertos = escolha
-    assert "Symbols" in familia
     assert os.path.exists(caminho)
     assert set(FIGURINAS) <= set(cobertos)
+    # O nome não é assunto do teste — a fonte pode ser a inteira ou o recorte
+    # da F62, e o que precisa valer é que ela desenhe as figurinas.
+    assert familia
 
 
 def test_sem_simbolo_no_texto_nao_entra_fonte_nenhuma():
@@ -352,7 +354,8 @@ def test_no_docx_so_o_run_do_simbolo_troca_de_fonte():
 
     assert len(runs) == 3, [r.text for r in runs]
     assert runs[0].text == "Depois de 20." and runs[0].font.name is None
-    assert runs[1].text == "♖" and "Symbols" in (runs[1].font.name or "")
+    familia = exportar.fonte_dos_simbolos("♖")[0]
+    assert runs[1].text == "♖" and runs[1].font.name == familia
     assert runs[2].text.startswith("xf3")
 
 
@@ -361,8 +364,9 @@ def test_o_docx_embute_a_fonte_dos_simbolos():
         nomes = z.namelist()
         tabela = z.read("word/fontTable.xml").decode("utf-8")
 
+    familia = exportar.fonte_dos_simbolos("♖")[0]
     assert [n for n in nomes if n.startswith("word/fonts/")]
-    assert "Symbols" in tabela and "w:embedRegular" in tabela
+    assert f'w:name="{familia}"' in tabela and "w:embedRegular" in tabela
 
 
 def test_modo_de_diagrama_invalido_reclama_nos_dois_formatos():

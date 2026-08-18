@@ -80,9 +80,22 @@ def test_tres_colunas():
 
 
 def test_espaco_entre_palavras_nao_vira_coluna():
-    """O limiar é relativo à largura de caractere, não absoluto."""
-    boxes = _linha(0, 0, 6) + _linha(160, 0, 6) + _linha(320, 0, 6)
-    boxes += _linha(0, 30, 6) + _linha(160, 30, 6) + _linha(320, 30, 6)
+    """
+    O limiar é relativo à largura de caractere, não absoluto.
+
+    **O espaço deste teste encolheu na F61, e não foi para a régua passar.** Ele
+    valia 32 px entre caracteres de 18 — 1,78 larguras —, e a medição da calha
+    em 33 páginas mostrou que isso não é espaço de palavra nenhum: os vãos que
+    não são calha ficam entre 0,06 e 0,75 largura, e a calha mais estreita
+    medida (o Nunn) tem 1,00. A fixture pedia que a régua chamasse de "palavra"
+    um vão maior que uma calha de verdade.
+
+    Aqui ele passa a valer 0,67 largura — o **teto** dos vãos medidos que não
+    são calha, e não o meio deles: o teste continua sendo o mais exigente que a
+    medição autoriza.
+    """
+    boxes = _linha(0, 0, 6) + _linha(140, 0, 6) + _linha(280, 0, 6)
+    boxes += _linha(0, 30, 6) + _linha(140, 30, 6) + _linha(280, 30, 6)
     assert len(BoxService.detectar_colunas(boxes)) == 1, \
         "espaço entre palavras foi confundido com calha"
 
@@ -118,13 +131,23 @@ def test_duas_colunas_nao_intercalam():
 
 
 def test_ordem_dentro_da_coluna():
-    esq = _linha(0, 0, 3, rotulo="E") + _linha(0, 30, 3, rotulo="e")
-    dir_ = _linha(600, 0, 3, rotulo="D") + _linha(600, 30, 3, rotulo="d")
+    """
+    **As colunas deste teste engordaram na F61**, e pelo mesmo motivo do teste
+    do espaço: com três caracteres de cada lado e 600 px de calha, cada "coluna"
+    tinha 8% da largura do texto — abaixo da `COLUNA_MINIMA`, e com razão. É a
+    forma do sumário do Practical Chess Defence, em que número de capítulo e
+    número de página viravam colunas e o livro saía com dez números seguidos de
+    dez títulos.
+
+    Com 12 caracteres de cada lado, cada coluna tem 30% da largura — a mais
+    estreita de verdade medida tem 45%.
+    """
+    esq = _linha(0, 0, 12, rotulo="E") + _linha(0, 30, 12, rotulo="e")
+    dir_ = _linha(600, 0, 12, rotulo="D") + _linha(600, 30, 12, rotulo="d")
     saida = BoxService.sort_boxes_reading_order(esq + dir_)
-    assert [b.char for b in saida] == [
-        "E0", "E1", "E2", "e0", "e1", "e2",
-        "D0", "D1", "D2", "d0", "d1", "d2",
-    ]
+    assert [b.char for b in saida] == (
+        [f"E{i}" for i in range(12)] + [f"e{i}" for i in range(12)]
+        + [f"D{i}" for i in range(12)] + [f"d{i}" for i in range(12)])
 
 
 def test_tres_colunas_em_ordem():

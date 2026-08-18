@@ -8431,7 +8431,50 @@ novo.
 A lição virou teste: `test_o_docx_com_fonte_embutida_continua_sendo_um_docx` **abre** o
 arquivo em vez de procurar pedaço dentro dele.
 
-Cobertura: 8 testes novos em `tests/test_f59_fonte_embutida.py`, que agora tem 22.
+### O recorte da fonte, e por que ele não virou dependência
+
+Embutir a fonte inteira custou caro: o EPUB de três páginas foi de 19 KB para **327**. A
+`NotoSansSymbols2` tem 641 KB e ~2.600 codepoints, e este livro usa **15** — levar o bloco
+de dominós e o de I Ching para desenhar seis figurinas.
+
+O `gerar_fonte_de_simbolos.py` recorta: **5,2 KB, os mesmos 15 símbolos, 0,8% do
+original.** Nos arquivos de verdade, as mesmas três páginas:
+
+| | antes da F62 | fonte inteira | recorte |
+|---|---:|---:|---:|
+| EPUB, modo fonte | 19,1 KB | 327,5 KB | **40,2 KB** |
+| DOCX, modo fonte | 52,3 KB | 361,0 KB | **73,8 KB** |
+
+Três decisões em volta dele:
+
+- **o `fontTools` não entra em produção.** O `requirements.txt` deste projeto é
+  declaradamente só do que o aplicativo importa, e quem exporta um livro consome o
+  recorte versionado — não o produz. Ele é dependência de desenvolvimento, como o pytest;
+  a suíte mede cobertura com o PyMuPDF, que já estava lá;
+- **a escolha é por cobertura, e não por ordem.** O recorte é produto de script rodado à
+  mão, e alfabeto de modelo cresce. Se um dia ele não cobrir o que o texto pede, o
+  `exportar` cai sozinho para a fonte inteira — o livro sai maior, e não sai errado. O
+  `test_o_recorte_cobre_o_que_a_fonte_inteira_cobre` lê o `model_meta.json` e avisa antes;
+- **a família foi renomeada.** Subset é modificação, e a OFL pede que a modificada não se
+  passe pela original. Há um motivo prático junto: uma Noto instalada na máquina de quem
+  abre o arquivo brigaria com esta, que tem quinze glifos.
+
+### Duas coisas erradas desde a F2.6, corrigidas de passagem
+
+**O EPUB saía declarado em português.** `<dc:language>pt</dc:language>` fixo, e estes
+livros são em inglês — a mesma distinção que a §5.8 faz para o léxico ("o idioma dos
+livros, não o do programa"). Idioma errado é hifenização pelas regras erradas e leitor de
+tela lendo notação inglesa com fonemas portugueses. Agora é parâmetro, com `"en"` de
+padrão.
+
+**O `Paragrafo.titulo` era letra morta.** O campo existe desde a F2.6 e os dois
+exportadores o ignoravam: todo cabeçalho saía como parágrafo comum, e sem `<h2>` (ou
+`Heading 2`, no DOCX) o leitor não tem por onde navegar. Nada o marca ainda — detectar
+título na página é fase de quem for medi-lo —, mas quem marcar encontra os dois formatos
+prontos.
+
+Cobertura: 8 testes novos em `tests/test_f59_fonte_embutida.py`, que agora tem 22, mais
+`tests/test_f62_simbolos.py`, com 8.
 
 > **A numeração pulou o 61 de propósito.** A régua da calha (`CALHA_EM_CARACTERES`,
 > `COLUNA_MINIMA`) foi remedida em paralelo a esta fase e já se chama F61 nos comentários

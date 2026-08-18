@@ -9,3 +9,10 @@
 -r requirements.txt
 
 pytest>=8.0            # a suíte inteira; `pytest` na raiz, ver pytest.ini
+
+fonttools>=4.50        # só o `gerar_fonte_de_simbolos.py` (F62), que recorta a
+                       # fonte de símbolos de 641 KB para 5,2 e é rodado à mão.
+                       # Fora de produção de propósito: quem exporta um livro
+                       # consome o recorte versionado, não o produz. A suíte
+                       # também não precisa dele — a cobertura é medida com o
+                       # PyMuPDF, que já está em produção.
