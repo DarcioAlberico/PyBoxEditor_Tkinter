@@ -18,7 +18,9 @@ arquivo que o Word recusa abrir sem dizer por quê. Ali a dependência
 import html
 import os
 import zipfile
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
+
+import fitz
 
 from core.livro import Figura, PaginaExtraida, Paragrafo
 
@@ -77,6 +79,22 @@ div.diagrama i { font-family: serif; font-style: normal; font-size: 0.4em;
 #: Extensão → tipo de mídia da fonte, como o EPUB 3 os nomeia.
 TIPOS_DE_FONTE = {".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff"}
 
+#: Abaixo disto o caractere não precisa da fonte de recurso.
+#:
+#: **É o corte entre "letra" e "símbolo", e ele foi medido no alfabeto do
+#: modelo** (230 classes, 40 delas fora do ASCII). Abaixo de U+2000 estão `©`,
+#: `±`, `²`, `½` e as letras acentuadas — que qualquer fonte de texto desenha, e
+#: que ficariam feias numa fonte de símbolos. Acima estão as figurinas e os
+#: sinais de xadrez, e ali a fonte do leitor é moeda: medido, a Times New Roman
+#: não tem uma figurina sequer, e a DejaVu Serif também não.
+PISO_DO_SIMBOLO = 0x2000
+
+CSS_DOS_SIMBOLOS = """\
+@font-face { font-family: "%(familia)s"; font-weight: normal; font-style: normal;
+  src: url("fonts/%(arquivo)s"); }
+span.sim { font-family: "%(familia)s", serif; }
+"""
+
 _CONTAINER = """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -95,6 +113,8 @@ def _alternativo(figura: Figura) -> str:
     "imagem" e faz o tabuleiro aparecer numa busca por FEN. O recorte não sabe
     de nada, e por isso continua com o rótulo genérico.
     """
+    if figura.origem == "faixa":
+        return "Cabeçalho do diagrama"
     return figura.fen or "Diagrama"
 
 
@@ -134,7 +154,7 @@ def _diagrama_em_texto(figura: Figura) -> str:
 
 
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
-                     diagramas: str = "png") -> str:
+                     diagramas: str = "png", simbolos: str = "") -> str:
     corpo, i = [], 0
     primeiro = True
     for bloco in pagina.blocos:
@@ -148,7 +168,9 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             primeiro = True
         else:
             classe = ' class="primeira"' if primeiro else ""
-            corpo.append(f"<p{classe}>{html.escape(bloco.texto)}</p>")
+            texto = (_com_simbolos(bloco.texto, simbolos) if simbolos
+                     else html.escape(bloco.texto))
+            corpo.append(f"<p{classe}>{texto}</p>")
             primeiro = False
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -158,6 +180,71 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
         '<link rel="stylesheet" type="text/css" href="estilo.css"/></head>\n'
         "<body>\n" + "\n".join(corpo) + "\n</body>\n</html>\n"
     )
+
+
+def _familia(caminho: str) -> str:
+    """
+    O nome da família, como a CSS e o Word a pedem.
+
+    O `fitz` devolve `'Noto Sans Symbols2 Regular'` — com o estilo no fim —, e
+    família é `'Noto Sans Symbols2'`, que é o mesmo nome que `ui/fontes.py`
+    registra no Windows para a tela poder pedi-la.
+    """
+    nome = fitz.Font(fontfile=caminho).name
+    for estilo in (" Regular", " Book", " Normal"):
+        if nome.endswith(estilo):
+            return nome[:-len(estilo)]
+    return nome
+
+
+def fonte_dos_simbolos(texto: str) -> Optional[Tuple[str, str, str]]:
+    """
+    (família, caminho, caracteres) da fonte de recurso que este texto precisa.
+
+    **Só embute quando faz falta, e a falta é medida no próprio texto.** A
+    `NotoSansSymbols2` tem 641 KB e serve para 14 dos 40 símbolos do alfabeto do
+    modelo; um livro que não traga nenhum deles não deve carregá-la.
+
+    A escolha da fonte não é nova: é a `FONTES_DE_SIMBOLO` da §4.2 da SPEC, a
+    mesma que o PDF pesquisável usa, e pelo mesmo motivo — medidas as 559
+    famílias deste sistema, o bloco de anotação de xadrez do Unicode 11 não
+    existe em nenhuma outra.
+    """
+    from core.chess_pdf_processor import FONTES_DE_SIMBOLO
+
+    candidatos = sorted({c for c in texto if ord(c) >= PISO_DO_SIMBOLO})
+    if not candidatos:
+        return None
+    for caminho in FONTES_DE_SIMBOLO:
+        if not os.path.exists(caminho):
+            continue
+        fonte = fitz.Font(fontfile=caminho)
+        cobertos = "".join(c for c in candidatos if fonte.has_glyph(ord(c)))
+        if cobertos:
+            return _familia(caminho), caminho, cobertos
+    return None
+
+
+def _com_simbolos(texto: str, simbolos: str) -> str:
+    """
+    O texto com os símbolos embrulhados no `<span>` da fonte de recurso.
+
+    Embrulha **corridos**, e não um a um: `♗xb7` tem uma figurina só, mas
+    `♕xd5 ♖e1` tem duas seguidas em outros trechos, e um `<span>` por caractere
+    dobraria o tamanho do XHTML sem mudar um pixel.
+    """
+    saida, corrente = [], []
+    for ch in texto:
+        if ch in simbolos:
+            corrente.append(ch)
+            continue
+        if corrente:
+            saida.append(f'<span class="sim">{html.escape("".join(corrente))}</span>')
+            corrente = []
+        saida.append(html.escape(ch))
+    if corrente:
+        saida.append(f'<span class="sim">{html.escape("".join(corrente))}</span>')
+    return "".join(saida)
 
 
 def fontes_usadas(paginas: Sequence[PaginaExtraida]) -> dict:
@@ -192,6 +279,12 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
 
     embutidas = fontes_usadas(paginas) if diagramas == "fonte" else {}
 
+    # A fonte dos símbolos entra nos **dois** modos, e não é opção: as figurinas
+    # e os sinais de avaliação estão no texto corrido, não no diagrama. Medido no
+    # alfabeto do modelo, a Times New Roman não desenha uma figurina sequer.
+    recurso = fonte_dos_simbolos("".join(p.texto for p in paginas))
+    simbolos = recurso[2] if recurso else ""
+
     arquivos, imagens_por_pagina = [], []
     for pagina in paginas:
         nomes = []
@@ -207,18 +300,24 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         imagens_por_pagina.append(nomes)
 
     css = CSS
+    fontes_no_zip = dict(embutidas)
     for nome, origem in embutidas.items():
-        alvo = os.path.basename(origem)
+        css += CSS_DO_DIAGRAMA % {"familia": nome,
+                                  "arquivo": os.path.basename(origem)}
+    if recurso:
+        fontes_no_zip[recurso[0]] = recurso[1]
+        css += CSS_DOS_SIMBOLOS % {"familia": recurso[0],
+                                   "arquivo": os.path.basename(recurso[1])}
+    for origem in fontes_no_zip.values():
         with open(origem, "rb") as f:
-            arquivos.append((f"OEBPS/fonts/{alvo}", f.read()))
-        css += CSS_DO_DIAGRAMA % {"familia": nome, "arquivo": alvo}
+            arquivos.append((f"OEBPS/fonts/{os.path.basename(origem)}", f.read()))
 
     capitulos = []
     for pagina, imagens in zip(paginas, imagens_por_pagina):
         nome = f"pagina-{pagina.numero + 1:04d}.xhtml"
         capitulos.append(nome)
         arquivos.append((f"OEBPS/{nome}",
-                         _xhtml_da_pagina(pagina, imagens, diagramas)
+                         _xhtml_da_pagina(pagina, imagens, diagramas, simbolos)
                          .encode("utf-8")))
 
     itens = [f'<item id="c{i}" href="{n}" media-type="application/xhtml+xml"/>'
@@ -227,7 +326,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
               for i, (n, _d) in enumerate(arquivos) if n.endswith(".png")]
     itens += [f'<item id="fnt{i}" href="fonts/{os.path.basename(o)}" '
               f'media-type="{TIPOS_DE_FONTE.get(os.path.splitext(o)[1].lower(), "font/otf")}"/>'
-              for i, o in enumerate(embutidas.values())]
+              for i, o in enumerate(fontes_no_zip.values())]
     itens.append('<item id="css" href="estilo.css" media-type="text/css"/>')
     itens.append('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" '
                  'properties="nav"/>')
@@ -237,9 +336,9 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     # embutida em vez de trocá-la pela do leitor. Sem ele o tabuleiro sai como
     # `rmblkans` lá, e só lá — que é o pior tipo de defeito de formato.
     prefixo = (' prefix="ibooks: http://vocabulary.itunes.apple.com/rdf/ibooks/'
-               'vocabulary-extensions-1.0/"' if embutidas else "")
+               'vocabulary-extensions-1.0/"' if fontes_no_zip else "")
     ibooks = ('<meta property="ibooks:specified-fonts">true</meta>\n'
-              if embutidas else "")
+              if fontes_no_zip else "")
 
     opf = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -312,11 +411,9 @@ def ofuscar(dados: bytes, guid: str = GUID_DA_FONTE) -> bytes:
     return bytes(cabeca) + dados[32:]
 
 
-def _inserir(texto: str, marca: str, trecho: str, antes: bool = False) -> str:
-    """Insere `trecho` depois (ou antes) da primeira ocorrência de `marca`."""
+def _inserir(texto: str, marca: str, trecho: str) -> str:
+    """Insere `trecho` **antes** da primeira ocorrência de `marca`."""
     corte = texto.index(marca)
-    if not antes:
-        corte += len(marca)
     return texto[:corte] + trecho + texto[corte:]
 
 
@@ -345,8 +442,13 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
 
     tipos = conteudo["[Content_Types].xml"].decode("utf-8")
     if "odttf" not in tipos:
-        tipos = _inserir(tipos, ">", f'<Default Extension="odttf" '
-                                     f'ContentType="{TIPO_OFUSCADO}"/>')
+        # **Depois da tag de abertura do `<Types>`, e não depois do primeiro
+        # `>` do arquivo**, que é o fim da declaração XML — ali o `<Default>`
+        # vira um segundo elemento na raiz, e o arquivo deixa de ser XML. O Word
+        # engole; o `python-docx` não, e foi ele que acusou.
+        abertura = tipos.index(">", tipos.index("<Types")) + 1
+        tipos = (tipos[:abertura] + f'<Default Extension="odttf" '
+                 f'ContentType="{TIPO_OFUSCADO}"/>' + tipos[abertura:])
         conteudo["[Content_Types].xml"] = tipos.encode("utf-8")
 
     tabela = conteudo["word/fontTable.xml"].decode("utf-8")
@@ -363,7 +465,7 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
             tabela, "</w:fonts>",
             f'<w:font w:name="{nome}">'
             f'<w:embedRegular r:id="rIdFonte{i}" w:fontKey="{GUID_DA_FONTE}"/>'
-            f"</w:font>", antes=True)
+            f"</w:font>")
     rels.append("</Relationships>")
 
     conteudo["word/fontTable.xml"] = tabela.encode("utf-8")
@@ -414,6 +516,41 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     def em_texto(bloco: Figura) -> bool:
         return diagramas == "fonte" and em_fonte(bloco) and not bloco.coordenadas
 
+    def familia_do_run(run, familia: str) -> None:
+        """O `w:rFonts` tem quatro atributos, e o `font.name` só escreve um."""
+        run.font.name = familia
+        fontes = run._element.get_or_add_rPr().get_or_add_rFonts()
+        for atributo in ("hAnsi", "cs", "eastAsia"):
+            fontes.set(qn(f"w:{atributo}"), familia)
+
+    recurso = fonte_dos_simbolos("".join(p.texto for p in paginas))
+    simbolos = recurso[2] if recurso else ""
+
+    def escrever_paragrafo(texto: str):
+        """
+        Um parágrafo, com os símbolos em runs de outra fonte.
+
+        **No DOCX não há `unicode-range`**: a fonte é atributo do run, então o
+        texto tem de ser partido onde a família muda. Partir por corridos e não
+        por caractere mantém o XML legível e o arquivo menor.
+        """
+        p = doc.add_paragraph()
+        if not simbolos:
+            p.add_run(texto)
+            return p
+        pedaco, e_simbolo = "", False
+        for ch in texto + "\0":
+            atual = ch in simbolos
+            if ch != "\0" and atual == e_simbolo:
+                pedaco += ch
+                continue
+            if pedaco:
+                run = p.add_run(pedaco)
+                if e_simbolo:
+                    familia_do_run(run, recurso[0])
+            pedaco, e_simbolo = ch, atual
+        return p
+
     doc = Document()
     doc.core_properties.title = titulo
     if autor:
@@ -441,14 +578,10 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     # EPUB evita.
                     p.paragraph_format.line_spacing = corpo
                     run = p.add_run(linha)
-                    run.font.name = bloco.fonte
                     run.font.size = corpo
-                    # O `w:rFonts` tem três atributos, e o `font.name` só escreve
-                    # um: sem `hAnsi`, o Word desenha a fonte pedida só até o
+                    # Sem o `hAnsi`, o Word desenha a fonte pedida só até o
                     # primeiro caractere que julgue não-ASCII.
-                    rpr = run._element.get_or_add_rPr().get_or_add_rFonts()
-                    for atributo in ("hAnsi", "cs", "eastAsia"):
-                        rpr.set(qn(f"w:{atributo}"), bloco.fonte)
+                    familia_do_run(run, bloco.fonte)
             elif isinstance(bloco, Figura):
                 forma = doc.add_picture(_io.BytesIO(bloco.png),
                                         width=Cm(largura_figura_cm))
@@ -459,18 +592,22 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 forma._inline.docPr.set("descr", _alternativo(bloco))
                 doc.paragraphs[-1].alignment = 1   # centralizado
             else:
-                doc.add_paragraph(bloco.texto)
+                escrever_paragrafo(bloco.texto)
 
     pasta = os.path.dirname(os.path.abspath(caminho))
     if pasta:
         os.makedirs(pasta, exist_ok=True)
     doc.save(caminho)
 
+    embutir = {}
     if usadas:
         from core import render_diagrama
-        _embutir_fontes_no_docx(
-            caminho, {nome: render_diagrama.carregar(nome).arquivo
-                      for nome in usadas})
+        embutir = {nome: render_diagrama.carregar(nome).arquivo
+                   for nome in usadas}
+    if recurso:
+        embutir[recurso[0]] = recurso[1]
+    if embutir:
+        _embutir_fontes_no_docx(caminho, embutir)
     return caminho
 
 

@@ -1775,7 +1775,9 @@ class MainWindow(tk.Frame):
         def concluir(resultado):
             paginas, coletor = resultado
             figuras = sum(1 for p in paginas for b in p.blocos
-                          if isinstance(b, livro.Figura))
+                          if isinstance(b, livro.Figura) and b.origem != "faixa")
+            faixas = sum(1 for p in paginas for b in p.blocos
+                         if isinstance(b, livro.Figura) and b.origem == "faixa")
             de_imagem = sum(1 for p in paginas if p.pagina_de_imagem)
             diagramas = sum(p.diagramas for p in paginas)
             desenhados = sum(p.diagramas_desenhados for p in paginas)
@@ -1784,6 +1786,8 @@ class MainWindow(tk.Frame):
                 f"Caracteres lidos: {sum(p.caracteres for p in paginas)}",
                 f"Figuras: {figuras}",
             ]
+            if faixas:
+                linhas.append(f"Cabeçalhos de diagrama recuperados: {faixas}")
             if desenhar and diagramas:
                 # Quem caiu para o recorte é o que o usuário precisa saber para
                 # conferir: são as páginas em que a leitura não convenceu.

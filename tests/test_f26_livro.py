@@ -330,7 +330,8 @@ def test_o_epub_tem_a_forma_que_o_formato_exige():
             assert "<dc:title>Teste</dc:title>" in opf
             assert "<dc:creator>Autor</dc:creator>" in opf
             pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
-            assert "♖xf3" in pagina
+            # A figurina vai embrulhada na fonte de recurso (F62), a letra não.
+            assert '<span class="sim">♖</span>xf3' in pagina
             assert "<img" in pagina
 
 
@@ -723,6 +724,100 @@ def test_a_pagina_de_imagem_se_declara():
     assert p.diagramas_desenhados == 0
 
 
+# ----------------------------------------------------------------------
+# A faixa do cabeçalho (F60)
+# ----------------------------------------------------------------------
+
+def _pagina_com_cabecalho():
+    """
+    Um diagrama com uma linha impressa logo acima dele, como o livro faz.
+
+    A distância importa: o cabeçalho tem de cair **dentro** da margem de
+    exclusão, que é o que o torna invisível para o texto — e era o que o fazia
+    sumir do livro antes desta fase.
+    """
+    doc = _pagina(texto_linhas=("Prosa bem no alto da pagina.",), diagrama=True)
+    doc[0].insert_text((44, 145), "Diagram 1-5", fontsize=7)
+    return doc
+
+
+def _figuras(p):
+    return [b for b in p.blocos if isinstance(b, livro.Figura)]
+
+
+def test_o_cabecalho_do_diagrama_volta_como_faixa(monkeypatch):
+    """
+    Era: a página 220 do Yusupov saía com seis diagramas e nenhum `Ex. 22-1`.
+    A margem de exclusão come 27 caixas por diagrama, 11 delas acima da borda —
+    e, com o tabuleiro redesenhado, elas não viravam texto nem figura.
+    """
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
+    doc = _pagina_com_cabecalho()
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador("x"), dpi=150,
+                                 diagramas="render")
+    finally:
+        doc.close()
+
+    figuras = _figuras(p)
+    assert len(figuras) == 2, [f.origem for f in figuras]
+    faixa, tabuleiro = figuras
+    assert faixa.origem == "faixa", "a faixa não veio antes do diagrama"
+    assert tabuleiro.origem == "render"
+    assert faixa.altura < tabuleiro.altura / 3, "isso não é uma faixa, é meia página"
+
+
+def test_a_faixa_sai_na_largura_do_diagrama():
+    """
+    As duas figuras são escaladas para a mesma largura no arquivo. Se a faixa
+    saísse na escala do scan, um cabeçalho recortado a 150 dpi apareceria com
+    metade da largura de um tabuleiro desenhado a 528 px.
+    """
+    doc = _pagina_com_cabecalho()
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador("x"), dpi=150,
+                                 diagramas="recorte")
+    finally:
+        doc.close()
+
+    faixa, tabuleiro = _figuras(p)
+    assert abs(faixa.largura - tabuleiro.largura) <= tabuleiro.largura * 0.15
+
+
+def test_o_recorte_com_coordenadas_nao_duplica_o_cabecalho():
+    """
+    Ali a figura sai pelo retângulo de exclusão e já traz o cabeçalho dentro —
+    uma faixa a mais seria a mesma tinta duas vezes, uma em cima da outra.
+    """
+    doc = _pagina_com_cabecalho()
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador("x"), dpi=150,
+                                 diagramas="recorte", coordenadas=True)
+    finally:
+        doc.close()
+
+    figuras = _figuras(p)
+    assert len(figuras) == 1 and figuras[0].origem == "recorte"
+
+
+def test_diagrama_sem_nada_em_cima_vem_sozinho():
+    """A faixa é do livro de exercícios; o diagrama no meio da prosa não tem."""
+    doc = _pagina(texto_linhas=("Texto bem longe do diagrama.",), diagrama=True)
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador("x"), dpi=150,
+                                 diagramas="recorte")
+    finally:
+        doc.close()
+
+    assert [f.origem for f in _figuras(p)] == ["recorte"]
+
+
+def test_a_faixa_se_declara_no_texto_alternativo():
+    """FEN ela não tem, e "Diagrama" ela não é."""
+    faixa = livro.Figura(_png_pequeno(), 40, 10, origem="faixa")
+    assert exportar._alternativo(faixa) == "Cabeçalho do diagrama"
+
+
 def test_do_pdf_ao_desenho_sem_nenhum_dublê():
     """
     A costura inteira, com os modelos de verdade: uma página com um diagrama
@@ -758,10 +853,13 @@ def test_do_pdf_ao_desenho_sem_nenhum_dublê():
         doc.close()
 
     figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
-    assert len(figuras) == 1, f"{len(figuras)} figuras numa página com um diagrama"
-    assert figuras[0].origem == "render", figuras[0].aviso
-    assert figuras[0].fen == fen
+    desenhados = [f for f in figuras if f.origem == "render"]
+    assert len(desenhados) == 1, [f.origem for f in figuras]
+    assert desenhados[0].fen == fen
     assert p.diagramas_desenhados == 1
+    # A linha impressa logo acima cai dentro da margem de exclusão e volta como
+    # faixa (F60) — antes dela, sumia do livro.
+    assert [f.origem for f in figuras] == ["faixa", "render"]
 
 
 def test_o_texto_alternativo_da_figura_e_o_fen():

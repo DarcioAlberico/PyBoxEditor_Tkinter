@@ -204,10 +204,48 @@ class Diagrama:
 
     exclusao: Tuple[int, int, int, int]
     tabuleiro: Tuple[int, int, int, int]
+    #: O que está impresso **acima** da borda, quando há algo (F60).
+    #:
+    #: Nestes livros é o cabeçalho do exercício — `➤ Ex. 22-1 ◀ ★★ ▼` —, e o ▼ é
+    #: a única coisa na página que diz de quem é o lance. Fica dentro da margem
+    #: de exclusão, então não vira texto; e com o diagrama redesenhado deixou de
+    #: virar figura. É `None` no diagrama que não tem nada em cima, que é o caso
+    #: do diagrama no meio da prosa.
+    faixa: Optional[Tuple[int, int, int, int]] = None
 
     @property
     def topo(self) -> int:
         return self.exclusao[1]
+
+
+#: Folga do recorte da faixa, em alturas de caractere.
+#:
+#: O `➤` e o `▼` do cabeçalho são desenhos, e o contorno deles às vezes sai um
+#: pixel curto do que o olho vê. Meia altura de caractere em volta custa fundo
+#: branco e evita ponta cortada.
+FOLGA_DA_FAIXA = 0.5
+
+
+def _faixa_acima(d: "Diagrama", caixas: Sequence[BoxEntry], escala: float
+                 ) -> Optional[Tuple[int, int, int, int]]:
+    """
+    O retângulo do que está impresso acima da borda do tabuleiro, ou `None`.
+
+    **A largura é a do tabuleiro, e a folga é só vertical.** As duas figuras
+    saem escaladas para a mesma largura no arquivo, então largura diferente aqui
+    vira cabeçalho transbordando o diagrama que ele encabeça — meia altura de
+    caractere de cada lado já daria 16% a mais, medido na página 220. Na
+    horizontal a faixa só cresce se a tinta passar da borda, o que nestes livros
+    não acontece.
+    """
+    acima = [b for b in caixas if b.y2 <= d.tabuleiro[1]]
+    if not acima:
+        return None
+    folga = int(round(escala * FOLGA_DA_FAIXA))
+    return (max(d.exclusao[0], min(d.tabuleiro[0], min(b.x1 for b in acima))),
+            max(d.exclusao[1], min(b.y1 for b in acima) - folga),
+            min(d.exclusao[2], max(d.tabuleiro[2], max(b.x2 for b in acima))),
+            min(d.tabuleiro[1], max(b.y2 for b in acima) + folga))
 
 
 def caixas_e_diagramas(img: np.ndarray, classificar: Callable
@@ -233,12 +271,25 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
                                                img.shape),
                           tabuleiro=r)
                  for r in diagrama.localizar(antes, escala=escala)]
-    rects = [d.exclusao for d in diagramas]
-
-    boxes = BoxService.generate_boxes_opencv(pil, arbitro=classificar)
-    boxes = [b for b in boxes if not any(_dentro(b, r) for r in rects)]
 
     minima = MIN_AREA_GLIFO * escala * escala
+    todas = BoxService.generate_boxes_opencv(pil, arbitro=classificar)
+
+    # O que a margem come é justamente o que a F60 foi buscar: os rótulos das
+    # casas, que não fazem falta, e o cabeçalho do exercício, que faz.
+    comidas: List[List[BoxEntry]] = [[] for _ in diagramas]
+    boxes = []
+    for b in todas:
+        dentro = [i for i, d in enumerate(diagramas) if _dentro(b, d.exclusao)]
+        if dentro:
+            if (b.x2 - b.x1) * (b.y2 - b.y1) >= minima:
+                comidas[dentro[0]].append(b)
+            continue
+        boxes.append(b)
+
+    for d, caixas in zip(diagramas, comidas):
+        d.faixa = _faixa_acima(d, caixas, escala)
+
     grandes, respingos = [], []
     for b in boxes:
         (grandes if (b.x2 - b.x1) * (b.y2 - b.y1) >= minima else respingos).append(b)
@@ -370,9 +421,23 @@ TONS_DA_FIGURA = 4
 
 def _png_do_recorte(img: np.ndarray, rect, dpi: int = 300,
                     dpi_figura: int = DPI_FIGURA,
-                    tons: int = TONS_DA_FIGURA) -> Tuple[bytes, int, int]:
+                    tons: int = TONS_DA_FIGURA,
+                    largura_px: Optional[int] = None) -> Tuple[bytes, int, int]:
+    """
+    Um pedaço da página vira PNG. `largura_px` manda mais que o `dpi_figura`.
+
+    Quem passa `largura_px` é a faixa do cabeçalho (F60), e o motivo é o EPUB:
+    lá a imagem sai no tamanho natural dela, então uma faixa recortada a 150 dpi
+    apareceria com pouco mais da metade da largura de um tabuleiro **desenhado**
+    a 528 px, e o cabeçalho ficaria menor que o diagrama que ele encabeça.
+    """
     corte = Image.fromarray(img[rect[1]:rect[3], rect[0]:rect[2]])
-    if dpi_figura and dpi_figura < dpi:
+    if largura_px:
+        fator = largura_px / max(1, corte.width)
+        corte = corte.resize((max(1, int(round(corte.width * fator))),
+                              max(1, int(round(corte.height * fator)))),
+                             Image.LANCZOS)
+    elif dpi_figura and dpi_figura < dpi:
         fator = dpi_figura / dpi
         corte = corte.resize((max(1, int(corte.width * fator)),
                               max(1, int(corte.height * fator))),
@@ -482,10 +547,32 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                                respingos_descartados=respingos,
                                descartados_por_confianca=fracos)
 
-    def figura(d: Diagrama) -> Figura:
-        return _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
-                                   modo=diagramas, coordenadas=coordenadas,
-                                   fonte=fonte, lado=lado_do_diagrama)
+    def figura(d: Diagrama) -> List[Figura]:
+        """
+        A faixa do cabeçalho, quando ela não está no próprio recorte, e o
+        diagrama.
+
+        **A faixa é pulada num caso só**: recorte com coordenadas, em que a
+        figura já sai pelo retângulo de exclusão e traz o cabeçalho dentro. Nos
+        outros três — desenho com ou sem coordenadas, recorte justo — o
+        tabuleiro sai sozinho, e sem esta figura o `➤ Ex. 22-1 ◀ ★★ ▼` some do
+        livro: não vira texto, porque a margem o excluiu, e não vira imagem,
+        porque a imagem passou a ser só o tabuleiro.
+        """
+        principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
+                                        modo=diagramas, coordenadas=coordenadas,
+                                        fonte=fonte, lado=lado_do_diagrama)
+        ja_esta_dentro = principal.origem == "recorte" and coordenadas
+        if d.faixa is None or ja_esta_dentro:
+            return [principal]
+
+        # A faixa entra na mesma escala do tabuleiro: o que na página media a
+        # largura da borda tem de medir, no arquivo, a largura da figura.
+        na_pagina = max(1, d.tabuleiro[2] - d.tabuleiro[0])
+        alvo = int(round((d.faixa[2] - d.faixa[0]) * principal.largura / na_pagina))
+        png, larg, alt = _png_do_recorte(img, d.faixa, dpi, dpi_figura,
+                                         largura_px=alvo)
+        return [Figura(png, larg, alt, origem="faixa"), principal]
 
     # Intercalar texto e figura pela posição vertical.
     figuras = sorted(tabuleiros, key=lambda d: d.topo)
@@ -495,12 +582,12 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         while i < len(figuras) and figuras[i].topo < medida[0]:
             resultado.blocos.extend(_agrupar_em_paragrafos(corrente))
             corrente = []
-            resultado.blocos.append(figura(figuras[i]))
+            resultado.blocos.extend(figura(figuras[i]))
             i += 1
         corrente.append(medida)
     resultado.blocos.extend(_agrupar_em_paragrafos(corrente))
     for d in figuras[i:]:
-        resultado.blocos.append(figura(d))
+        resultado.blocos.extend(figura(d))
 
     resultado.caracteres = sum(len(b.texto) for b in resultado.blocos
                                if isinstance(b, Paragrafo))

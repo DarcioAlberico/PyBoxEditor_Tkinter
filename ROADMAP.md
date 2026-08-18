@@ -8345,6 +8345,98 @@ além dos bytes.
 
 Cobertura: `tests/test_f59_fonte_embutida.py`, 14 testes.
 
+## F60 — O cabeçalho do diagrama volta, como faixa — CONCLUÍDA
+
+A F59 mediu o estrago que a F58 tinha feito sem notar: a página 220 do Yusupov saía com
+seis diagramas e **três** caixas de texto. A margem de exclusão de 80 px (1,4 escalas, com
+a escala em 57) come 27 caixas por diagrama, **11 delas acima da borda** — que são o
+`➤ Ex. 22-1 ◀ ★★ ▼`. Não viravam texto, porque a margem as excluía; e deixaram de virar
+figura quando a figura passou a ser só o tabuleiro.
+
+**A faixa é recortada da página e entra como figura logo acima do diagrama.** O retângulo
+dela sai das caixas que a margem comeu e que estão acima da borda — não de uma altura
+fixa —, então diagrama sem nada em cima não ganha faixa nenhuma, que é o caso do diagrama
+no meio da prosa.
+
+Duas decisões, e as duas são de alinhamento:
+
+- **a largura é a da borda do tabuleiro, e a folga é só vertical.** As duas figuras são
+  escaladas para a mesma largura no arquivo, e meia altura de caractere de cada lado já
+  dava 16% a mais — medido: 619 px de faixa contra 534 de tabuleiro. Na horizontal a
+  faixa só cresce se a tinta passar da borda, o que na página 220 acontece por 7% (o `➤`
+  e o `▼` moram fora dela);
+- **a faixa sai na escala do tabuleiro, e não na do scan.** No EPUB a imagem aparece no
+  tamanho natural: recortada a 150 dpi, ela sairia com pouco mais da metade da largura de
+  um tabuleiro desenhado a 528 px, e o cabeçalho ficaria menor que o diagrama que
+  encabeça.
+
+Há um caso em que a faixa **não** entra: recorte com coordenadas, em que a figura já sai
+pelo retângulo de exclusão e traz o cabeçalho dentro — seria a mesma tinta duas vezes.
+
+Medido nas três páginas: 11 faixas para 11 diagramas, entre 1,1 e 1,8 KB cada. O `▼` de
+quem joga voltou ao livro.
+
+**Fica registrado o que isto não resolve.** A faixa é imagem, então o cabeçalho não é
+pesquisável nem lido por leitor de tela — o `alt` dela diz só "Cabeçalho do diagrama". E
+a margem continua sendo instrumento cego: prosa impressa a menos de 1,4 alturas de
+caractere acima de um diagrama também vira faixa, em vez de parágrafo. Nestes livros isso
+é o cabeçalho; noutro, pode ser uma linha de texto.
+
+Cobertura: 6 testes novos em `tests/test_f26_livro.py`.
+
+## F62 — A fonte que desenha os símbolos vai junto — CONCLUÍDA
+
+O texto exportado tem `♔♕♖♗♘♙`, `▼`, `△`, `★` e os sinais de avaliação, e até aqui
+**nenhuma fonte viajava com o arquivo para desenhá-los**. O EPUB e o DOCX contavam com o
+leitor, e o leitor não tem.
+
+Medido no alfabeto do modelo — 230 classes, 40 delas fora do ASCII:
+
+| fonte | cobre | o que falta |
+|---|---:|---|
+| **NotoSansSymbols2** (OFL, já no repositório) | 14/40 | `✝ ⩱ ⩲` e o que é texto comum |
+| SkakNew-Figurine, ISChess | **0/40** | mapeiam glifo em posição ASCII, não Unicode |
+| Times New Roman | 24/40 | **as seis figurinas**, `★ △ ⮜ ⮞ 🗸` |
+| DejaVu Serif | 27/40 | as figurinas, `★ ✝ ⩱ ⩲ ⮜ ⮞ 🗸` |
+| Segoe UI Symbol | 38/40 | é da Microsoft: não se redistribui |
+
+**Times mais Noto cobrem tudo menos `⇄ ∓ ✝ ⩱ ⩲`**, e as 11 que só a Noto desenha são as
+que importam: `△ ★ ♔ ♕ ♖ ♗ ♘ ♙ ⮜ ⮞ 🗸`. A escolha da fonte não é nova — é a
+`FONTES_DE_SIMBOLO` da §4.2 da SPEC, a mesma do PDF pesquisável, e pelo mesmo motivo.
+
+**As fontes de xadrez do repositório não servem para isto, e a medição foi rápida**:
+`SkakNew-Figurine` e `ISChess` cobrem **zero** dos 40. Elas desenham peça na posição de
+letra — é o defeito que este projeto inteiro existe para desfazer.
+
+Três decisões:
+
+- **entra sozinha, e só quando faz falta.** A fonte tem 641 KB; o texto é varrido antes, e
+  livro que não traga símbolo nenhum não a carrega. Não é opção de menu: sem ela o livro
+  sai com quadradinhos onde deveria ter peça;
+- **o corte entre "letra" e "símbolo" é U+2000, e foi medido no alfabeto.** Abaixo dele
+  estão `©`, `±`, `²`, `½` e as acentuadas, que qualquer fonte de texto desenha e que
+  ficariam de outro peso numa fonte de símbolos;
+- **no EPUB é `<span class="sim">`, no DOCX é um run com outra família.** Lá haveria
+  `unicode-range`; aqui a fonte é atributo do run, e o parágrafo tem de ser partido onde a
+  família muda. Nos dois casos os símbolos seguidos vão juntos, e não um a um.
+
+### Um defeito da F59 que só apareceu aqui
+
+O `<Default Extension="odttf">` estava sendo inserido **depois da declaração XML**, e não
+dentro do `<Types>` — um segundo elemento na raiz, e o `[Content_Types].xml` deixava de
+ser XML. Os testes da F59 conferiam por substring e passaram todos; o Word abriu o arquivo
+assim mesmo. Quem acusou foi o `python-docx`, ao ser usado para reabrir o DOCX num teste
+novo.
+
+A lição virou teste: `test_o_docx_com_fonte_embutida_continua_sendo_um_docx` **abre** o
+arquivo em vez de procurar pedaço dentro dele.
+
+Cobertura: 8 testes novos em `tests/test_f59_fonte_embutida.py`, que agora tem 22.
+
+> **A numeração pulou o 61 de propósito.** A régua da calha (`CALHA_EM_CARACTERES`,
+> `COLUNA_MINIMA`) foi remedida em paralelo a esta fase e já se chama F61 nos comentários
+> do `box_service`. Duas fases com o mesmo número são duas fases que ninguém acha depois.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

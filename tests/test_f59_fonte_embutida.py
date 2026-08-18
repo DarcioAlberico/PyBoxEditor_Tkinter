@@ -14,6 +14,11 @@ A geometria do EPUB (fila colada na fila, letra alinhada com a coluna) foi
 medida no navegador durante a fase, e não aqui: exige motor de layout. O que
 cabe na suíte é a estrutura, e é o que está abaixo.
 
+**A F62 entra no mesmo arquivo porque é a mesma pergunta em outro lugar**: o
+tabuleiro precisa da fonte de xadrez, e o texto corrido precisa de uma que
+desenhe `♔♕♖♗♘♙`, `★`, `▼` — medido, a Times New Roman não tem uma figurina
+sequer. Aquela é opção; esta entra sozinha, quando o texto pede.
+
 Rodar sem pytest:      python tests/test_f59_fonte_embutida.py
 """
 
@@ -238,6 +243,27 @@ def test_no_docx_o_diagrama_com_coordenadas_sai_em_imagem():
         "não há texto na fonte, então não há por que embutir a fonte")
 
 
+def test_o_docx_com_fonte_embutida_continua_sendo_um_docx():
+    """
+    **Abre com o `python-docx`, e não com `in`.** Os outros testes deste arquivo
+    conferem por substring, e foi assim que um `<Default>` inserido depois da
+    declaração XML — fora do `<Types>`, portanto num segundo elemento raiz —
+    passou por eles: todas as substrings estavam lá, e o arquivo tinha deixado
+    de ser XML. Quem parseia acusa; quem procura pedaço, não.
+    """
+    from docx import Document
+
+    tmp = tempfile.mkdtemp()
+    caminho = exportar.para_docx(_paginas(_figura()),
+                                 os.path.join(tmp, "livro.docx"),
+                                 diagramas="fonte")
+    doc = Document(caminho)
+    linhas = [p.text for p in doc.paragraphs]
+    for linha in rd.linhas(FEN):
+        assert linha in linhas, "o tabuleiro não voltou como parágrafo"
+    assert "Prosa antes." in linhas
+
+
 def test_o_docx_padrao_nao_embute_nada():
     with _docx(_paginas(_figura())) as z:
         nomes = z.namelist()
@@ -245,6 +271,98 @@ def test_o_docx_padrao_nao_embute_nada():
 
     assert not [n for n in nomes if n.startswith("word/fonts/")]
     assert "odttf" not in tipos
+
+
+# ----------------------------------------------------------------------
+# A fonte dos símbolos do texto (F62)
+# ----------------------------------------------------------------------
+
+FIGURINAS = "♔♕♖♗♘♙"
+
+
+def _pagina_de_texto(texto):
+    return [livro.PaginaExtraida(numero=0, blocos=[livro.Paragrafo(texto)])]
+
+
+def test_a_fonte_de_recurso_cobre_as_figurinas():
+    """
+    Medido no alfabeto do modelo: a Times New Roman não desenha **uma figurina
+    sequer**, e a DejaVu Serif também não. Sem embutir, o livro exportado depende
+    de o leitor ter uma fonte que as tenha.
+    """
+    escolha = exportar.fonte_dos_simbolos(f"1.e4 {FIGURINAS} 2.d4")
+    assert escolha, "nenhuma fonte de recurso foi escolhida"
+    familia, caminho, cobertos = escolha
+    assert "Symbols" in familia
+    assert os.path.exists(caminho)
+    assert set(FIGURINAS) <= set(cobertos)
+
+
+def test_sem_simbolo_no_texto_nao_entra_fonte_nenhuma():
+    """641 KB é caro para um livro que não tem o que desenhar com eles."""
+    assert exportar.fonte_dos_simbolos("Um texto so com letras e 1234.") is None
+    with _epub(_pagina_de_texto("So letras aqui, sem figurina.")) as z:
+        assert not [n for n in z.namelist() if "fonts/" in n]
+
+
+def test_a_acentuacao_fica_com_a_fonte_do_texto():
+    """
+    O corte está em U+2000, e ele foi medido: abaixo dele estão `©`, `±`, `½` e
+    as letras acentuadas, que qualquer fonte de texto desenha — e que ficariam
+    de outra cor e outro peso numa fonte de símbolos.
+    """
+    escolha = exportar.fonte_dos_simbolos("café ± ½ © ² Č ♖")
+    assert escolha and escolha[2] == "♖"
+
+
+def test_o_simbolo_sai_embrulhado_e_a_letra_nao():
+    with _epub(_pagina_de_texto("Depois de 20.♖xf3 ♕d5 as brancas estão ±.")) as z:
+        pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+        css = z.read("OEBPS/estilo.css").decode("utf-8")
+        nomes = z.namelist()
+
+    assert '<span class="sim">♖</span>xf3' in pagina
+    assert '<span class="sim">♕</span>d5' in pagina
+    assert "±" in pagina and '<span class="sim">±' not in pagina
+    assert "span.sim {" in css and "@font-face" in css
+    assert [n for n in nomes if n.startswith("OEBPS/fonts/")]
+
+
+def test_simbolos_seguidos_vao_num_span_so():
+    """Um `<span>` por caractere dobraria o XHTML sem mudar um pixel."""
+    with _epub(_pagina_de_texto("As peças: ♔♕♖♗♘♙ e mais nada.")) as z:
+        pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+
+    assert f'<span class="sim">{FIGURINAS}</span>' in pagina
+    assert pagina.count('class="sim"') == 1
+
+
+def test_no_docx_so_o_run_do_simbolo_troca_de_fonte():
+    """
+    No DOCX não há `unicode-range`: a fonte é atributo do run, então o parágrafo
+    tem de ser partido onde a família muda.
+    """
+    from docx import Document
+
+    tmp = tempfile.mkdtemp()
+    caminho = exportar.para_docx(_pagina_de_texto("Depois de 20.♖xf3 as brancas."),
+                                 os.path.join(tmp, "livro.docx"))
+    doc = Document(caminho)
+    runs = doc.paragraphs[0].runs
+
+    assert len(runs) == 3, [r.text for r in runs]
+    assert runs[0].text == "Depois de 20." and runs[0].font.name is None
+    assert runs[1].text == "♖" and "Symbols" in (runs[1].font.name or "")
+    assert runs[2].text.startswith("xf3")
+
+
+def test_o_docx_embute_a_fonte_dos_simbolos():
+    with _docx(_pagina_de_texto("Depois de 20.♖xf3 as brancas.")) as z:
+        nomes = z.namelist()
+        tabela = z.read("word/fontTable.xml").decode("utf-8")
+
+    assert [n for n in nomes if n.startswith("word/fonts/")]
+    assert "Symbols" in tabela and "w:embedRegular" in tabela
 
 
 def test_modo_de_diagrama_invalido_reclama_nos_dois_formatos():
