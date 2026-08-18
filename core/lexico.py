@@ -85,6 +85,10 @@ class Lexico:
     palavras: Set[str] = field(default_factory=set)
     do_usuario: Set[str] = field(default_factory=set)
     idioma: str = "en"
+    #: O índice por (comprimento, inicial) que o reparo da F66 usa, construído
+    #: sob demanda. Campo declarado, e não atributo posto de fora: quem lê o
+    #: dataclass tem de ver tudo que ele carrega.
+    _forma: Optional[Dict] = field(default=None, repr=False, compare=False)
 
     def __len__(self) -> int:
         return len(self.palavras | self.do_usuario)
@@ -412,6 +416,218 @@ def sinalizar(palavras: Iterable[Sequence[Tuple[str, int]]],
             continue
         fora.append(Suspeita(palavra=nuc, indices=indices))
     return fora
+
+
+# ----------------------------------------------------------------------
+# Reparo da colagem (F66)
+# ----------------------------------------------------------------------
+
+#: Largura acima da qual o box é suspeito de esconder mais de um glifo, em
+#: larguras de referência da linha (`BoxService._largura_de_referencia`).
+#:
+#: Medido nas 10 páginas rotuladas, com o rótulo à mão dizendo quantos
+#: caracteres cada box de produção realmente cobre:
+#:
+#:     limiar   pega dos 96 colados   marca dos 10.416 bons
+#:      1,3          89%                     10,01%
+#:      1,5          82%                      7,57%
+#:      1,8          61%                      2,44%
+#:      2,0          50%                      0,90%
+#:
+#: **As duas populações se sobrepõem, e o limiar não é o que dá segurança** —
+#: quem dá é o dicionário. Marcar um box bom só acrescenta uma posição mascarada
+#: numa palavra que **já está fora do dicionário**; se a máscara passar a casar
+#: com mais de uma palavra, o reparo desiste. Por isso o limiar fica onde a
+#: colheita é alta: 1,5 alcança 82% das colagens.
+SUSPEITA_DE_COLAGEM = 1.5
+
+#: Quantos caracteres a mais a colagem pode esconder.
+#:
+#: Uma colagem lida como um caractere esconde 1 (`wn` lido `m`); lida como
+#: ligadura de dois, esconde 1 a mais que isso. Medido, o pior caso das 10
+#: páginas é `enk` lido `xf6` — três glifos num box —, e ali a conta de
+#: caracteres nem muda. Dois basta e limita a busca.
+MAX_ESCONDIDOS = 2
+
+#: Quantos trechos mascarados uma palavra pode ter para valer a busca.
+#:
+#: Com dois já são nove combinações de comprimento por palavra; com três, a
+#: máscara sobra tão pouca letra conhecida que o dicionário casa com qualquer
+#: coisa — e o reparo desiste de qualquer jeito, depois de pagar a busca.
+MAX_TRECHOS = 2
+
+
+@dataclass
+class Reparo:
+    """Uma palavra que a colagem estragou, e o que o dicionário diz que era."""
+    palavra: str                #: como saiu do OCR
+    corrigida: str
+    indices: List[int]          #: os boxes que a compõem, na ordem
+
+    def __str__(self):
+        return f"{self.palavra!r} -> {self.corrigida!r}"
+
+
+def _indice_por_forma(lex: Lexico) -> dict:
+    """
+    {(comprimento, inicial): [palavras]} — construído uma vez, sob demanda.
+
+    Sem ele a busca varre 310 mil palavras por suspeita. O balde médio tem ~460,
+    e a inicial é conhecida quase sempre: a colagem raramente está na primeira
+    letra, porque ela precisa de um vizinho à esquerda para colar.
+    """
+    if getattr(lex, "_forma", None) is None:
+        forma: dict = {}
+        for p in lex.palavras | lex.do_usuario:
+            forma.setdefault((len(p), p[0]), []).append(p)
+            forma.setdefault((len(p), None), []).append(p)
+        lex._forma = forma
+    return lex._forma
+
+
+def _trechos(mascara: Sequence[bool]) -> List[Tuple[int, int]]:
+    """Os intervalos contíguos de posição mascarada."""
+    saida, inicio = [], None
+    for i, m in enumerate(list(mascara) + [False]):
+        if m and inicio is None:
+            inicio = i
+        elif not m and inicio is not None:
+            saida.append((inicio, i))
+            inicio = None
+    return saida
+
+
+def _casa(palavra: str, lido: str, trechos: Sequence[Tuple[int, int]],
+          extras: Sequence[int]) -> bool:
+    """A palavra do dicionário bate com o lido fora dos trechos mascarados?"""
+    pos_lido = pos_pal = 0
+    for (ini, fim), extra in zip(trechos, extras):
+        n = ini - pos_lido
+        if palavra[pos_pal:pos_pal + n] != lido[pos_lido:ini]:
+            return False
+        pos_lido, pos_pal = fim, pos_pal + n + (fim - ini) + extra
+    return palavra[pos_pal:] == lido[pos_lido:]
+
+
+def _remontar(palavra: str, lido: str, trechos: Sequence[Tuple[int, int]],
+              extras: Sequence[int]) -> str:
+    """
+    O lido com os trechos mascarados trocados pelos do dicionário.
+
+    Remonta em vez de devolver a palavra do dicionário porque **o dicionário é
+    minúsculo**: `Dynamic` vira `dynamic` e o livro perderia a maiúscula. O que
+    se conserta é só o pedaço que a colagem estragou.
+    """
+    saida, pos_lido, pos_pal = [], 0, 0
+    for (ini, fim), extra in zip(trechos, extras):
+        n = ini - pos_lido
+        saida.append(lido[pos_lido:ini])
+        pos_pal += n
+        saida.append(palavra[pos_pal:pos_pal + (fim - ini) + extra])
+        pos_pal += (fim - ini) + extra
+        pos_lido = fim
+    saida.append(lido[pos_lido:])
+    return "".join(saida)
+
+
+def reparar(simbolos: Sequence[Tuple[str, int]], largos: Set[int],
+            lex: Lexico) -> Optional[Reparo]:
+    """
+    A palavra estragada pela colagem, corrigida — ou `None`.
+
+    **A geometria é a prova, e o dicionário é o juiz.** Só entra a palavra que
+    (i) o dicionário não conhece e (ii) tem caractere vindo de um box largo
+    demais para um glifo. O que veio do box largo é apagado; o resto é âncora.
+    `Dmamic` vira `D` + máscara + `amic`, e o dicionário tem uma palavra só
+    nesse molde: `dynamic`.
+
+    **Desiste no empate, e é o que torna o reparo seguro.** Duas palavras no
+    molde significam que a geometria não estreitou o bastante, e trocar por uma
+    delas seria inventar. Medir isso é a razão de o `Reparo` guardar as duas
+    formas: o relatório diz quantas foram trocadas e por quê.
+    """
+    if not lex.sinaliza or not largos:
+        return None
+
+    nuc, indices = boxes_do_nucleo(simbolos)
+    if len(nuc) < MIN_PARTE or lex.conhece(nuc):
+        return None
+
+    # Cada caractere do núcleo sabe de que box veio: um box pode ter trazido
+    # dois caracteres (as classes de ligadura), e cortar por deslocamento faria
+    # a máscara cair na letra errada.
+    texto = "".join(c for c, _ in simbolos)
+    _n, ini = nucleo(texto)
+    de_qual, pos = [], 0
+    for c, i in simbolos:
+        for _ in c:
+            if ini <= pos < ini + len(nuc):
+                de_qual.append(i)
+            pos += 1
+
+    mascara = [i in largos for i in de_qual]
+    trechos = _trechos(mascara)
+    if not trechos or len(trechos) > MAX_TRECHOS:
+        return None
+
+    forma = _indice_por_forma(lex)
+    baixo = nuc.lower()
+    inicial = None if mascara[0] else baixo[0]
+
+    # **Do menos escondido para o mais, e para no primeiro que der.** É Occam
+    # com a geometria: se a máscara já casa sem esconder caractere nenhum, supor
+    # que o box escondeu mais dois é inventar. Sem isso, `harvestng` perderia
+    # `harvesting` para o empate com uma palavra de duas letras a mais.
+    for total in range(0, MAX_ESCONDIDOS + 1):
+        # Distribui os caracteres escondidos entre os trechos.
+        reparticoes = ([(total,)] if len(trechos) == 1
+                       else [(a, total - a) for a in range(total + 1)])
+        achados = set()
+        for extras in reparticoes:
+            for p in forma.get((len(baixo) + total, inicial), ()):
+                if _casa(p, baixo, trechos, extras):
+                    achados.add(_remontar(p, nuc, trechos, extras))
+        achados.discard(nuc)
+        if len(achados) == 1:
+            return Reparo(palavra=nuc, corrigida=achados.pop(), indices=indices)
+        if achados:
+            return None         # empate neste comprimento: desiste, não escala
+    return None
+
+
+def reparos_da_pagina(boxes: Sequence, largos: Set[int],
+                      lex: Lexico) -> List[Reparo]:
+    """
+    Os reparos de uma página inteira — a mesma população que `suspeitas_da_pagina`.
+
+    **Só prosa chega aqui**, pelo mesmo `notacao._fatiar`: um lance não é palavra
+    de dicionário, e procurar `Bxf` no inglês acharia alguma coisa mais cedo ou
+    mais tarde.
+    """
+    if not lex.sinaliza or not largos:
+        return []
+    saida = []
+    for simbolos in _palavras_de_prosa(boxes):
+        reparo = reparar(simbolos, largos, lex)
+        if reparo is not None:
+            saida.append(reparo)
+    return saida
+
+
+def boxes_largos(boxes: Sequence,
+                    limiar: float = SUSPEITA_DE_COLAGEM) -> Set[int]:
+    """
+    Os índices dos boxes largos demais para caber um glifo só.
+
+    A régua é a largura de referência **da linha** (F1.7), e não a da página:
+    uma página que mistura corpo 9 com corpo 12 transformaria toda a linha maior
+    em suspeita.
+    """
+    from core.services.box_service import BoxService
+
+    referencia = BoxService._largura_de_referencia(list(boxes))
+    return {i for i, b in enumerate(boxes)
+            if (b.x2 - b.x1) > referencia[id(b)] * limiar}
 
 
 def suspeitas_da_pagina(boxes: Sequence, lex: Lexico) -> List[Suspeita]:

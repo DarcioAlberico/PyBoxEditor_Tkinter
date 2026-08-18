@@ -8770,6 +8770,90 @@ Na página 13 do Kasparov, as três palavras que abriram cada fase:
 
 Cobertura: `tests/test_f65_folga_de_coluna.py`, 6 testes.
 
+## F66 — O erro de OCR dos "títulos em negrito" — MEDIDO, e o reparo não paga
+
+A queixa era `The Dmamic Bxf6o Gambit` e `Andxein,Dity` nos títulos. **A medição
+desmentiu as duas metades dela: não é dos títulos, e não é do modelo.**
+
+### Não é do modelo
+
+Com o **box certo** — o recorte do `.box` à mão —, a página 13 sai quase perfeita, e o
+cabeçalho e os nomes dos jogadores saem **inteiros**. Das 46 linhas, 4 têm erro, e cada
+uma erra 1 caractere. O que estraga o livro é **colagem**: dois glifos que se encostam
+viram um box, e o box vira um caractere.
+
+| população | rotulados | com o box certo | no caminho de produção |
+|---|---:|---:|---:|
+| corpo (< 1,15 altura mediana) | 7.883 | 98,20% | 96,8% |
+| meio (1,15 – 1,45) | 2.189 | 97,99% | 95,9% |
+| grande (≥ 1,45) | 541 | 95,75% | 91,3% |
+
+### Não é dos títulos
+
+O cabeçalho `The Dynamic Benko Gambit` tem altura relativa **0,96** — é *itálico*, não
+grande. E a colagem bate na prosa comum igual: `moving` → `moTng`, `pawn down` →
+`pamdowI1`, `manoeuvres` → `manoeumes`, `the pawns` → `tliepams`. O padrão é sempre dois
+traços verticais que se encostam virando `m`, `T` ou `E`.
+
+### Por que não há conserto barato
+
+São **96 boxes com 2+ caracteres dentro** nas 10 páginas rotuladas, em **74 pares
+distintos** — cauda plana, o par mais frequente aparece 6 vezes. Acrescentar classes de
+ligadura não alcança: **39 dos 96 já saem certos**, e são justamente os pares que o
+modelo já tem como classe (`am`, `c4`, `ry`, `♗x`). E o separador de colados está no ótimo
+que a F1.5b mediu — as colagens escapam por três estágios diferentes, ~20% em cada.
+
+### O que parecia a saída, e o número que a fecha
+
+O dicionário **já sabe**: das 11 palavras estragadas catalogadas, 10 não existem no
+léxico, e as 11 certas existem todas. Daí o reparo desta fase: mascarar o que veio de um
+box largo demais para um glifo, ancorar no resto, e trocar **só quando o dicionário tem
+uma palavra só naquele molde** (`lexico.reparar`, com `medir_reparo.py` medindo).
+
+| juiz | consertadas | estragadas | intocadas |
+|---|---:|---:|---:|
+| léxico geral (310.465 palavras) | 2 | 2 | 80 |
+| vocabulário do próprio livro (2.829) | **5** | **3** | 69 |
+
+**A primeira linha morre no juiz.** O léxico geral contém `Iftime` e `titli` — a cauda do
+ABBYY —, e uma máscara de três âncoras acha lixo. Trocar o juiz pelo vocabulário do
+próprio livro (palavra lida 2+ vezes **e** conhecida pelo léxico) resolve isso: ali
+`dynamic` aparece 30 vezes, `benko` 62, `pawns` 82, e `iftime` e `titli` não aparecem.
+
+**Os 8 casos foram conferidos no impresso, um a um, e a contagem automática estava
+errada** — ela dizia 3 certas e 5 erradas porque três rótulos daquelas páginas estão
+incompletos (`eample`, `tonamt`, `Dmic`). No impresso são 5 certas (`manoeuvres`,
+`example`, `tournament`, `years`, `compensation`) e 3 erradas.
+
+**As 3 erradas são a mesma palavra**, e o mecanismo está identificado: `Dynamic` do
+cabeçalho vira `Drazic`, que é um jogador deste livro. A regra de Occam que eu pus — "do
+menos escondido para o mais, e para no primeiro que der" — prefere `drazic`, que casa sem
+esconder caractere nenhum, a `dynamic`, que precisa esconder um.
+
+### Por que não foi adiante
+
+62,5% de precisão é inaceitável para algo que **reescreve o texto em silêncio**: o erro de
+hoje pelo menos aparece como gibberish e o revisor o vê. E a correção óbvia do mecanismo —
+exigir ao menos um caractere escondido por trecho mascarado — quebra no trecho mascarado
+**falso**, que a 1,5 são 7,6% dos boxes bons. São 8 eventos em 10 páginas: ajustar régua
+contra 8 eventos é o erro que a F47 registrou nesta casa.
+
+**O código fica, e `livro` não o chama.** É o instrumento que reproduz a tabela, e a
+próxima fase que atacar isto começa dele em vez de reescrevê-lo — a mesma solução da F36.
+O livro exportado não muda nem corre risco.
+
+### O que a medição diz que falta
+
+**Prova visual do trecho mascarado.** O que separa `dynamic` de `drazic` não é o
+dicionário nem a largura: é o que está desenhado ali. O árbitro da F1.5b já sabe pontuar
+um recorte contra um caractere; apontá-lo para as letras candidatas é a evidência que
+falta, e é uma fase inteira.
+
+**O vocabulário do próprio livro é um bom juiz e ainda não existe como peça.** Ele exige
+duas passadas — ler o livro para saber o que ele fala, depois reparar — e vale por si:
+`medir_lexico.py` mede o alarme falso do léxico geral, e 2.829 palavras contra 310.465
+mudariam esse número.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
