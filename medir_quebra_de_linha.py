@@ -18,6 +18,11 @@ Duas medidas, e elas puxam para lados opostos:
 
     python medir_quebra_de_linha.py                       # antes e hoje
     python medir_quebra_de_linha.py --curto 0 0.5 0.65 0.8  # varre a régua
+    python medir_quebra_de_linha.py --bandas              # a tabela da F64
+
+`--bandas` mede um degrau antes: a **banda** de linha que o `_linhas` forma, e
+quantas delas são feitas só de caixa curta. Banda só de aspas é o apóstrofo
+abrindo linha sozinho, e é o que faz `White's` sair `' White s`.
 
 A coluna "antes" é a régua da F61 **reescrita aqui**, e não um valor da de hoje:
 a mudança tem duas partes — a base sai da linha em vez da caixa anterior, e
@@ -68,6 +73,38 @@ def quebrar_como_na_f61(boxes):
     return linhas
 
 
+def bandas_como_na_f16(boxes):
+    """
+    A banda de antes da F64: o fundo médio sai de **todas** as caixas da banda.
+
+    Cópia declarada, como a `quebrar_como_na_f61`. Ninguém deve chamá-la em
+    produção — quem faz isso é `BoxService._linhas`.
+    """
+    grupos, atual = [], []
+    for b in sorted(boxes, key=lambda b: b.y1):
+        if not atual:
+            atual = [b]
+            continue
+        fundo = sum(i.y2 for i in atual) / len(atual)
+        if (b.y1 + b.y2) / 2 <= fundo + (b.y2 - b.y1) * 0.2:
+            atual.append(b)
+        else:
+            grupos.append(atual)
+            atual = [b]
+    if atual:
+        grupos.append(atual)
+    return grupos
+
+
+def medir_bandas(boxes, bandas_de):
+    """(bandas, bandas feitas só de caixa curta)."""
+    alturas = sorted(b.y2 - b.y1 for b in boxes)
+    curto = (alturas[len(alturas) // 2] or 1) * ldl.CAIXA_CURTA
+    bandas = bandas_de(boxes)
+    orfas = [B for B in bandas if all((b.y2 - b.y1) < curto for b in B)]
+    return bandas, orfas
+
+
 def medir(boxes, alto, quebrar=None):
     """(linhas, cortes no meio, linhas altas)."""
     ordenados = BoxService.sort_boxes_reading_order(list(boxes))
@@ -99,6 +136,8 @@ def main():
                     help="varre CAIXA_CURTA (0 reproduz o de antes da F63)")
     ap.add_argument("--alto", type=float, default=ALTO_PADRAO,
                     help="quantas alturas medianas fazem uma linha suspeita")
+    ap.add_argument("--bandas", action="store_true",
+                    help="mede a banda do `_linhas` em vez da linha (F64)")
     args = ap.parse_args()
 
     # (rótulo, CAIXA_CURTA, função de quebra) — `None` quer dizer a de produção.
@@ -119,6 +158,26 @@ def main():
 
     if not paginas:
         print("Nenhuma página rotulada — as digitalizações não estão no repo.")
+        return
+
+    if args.bandas:
+        print(f"{'página':16s} | {'antes':>6s} bandas órfãs | {'hoje':>6s} bandas órfãs")
+        totais = {"antes": [0, 0], "hoje": [0, 0]}
+        for nome, boxes in paginas:
+            texto = f"{nome:16s}"
+            for rotulo, bandas_de in (("antes", bandas_como_na_f16),
+                                      ("hoje", BoxService._linhas)):
+                bandas, orfas = medir_bandas(boxes, bandas_de)
+                totais[rotulo][0] += len(bandas)
+                totais[rotulo][1] += len(orfas)
+                texto += (f" | {'':6s}{len(bandas):6d} {len(orfas):5d}"
+                          + (f" {[''.join(b.char for b in B) for B in orfas]}"
+                             if orfas else ""))
+            print(texto)
+        print()
+        for rotulo in ("antes", "hoje"):
+            bandas, orfas = totais[rotulo]
+            print(f"{rotulo:>6s}: bandas={bandas:5d}  só de caixa curta={orfas:3d}")
         return
 
     cabecalho = f"{'página':16s}"

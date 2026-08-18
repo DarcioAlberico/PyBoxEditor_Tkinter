@@ -712,24 +712,43 @@ class BoxService:
         fundo médio da linha (com folga de 20% da própria altura); senão abre
         uma linha nova. Dentro da linha a ordem é a de entrada — quem precisa
         delas ordenadas usa `_agrupar_em_linhas`.
+
+        **O fundo médio sai só das caixas altas** (F64). O apóstrofo mora na
+        altura de ascendente e a ordenação é por `y1`, então ele chega antes da
+        letra que ele segue e **abre a banda sozinho** — com o fundo da banda
+        cravado na altura de x, nenhuma letra da linha consegue entrar. Medido
+        nas 10 páginas rotuladas, 7 bandas feitas só de caixa curta, todas aspas
+        ou apóstrofo, e no livro exportado isso é `White's` saindo `' White s`.
+
+        Enquanto a banda só tiver caixa curta ela não tem fundo, e a próxima
+        caixa entra sem discussão — que é o certo: uma aspa não estabelece
+        linha de base, e a letra que vem depois dela é da linha dela.
         """
         if not boxes:
             return []
 
+        # Tardio de propósito: `leitura_de_linha` importa `notacao`, que importa
+        # este módulo. Em tempo de execução tudo já está carregado, e a régua da
+        # caixa curta tem de ser **uma** — foi cópia divergente que deixou a
+        # F1.5 medir uma coisa e a aplicação fazer outra.
+        from core.leitura_de_linha import CAIXA_CURTA
+
+        alturas = sorted(b.y2 - b.y1 for b in boxes)
+        curto = (alturas[len(alturas) // 2] or 1) * CAIXA_CURTA
+
         grupos: List[List[BoxEntry]] = []
         atual: List[BoxEntry] = []
+        altos: List[int] = []           # os fundos do que já é letra na banda
 
         for b in sorted(boxes, key=lambda b: b.y1):
-            if not atual:
-                atual = [b]
-                continue
-
-            fundo = sum(i.y2 for i in atual) / len(atual)
-            if (b.y1 + b.y2) / 2 <= fundo + (b.y2 - b.y1) * 0.2:
-                atual.append(b)
-            else:
-                grupos.append(atual)
-                atual = [b]
+            if atual and altos:
+                fundo = sum(altos) / len(altos)
+                if (b.y1 + b.y2) / 2 > fundo + (b.y2 - b.y1) * 0.2:
+                    grupos.append(atual)
+                    atual, altos = [], []
+            atual.append(b)
+            if (b.y2 - b.y1) >= curto:
+                altos.append(b.y2)
 
         if atual:
             grupos.append(atual)

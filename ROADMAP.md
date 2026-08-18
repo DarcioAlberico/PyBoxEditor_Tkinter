@@ -8673,16 +8673,53 @@ boxes e a leitura por linha trocou 3. O que a F63 conserta é a **montagem** —
 sai —, não o reconhecimento de caractere. Quem se beneficia do caractere é a linha do
 EasyOCR, e ela mal entra no caminho de produção.
 
-### O que fica em aberto
+### O que ficou em aberto — e virou a F64
 
-**A ordem dentro da linha ainda põe o apóstrofo antes da palavra.** `White's` sai
-`' White s`, porque o `sort_boxes_reading_order` ordena por `x1` e a aspa alta às vezes
-começa antes da letra que ela segue. É outro defeito, na ordenação e não na quebra, e não
-foi medido aqui.
+**A ordem dentro da linha ainda punha o apóstrofo antes da palavra.** `White's` saía
+`' White s`. A F63 arrumou onde a **linha** se corta; faltava onde a **banda** se forma.
 
 Cobertura: `tests/test_f63_quebra_de_linha.py`, 11 testes. Os dois casos que justificam as
 constantes têm teste que **falha de propósito** com a constante desligada — sem isso o
 teste passaria por acaso e ninguém saberia.
+
+## F64 — O apóstrofo deixa de abrir banda sozinho — CONCLUÍDA
+
+O mesmo glifo, um degrau antes. `BoxService._linhas` agrupa em bandas por sobreposição
+vertical, ordenando por `y1`, e o apóstrofo mora na altura de **ascendente**: ele chega
+antes da letra que segue e abre a banda sozinho. Com o fundo da banda cravado na altura de
+x, nenhuma letra da linha consegue entrar — e a banda da aspa sai antes, porque as bandas
+saem de cima para baixo.
+
+Medido na página 13 do Kasparov, com o `.box` à mão: o apóstrofo de `White's` ocupa
+409–418 e as letras da linha, 421–440. A aspa não encosta em nenhuma delas.
+
+**O fundo médio passa a sair só das caixas altas.** Enquanto a banda só tiver caixa curta
+ela não tem fundo, e a próxima caixa entra sem discussão — que é o certo: uma aspa não
+estabelece linha de base, e a letra depois dela é da linha dela. A régua é a mesma
+`CAIXA_CURTA` da F63, importada de lá e não recopiada; um teste falha se as duas se
+separarem.
+
+| | bandas | feitas só de caixa curta |
+|---|---:|---:|
+| antes | 346 | **7** (todas aspas ou apóstrofo) |
+| hoje | 339 | **0** |
+
+As bandas caem exatamente sete — as órfãs, e nada além delas. Na página 13, as linhas
+como o instrumento as devolve:
+
+    antes   '
+            Whitesqueensideisruined.
+    hoje    White'squeensideisruined.
+
+No EPUB isso aparecia pior do que aqui, porque a linha de um caractere vira parágrafo e o
+parágrafo junta com espaço: `' White s queenside is ruined.`
+
+**E a F63 melhora de carona**, porque a banda é o que alimenta a ordem de leitura.
+Remedido com o `_linhas` de hoje: cortes no meio de linha **12 em 466**, contra 15 em 476
+na tabela da F63 e 79 em 535 com a régua da F61. As linhas altas ficam em 68 nas duas.
+
+Cobertura: `tests/test_f64_banda_da_linha.py`, 8 testes, e `medir_quebra_de_linha.py
+--bandas` reproduz a tabela.
 
 ## Fora de escopo (registrado para depois)
 
