@@ -46,6 +46,68 @@ FAMILIA = "Simbolos de Xadrez"
 #: alfabeto, a fonte já o traz.
 EXTRAS = "⯹"
 
+#: A fonte de onde vêm os glifos que a Noto não tem.
+FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
+
+#: Símbolo → o caractere que o desenha na `SkakNew-Figurine`.
+#:
+#: **Estes cinco não existem em fonte redistribuível nenhuma deste sistema.**
+#: Varridos os 578 arquivos de `C:\\Windows\\Fonts` e da pasta do usuário, o `⩱`
+#: e o `⩲` — "ligeira vantagem" de cada lado, que é o símbolo mais comum destes
+#: livros depois das figurinas — aparecem em quatro famílias: Segoe UI Symbol e
+#: Cambria (Microsoft), CBArialLink (ChessBase) e AqChessUnicode. Nenhuma pode
+#: viajar dentro de um EPUB.
+#:
+#: A saída é a fonte que **já está no repositório**: a SkakNew-Figurine é LPPL,
+#: desenha os cinco, e o que falta a ela é só o `cmap` — como toda fonte de
+#: xadrez antiga, ela põe símbolo em posição de letra. Aqui o glifo é copiado e
+#: **remapeado para o codepoint certo**, que é o contrário do que este projeto
+#: inteiro desfaz nos PDFs de entrada: lá a letra mente sobre o desenho; aqui o
+#: desenho passa a ter o nome verdadeiro.
+#:
+#: **Os pares foram decididos contra os recortes de treino, e não contra outra
+#: fonte.** A primeira tentativa casou `⩲` com o `e` e `∓` com o `h`, olhando a
+#: folha de contato — e as duas estavam erradas. O que decide é o que o livro
+#: imprime, e disso este projeto tem gabarito: as pastas `training_data/sym_*`
+#: guardam os recortes de cada classe, tirados das páginas.
+#:
+#: Postos lado a lado, os quatro da família do `±` se separam pela contagem de
+#: barras, e não pela forma geral:
+#:
+#:     ±  (sym_177)     mais, uma barra embaixo      →  'c'
+#:     ⩲  (sym_10866)   mais, duas barras embaixo    →  'f'
+#:     ∓  (sym_8723)    uma barra em cima, mais      →  'e'
+#:     ⩱  (sym_10865)   duas barras em cima, mais    →  'g'
+#:
+#: O `h` e o `i`, que quase entraram aqui, são os pares de dois caracteres
+#: `+−` e `−+` ("brancas ganham", "pretas ganham") — no alfabeto do modelo eles
+#: são ligadura, não símbolo.
+#:
+#: O `±` fica de fora porque é U+00B1: abaixo do `PISO_DO_SIMBOLO`, e portanto
+#: desenhado pela fonte de texto do leitor, que o tem.
+EMPRESTADOS = {
+    "⩲": "f",      # ligeira vantagem das brancas
+    "⩱": "g",      # ligeira vantagem das pretas
+    "∓": "e",      # vantagem das pretas
+    "∞": "k",      # posição pouco clara
+    "↑": "C",      # com iniciativa
+    "⇄": "V",      # com contra-jogo
+}
+
+#: Emprestados que entram espelhados na horizontal.
+#:
+#: **Só o `⇄`, e a mesma comparação com o recorte do livro é que pegou**: a
+#: SkakNew desenha a seta de cima apontando para a esquerda, e tanto o livro
+#: quanto o nome do codepoint (U+21C4, "rightwards arrow over leftwards arrow")
+#: querem a de cima para a direita. É o glifo do U+21C6, que é outro símbolo.
+#: Espelhar custa uma matriz e devolve exatamente o que a página imprime.
+ESPELHADOS = {"⇄"}
+
+#: Erro máximo, em unidades de em, ao converter contorno cúbico (CFF) em
+#: quadrático (TrueType). Um milésimo do em é menos que um pixel a 300 dpi num
+#: corpo de 12 pt.
+ERRO_DA_CONVERSAO = 1.0
+
 
 def _console_em_utf8():
     for fluxo in (sys.stdout, sys.stderr):
@@ -106,6 +168,58 @@ def recortar(origem: str, destino: str, chars: str) -> str:
     return destino
 
 
+def emprestar(destino: str, origem: str = FIGURINE,
+              pares: dict = None) -> list:
+    """
+    Copia glifos de outra fonte para dentro do recorte, no codepoint certo.
+
+    **O contorno muda de forma no caminho**: a SkakNew-Figurine é CFF, com
+    curvas cúbicas, e o recorte é TrueType, com quadráticas. O `Cu2QuPen`
+    converte; o `reverse_direction` existe porque as duas convenções giram o
+    contorno em sentidos opostos, e um glifo com o giro trocado sai **vazado** —
+    o miolo vira buraco e o buraco vira miolo, sem erro nenhum no caminho.
+    """
+    from fontTools.misc.transform import Transform
+    from fontTools.pens.cu2quPen import Cu2QuPen
+    from fontTools.pens.transformPen import TransformPen
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+    from fontTools.ttLib import TTFont
+
+    pares = pares or EMPRESTADOS
+    doador = TTFont(origem)
+    alvo = TTFont(destino)
+    glifos_do_doador = doador.getGlyphSet()
+    cmap_do_doador = doador.getBestCmap()
+
+    novos = []
+    for simbolo, letra in pares.items():
+        nome_origem = cmap_do_doador.get(ord(letra))
+        if nome_origem is None:
+            raise KeyError(f"{origem} não tem {letra!r}, que desenharia {simbolo}")
+        nome = f"uni{ord(simbolo):04X}"
+        avanco, _lsb = doador["hmtx"][nome_origem]
+        caneta = TTGlyphPen(alvo.getGlyphSet())
+        # Espelhar inverte o giro do contorno junto, e o `reverse_direction`
+        # tem de acompanhar: com os dois ligados, o glifo sairia vazado.
+        espelha = simbolo in ESPELHADOS
+        destino_da_caneta = Cu2QuPen(caneta, ERRO_DA_CONVERSAO,
+                                     reverse_direction=not espelha)
+        if espelha:
+            destino_da_caneta = TransformPen(
+                destino_da_caneta, Transform(-1, 0, 0, 1, avanco, 0))
+        glifos_do_doador[nome_origem].draw(destino_da_caneta)
+
+        alvo.setGlyphOrder(alvo.getGlyphOrder() + [nome])
+        alvo["glyf"].glyphs[nome] = caneta.glyph()
+        alvo["hmtx"].metrics[nome] = doador["hmtx"][nome_origem]
+        for tabela in alvo["cmap"].tables:
+            tabela.cmap[ord(simbolo)] = nome
+        novos.append(simbolo)
+
+    alvo.save(destino)
+    return novos
+
+
 def main() -> int:
     _console_em_utf8()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
@@ -139,12 +253,20 @@ def main() -> int:
         return 1 if falta else 0
 
     recortar(args.origem, args.destino, pedidos)
+    emprestados = emprestar(args.destino)
+    print(f"\nemprestados da {os.path.basename(FIGURINE)}: "
+          f"{' '.join(emprestados)}")
+
     antes = os.path.getsize(args.origem) / 1024
     depois = os.path.getsize(args.destino) / 1024
     tem = cobertura(args.destino, chars)
     print(f"\n{os.path.basename(args.destino)}: {len(tem)} símbolos, "
           f"{depois:.1f} KB (era {antes:.0f} KB — {depois / antes:.1%})")
-    return 0 if len(tem) == len(pedidos) else 1
+    ainda_falta = [c for c in chars if c not in tem and ord(c) >= 0x2000]
+    if ainda_falta:
+        print(f"  ainda sem glifo: {' '.join(ainda_falta)}")
+    esperado = len(pedidos) + len(emprestados)
+    return 0 if len(tem) >= esperado else 1
 
 
 if __name__ == "__main__":

@@ -224,6 +224,11 @@ class Diagrama:
     #: virar figura. É `None` no diagrama que não tem nada em cima, que é o caso
     #: do diagrama no meio da prosa.
     faixa: Optional[Tuple[int, int, int, int]] = None
+    #: As caixas que compõem a faixa, para ela poder virar **texto** (F67) em
+    #: vez de imagem. São as mesmas que a margem excluiu; guardá-las custa uma
+    #: lista por diagrama e é o que separa um cabeçalho pesquisável de um
+    #: retrato dele.
+    caixas_da_faixa: List[BoxEntry] = field(default_factory=list)
 
     @property
     def topo(self) -> int:
@@ -236,6 +241,26 @@ class Diagrama:
 #: pixel curto do que o olho vê. Meia altura de caractere em volta custa fundo
 #: branco e evita ponta cortada.
 FOLGA_DA_FAIXA = 0.5
+
+
+def _na_faixa(b: BoxEntry, d: "Diagrama") -> bool:
+    """
+    A caixa está na altura da faixa deste diagrama e encosta nele.
+
+    Vertical **dentro**, horizontal **sobreposta**: em cima do tabuleiro cabe
+    uma linha só, e o que estiver nela é dela; ao lado do tabuleiro cabe a
+    coluna vizinha inteira, e ali a continência é o que impede o texto do
+    vizinho de ser confundido com rótulo de casa.
+
+    **A altura é medida pelo pé da caixa, e não pelo topo**, e é o que fazia o
+    cabeçalho sair pela metade. Medido na página 10 do Yusupov: a margem de
+    exclusão começa em y=896, e o `D` de `Diagram` vai de 887 a 916 — a
+    maiúscula sobe acima da margem, a minúscula não. Pelo topo, `Di` ficava de
+    fora e a faixa saía `"agram -"`; pelo pé, a linha inteira é da faixa. Linha
+    de prosa mais acima não entra: o pé dela fica antes do topo da margem.
+    """
+    return (d.exclusao[1] <= b.y2 <= d.tabuleiro[1]
+            and b.x1 < d.exclusao[2] and b.x2 > d.exclusao[0])
 
 
 def _faixa_acima(d: "Diagrama", caixas: Sequence[BoxEntry], escala: float
@@ -253,6 +278,7 @@ def _faixa_acima(d: "Diagrama", caixas: Sequence[BoxEntry], escala: float
     acima = [b for b in caixas if b.y2 <= d.tabuleiro[1]]
     if not acima:
         return None
+    d.caixas_da_faixa = BoxService.sort_boxes_reading_order(acima)
     folga = int(round(escala * FOLGA_DA_FAIXA))
     return (max(d.exclusao[0], min(d.tabuleiro[0], min(b.x1 for b in acima))),
             max(d.exclusao[1], min(b.y1 for b in acima) - folga),
@@ -299,10 +325,22 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     comidas: List[List[BoxEntry]] = [[] for _ in diagramas]
     boxes = []
     for b in todas:
+        if (b.x2 - b.x1) * (b.y2 - b.y1) < minima:
+            boxes.append(b)          # respingo: separado logo abaixo
+            continue
         dentro = [i for i, d in enumerate(diagramas) if _dentro(b, d.exclusao)]
+        if not dentro:
+            # **A faixa recolhe por sobreposição, e o miolo por continência.**
+            # O cabeçalho `Diagram 1-5` é mais largo que o tabuleiro em alguns
+            # livros, e exigir continência dele partia a linha ao meio: o `Di`
+            # ia para o texto da página e o resto para a faixa, que saía
+            # `"agram -"`. Medido na página 10 do Yusupov. Aqui basta a caixa
+            # estar na altura da faixa e encostar no retângulo, que é o que
+            # define "esta letra é do cabeçalho deste diagrama".
+            dentro = [i for i, d in enumerate(diagramas)
+                      if _na_faixa(b, d)]
         if dentro:
-            if (b.x2 - b.x1) * (b.y2 - b.y1) >= minima:
-                comidas[dentro[0]].append(b)
+            comidas[dentro[0]].append(b)
             continue
         boxes.append(b)
 
@@ -535,6 +573,36 @@ def _png_do_recorte(img: np.ndarray, rect, dpi: int = 300,
     return buffer.getvalue(), largura, altura
 
 
+def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
+                    conf_minima: float, coletor: Optional[Callable],
+                    numero: int) -> Optional[Paragrafo]:
+    """
+    O cabeçalho do diagrama lido como texto, ou `None` se não deu para ler.
+
+    **Uma letra fraca já manda a faixa de volta para a imagem**, e é mais
+    severo que o resto do livro de propósito: na prosa, um caractere derrubado
+    por confiança deixa um buraco no meio de uma frase que o leitor remonta
+    sozinho; aqui a faixa inteira tem quatro ou cinco caracteres — `➤ Ex. 22-1
+    ◀ ★★ ▼` —, e um buraco nela é o número do exercício, que é justamente o que
+    alguém procuraria.
+
+    Sai como `titulo` porque é isso que ela é: no EPUB vira `<h2>` e no DOCX,
+    `Heading 2`. O leitor ganha um sumário navegável de graça.
+    """
+    if not d.caixas_da_faixa:
+        return None
+    partes = []
+    for linha in quebrar_em_linhas(d.caixas_da_faixa):
+        texto, fracos = _texto_da_linha(img, linha, classificar, conf_minima,
+                                        coletor, numero)
+        if fracos or not texto:
+            return None
+        partes.append(texto)
+    if not partes:
+        return None
+    return Paragrafo(" ".join(partes), titulo=True)
+
+
 #: Os dois modos de pôr um diagrama no livro.
 #:
 #: **`render` é o padrão porque a medição da F58 o autorizou**, e não porque é
@@ -645,7 +713,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                                descartados_por_confianca=fracos,
                                colunas=len(colunas))
 
-    def figura(d: Diagrama) -> List[Figura]:
+    def figura(d: Diagrama) -> List[Bloco]:
         """
         A faixa do cabeçalho, quando ela não está no próprio recorte, e o
         diagrama.
@@ -656,6 +724,12 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         tabuleiro sai sozinho, e sem esta figura o `➤ Ex. 22-1 ◀ ★★ ▼` some do
         livro: não vira texto, porque a margem o excluiu, e não vira imagem,
         porque a imagem passou a ser só o tabuleiro.
+
+        **Ela sai como texto quando dá, e como imagem quando não dá** (F67). Foi
+        imagem primeiro, e imagem não se pesquisa: o leitor que procura
+        "Ex. 22-1" no arquivo exportado não acha a página do exercício. Como
+        título, ela ainda ganha o `<h2>` do EPUB e o `Heading 2` do DOCX, que é
+        por onde o sumário do leitor navega.
         """
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
@@ -663,6 +737,11 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         ja_esta_dentro = principal.origem == "recorte" and coordenadas
         if d.faixa is None or ja_esta_dentro:
             return [principal]
+
+        cabecalho = _faixa_em_texto(img, d, classificar, conf_minima, coletor,
+                                    numero)
+        if cabecalho is not None:
+            return [cabecalho, principal]
 
         # A faixa entra na mesma escala do tabuleiro: o que na página media a
         # largura da borda tem de medir, no arquivo, a largura da figura.

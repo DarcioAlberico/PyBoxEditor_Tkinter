@@ -745,11 +745,15 @@ def _figuras(p):
     return [b for b in p.blocos if isinstance(b, livro.Figura)]
 
 
-def test_o_cabecalho_do_diagrama_volta_como_faixa(monkeypatch):
+def test_o_cabecalho_legivel_vira_titulo(monkeypatch):
     """
     Era: a página 220 do Yusupov saía com seis diagramas e nenhum `Ex. 22-1`.
     A margem de exclusão come 27 caixas por diagrama, 11 delas acima da borda —
     e, com o tabuleiro redesenhado, elas não viravam texto nem figura.
+
+    A F60 as trouxe de volta como imagem; a F67 as lê. Título, e não parágrafo
+    comum: é o que dá `<h2>` no EPUB e `Heading 2` no DOCX, por onde o sumário
+    do leitor navega.
     """
     monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
     doc = _pagina_com_cabecalho()
@@ -759,12 +763,36 @@ def test_o_cabecalho_do_diagrama_volta_como_faixa(monkeypatch):
     finally:
         doc.close()
 
+    assert [f.origem for f in _figuras(p)] == ["render"], "a faixa saiu como imagem"
+    titulos = [b for b in p.blocos if isinstance(b, livro.Paragrafo) and b.titulo]
+    assert len(titulos) == 1, [b.texto for b in p.blocos
+                               if isinstance(b, livro.Paragrafo)]
+    assert titulos[0].texto, "o título veio vazio"
+    assert p.blocos.index(titulos[0]) < p.blocos.index(_figuras(p)[0]), (
+        "o cabeçalho tem de vir antes do diagrama que ele encabeça")
+
+
+def test_o_cabecalho_ilegivel_continua_saindo_como_imagem(monkeypatch):
+    """
+    Uma letra fraca já manda a faixa de volta para a imagem, e é mais severo
+    que o resto do livro de propósito: a faixa tem quatro ou cinco caracteres, e
+    o buraco nela é o número do exercício. Medido na página 220, o hífen de
+    `Ex. 22-4` sai com 0,108 de confiança — o `★` e o `▼` saem com 1,000.
+    """
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
+    doc = _pagina_com_cabecalho()
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador("x", 0.20), dpi=150,
+                                 diagramas="render", conf_minima=0.5)
+    finally:
+        doc.close()
+
     figuras = _figuras(p)
-    assert len(figuras) == 2, [f.origem for f in figuras]
-    faixa, tabuleiro = figuras
-    assert faixa.origem == "faixa", "a faixa não veio antes do diagrama"
-    assert tabuleiro.origem == "render"
-    assert faixa.altura < tabuleiro.altura / 3, "isso não é uma faixa, é meia página"
+    assert [f.origem for f in figuras] == ["faixa", "render"]
+    assert figuras[0].altura < figuras[1].altura / 3, (
+        "isso não é uma faixa, é meia página")
+    assert not [b for b in p.blocos
+                if isinstance(b, livro.Paragrafo) and b.titulo]
 
 
 def test_a_faixa_sai_na_largura_do_diagrama():
@@ -775,8 +803,8 @@ def test_a_faixa_sai_na_largura_do_diagrama():
     """
     doc = _pagina_com_cabecalho()
     try:
-        p = livro.extrair_pagina(doc[0], _classificador("x"), dpi=150,
-                                 diagramas="recorte")
+        p = livro.extrair_pagina(doc[0], _classificador("x", 0.20), dpi=150,
+                                 diagramas="recorte", conf_minima=0.5)
     finally:
         doc.close()
 
@@ -858,8 +886,10 @@ def test_do_pdf_ao_desenho_sem_nenhum_dublê():
     assert desenhados[0].fen == fen
     assert p.diagramas_desenhados == 1
     # A linha impressa logo acima cai dentro da margem de exclusão e volta como
-    # faixa (F60) — antes dela, sumia do livro.
-    assert [f.origem for f in figuras] == ["faixa", "render"]
+    # cabeçalho (F60, lida na F67) — antes disso, sumia do livro.
+    assert [f.origem for f in figuras] == ["render"]
+    titulos = [b for b in p.blocos if isinstance(b, livro.Paragrafo) and b.titulo]
+    assert len(titulos) == 1 and p.blocos.index(titulos[0]) == 0
 
 
 def test_o_texto_alternativo_da_figura_e_o_fen():

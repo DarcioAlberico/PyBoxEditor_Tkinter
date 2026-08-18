@@ -8854,6 +8854,88 @@ duas passadas — ler o livro para saber o que ele fala, depois reparar — e va
 `medir_lexico.py` mede o alarme falso do léxico geral, e 2.829 palavras contra 310.465
 mudariam esse número.
 
+## F67 — O `⩱`, o `⩲` e a faixa que ninguém podia pesquisar — CONCLUÍDA
+
+Duas pontas soltas da F62, e as duas eram a mesma pergunta: **o que o livro imprime tem
+de chegar ao arquivo como aquilo que é**.
+
+### Os cinco símbolos que não existiam em fonte redistribuível
+
+Varridos os **578 arquivos de fonte** de `C:\Windows\Fonts` e da pasta do usuário, o `⩱`
+e o `⩲` — a ligeira vantagem de cada lado, o símbolo mais comum destes livros depois das
+figurinas — aparecem em quatro famílias: Segoe UI Symbol e Cambria (Microsoft), CBArialLink
+(ChessBase) e AqChessUnicode. Nenhuma pode viajar dentro de um EPUB.
+
+**A saída estava no repositório.** A `SkakNew-Figurine` é LPPL, desenha os cinco, e o que
+falta a ela é só o `cmap`: como toda fonte de xadrez antiga, ela põe símbolo em posição de
+letra. O `gerar_fonte_de_simbolos.py` agora copia o glifo e o **remapeia para o codepoint
+certo** — o contrário exato do que este projeto desfaz nos PDFs de entrada, onde a letra
+mente sobre o desenho.
+
+O contorno muda de forma no caminho (CFF cúbico → TrueType quadrático, pelo `Cu2QuPen`), e
+o giro do contorno tem de ser invertido junto: as duas convenções giram em sentidos
+opostos, e um glifo com o giro trocado sai **vazado**, sem erro nenhum no caminho.
+
+**O casamento glifo↔símbolo foi decidido contra os recortes de treino, e não contra outra
+fonte** — e é o miolo desta fase. A primeira tentativa casou `⩲` com o `e` e `∓` com o
+`h`, olhando a folha de contato da fonte; as duas estavam erradas. O gabarito existe:
+`training_data/sym_*` guarda os recortes de cada classe, tirados das páginas. Postos lado
+a lado, os quatro da família do `±` se separam pela **contagem de barras**:
+
+| símbolo | o que o livro imprime | glifo |
+|---|---|---|
+| `±` (sym_177) | mais, uma barra embaixo | `c` |
+| `⩲` (sym_10866) | mais, **duas** barras embaixo | `f` |
+| `∓` (sym_8723) | uma barra em cima, mais | `e` |
+| `⩱` (sym_10865) | **duas** barras em cima, mais | `g` |
+
+A mesma comparação pegou o `⇄`: a SkakNew desenha a seta de cima para a **esquerda**, e
+tanto o livro quanto o nome do codepoint (U+21C4) querem a de cima para a direita — é o
+glifo do U+21C6, que é outro símbolo. Entra espelhado.
+
+O recorte foi de 5,2 KB para **6,3 KB** e passou de 15 para **21 símbolos**. Continua em
+1,0% da fonte original.
+
+### A faixa vira texto quando dá para lê-la
+
+A F60 trouxe o cabeçalho de volta como imagem, e imagem não se pesquisa: quem procura
+"Ex. 22-1" no arquivo exportado não acha a página do exercício. Agora ela é lida pelo
+mesmo classificador do resto da página e sai como **título** — `<h2>` no EPUB, `Heading 2`
+no DOCX, que é por onde o sumário do leitor navega, e o campo que a F62 tinha acabado de
+tirar de letra morta.
+
+**Uma letra fraca já manda a faixa de volta para a imagem**, e é mais severo que o resto
+do livro de propósito: na prosa, um caractere derrubado deixa um buraco que o leitor
+remonta; aqui a faixa tem cinco caracteres, e o buraco é o número do exercício.
+
+Medido em três páginas do Yusupov, 11 cabeçalhos:
+
+    página 10     2 em texto     "Diagram 1-3 △"  "Diagram 1-4 △"
+    página 11     3 em texto     "Diagram 1-6 △"  "Diagram 1-7 △"  ("Diagrram 1-5 ▼")
+    página 220    1 em texto     "⮞Ex. 22-2⮜ ★★ ▼"   e 5 em imagem
+
+**E o que barra os cinco é o hífen**, não os símbolos exóticos. Medido caractere a
+caractere na página 220: `⮞` 1,000 · `Ex` 1,000 · `2` 1,000 · **hífen 0,108** (lido `♕`) ·
+`⮜` 1,000 · `★` 1,000 · `▼` 0,997. O modelo lê o `➤` e o `★` com folga e tropeça no
+traço de `22-4` — que é assunto da família de traços do alfabeto, não desta fase.
+
+**De quebra, o `▼`/`△` de quem joga entrou no texto.** Ele viaja no fim do cabeçalho, e
+com isso deixa de ser a informação que a F58 registrou como perdida.
+
+### O defeito que a leitura revelou
+
+Com a faixa em texto, a página 10 saiu com `"agram -"`: o cabeçalho partido ao meio. A
+faixa recolhia caixa por **continência** no retângulo de exclusão, e a margem começa em
+y=896 enquanto o `D` de `Diagram` vai de 887 a 916 — **a maiúscula sobe acima da margem, a
+minúscula não**. O `Di` ia para o texto da página e o resto para a faixa.
+
+A régua passou a ser o **pé** da caixa, e não o topo: `topo da margem ≤ y2 ≤ topo do
+tabuleiro`, com sobreposição horizontal em vez de continência. Linha de prosa mais acima
+não entra, porque o pé dela fica antes do topo da margem. A imagem da F60 tinha o mesmo
+defeito e ninguém via — ela mostrava o cabeçalho cortado.
+
+Cobertura: `tests/test_f26_livro.py` sobe para 36 testes.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
