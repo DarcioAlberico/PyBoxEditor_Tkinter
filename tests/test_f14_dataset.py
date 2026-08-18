@@ -361,24 +361,28 @@ def test_metadado_e_lido_como_utf8():
 # F1.1 — o alfabeto de figurinas do domínio
 # ----------------------------------------------------------------------
 
-def test_alfabeto_de_figurinas_tem_cinco():
+def test_alfabeto_de_figurinas_tem_seis():
     """
-    Trava um achado que custou investigação: a base NÃO está faltando 7 peças.
+    Trava um achado que custou investigação: a base NÃO está faltando 6 peças.
 
-    Peão não tem letra em notação algébrica ("e4", nunca uma figurina), e o
-    livro usa um único conjunto de figurinas para os dois lados — em
+    O livro usa um único conjunto de figurinas para os dois lados — em
     "17...(cavalo)e5 18.(dama)c2 (cavalo)a6 19.(cavalo)c4" o lance 17... é das
-    pretas e o 19. das brancas, com o mesmo glifo. Sobram K Q R B N.
+    pretas e o 19. das brancas, com o mesmo glifo. Some a metade "preta".
 
     Se alguém "consertar" isto de volta para 12, o filtro de substituição
-    volta a ter 7 entradas que nunca casam.
+    volta a ter 6 entradas que nunca casam.
+
+    **O peão eram cinco até a página desmentir.** Ele ficava de fora porque não
+    ganha letra em notação algébrica — verdade sobre *lance*, e só sobre lance.
+    A figurina aparece onde o texto nomeia material: na página 118 do Nunn,
+    impresso na prosa, "reciprocal zugzwang with ♖+♙b7 v ♖". O modelo aprendeu
+    a classe sozinho (`sym_9817`, 36 amostras).
     """
     from core.searchable_pdf import PECAS
-    assert PECAS == set("♔♕♖♗♘")
-    assert len(PECAS) == 5
+    assert PECAS == set("♔♕♖♗♘♙")
+    assert len(PECAS) == 6
 
-    for inalcancavel in "♙♟":          # peões
-        assert inalcancavel not in PECAS
+    assert "♟" not in PECAS            # o peão do conjunto "preto"
     for inalcancavel in "♚♛♜♝♞":   # conjunto "preto"
         assert inalcancavel not in PECAS
 

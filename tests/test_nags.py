@@ -326,18 +326,19 @@ if __name__ == "__main__":
 # As figurinas de peça, ao lado dos NAGs
 # ----------------------------------------------------------------------
 
-def test_sao_as_cinco_pecas_que_ganham_letra():
+def test_sao_as_seis_figurinas_que_o_livro_imprime():
     """
-    Peão fica de fora (`e4` nunca leva figurina), e os codepoints pretos também:
-    estes livros usam **um** conjunto para os dois lados. É a mesma regra de
-    `searchable_pdf.PECAS`, e são as 5 classes que o modelo aprendeu.
+    Os codepoints pretos ficam de fora: estes livros usam **um** conjunto para
+    os dois lados. É a mesma regra de `searchable_pdf.PECAS`, e são as 6 classes
+    que o modelo aprendeu — o peão inclusive, que aparece na prosa que nomeia
+    material (`♖+♙b7 v ♖`) e não em lance.
     """
     from core.chess_pdf_processor import CHESS_UNICODE
     from ui.main_window import PECAS_RAPIDAS
 
     simbolos = [s for s, _ in PECAS_RAPIDAS[1]]
-    assert simbolos == list(CHESS_UNICODE[:5])
-    assert simbolos == list("♔♕♖♗♘")
+    assert simbolos == list(CHESS_UNICODE[:6])
+    assert simbolos == list("♔♕♖♗♘♙")
 
 
 def test_a_lista_de_pecas_bate_com_a_do_pdf():

@@ -116,8 +116,26 @@ def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
     A linha sai da ordem de leitura, e não da geometria da página: o
     `sort_boxes_reading_order` já resolveu coluna, elemento transversal e pilha
     girada, e refazer isso aqui por coordenada desfaria o trabalho dele —
-    voltaria a intercalar as duas colunas. Basta cortar onde a sequência desce
-    ou volta para a esquerda.
+    voltaria a intercalar as duas colunas. Basta cortar onde a sequência desce,
+    volta para a esquerda **ou sobe**.
+
+    **Subir é o fim de uma coluna** (F61). Ao passar da última linha da coluna
+    da esquerda para a primeira da direita, a sequência não desce (sobe para o
+    topo da página) e não volta para a esquerda (vai para bem mais à direita):
+    as duas regras de antes deixavam passar, e as duas linhas saíam coladas numa
+    só. Medido na página 118 do Nunn, o fim de `...followed by ♔f7.` saía preso
+    ao cabeçalho `ROOK ENDINGS`, que é a primeira coisa da coluna vizinha.
+
+    **Subir é contra a linha inteira, e não contra a caixa anterior.** Medido na
+    mesma página, a régua contra a anterior corta dentro da linha: a vírgula
+    mora na base, e a letra seguinte começa acima do topo dela — `Gurgenidze,` e
+    `1981` viravam duas linhas. Contra o topo do que já entrou na linha, a letra
+    depois da vírgula continua sendo da linha, e a coluna vizinha, que está
+    inteira acima, não.
+
+    **A pilha girada fica de fora, e não é detalhe**: a 90° o texto se lê de
+    baixo para cima (`vertical.ordenar`), então subir ali é o andamento normal
+    da linha — cortar faria de cada letra uma linha.
     """
     linhas: List[List[BoxEntry]] = []
     atual: List[BoxEntry] = []
@@ -126,7 +144,9 @@ def quebrar_em_linhas(boxes: Sequence[BoxEntry]) -> List[List[BoxEntry]]:
             ant = atual[-1]
             desceu = (b.y1 + b.y2) / 2 > ant.y2
             voltou = b.x1 < ant.x1 - (ant.y2 - ant.y1)
-            if desceu or voltou:
+            girado = getattr(b, "angulo", 0) or getattr(ant, "angulo", 0)
+            subiu = not girado and b.y2 < min(a.y1 for a in atual)
+            if desceu or voltou or subiu:
                 linhas.append(atual)
                 atual = []
         atual.append(b)

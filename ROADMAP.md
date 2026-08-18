@@ -8384,6 +8384,116 @@ caractere acima de um diagrama também vira faixa, em vez de parágrafo. Nestes 
 
 Cobertura: 6 testes novos em `tests/test_f26_livro.py`.
 
+## F61 — O livro de duas colunas deixa de sair misturado — CONCLUÍDA
+
+A queixa: "os textos da coluna da esquerda se misturam com os da direita em muitos
+trechos". Ela é justa, e o "em muitos trechos" é literal — a régua da calha acerta em
+algumas páginas do mesmo livro e erra nas outras.
+
+A ordem de leitura respeita colunas desde a F1.6. O que nunca foi medido é a **régua**:
+`calha >= 3 × largura mediana de caractere`. Medido agora em 33 páginas de 6 livros, com
+a segmentação de produção, o maior vão da projeção em x, em larguras medianas:
+
+| | calha medida | a régua de antes (3,0) |
+|---|---|---|
+| Nunn, *Secrets of Rook Endings* | 1,00 – 1,18 (17–20 px) | nunca acha |
+| Kasparov, *Dynamic Benko* | 2,58 – 3,31 (49–58 px) | acha em 4 de 9 páginas |
+| Yusupov, *Complete* | 2,59 – 2,94 (44–46 px) | quase nunca acha |
+| Aagaard, *Attacking Manual* (1 coluna) | 0,06 – 0,12 (1–2 px) | correto |
+
+A régua cai para **0,8**: 1,25× abaixo da menor calha medida e 6,7× acima do maior vão
+que não é calha. O espaço entre palavras não chega perto porque a projeção é da **página
+inteira** — para sobreviver a ela, toda linha teria de ter espaço no mesmo x.
+
+### O que a medição obrigou a acrescentar: a coluna estreita demais para ser coluna
+
+Baixar a régua sozinha piora o sumário. O vão entre o título e o número da página é largo
+em qualquer régua, e com a de antes o `Practical Chess Defence` já saía partido: dez
+títulos juntos e dez números juntos, em vez de dez linhas. Medido, a "coluna" de número de
+capítulo tem 2% da largura do texto e a de número de página 4%, contra 48% de cada coluna
+de verdade no Kasparov e 45% da mais estreita no Chess Evolution 1. `COLUNA_MINIMA = 0,10`
+fica no vão, e a faixa que não passa **se funde** à vizinha — nenhum box se perde.
+
+O mesmo piso limpa um defeito antigo que ninguém tinha visto: no Chess Evolution 1 e no
+Darcy Lima, respingo de scan na margem abria uma "coluna" de 1–3% da página, e a leitura
+saía com esses boxes no fim.
+
+### Achar a calha não bastava: havia mais três lugares sem coluna
+
+**A linha atravessava a calha.** `quebrar_em_linhas` cortava onde a sequência desce ou
+volta para a esquerda. Ao passar da última linha da esquerda para a primeira da direita
+ela faz nem uma coisa nem outra — **sobe** —, e as duas linhas saíam coladas numa só.
+Medido na página 118 do Nunn, `...followed by ♔f7.` saía preso a `ROOK ENDINGS`, que é o
+cabeçalho da coluna vizinha. A régua de subir é contra o **topo da linha**, e não contra a
+caixa anterior: contra a anterior ela corta dentro da linha, porque a vírgula mora na base
+e a letra seguinte começa acima do topo dela (`Gurgenidze,` / `1981` viravam duas linhas).
+Pilha girada fica de fora — a 90° o texto se lê de baixo para cima.
+
+**A margem do recuo não era de coluna nenhuma.** `_agrupar_em_paragrafos` tirava a margem
+da mediana das esquerdas da página. Numa página de duas colunas metade das linhas começa
+em 122 e metade em 893: com essa mediana, ou a coluna da direita inteira parece recuada —
+cada linha vira um parágrafo — ou a da esquerda perde todos os recuos. Medido na página 13
+do Kasparov, **54 parágrafos em 56 linhas**. Agora a margem é por coluna e da página
+inteira, e não do trecho entre dois diagramas, que tinha cinco linhas para tirar mediana.
+
+**O fim da coluna não abria parágrafo.** Nem o recuo nem o salto vertical o veem: ali o
+salto é *negativo*, porque a leitura volta ao topo da página. A troca de coluna virou a
+terceira regra de corte.
+
+**A figura entrava pela altura na página.** O diagrama do alto da coluna da direita está
+acima de quase toda a coluna da esquerda, e era emitido antes dela. Agora cada figura
+entra na coluna a que pertence, e o que sobra de uma coluna é despejado antes de a
+próxima começar.
+
+### O resultado
+
+`medir_colunas.py` reproduz a tabela. Saltos entre colunas na ordem de leitura — numa
+página de duas colunas lida direito, é **1** por página:
+
+| | páginas | saltos antes | saltos hoje |
+|---|---:|---:|---:|
+| 10 páginas rotuladas (7 de 2 colunas) | 10 | **95** | **7** |
+| Nunn, amostra de 8 páginas | 8 | 79 | 6 |
+| Yusupov *Chess Evolution 1*, 7 páginas | 7 | 103 | 4 |
+| Aagaard *Attacking Manual* (1 coluna), 7 | 7 | 8 | 1 |
+| Darcy Lima (1 coluna), 9 páginas | 9 | 8 | 1 |
+
+O livro de coluna única não se mexe: das 16 páginas dos dois livros de uma coluna, uma
+única passa a ser lida em duas — a de *preview* de diagramas do Aagaard, que é uma grade
+3×3 de legendas, e mesmo ali os saltos caem de 8 para 1.
+
+O relatório do fim da exportação passa a dizer quantas páginas saíram com mais de uma
+coluna. Sem esse número não havia como conferir a queixa sem abrir o arquivo.
+
+### Corrigido de passagem: o peão entra no alfabeto de figurinas
+
+O retreino de 2026-08-17 (216 → 230 classes) trouxe `♙`, e `test_f14_dataset` reprovou —
+que é exatamente o serviço dele: `searchable_pdf.PECAS` tinha 5 peças, e o modo "replace"
+passaria a pular calado todo box que o modelo lesse como peão.
+
+**A razão de excluí-lo estava certa sobre lance e errada sobre a página.** Peão não ganha
+letra em notação algébrica — `e4`, nunca com figurina —, e daí concluía-se que U+2659 era
+inalcançável. Mas a figurina aparece onde o texto **nomeia material**. Impresso na página
+118 do Nunn, na prosa:
+
+> There are 11 positions of reciprocal zugzwang with ♖+♙b7 v ♖.
+
+O modelo aprendeu a classe sozinho: `sym_9817`, 36 amostras, todas peão branco limpo,
+contra 14–21 mil de cada uma das outras cinco. `PECAS` e o `PECAS_RAPIDAS` da barra de
+botões passam a seis. A metade "preta" continua fora, pela regra que não mudou: estes
+livros usam **um** conjunto de figurinas para os dois lados.
+
+### O que fica em aberto
+
+**Coluna e tabela continuam sendo a mesma coisa para o programa.** O piso de largura
+resolve o sumário porque as faixas dele são estreitas; um glossário de duas casas largas
+— símbolo à esquerda, descrição à direita — passaria, e sairia com os símbolos todos
+juntos. O que separa os dois é o alinhamento das linhas através da calha, e isso não foi
+medido.
+
+Cobertura: `tests/test_f61_duas_colunas.py`, 17 testes, mais os de `test_f14_dataset.py` e
+`test_nags.py` que travavam o cinco.
+
 ## F62 — A fonte que desenha os símbolos vai junto — CONCLUÍDA
 
 O texto exportado tem `♔♕♖♗♘♙`, `▼`, `△`, `★` e os sinais de avaliação, e até aqui
@@ -8477,8 +8587,9 @@ Cobertura: 8 testes novos em `tests/test_f59_fonte_embutida.py`, que agora tem 2
 `tests/test_f62_simbolos.py`, com 8.
 
 > **A numeração pulou o 61 de propósito.** A régua da calha (`CALHA_EM_CARACTERES`,
-> `COLUNA_MINIMA`) foi remedida em paralelo a esta fase e já se chama F61 nos comentários
-> do `box_service`. Duas fases com o mesmo número são duas fases que ninguém acha depois.
+> `COLUNA_MINIMA`) foi remedida em paralelo a esta fase e já se chamava F61 nos
+> comentários do `box_service`. Duas fases com o mesmo número são duas fases que ninguém
+> acha depois. A F61 está escrita acima, entre a F60 e esta.
 
 ## Fora de escopo (registrado para depois)
 

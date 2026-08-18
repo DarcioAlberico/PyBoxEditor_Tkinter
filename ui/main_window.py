@@ -281,18 +281,22 @@ NAGS = [par for _, familia in NAGS_POR_FAMILIA for par in familia]
 # são caracteres que o teclado não tem e que aparecem em quase toda linha de
 # notação. Sem o botão, escrever um `♗` é procurar o codepoint.
 #
-# **São 5, e não 12**, e a razão é a mesma de `searchable_pdf.PECAS`, medida no
-# material real: peão não ganha letra em notação algébrica (`e4`, nunca com
-# figurina), e estes livros usam **um** conjunto de figurinas para os dois lados
-# — na linha "17...♞e5 18.♛c2 ♞a6 19.♞c4" o lance 17... é das pretas e o 19. das
-# brancas, e os dois cavalos usam o mesmo glifo. São exatamente as 5 classes que
-# o modelo aprendeu (`sym_9812` a `sym_9816` na base de treino).
+# **São 6, e não 12**, e a razão é a mesma de `searchable_pdf.PECAS`, medida no
+# material real: estes livros usam **um** conjunto de figurinas para os dois
+# lados — na linha "17...♞e5 18.♛c2 ♞a6 19.♞c4" o lance 17... é das pretas e o
+# 19. das brancas, e os dois cavalos usam o mesmo glifo. São exatamente as 6
+# classes que o modelo aprendeu (`sym_9812` a `sym_9817` na base de treino).
+#
+# O peão entrou depois dos outros cinco, e o botão faz mais falta nele que em
+# qualquer um: ele aparece pouco — na prosa que nomeia material, `♖+♙b7 v ♖` —,
+# e é justamente o glifo que ninguém tem na ponta da língua na hora de revisar.
 #
 # Os codepoints saem de `CHESS_UNICODE` em vez de serem redigitados aqui: é a
 # mesma tabela que `resolve_chess_font` valida contra as fontes do disco, e uma
 # segunda cópia poderia divergir dela sem ninguém notar.
 PECAS_RAPIDAS = ("Peças", list(zip(
-    CHESS_UNICODE[:5], ("Rei", "Dama", "Torre", "Bispo", "Cavalo"))))
+    CHESS_UNICODE[:6],
+    ("Rei", "Dama", "Torre", "Bispo", "Cavalo", "Peão"))))
 
 
 class MainWindow(tk.Frame):
@@ -1788,6 +1792,12 @@ class MainWindow(tk.Frame):
             ]
             if faixas:
                 linhas.append(f"Cabeçalhos de diagrama recuperados: {faixas}")
+            varias = sum(1 for p in paginas if p.colunas > 1)
+            if varias:
+                # É o único jeito de conferir a F61 sem abrir o arquivo: numa
+                # página lida como uma coluna só, as duas se misturam.
+                linhas.append(f"Páginas lidas em mais de uma coluna: "
+                              f"{varias} de {len(paginas)}")
             if desenhar and diagramas:
                 # Quem caiu para o recorte é o que o usuário precisa saber para
                 # conferir: são as páginas em que a leitura não convenceu.

@@ -25,6 +25,13 @@ porque a medição mostrou o estrago que a falta dele faz.
 FEN que a `diagrama.ler` extrai, com fonte de xadrez — mas só quando o porteiro
 (`diagrama.confiavel`) deixa. O recorte não saiu de cena: é para onde cai quem
 não passa, e é o que este módulo exportava sozinho até aqui.
+
+**A coluna virou primeira classe na F61.** A ordem de leitura respeita colunas
+desde a F1.6, mas ordem não é parágrafo: sem saber onde a coluna acaba, o último
+parágrafo da esquerda saía colado no primeiro da direita, e a margem que abre
+parágrafo — mediana das esquerdas — não era margem de coluna nenhuma. As três
+coisas que aqui dependem da coluna são o corte de parágrafo, a margem do recuo e
+o lugar da figura.
 """
 
 import io
@@ -159,6 +166,11 @@ class PaginaExtraida:
     diagramas_desenhados: int = 0
     #: A página tinha contorno demais para ser texto e saiu inteira como figura.
     pagina_de_imagem: bool = False
+    #: Quantas colunas a página tinha (F61). É o que o relatório do fim da
+    #: exportação conta para quem quer saber se o livro de duas colunas foi
+    #: lido como duas colunas — a queixa que abriu a fase não tinha como ser
+    #: conferida sem este número.
+    colunas: int = 1
 
     @property
     def texto(self) -> str:
@@ -249,14 +261,21 @@ def _faixa_acima(d: "Diagrama", caixas: Sequence[BoxEntry], escala: float
 
 
 def caixas_e_diagramas(img: np.ndarray, classificar: Callable
-                       ) -> Tuple[List[BoxEntry], List["Diagrama"], int, int]:
+                       ) -> Tuple[List[BoxEntry], List["Diagrama"], int, int,
+                                  List[Tuple[int, int]]]:
     """
-    (caixas de texto em ordem de leitura, diagramas, escala, respingos).
+    (caixas de texto em ordem de leitura, diagramas, escala, respingos, colunas).
 
     O tabuleiro sai do `boxes_antes_do_descarte`, que é o estágio em que ele
     ainda existe como caixa. Refazer essas etapas aqui fora foi tentado e não
     funciona: falta uma delas e o `localizar` acha 6 tabuleiros onde há 2,
     levando o texto da página junto.
+
+    **As colunas saem junto porque o `extrair_pagina` precisa delas** (F61). A
+    ordem de leitura já as respeita desde a F1.6, mas ordem não basta: quem
+    monta parágrafo tem de saber onde a coluna acaba, senão o último parágrafo
+    da esquerda gruda no primeiro da direita — o salto vertical que abriria
+    parágrafo é *negativo* ali, e nenhuma régua de salto pega isso.
     """
     pil = Image.fromarray(img)
     antes, _th, escala, _cinza = BoxService.boxes_antes_do_descarte(
@@ -265,7 +284,7 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     if not antes:
         # Página que é imagem, não texto. Sai inteira como figura: ler caractere
         # dela custaria minutos e devolveria ruído.
-        return [], [], escala, 0
+        return [], [], escala, 0, []
 
     diagramas = [Diagrama(exclusao=_com_margem(r, escala * MARGEM_DIAGRAMA,
                                                img.shape),
@@ -298,8 +317,30 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     grandes = [b for b in grandes
                if _celula(b, escala) not in ornamento]
 
+    # As colunas saem das mesmas caixas que a ordem de leitura ordena, e depois
+    # do descarte do ornamento: a régua decorativa do cabeçalho atravessa a
+    # calha, e mantê-la na conta apagaria a calha da página inteira.
     return (BoxService.sort_boxes_reading_order(grandes), diagramas, escala,
-            len(respingos))
+            len(respingos), BoxService.detectar_colunas(grandes))
+
+
+def _coluna_de(x: float, colunas: Sequence[Tuple[int, int]]) -> int:
+    """
+    Em qual faixa de coluna cai um x, e nunca `None`.
+
+    Quem cai na calha fica com a faixa mais próxima. É o caso do elemento que
+    atravessa — um título largo, uma linha de notação que transborda —, e pô-lo
+    numa coluna é melhor que abrir uma terceira: a ordem de leitura já resolveu
+    onde ele entra, e a coluna aqui só decide de quem ele é vizinho na hora de
+    virar parágrafo.
+    """
+    if not colunas:
+        return 0
+    for i, (a, z) in enumerate(colunas):
+        if a <= x <= z:
+            return i
+    return min(range(len(colunas)),
+               key=lambda i: min(abs(x - colunas[i][0]), abs(x - colunas[i][1])))
 
 
 def _celula(b: BoxEntry, escala: float) -> Tuple[int, int]:
@@ -359,33 +400,77 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     return "".join(partes).strip(), fracos
 
 
-def _agrupar_em_paragrafos(linhas: List[Tuple[int, int, int, str]]) -> List[Paragrafo]:
-    """
-    (topo, esquerda, altura, texto) → parágrafos.
+@dataclass
+class Linha:
+    """Uma linha de texto lida, com o lugar dela na página."""
 
-    Abre parágrafo no recuo da primeira linha e no salto vertical. As duas
-    regras juntas porque nenhuma sozinha cobre este livro: a prosa usa recuo, e
-    a notação em negrito entre parágrafos usa espaço em branco.
+    topo: int
+    esquerda: int
+    altura: int
+    texto: str
+    #: Em qual das faixas de `detectar_colunas` esta linha está. Zero na página
+    #: de coluna única, que é o caso em que tudo isto some.
+    coluna: int = 0
+
+
+def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
+    """
+    {coluna: (margem esquerda, altura de linha)}, medidas na página inteira.
+
+    **A margem é por coluna, e sem isso a de duas colunas sai despedaçada**
+    (F61). A mediana das esquerdas de uma página de duas colunas não é margem
+    nenhuma: metade das linhas começa em 122 e metade em 893, e a mediana cai
+    num dos dois. Com ela, ou a coluna da direita inteira parece recuada — cada
+    linha vira um parágrafo — ou a da esquerda perde todos os recuos que tem.
+
+    **E é da página, não do trecho.** Estas medidas são medianas, e a mediana
+    de cinco linhas entre dois diagramas não diz onde fica a margem da coluna.
+    """
+    metricas = {}
+    for coluna in {l.coluna for l in linhas}:
+        desta = [l for l in linhas if l.coluna == coluna]
+        esquerdas = sorted(l.esquerda for l in desta)
+        alturas = sorted(l.altura for l in desta)
+        metricas[coluna] = (esquerdas[len(esquerdas) // 2],
+                            alturas[len(alturas) // 2] or 1)
+    return metricas
+
+
+def _agrupar_em_paragrafos(linhas: Sequence[Linha],
+                           metricas: Optional[dict] = None) -> List[Paragrafo]:
+    """
+    Linhas → parágrafos.
+
+    Abre parágrafo no recuo da primeira linha, no salto vertical e na troca de
+    coluna. As três regras juntas porque nenhuma sozinha cobre este livro: a
+    prosa usa recuo, a notação em negrito entre parágrafos usa espaço em branco,
+    e nenhuma das duas vê o fim da coluna — lá o salto vertical é **negativo**,
+    porque a leitura volta ao topo da página.
+
+    `metricas` vem do `_metricas_por_coluna` da página inteira; sem ela, sai
+    destas linhas mesmo, que é o que serve a quem chama com a página toda.
     """
     if not linhas:
         return []
-
-    esquerdas = sorted(e for _t, e, _a, _x in linhas)
-    margem = esquerdas[len(esquerdas) // 2]
-    alturas = sorted(a for _t, _e, a, _x in linhas)
-    altura = alturas[len(alturas) // 2] or 1
+    if metricas is None:
+        metricas = _metricas_por_coluna(linhas)
 
     paragrafos: List[Paragrafo] = []
     atual: List[str] = []
-    anterior = None
-    for topo, esq, _alt, texto in linhas:
-        recuou = esq > margem + altura * RECUO_DE_PARAGRAFO
-        saltou = anterior is not None and topo - anterior > altura * (1 + SALTO_DE_PARAGRAFO)
-        if atual and (recuou or saltou):
+    anterior: Optional[Linha] = None
+    for linha in linhas:
+        margem, altura = metricas.get(linha.coluna,
+                                      (linha.esquerda, linha.altura or 1))
+        trocou = anterior is not None and linha.coluna != anterior.coluna
+        recuou = linha.esquerda > margem + altura * RECUO_DE_PARAGRAFO
+        saltou = (anterior is not None and not trocou
+                  and linha.topo - anterior.topo
+                  > altura * (1 + SALTO_DE_PARAGRAFO))
+        if atual and (recuou or saltou or trocou):
             paragrafos.append(Paragrafo(" ".join(atual)))
             atual = []
-        atual.append(texto)
-        anterior = topo
+        atual.append(linha.texto)
+        anterior = linha
     if atual:
         paragrafos.append(Paragrafo(" ".join(atual)))
     return paragrafos
@@ -513,6 +598,12 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     não todas no fim: um diagrama que fica no meio da coluna tem texto antes e
     depois dele, e jogá-lo para o fim desmancha a leitura.
 
+    **Numa página de duas colunas, "a altura" é dentro da coluna** (F61). O
+    diagrama do alto da coluna da direita está *acima* de quase toda a coluna da
+    esquerda, e intercalar pela altura na página o punha antes de um texto que
+    se lê muito antes dele. Cada figura entra na coluna a que pertence, e a
+    coluna que se deixa é despejada antes de a próxima começar.
+
     `coordenadas` é **falso por padrão** nos dois modos. O livro impresso traz
     `a`–`h` e `8`–`1` para quem vai falar da posição em voz alta; num arquivo
     que se lê no tablet elas ocupam espaço e não dizem nada que o tabuleiro já
@@ -523,7 +614,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                          f"(use um de {MODOS_DE_DIAGRAMA})")
 
     img = _pagina_cinza(page, dpi)
-    boxes, tabuleiros, _escala, respingos = caixas_e_diagramas(img, classificar)
+    boxes, tabuleiros, _escala, respingos, colunas = caixas_e_diagramas(
+        img, classificar)
 
     if not boxes and not tabuleiros:
         # Página de imagem: entra inteira, como está.
@@ -533,19 +625,25 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                               blocos=[Figura(png, larg, alt, origem="pagina")],
                               pagina_de_imagem=True)
 
-    medidas: List[Tuple[int, int, int, str]] = []
+    medidas: List[Linha] = []
     fracos = 0
     for linha in quebrar_em_linhas(boxes):
         texto, n = _texto_da_linha(img, linha, classificar, conf_minima,
                                    coletor, numero)
         fracos += n
         if texto:
-            medidas.append((min(b.y1 for b in linha), min(b.x1 for b in linha),
-                            int(np.median([b.y2 - b.y1 for b in linha])), texto))
+            medidas.append(Linha(
+                topo=min(b.y1 for b in linha),
+                esquerda=min(b.x1 for b in linha),
+                altura=int(np.median([b.y2 - b.y1 for b in linha])),
+                texto=texto,
+                coluna=_coluna_de((min(b.x1 for b in linha)
+                                   + max(b.x2 for b in linha)) / 2, colunas)))
 
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
-                               descartados_por_confianca=fracos)
+                               descartados_por_confianca=fracos,
+                               colunas=len(colunas))
 
     def figura(d: Diagrama) -> List[Figura]:
         """
@@ -574,19 +672,40 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                                          largura_px=alvo)
         return [Figura(png, larg, alt, origem="faixa"), principal]
 
-    # Intercalar texto e figura pela posição vertical.
-    figuras = sorted(tabuleiros, key=lambda d: d.topo)
-    i = 0
-    corrente: List[Tuple[int, int, int, str]] = []
-    for medida in medidas:
-        while i < len(figuras) and figuras[i].topo < medida[0]:
-            resultado.blocos.extend(_agrupar_em_paragrafos(corrente))
+    # Intercalar texto e figura, coluna a coluna e por posição vertical.
+    metricas = _metricas_por_coluna(medidas)
+    # Por coluna e, dentro dela, por altura: é a ordem em que elas saem quando
+    # não houver texto embaixo de que pendurá-las.
+    pendentes = sorted(
+        ((_coluna_de((d.tabuleiro[0] + d.tabuleiro[2]) / 2, colunas), d)
+         for d in tabuleiros),
+        key=lambda par: (par[0], par[1].topo))
+    corrente: List[Linha] = []
+
+    def despejar(coluna: int, ate: Optional[int] = None) -> None:
+        """As figuras daquela coluna que já passaram — todas, se `ate` é None."""
+        nonlocal corrente, pendentes
+        restam = []
+        for col, d in pendentes:
+            if col != coluna or (ate is not None and d.topo >= ate):
+                restam.append((col, d))
+                continue
+            resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
             corrente = []
-            resultado.blocos.extend(figura(figuras[i]))
-            i += 1
+            resultado.blocos.extend(figura(d))
+        pendentes = restam
+
+    coluna_anterior: Optional[int] = None
+    for medida in medidas:
+        if coluna_anterior is not None and medida.coluna != coluna_anterior:
+            # O rodapé da coluna que se deixa entra antes do topo da próxima.
+            despejar(coluna_anterior)
+        despejar(medida.coluna, ate=medida.topo)
         corrente.append(medida)
-    resultado.blocos.extend(_agrupar_em_paragrafos(corrente))
-    for d in figuras[i:]:
+        coluna_anterior = medida.coluna
+    resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
+    corrente = []
+    for _col, d in pendentes:
         resultado.blocos.extend(figura(d))
 
     resultado.caracteres = sum(len(b.texto) for b in resultado.blocos

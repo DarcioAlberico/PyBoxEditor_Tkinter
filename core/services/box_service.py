@@ -564,6 +564,51 @@ class BoxService:
 
         return cortes
 
+    #: Largura mínima de uma calha, em larguras medianas de caractere.
+    #:
+    #: **Eram 3,0 até a F61, e é por isso que o livro de duas colunas saía
+    #: embaralhado.** A régua nunca foi medida: 3,0 é largo demais para a calha
+    #: que estes livros usam de verdade. Medido em 33 páginas de 6 livros, com a
+    #: segmentação de produção e o vão da projeção em larguras medianas:
+    #:
+    #:     calha de verdade   Nunn        1,00 – 1,18   (17–20 px)
+    #:                        Kasparov    2,58 – 3,31   (49–58 px)
+    #:                        Yusupov     2,59 – 2,94   (44–46 px)
+    #:     vão que não é      Aagaard AM  0,06 – 0,12   (1–2 px)
+    #:                        Yusupov     0,17 – 0,75
+    #:
+    #: A 3,0, o Nunn nunca é detectado e o Kasparov é detectado **em algumas
+    #: páginas e não em outras** — que é exatamente a queixa: o texto da coluna
+    #: da esquerda se mistura com o da direita "em muitos trechos". O limiar cai
+    #: para 0,8: 1,25× abaixo da menor calha medida e 6,7× acima do maior vão
+    #: que não é calha. O espaço entre palavras não chega perto porque a
+    #: projeção é da **página inteira** — para sobreviver a ela, toda linha
+    #: teria de ter espaço no mesmo x.
+    CALHA_EM_CARACTERES = 0.8
+
+    #: O piso da calha em frações da largura do texto, para a página cuja
+    #: largura mediana de caractere não vale nada.
+    #:
+    #: Existe desde a F1.6 (a 0,02) e continua existindo pelo mesmo motivo que
+    #: `escala_de_texto`: numa página com trama a mediana simples desaba para 2
+    #: px, e `0,8 × 2` deixaria qualquer respiro virar coluna. Medido na página
+    #: 66 do Chess Evolution 1 — trama de scan na margem, mediana 2 px, calha de
+    #: verdade com 34 px —, 1% da largura do texto dá 18 px: barra o respingo e
+    #: deixa passar a calha. A 2% barrava também a do Nunn.
+    CALHA_DA_PAGINA = 0.01
+
+    #: Largura mínima de uma coluna, em frações da largura do texto.
+    #:
+    #: **É o que separa duas colunas de uma tabela de duas casas.** Sem ele, o
+    #: sumário do Practical Chess Defence — número do capítulo, título, número
+    #: da página — vira três colunas, e o livro exportado sai com dez números,
+    #: dez títulos e dez páginas em vez de dez linhas. Medido, a "coluna" de
+    #: número de capítulo tem 2% da largura do texto e a de número de página 4%,
+    #: contra 48% de cada coluna de verdade no Kasparov e 45% da mais estreita
+    #: no Chess Evolution 1. O limiar fica no vão: 2,5× acima do maior falso e
+    #: 4,5× abaixo da menor coluna de verdade.
+    COLUNA_MINIMA = 0.10
+
     @staticmethod
     def detectar_colunas(boxes: List[BoxEntry],
                          calha_minima: int = None) -> List[Tuple[int, int]]:
@@ -580,6 +625,12 @@ class BoxService:
         numa faixa central (como faz o DocuVision, 42%–58% da largura) só acha
         duas colunas simétricas; aqui a calha pode estar em qualquer posição, e
         podem ser mais de duas.
+
+        **Achar o vão não basta: a faixa que ele deixa tem de ser uma coluna**
+        (F61). O vão entre o título e o número da página de um sumário é largo,
+        e tratá-lo como calha faz o livro sair com os títulos todos juntos e os
+        números todos juntos. Quem passa é a faixa larga o bastante para ter
+        texto dentro; a estreita se funde à vizinha — nenhum box se perde.
         """
         if not boxes:
             return []
@@ -597,7 +648,8 @@ class BoxService:
         if calha_minima is None:
             larguras = sorted(b.x2 - b.x1 for b in boxes)
             mediana = larguras[len(larguras) // 2] or 1
-            calha_minima = max(int(mediana * 3), int(largura * 0.02), 4)
+            calha_minima = max(int(mediana * BoxService.CALHA_EM_CARACTERES),
+                               int(largura * BoxService.CALHA_DA_PAGINA), 4)
 
         cortes = []
         inicio = None
@@ -622,7 +674,34 @@ class BoxService:
         if anterior <= largura:
             faixas.append((x_min + anterior, x_max))
 
-        return [f for f in faixas if f[1] > f[0]] or [(x_min, x_max)]
+        faixas = [f for f in faixas if f[1] > f[0]] or [(x_min, x_max)]
+        return BoxService._fundir_faixas_estreitas(faixas, largura)
+
+    @staticmethod
+    def _fundir_faixas_estreitas(faixas: List[Tuple[int, int]],
+                                 largura: int) -> List[Tuple[int, int]]:
+        """
+        Funde na vizinha toda faixa estreita demais para ser coluna.
+
+        Funde, e não descarta: a faixa é o critério de quem entra em qual
+        coluna, e uma faixa a menos seria um punhado de boxes lidos no fim da
+        página, fora de ordem. Some pela calha **mais estreita** das duas ao
+        redor, que é a que menos afirma separação.
+        """
+        minima = largura * BoxService.COLUNA_MINIMA
+        faixas = list(faixas)
+        while len(faixas) > 1:
+            i = min(range(len(faixas)), key=lambda j: faixas[j][1] - faixas[j][0])
+            if faixas[i][1] - faixas[i][0] >= minima:
+                break
+            esquerda = faixas[i][0] - faixas[i - 1][1] if i else None
+            direita = (faixas[i + 1][0] - faixas[i][1]
+                       if i + 1 < len(faixas) else None)
+            if direita is None or (esquerda is not None and esquerda <= direita):
+                faixas[i - 1:i + 1] = [(faixas[i - 1][0], faixas[i][1])]
+            else:
+                faixas[i:i + 2] = [(faixas[i][0], faixas[i + 1][1])]
+        return faixas
 
     @staticmethod
     def _linhas(boxes: List[BoxEntry]) -> List[List[BoxEntry]]:
