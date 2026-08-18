@@ -20,6 +20,11 @@ de parágrafos e figuras, que o `exportar` transforma em EPUB ou DOCX.
 
 **Os três filtros abaixo são o que separa livro de lixo**, e cada um está aqui
 porque a medição mostrou o estrago que a falta dele faz.
+
+**O diagrama deixou de ser recorte na F58.** Ele agora é redesenhado a partir do
+FEN que a `diagrama.ler` extrai, com fonte de xadrez — mas só quando o porteiro
+(`diagrama.confiavel`) deixa. O recorte não saiu de cena: é para onde cai quem
+não passa, e é o que este módulo exportava sozinho até aqui.
 """
 
 import io
@@ -31,7 +36,7 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import diagrama, vertical
+from core import diagrama, render_diagrama, vertical
 from core.box_model import BoxEntry
 from core.leitura_de_linha import quebrar_em_linhas
 from core.services.box_service import BoxService
@@ -110,10 +115,22 @@ class Paragrafo:
 
 @dataclass
 class Figura:
-    """Um diagrama, recortado da página como está."""
+    """
+    Um diagrama no livro exportado — redesenhado, ou recortado da página.
+
+    `origem` diz qual dos dois, e não é enfeite: um diagrama redesenhado afirma
+    uma posição que o nosso modelo leu, e o `aviso` guarda por que os outros não
+    passaram no porteiro (F58). Sem esses dois campos, o relatório do fim da
+    exportação não teria como dizer em que páginas o livro preferiu o scan.
+    """
     png: bytes
     largura: int
     altura: int
+    #: A posição, quando ela foi lida e mereceu confiança. É o que vira o texto
+    #: alternativo da figura nos dois formatos.
+    fen: Optional[str] = None
+    origem: str = "recorte"          # "render" | "recorte" | "pagina"
+    aviso: Optional[str] = None
 
 
 Bloco = Union[Paragrafo, Figura]
@@ -127,6 +144,9 @@ class PaginaExtraida:
     descartados_por_confianca: int = 0
     respingos_descartados: int = 0
     diagramas: int = 0
+    #: Quantos dos `diagramas` saíram redesenhados. O resto caiu para o recorte,
+    #: e cada `Figura` diz por quê.
+    diagramas_desenhados: int = 0
     #: A página tinha contorno demais para ser texto e saiu inteira como figura.
     pagina_de_imagem: bool = False
 
@@ -156,10 +176,34 @@ def _dentro(b: BoxEntry, rect) -> bool:
     return rect[0] <= b.x1 and b.x2 <= rect[2] and rect[1] <= b.y1 and b.y2 <= rect[3]
 
 
-def caixas_e_diagramas(img: np.ndarray, classificar: Callable
-                       ) -> Tuple[List[BoxEntry], List[Tuple[int, int, int, int]], int, int]:
+@dataclass
+class Diagrama:
     """
-    (caixas de texto em ordem de leitura, retângulos de diagrama, escala, respingos).
+    Os dois retângulos de um tabuleiro na página, que **não são o mesmo**.
+
+    `exclusao` é a borda mais a margem, e é o que não pode virar texto: sem ela
+    os rótulos `a`–`h` entram como linhas de um caractere. `tabuleiro` é a borda
+    que o `diagrama.localizar` devolveu, e é o que a leitura exige — o
+    `_casas_do_recorte` divide o recorte em 8×8 **iguais**, e a F8.4 mediu que
+    moldura de 2% desloca toda casa.
+
+    Eram um retângulo só até a F58, e a confusão não aparecia porque o único uso
+    do recorte era virar figura. Ler o tabuleiro pela `exclusao` daria 64 casas
+    deslocadas — e um FEN errado sem nada que denunciasse.
+    """
+
+    exclusao: Tuple[int, int, int, int]
+    tabuleiro: Tuple[int, int, int, int]
+
+    @property
+    def topo(self) -> int:
+        return self.exclusao[1]
+
+
+def caixas_e_diagramas(img: np.ndarray, classificar: Callable
+                       ) -> Tuple[List[BoxEntry], List["Diagrama"], int, int]:
+    """
+    (caixas de texto em ordem de leitura, diagramas, escala, respingos).
 
     O tabuleiro sai do `boxes_antes_do_descarte`, que é o estágio em que ele
     ainda existe como caixa. Refazer essas etapas aqui fora foi tentado e não
@@ -175,8 +219,11 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
         # dela custaria minutos e devolveria ruído.
         return [], [], escala, 0
 
-    rects = [_com_margem(r, escala * MARGEM_DIAGRAMA, img.shape)
-             for r in diagrama.localizar(antes, escala=escala)]
+    diagramas = [Diagrama(exclusao=_com_margem(r, escala * MARGEM_DIAGRAMA,
+                                               img.shape),
+                          tabuleiro=r)
+                 for r in diagrama.localizar(antes, escala=escala)]
+    rects = [d.exclusao for d in diagramas]
 
     boxes = BoxService.generate_boxes_opencv(pil, arbitro=classificar)
     boxes = [b for b in boxes if not any(_dentro(b, r) for r in rects)]
@@ -190,7 +237,7 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     grandes = [b for b in grandes
                if _celula(b, escala) not in ornamento]
 
-    return (BoxService.sort_boxes_reading_order(grandes), rects, escala,
+    return (BoxService.sort_boxes_reading_order(grandes), diagramas, escala,
             len(respingos))
 
 
@@ -328,25 +375,84 @@ def _png_do_recorte(img: np.ndarray, rect, dpi: int = 300,
     return buffer.getvalue(), largura, altura
 
 
+#: Os dois modos de pôr um diagrama no livro.
+#:
+#: **`render` é o padrão porque a medição da F58 o autorizou**, e não porque é
+#: mais bonito: o porteiro deixa escapar 2 leituras erradas em 346 (1 em 173,
+#: contra 1 em 14 sem ele), e o que ele barra cai para o recorte — que é
+#: exatamente o que este módulo exportava antes.
+MODOS_DE_DIAGRAMA = ("render", "recorte")
+
+
+def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
+                        dpi_figura: int, modo: str, coordenadas: bool,
+                        fonte: str, lado: int) -> Figura:
+    """
+    Um tabuleiro da página vira figura: desenhado, se merecer; recortado, se não.
+
+    **A leitura entra pelo `tabuleiro` e o recorte sai pela `exclusao`**, e a
+    troca dos dois é o defeito que a `Diagrama` existe para tornar impossível.
+
+    Quando não há coordenadas a pedir, o recorte também sai justo: o desenho e o
+    recorte convivem no mesmo livro, e um com rótulo e outro sem seria a única
+    diferença visível entre uma página em que o modelo se saiu bem e outra em
+    que não.
+    """
+    aviso = None
+    if modo == "render":
+        try:
+            leitura = diagrama.ler(img, d.tabuleiro)
+            passa, aviso = diagrama.confiavel(leitura)
+            if passa:
+                fen = leitura.fen()
+                png, larg, alt = render_diagrama.desenhar(
+                    fen, fonte=fonte, lado_px=lado, coordenadas=coordenadas)
+                return Figura(png, larg, alt, fen=fen, origem="render")
+        except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
+                render_diagrama.FonteIncompleta) as erro:
+            # Falta de modelo ou de fonte não pode derrubar a exportação de um
+            # livro de 264 páginas: cai para o recorte e diz por quê, uma vez
+            # por diagrama, onde quem lê o relatório vai ver.
+            aviso = f"não deu para desenhar: {erro}"
+
+    rect = d.exclusao if coordenadas else d.tabuleiro
+    png, larg, alt = _png_do_recorte(img, rect, dpi, dpi_figura)
+    return Figura(png, larg, alt, origem="recorte", aviso=aviso)
+
+
 def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    dpi: int = 300, conf_minima: float = CONF_MINIMA,
                    dpi_figura: int = DPI_FIGURA,
-                   coletor: Optional[Callable] = None) -> PaginaExtraida:
+                   coletor: Optional[Callable] = None,
+                   diagramas: str = "render", coordenadas: bool = False,
+                   fonte: str = render_diagrama.FONTE_PADRAO,
+                   lado_do_diagrama: int = render_diagrama.LADO_PADRAO
+                   ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
 
     As figuras entram na ordem pela altura em que o diagrama está na página, e
     não todas no fim: um diagrama que fica no meio da coluna tem texto antes e
     depois dele, e jogá-lo para o fim desmancha a leitura.
-    """
-    img = _pagina_cinza(page, dpi)
-    boxes, rects, _escala, respingos = caixas_e_diagramas(img, classificar)
 
-    if not boxes and not rects:
+    `coordenadas` é **falso por padrão** nos dois modos. O livro impresso traz
+    `a`–`h` e `8`–`1` para quem vai falar da posição em voz alta; num arquivo
+    que se lê no tablet elas ocupam espaço e não dizem nada que o tabuleiro já
+    não diga.
+    """
+    if diagramas not in MODOS_DE_DIAGRAMA:
+        raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
+                         f"(use um de {MODOS_DE_DIAGRAMA})")
+
+    img = _pagina_cinza(page, dpi)
+    boxes, tabuleiros, _escala, respingos = caixas_e_diagramas(img, classificar)
+
+    if not boxes and not tabuleiros:
         # Página de imagem: entra inteira, como está.
         png, larg, alt = _png_do_recorte(
             img, (0, 0, img.shape[1], img.shape[0]), dpi, dpi_figura)
-        return PaginaExtraida(numero=numero, blocos=[Figura(png, larg, alt)],
+        return PaginaExtraida(numero=numero,
+                              blocos=[Figura(png, larg, alt, origem="pagina")],
                               pagina_de_imagem=True)
 
     medidas: List[Tuple[int, int, int, str]] = []
@@ -359,29 +465,35 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             medidas.append((min(b.y1 for b in linha), min(b.x1 for b in linha),
                             int(np.median([b.y2 - b.y1 for b in linha])), texto))
 
-    resultado = PaginaExtraida(numero=numero, diagramas=len(rects),
+    resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
                                descartados_por_confianca=fracos)
 
+    def figura(d: Diagrama) -> Figura:
+        return _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
+                                   modo=diagramas, coordenadas=coordenadas,
+                                   fonte=fonte, lado=lado_do_diagrama)
+
     # Intercalar texto e figura pela posição vertical.
-    figuras = sorted(rects, key=lambda r: r[1])
+    figuras = sorted(tabuleiros, key=lambda d: d.topo)
     i = 0
     corrente: List[Tuple[int, int, int, str]] = []
     for medida in medidas:
-        while i < len(figuras) and figuras[i][1] < medida[0]:
+        while i < len(figuras) and figuras[i].topo < medida[0]:
             resultado.blocos.extend(_agrupar_em_paragrafos(corrente))
             corrente = []
-            png, larg, alt = _png_do_recorte(img, figuras[i], dpi, dpi_figura)
-            resultado.blocos.append(Figura(png, larg, alt))
+            resultado.blocos.append(figura(figuras[i]))
             i += 1
         corrente.append(medida)
     resultado.blocos.extend(_agrupar_em_paragrafos(corrente))
-    for rect in figuras[i:]:
-        png, larg, alt = _png_do_recorte(img, rect, dpi, dpi_figura)
-        resultado.blocos.append(Figura(png, larg, alt))
+    for d in figuras[i:]:
+        resultado.blocos.append(figura(d))
 
     resultado.caracteres = sum(len(b.texto) for b in resultado.blocos
                                if isinstance(b, Paragrafo))
+    resultado.diagramas_desenhados = sum(
+        1 for b in resultado.blocos
+        if isinstance(b, Figura) and b.origem == "render")
     return resultado
 
 
@@ -389,6 +501,9 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             paginas: Optional[Sequence[int]] = None,
             conf_minima: float = CONF_MINIMA, dpi_figura: int = DPI_FIGURA,
             coletor: Optional[Callable] = None,
+            diagramas: str = "render", coordenadas: bool = False,
+            fonte: str = render_diagrama.FONTE_PADRAO,
+            lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
             progress_callback=None) -> List[PaginaExtraida]:
     """Lê o PDF inteiro (ou as páginas pedidas) como imagem."""
     import os
@@ -404,7 +519,10 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                 progress_callback(i, len(numeros))
             saida.append(extrair_pagina(doc[numero], classificar, numero=numero,
                                         dpi=dpi, conf_minima=conf_minima,
-                                        dpi_figura=dpi_figura, coletor=coletor))
+                                        dpi_figura=dpi_figura, coletor=coletor,
+                                        diagramas=diagramas,
+                                        coordenadas=coordenadas, fonte=fonte,
+                                        lado_do_diagrama=lado_do_diagrama))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         return saida

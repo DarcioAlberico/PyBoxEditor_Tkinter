@@ -8037,6 +8037,247 @@ dela moeda). Suíte em 1.361. Reproduzir: `python medir_cadeia.py --regua`.
 
 ---
 
+## F58 — O diagrama deixa de ser recorte e passa a ser desenho — CONCLUÍDA
+
+A F2.6 exporta EPUB e DOCX recortando o diagrama da imagem da página: fiel, e feio —
+hachura de meio-tom, moldura torta, tinta do papel. Como a F7.x já **lê** a posição, o
+diagrama pode nascer redesenhado a partir do FEN, com fonte de xadrez, no tamanho que o
+formato pedir e com coordenadas só quando alguém pedir.
+
+**O número que manda nesta fase é o da F8.4.** Nosso leitor faz 92,49% de tabuleiro
+inteiro certo em 346 tabuleiros de livros fora do treino — **um em treze sairia errado**,
+e errado do pior jeito possível: o desenho vem limpo, com a mesma nitidez nas 64 casas, e
+nada nele denuncia que o bispo de c1 era um peão. O recorte, quando o OCR erra, ao menos
+mostra o que o livro imprimiu.
+
+Daí o desenho do conjunto: **não é "renderizar", é "renderizar com porteiro"**, e o
+recorte não morre — vira a queda de quem não passa. Quem decide é o porteiro (etapa 2);
+o `core/render_diagrama.py` só desenha.
+
+### Etapa 0 — o mapa da fonte, que é o que não existia
+
+Uma fonte de diagrama mapeia caractere → *casa inteira*: peça e fundo saem no mesmo
+glifo, e por isso cada peça tem **duas letras**, uma por cor de casa. Esse mapa não estava
+em lugar nenhum — o projeto irmão `Chess_SVG_Generator` tem sete dessas fontes em
+`app/templates/` e **não usa nenhuma**, renderiza com `chess.svg`.
+
+**Três fontes de evidência independentes, e as três concordam.**
+
+1. **A documentação da própria fonte.** A página 3 do `fonts/SkakNew.pdf` imprime a
+   posição inicial na SkakNew-Diagram, e dela saem 26 caracteres de uma vez:
+
+       8rmblkans   7opopopop   60Z0Z0Z0Z   2POPOPOPO   1SNAQJBMR
+
+   Maiúscula é branca, minúscula é preta, `0` é casa clara vazia e `Z` é escura vazia.
+   Sobram quatro combinações que a posição inicial não mostra — dama preta em casa clara,
+   rei preto em escura, e as duas brancas correspondentes —, e elas se fecham por
+   eliminação: `q j` e `L K`.
+
+2. **A geometria dos glifos**, que não depende de ler PDF nenhum. As 12 letras de casa
+   clara desenham só a peça; as 12 de casa escura pintam o quadrado inteiro. Medido na
+   tinta das quinas da casa renderizada, 0 é branco e 1 é preto:
+
+   | | faixa | caracteres |
+   |---|---:|---:|
+   | casa clara | 0,000 – 0,000 | 13 |
+   | casa escura | 0,150 – 0,150 | 13 |
+   | **vão** | **+0,150** | |
+
+   Os dois grupos batem letra por letra com o que a posição inicial diz.
+
+3. **As duas redes da F7.4/F7.5.** Renderizar o FEN com o mapa e reler o desenho com o
+   `diagrama.ler` devolve o mesmo FEN:
+
+   | ida e volta | casa certa | tabuleiro inteiro |
+   |---|---:|---:|
+   | 2 tabuleiros de cobertura (as 24 combinações) | 100,00% (128) | 100,00% (2 de 2) |
+   | 348 tabuleiros do corpus da F8.4 | 100,00% (22.272) | 100,00% (348 de 348) |
+
+**Esses 100% medem o mapa, e não o leitor** — dizê-lo é obrigatório, porque o mesmo
+leitor faz 92,49% no scan. O render é domínio limpo: sem papel, sem meio-tom, sem moldura
+torta. O que a tabela prova é que o mapa está certo; o que o porteiro vale continua por
+medir, e é a etapa 2.
+
+### O que a fonte respondeu de quebra
+
+- **A licença permite embutir.** LPPL 1.2+, © 2004–2009 Ulrich Dirr, sobre as fontes
+  `skak` de Torben Hoffmann e Dirk Bächle, elas mesmas sobre a `chess` de Piet Tutelaers.
+  Redistribuição autorizada — é o que abre a porta da F59.
+- **A fonte tem 46 codepoints, e entre eles não há `a`–`h` nem `7` e `8`.** As letras e
+  dígitos que sobrariam para rótulo desenham casa. **Coordenada sai em fonte de texto**,
+  e no modo de fonte embutida isso vira alinhamento em CSS e em tabela, não um caractere
+  a mais na linha.
+- **Doze glifos de avanço zero** (`1`–`6`, `T`–`Y`) e o `z`. São a família de destaque —
+  as mesmas 12 peças em casa cheia. Nenhum uso ainda; ficam na folha de contato.
+- **O `-8`**: os glifos de casa escura transbordam 8 milésimos de em para cada lado, para
+  que não sobre linha branca entre as filas. Quem desenha respeita avanço de 1 em exato,
+  sem espaçamento e sem entrelinha.
+
+### O que entrou
+
+`core/render_diagrama.py` (mapa + desenho, PNG por PyMuPDF, **sem dependência nova**),
+`core/dados/fontes_de_diagrama.json` (o mapa, versionado, com o sha256 do arquivo da
+fonte junto — F7.3 aplicada aqui), `medir_fonte_diagrama.py` (as quatro provas e a folha
+de contato de conferência humana) e `tests/test_f58_render_diagrama.py`, 15 testes.
+
+Cobertura da fase inteira: 15 + 7 (`test_f58_porteiro.py`) + 9 novos em
+`test_f26_livro.py`, que agora tem 30.
+
+O lado do desenho é arredondado para múltiplo de 8, e não é preciosismo: quem relê divide
+a imagem em 8×8 **iguais**, e a F8.4 mediu que moldura de 2% desloca toda casa.
+
+### Etapa 2 — o porteiro, e o piso que a medição escolheu
+
+Mesmos 346 tabuleiros do split `test` do corpus da F8.4, que nunca entraram em treino
+nenhum. **24 deles saem errados** — 93,06% de tabuleiro inteiro certo, contra os 92,49%
+que a F8.4 registrou; são dois tabuleiros de diferença, a base de ocupação mudou nesse
+intervalo pelas confirmações do usuário (F8.3), e a atribuição não foi feita.
+
+As oito réguas candidatas não pedem modelo novo nem rótulo novo: são sinais que a
+`diagrama.ler` já produzia e descartava. Separação é a da F51 — dado um tabuleiro errado
+e um certo ao acaso, com que frequência a régua os põe na ordem certa:
+
+| régua | separação |
+|---|---:|
+| confiança da peça, a média | 0,9812 |
+| **a menor das duas (peça e ocupação), na casa mais fraca** | **0,9806** |
+| a menor das duas, zerada se implausível | 0,9806 |
+| a menor das duas, zerada se implausível ou arbitrada | 0,9806 |
+| confiança da peça, a pior casa | 0,9805 |
+| confiança da ocupação, a pior casa | 0,8830 |
+| nada foi arbitrado | 0,6875 |
+| posição plausível | 0,5000 |
+
+**A média ganha por 0,0006 e perde onde importa.** Seis milésimos em 24×322 pares são
+cinco pares — ruído. O que separa as duas é o começo da escala:
+
+| corte | barrados | pegos | escapam | certos perdidos |
+|---:|---:|---:|---:|---:|
+| 0,00 (sem porteiro) | 0 | 0 | 24 | 0 (0,0%) |
+| 0,50 | 10 | 10 | 14 | **0 (0,0%)** |
+| 0,90 | 21 | 17 | 7 | 4 (1,2%) |
+| 0,95 | 28 | 21 | 3 | 7 (2,2%) |
+| **0,98** | **30** | **22** | **2** | **8 (2,5%)** |
+| 0,99 | 34 | 22 | 2 | 12 (3,7%) |
+| 0,999 | 56 | 22 | 2 | 34 (10,6%) |
+
+A 0,50 a régua do mínimo pega **10 dos 24 erros sem custar um tabuleiro certo** — são as
+casas em que a rede jogou cara ou coroa, e a média as dilui entre as outras 63. A da
+média, no mesmo ponto, não pega um erro sequer.
+
+**O piso fica em 0,98, que é onde a curva vira.** Pega 22 dos 24 por 2,5% dos certos, e
+daí para cima o preço sobe sem que mais nenhum erro seja pego: **um em treze vira um em
+173**, e o custo é oito tabuleiros que saem recortados — exatamente o que o livro já
+exportava antes desta fase.
+
+**Os dois que escapam escapam de tudo.** Nenhuma das oito réguas os separa abaixo de
+0,9995, e ali já vão 14% dos certos junto. São leituras erradas e confiantes, e nenhum
+sinal que a `ler` produz hoje as distingue. Fica registrado como o teto desta régua.
+
+#### Duas coisas que a tabela revelou de passagem
+
+**A plausibilidade nunca dispara.** Separação 0,5000 é régua constante: os 346 tabuleiros
+são plausíveis, porque o árbitro da F1.7 conserta a posição antes de alguém perguntar.
+Ela ficou no porteiro mesmo assim, como veto seco e fora da conta do piso — barrar uma
+posição impossível não pode custar um tabuleiro certo, e o caso que ela protege é o que o
+corpus não tem: diagrama mal recortado, em que o árbitro não dá conta.
+
+**A rede de ocupação calculava a confiança dela e jogava fora.** O `ocupadas` decidia no
+`>= 0.5` e devolvia o booleano. Agora a probabilidade da decisão tomada — `p` onde disse
+"tem peça", `1 - p` onde disse "vazia" — vive em `Casa.confianca_ocupacao`, nas 64 casas,
+inclusive nas vazias. Sem ela o porteiro seria cego para o erro mais comum: a F8.4 mediu
+a ocupação em 99,38% contra 99,62% da identidade, e uma peça inventada não abaixa
+confiança de identidade nenhuma.
+
+#### O que entrou
+
+`medir_porteiro.py` (as oito réguas, a varredura e a tabela de operação),
+`diagrama.confiavel` com o `PISO_DO_PORTEIRO` carregando a tabela acima no comentário,
+`diagrama.confianca_de_ocupacao`, o campo novo na `Casa`, e
+`tests/test_f58_porteiro.py`, 7 testes que não carregam modelo — as leituras são montadas
+à mão, que é o que permite pôr uma casa exatamente no piso e outra logo abaixo.
+
+O instrumento **não reimplementa a regra**: a última linha do relatório é a decisão do
+próprio `diagrama.confiavel`, e ela bate com a linha 0,98 da tabela. É a trava da F52.
+
+### Etapas 1 e 3 — o desenho chega ao EPUB e ao DOCX
+
+**Um retângulo virou dois, e era o defeito latente da fase.** O `livro` guardava só a
+borda **mais a margem** — o retângulo que não pode virar texto, sem o qual os rótulos
+`a`–`h` entram como linhas de um caractere. Enquanto o único uso dele era recortar, dava
+no mesmo; para ler o tabuleiro, não: o `_casas_do_recorte` divide o recorte em 8×8
+**iguais**, e a F8.4 mediu que moldura de 2% desloca toda casa. Ler pela `exclusao`
+devolveria 64 casas deslocadas e um FEN errado sem quebrar nada. Agora a `Diagrama` tem
+os dois campos com nome, e trocá-los deixou de ser possível por descuido.
+
+O resto da costura:
+
+- `Figura` ganha `fen`, `origem` (`render`/`recorte`/`pagina`) e `aviso`, e a
+  `PaginaExtraida` conta `diagramas_desenhados`. É o que permite o relatório do fim dizer
+  **em que páginas** o livro preferiu o scan, e por quê;
+- **falta de modelo ou de fonte não derruba a exportação**: cai para o recorte com o
+  motivo escrito, uma vez por diagrama. Um livro de 264 páginas não pode morrer na
+  página 3 porque o `.pth` do diagrama não foi treinado;
+- `coordenadas` é falso por padrão **nos dois modos**, e o recorte de queda segue a
+  opção: desenho e recorte convivem no mesmo livro, e um com rótulo e outro sem seria a
+  única diferença visível entre a página em que o modelo se saiu bem e a outra;
+- o `alt` da figura passa a ser o FEN nos dois formatos — no DOCX pelo `descr` do
+  `docPr`, que o `python-docx` não expõe e que sai pela camada XML. Acessibilidade e
+  busca no mesmo campo;
+- a UI pergunta as duas coisas e lista as quedas no fim.
+
+**O lado do desenho subiu para 528 px, e a medição diz que é de graça.** O EPUB escala
+pela CSS; o DOCX fixa a figura em 9 cm, e ali o lado em pixels *é* a resolução impressa:
+
+| lado | arquivo | dpi a 9 cm no DOCX |
+|---:|---:|---:|
+| 350 px | 6,8 KB | 99 ← o que o recorte a 150 dpi dava |
+| **528 px** | **11,2 KB** | **149** |
+| 700 px | 14,4 KB | 198 |
+
+O recorte que isto substitui pesava ~85 KB a 700 px, e cerca de um quarto disso a 350.
+**O desenho a 528 custa metade do recorte a 350** e imprime a 149 dpi onde ele dava 99 —
+não há troca a fazer, e por isso o padrão não é o mínimo.
+
+### A prova em página de livro
+
+Três páginas do Chess Evolution 1, com os modelos de verdade: **11 diagramas, 11
+desenhados, nenhuma queda**, em 2,6 s. Duas posições conferidas casa a casa contra o
+impresso — Ex. 22-3 e Ex. 22-6 da página 220 — batem nas 64. As outras nove não foram
+conferidas à mão: quem sustenta o número de acerto é a medição dos 346, não este passeio.
+
+A suíte também deixou de ter dublê no caminho crítico: `test_do_pdf_ao_desenho_sem_nenhum_dublê`
+imprime um diagrama com fonte, monta um PDF com ele, extrai e exige o mesmo FEN de volta.
+É o teste que pega a troca dos dois retângulos, que nenhum outro pegaria.
+
+### O que fica registrado
+
+**Duas coisas se perdem ao redesenhar.** O ▼/△ de quem joga mora fora da borda e continua
+em lugar nenhum — o `Leitura.fen()` convenciona "brancas a jogar" e avisa que
+convencionou; redesenhando, a convenção passa a parecer leitura. E o cabeçalho do
+exercício ("Ex. 22-3 ★") é texto da página: falta confirmar se escapa do retângulo de
+exclusão e entra no parágrafo, em vez de sumir junto com o recorte.
+
+## F59 — O modo de fonte embutida — PLANEJADA
+
+O mesmo mapa da F58, entregue como **texto de verdade** em vez de PNG: opção, com o PNG
+continuando padrão. A vantagem é tamanho e escala; o risco é o leitor que força a fonte
+do usuário e transforma o tabuleiro em `rmblkans`.
+
+**EPUB é o caminho limpo:** `@font-face`, item no manifesto com `media-type="font/otf"` e
+`<meta property="ibooks:specified-fonts">true</meta>`, sem o qual o Apple Books ignora a
+fonte embutida. O tabuleiro é um bloco de oito linhas com `line-height: 1em` e
+`letter-spacing: 0` — sobrando um décimo, aparece costura branca entre as filas.
+
+**DOCX é o espinhoso, e por dois motivos somados.** O OOXML embute fonte como parte
+**ofuscada** (`.odttf`, primeiros 32 bytes em XOR com um GUID), declarada no
+`word/fontTable.xml` com `w:embedRegular` e ligada por relacionamento, mais
+`w:embedTrueTypeFonts` no `settings.xml` — e o `python-docx` não tem API para nada disso,
+sai pela camada OPC à mão. Além disso, o arquivo da SkakNew-Diagram é **CFF** (`OTTO`), e
+o embutimento do Word é orientado a TrueType: ou se converte o contorno com o fontTools,
+ou o DOCX em modo fonte depende da fonte instalada na máquina de quem abre. Só se dá por
+pronto abrindo o arquivo no Word.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

@@ -1694,6 +1694,27 @@ class MainWindow(tk.Frame):
                 f"Use .epub ou .docx.")
             return
 
+        # O diagrama redesenhado é o padrão desde a F58, e o porteiro é quem
+        # decide caso a caso — aqui só se pergunta se ele pode tentar. Quem
+        # responde "não" leva o livro inteiro com o recorte do scan, que é o que
+        # a F2.6 exportava.
+        desenhar = messagebox.askyesno(
+            "Redesenhar os diagramas?",
+            "Redesenhar cada diagrama a partir da posição lida, com fonte de "
+            "xadrez?\n\n"
+            "O tabuleiro sai limpo, no lugar do recorte do scan. Onde a leitura "
+            "não convencer, o diagrama cai sozinho para o recorte — medido em "
+            "346 tabuleiros de livro, isso acontece em 9% deles.\n\n"
+            "Não: todos os diagramas saem recortados da página, como antes.")
+
+        coordenadas = messagebox.askyesno(
+            "Coordenadas nos diagramas?",
+            "Incluir as letras a–h e os números 1–8 em volta do tabuleiro?\n\n"
+            "O livro impresso as traz para quem vai falar da posição em voz "
+            "alta. Num arquivo que se lê na tela elas ocupam espaço e não dizem "
+            "nada que o tabuleiro já não diga — por isso o padrão é sem.",
+            default=messagebox.NO)
+
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
         # PNG pequenos e poupa caçá-los na tela um a um.
@@ -1726,7 +1747,10 @@ class MainWindow(tk.Frame):
                 h.progress(atual, total, f"página {atual}/{total}")
 
             paginas = livro.extrair(input_pdf, self.learning_service.predict_neural,
-                                    coletor=coletor, progress_callback=progresso)
+                                    coletor=coletor,
+                                    diagramas="render" if desenhar else "recorte",
+                                    coordenadas=coordenadas,
+                                    progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
             exportar.exportar(paginas, saida, formato=formato,
                               titulo=os.path.splitext(os.path.basename(input_pdf))[0])
@@ -1739,11 +1763,27 @@ class MainWindow(tk.Frame):
             figuras = sum(1 for p in paginas for b in p.blocos
                           if isinstance(b, livro.Figura))
             de_imagem = sum(1 for p in paginas if p.pagina_de_imagem)
+            diagramas = sum(p.diagramas for p in paginas)
+            desenhados = sum(p.diagramas_desenhados for p in paginas)
             linhas = [
                 f"Páginas: {len(paginas)}",
                 f"Caracteres lidos: {sum(p.caracteres for p in paginas)}",
                 f"Figuras: {figuras}",
             ]
+            if desenhar and diagramas:
+                # Quem caiu para o recorte é o que o usuário precisa saber para
+                # conferir: são as páginas em que a leitura não convenceu.
+                linhas.append(f"Diagramas redesenhados: {desenhados} de {diagramas}")
+                recortados = [
+                    f"  página {p.numero + 1}: {b.aviso}"
+                    for p in paginas for b in p.blocos
+                    if isinstance(b, livro.Figura) and b.aviso]
+                if recortados:
+                    linhas.append(f"Caíram para o recorte do scan "
+                                  f"({len(recortados)}):")
+                    linhas += recortados[:12]
+                    if len(recortados) > 12:
+                        linhas.append(f"  ... e mais {len(recortados) - 12}")
             if de_imagem:
                 linhas.append(f"{de_imagem} página(s) eram imagem e saíram inteiras.")
             if coletor is not None:

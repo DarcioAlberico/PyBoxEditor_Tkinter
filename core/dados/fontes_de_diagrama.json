@@ -1,0 +1,44 @@
+{
+  "versao": 1,
+  "nota": "O que cada caractere de uma fonte de diagrama desenha (F58). Derivado e conferido por medir_fonte_diagrama.py -- nao editar a mao sem rodar o script depois.",
+  "fontes": {
+    "SkakNew-Diagram": {
+      "arquivo": "fonts/SkakNew-Diagram.otf",
+      "sha256": "bb0a3c03aba60f88f5b81d4dd76fbbf5ccc190978e481bd2c9c915789dd2aea1",
+      "em": 1000,
+      "licenca": "LPPL 1.2 ou posterior, (c) 2004-2009 Ulrich Dirr. Redistribuicao autorizada -- ver fonts/SkakNew.pdf",
+      "origem": "posicao inicial impressa na pagina 3 de fonts/SkakNew.pdf, fechada por eliminacao e conferida pela geometria dos glifos e pelas duas redes da F7.4/F7.5",
+      "casas": {
+        "0": [null, "clara"],
+        "Z": [null, "escura"],
+        "R": ["R", "clara"],
+        "S": ["R", "escura"],
+        "N": ["N", "clara"],
+        "M": ["N", "escura"],
+        "B": ["B", "clara"],
+        "A": ["B", "escura"],
+        "Q": ["Q", "clara"],
+        "L": ["Q", "escura"],
+        "K": ["K", "clara"],
+        "J": ["K", "escura"],
+        "P": ["P", "clara"],
+        "O": ["P", "escura"],
+        "r": ["r", "clara"],
+        "s": ["r", "escura"],
+        "n": ["n", "clara"],
+        "m": ["n", "escura"],
+        "b": ["b", "clara"],
+        "a": ["b", "escura"],
+        "q": ["q", "clara"],
+        "l": ["q", "escura"],
+        "k": ["k", "clara"],
+        "j": ["k", "escura"],
+        "p": ["p", "clara"],
+        "o": ["p", "escura"]
+      },
+      "sobreposicoes": "1 2 3 4 5 6 T U V W X Y",
+      "nota_sobreposicoes": "Avanco zero: nao andam com a caneta, entao nao sao casa. Na folha de contato veem-se como as mesmas 12 pecas em casa cheia -- 1-6 sao as brancas sobre quadrado preto e T-Y as pretas sem quadrado; o 'z', que anda 1 em, e o quadrado preto vazio. E a familia de destaque da fonte. Nenhum uso ainda.",
+      "sem_uso": "z"
+    }
+  }
+}

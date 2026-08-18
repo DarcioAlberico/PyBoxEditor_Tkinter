@@ -41,12 +41,25 @@ _CONTAINER = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+def _alternativo(figura: Figura) -> str:
+    """
+    O texto alternativo da figura — o FEN, quando ele existe.
+
+    **É acessibilidade e busca no mesmo campo.** Um diagrama redesenhado sabe a
+    posição que desenhou; pô-la no `alt` faz o leitor de tela dizer algo além de
+    "imagem" e faz o tabuleiro aparecer numa busca por FEN. O recorte não sabe
+    de nada, e por isso continua com o rótulo genérico.
+    """
+    return figura.fen or "Diagrama"
+
+
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str]) -> str:
     corpo, i = [], 0
     primeiro = True
     for bloco in pagina.blocos:
         if isinstance(bloco, Figura):
-            corpo.append(f'<figure><img src="{imagens[i]}" alt="Diagrama"/></figure>')
+            corpo.append(f'<figure><img src="{imagens[i]}" '
+                         f'alt="{html.escape(_alternativo(bloco))}"/></figure>')
             i += 1
             primeiro = True
         else:
@@ -159,7 +172,13 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
             doc.add_page_break()
         for bloco in pagina.blocos:
             if isinstance(bloco, Figura):
-                doc.add_picture(_io.BytesIO(bloco.png), width=Cm(largura_figura_cm))
+                forma = doc.add_picture(_io.BytesIO(bloco.png),
+                                        width=Cm(largura_figura_cm))
+                # O texto alternativo do OOXML mora no `docPr` da forma, e o
+                # `python-docx` não o expõe — daí descer ao XML. Vale o desvio
+                # pelo mesmo motivo do EPUB: é o FEN que o leitor de tela lê e
+                # que a busca do Word encontra.
+                forma._inline.docPr.set("descr", _alternativo(bloco))
                 doc.paragraphs[-1].alignment = 1   # centralizado
             else:
                 doc.add_paragraph(bloco.texto)

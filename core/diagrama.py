@@ -178,6 +178,11 @@ class Casa:
     confianca: float = 0.0
     arbitrada: bool = False          # a legalidade mudou esta leitura
     corrigida: bool = False          # a mão do usuário mudou esta leitura (F8.2)
+    #: Quanto a rede da ocupação (F7.5) se convenceu de que esta casa tem — ou
+    #: não tem — peça. Vai de 0,5 (moeda) a 1,0, e existe **em toda casa**,
+    #: inclusive na vazia, ao contrário da `confianca`, que só a peça tem. É o
+    #: sinal que o porteiro da F58 usa para desconfiar de um tabuleiro inteiro.
+    confianca_ocupacao: float = 0.0
 
     @property
     def nome(self) -> str:
@@ -364,6 +369,37 @@ def residuos(imagem, caixa: Optional[Tuple[int, int, int, int]] = None
     return residuo, _ocupadas(residuo)
 
 
+def confianca_de_ocupacao(residuo: dict) -> dict:
+    """
+    `{casa: quanto a rede se convenceu do que decidiu}`, de 0,5 a 1,0 (F58).
+
+    É a probabilidade **da decisão tomada** — `p` onde ela disse "tem peça" e
+    `1 - p` onde disse "vazia" —, e não a de "tem peça". As duas formas ordenam
+    o mesmo conjunto de casas duvidosas, mas só esta responde à pergunta que o
+    porteiro faz: *qual é a casa em que esta leitura menos se sustenta?* Com a
+    probabilidade crua, uma casa vazia lida com 0,01 pareceria a mais frágil do
+    tabuleiro, quando é a mais firme.
+
+    Existe porque a `ocupadas` calculava este número e o jogava fora no `>= 0.5`
+    — e a F8.4 mediu que a ocupação é hoje a mais fraca das duas redes (99,38%
+    contra 99,62% da identidade). Porteiro que só olhasse a confiança da peça
+    seria cego justamente para o erro mais comum.
+    """
+    return {k: max(p, 1.0 - p) for k, p in _probabilidade_de_peca(residuo).items()}
+
+
+def _probabilidade_de_peca(residuo: dict) -> dict:
+    """`{casa: probabilidade de ter peça}`, crua, como a rede da F7.5 a devolve."""
+    import torch
+
+    chaves = sorted(residuo)
+    rede, coluna, temperatura = _carregar_ocupacao()
+    with torch.no_grad():
+        p = torch.softmax(rede(entrada_da_rede([residuo[k] for k in chaves]))
+                          / temperatura, dim=1).numpy()
+    return {k: float(p[i, coluna]) for i, k in enumerate(chaves)}
+
+
 def ocupadas(residuo: dict) -> dict:
     """
     `{casa: há peça?}` — a decisão de ocupação, pela rede (F7.5).
@@ -387,14 +423,7 @@ def ocupadas(residuo: dict) -> dict:
     Uma regressão logística sobre cinco medidas dessas chega a 97,8%. A rede
     sobre o resíduo chega a 99,3% — 11 casas erradas em 1.600, contra 124.
     """
-    import torch
-
-    chaves = sorted(residuo)
-    rede, coluna, temperatura = _carregar_ocupacao()
-    with torch.no_grad():
-        p = torch.softmax(rede(entrada_da_rede([residuo[k] for k in chaves]))
-                          / temperatura, dim=1).numpy()
-    return {k: bool(p[i, coluna] >= 0.5) for i, k in enumerate(chaves)}
+    return {k: bool(p >= 0.5) for k, p in _probabilidade_de_peca(residuo).items()}
 
 
 #: Nome interno antigo, mantido para quem já importava.
@@ -667,12 +696,20 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None) -> Leitura:
     # Duas redes, em ordem: a da ocupação diz quais casas têm peça (F7.5), a das
     # peças diz qual é (F7.4). Era um limiar de Otsu no lugar da primeira.
     residuo = _residuos(_casas_do_recorte(recorte))
-    ocupada = ocupadas(residuo)
+    # A rede da ocupação roda uma vez só: a decisão e a confiança dela saem da
+    # mesma probabilidade, e chamar `ocupadas` e `confianca_de_ocupacao` em
+    # seguida pagaria a rede duas vezes por tabuleiro.
+    probabilidade = _probabilidade_de_peca(residuo)
+    ocupada = {k: p >= 0.5 for k, p in probabilidade.items()}
+    firmeza = {k: max(p, 1.0 - p) for k, p in probabilidade.items()}
     chaves = [k for k in sorted(residuo) if ocupada[k]]
+
+    def vazia(r: int, c: int) -> Casa:
+        return Casa(r, c, None, confianca_ocupacao=firmeza.get((r, c), 0.0))
 
     if not chaves:
         leitura.avisos.append("nenhuma peça encontrada")
-        leitura.casas = [Casa(r, c, None) for r in range(8) for c in range(8)]
+        leitura.casas = [vazia(r, c) for r in range(8) for c in range(8)]
         return leitura
 
     pontos = _pontuar([residuo[k] for k in chaves])
@@ -683,9 +720,9 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None) -> Leitura:
         total = float(linha_pontos.sum()) or 1.0
         por_casa[k] = Casa(k[0], k[1], simbolo,
                            float(linha_pontos[SIMBOLOS.index(simbolo)]) / total,
-                           mexida)
+                           mexida, confianca_ocupacao=firmeza[k])
 
-    leitura.casas = [por_casa.get((r, c)) or Casa(r, c, None)
+    leitura.casas = [por_casa.get((r, c)) or vazia(r, c)
                      for r in range(8) for c in range(8)]
 
     if leitura.arbitradas:
@@ -697,6 +734,81 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None) -> Leitura:
             "A posição continua impossível (reis, peões ou contagem). A leitura "
             "está errada em algum lugar.")
     return leitura
+
+
+#: O piso do porteiro da F58: abaixo disto o diagrama não vira desenho, vira
+#: recorte do scan.
+#:
+#: **A régua é a menor das duas confianças** — a da peça na casa mais fraca e a
+#: da ocupação na casa mais fraca —, e não a média de nenhuma delas. Um
+#: tabuleiro só está certo se as 64 casas estiverem, e a média deixa 63 casas
+#: firmes carregarem a que é moeda.
+#:
+#: Medido sobre os 346 tabuleiros do split `test` do corpus da F8.4, dos quais
+#: 24 saem errados (93,06% de tabuleiro inteiro certo):
+#:
+#:     corte   barrados  pegos  escapam  certos perdidos
+#:     0,00           0      0       24      0    (0,0%)  ← sem porteiro
+#:     0,50          10     10       14      0    (0,0%)
+#:     0,90          21     17        7      4    (1,2%)
+#:     0,95          28     21        3      7    (2,2%)
+#:     **0,98**      30     22        2      8    (2,5%)
+#:     0,99          34     22        2     12    (3,7%)
+#:     0,999         56     22        2     34   (10,6%)
+#:
+#: O 0,98 é onde a curva vira: pega 22 dos 24 por 2,5% dos certos, e daí para
+#: cima o preço sobe sem que mais nenhum erro seja pego. **Um em treze vira um
+#: em 173.**
+#:
+#: A separação da régua é 0,9806 (F51: fração de pares (errado, certo) que ela
+#: ordena direito). A média da confiança da peça mede 0,9812 — empate dentro do
+#: ruído de 24 tabuleiros —, mas ordena pior onde importa: a 0,50 ela não pega
+#: um erro sequer, enquanto esta pega 10 **sem custar um certo**. São as casas
+#: em que a rede jogou cara ou coroa, e a média as dilui.
+#:
+#: Os 2 que escapam escapam de tudo: as duas réguas só os pegam acima de 0,9995,
+#: com 14% dos certos junto. São leituras erradas e confiantes, e nenhum sinal
+#: que a `ler` produz hoje as distingue.
+PISO_DO_PORTEIRO = 0.98
+
+
+def confiavel(leitura: Leitura, *, piso: float = PISO_DO_PORTEIRO
+              ) -> Tuple[bool, str]:
+    """
+    (esta leitura pode virar desenho?, por que não) — o porteiro da F58.
+
+    **Existe porque o desenho mente bem.** Recortado do scan, o diagrama errado
+    ao menos mostra o que o livro imprimiu; redesenhado a partir de uma leitura
+    errada, ele sai com a mesma nitidez nas 64 casas e nada denuncia a peça
+    trocada. Quem não passa aqui não é descartado — cai para o recorte, que é o
+    que a F2.6 já exportava.
+
+    A implausibilidade é veto seco, e não entra na conta do piso: posição
+    impossível é leitura errada por definição, então barrá-la nunca custa um
+    tabuleiro certo. Nos 346 do corpus ela não disparou uma vez — o árbitro
+    (F1.7) conserta a posição antes —, e está aqui pelo caso que o corpus não
+    tem: diagrama mal recortado, em que o árbitro não dá conta.
+    """
+    if not leitura.casas:
+        return False, "não deu para ler o diagrama"
+
+    # O tabuleiro vazio vem antes da plausibilidade porque ele também é
+    # impossível — não tem rei nenhum —, e "não achei peça" diz o que houve,
+    # enquanto "posição impossível" manda procurar um erro que não existe.
+    pecas = [c.confianca for c in leitura.casas if c.simbolo]
+    if not pecas:
+        return False, "nenhuma peça encontrada no diagrama"
+
+    if not leitura.plausivel:
+        return False, "a posição lida é impossível"
+
+    pior_peca = min(pecas)
+    pior_ocupacao = min(c.confianca_ocupacao for c in leitura.casas)
+    if min(pior_peca, pior_ocupacao) < piso:
+        qual = ("a peça" if pior_peca <= pior_ocupacao else "haver peça")
+        return False, (f"{qual} na casa mais fraca ficou em "
+                       f"{min(pior_peca, pior_ocupacao):.0%}")
+    return True, ""
 
 
 def ler_pagina(imagem, boxes: Sequence[BoxEntry]) -> List[Leitura]:

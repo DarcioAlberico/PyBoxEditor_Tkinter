@@ -383,6 +383,11 @@ def test_formato_invalido():
 # ----------------------------------------------------------------------
 
 def _main():
+    """
+    Roda o que está **acima** desta função, que é onde moram os testes de
+    módulo. Os da UI e os da F58 vêm depois do `if __name__`, fora do alcance
+    dela — e ali é o lugar deles: pedem `monkeypatch`, que é do pytest.
+    """
     testes = [(n, o) for n, o in sorted(globals().items())
               if n.startswith("test_") and callable(o)]
     falhas = []
@@ -418,10 +423,19 @@ class _App:
     MainWindow com os diálogos capturados e o modelo neural fora do caminho.
 
     Os diálogos são a metade da ação que não dá para exercitar de outro jeito —
-    é neles que estão a escolha do formato pela extensão e a pergunta da coleta.
+    é neles que estão a escolha do formato pela extensão e as três perguntas de
+    sim ou não.
+
+    **As respostas vão por título, e não uma para todas.** Enquanto havia uma
+    pergunta só, um booleano bastava; com três (desenhar, coordenadas, coletar)
+    um booleano faria o teste da coleta ligar o desenho de carona, e o teste
+    passaria a medir outra coisa sem avisar.
     """
 
-    def __init__(self, entrada, saida, coletar=False):
+    #: título da pergunta → resposta. O que não casar responde "não".
+    PADRAO = {"Redesenhar": True, "Coordenadas": False, "Guardar": False}
+
+    def __init__(self, entrada, saida, coletar=False, respostas=None):
         from tkinter import filedialog, messagebox
 
         self.originais = (filedialog.askopenfilename,
@@ -430,11 +444,18 @@ class _App:
                           messagebox.showerror)
         self.avisos = []
         self.erros = []
+        self.respostas = dict(self.PADRAO, Guardar=coletar, **(respostas or {}))
         filedialog.askopenfilename = lambda *a, **k: entrada
         filedialog.asksaveasfilename = lambda *a, **k: saida
-        messagebox.askyesno = lambda *a, **k: coletar
+        messagebox.askyesno = self._responder
         messagebox.showinfo = lambda t, m="", *a, **k: self.avisos.append(m)
         messagebox.showerror = lambda t, m="", *a, **k: self.erros.append(m)
+
+    def _responder(self, titulo="", _mensagem="", *a, **k):
+        for chave, valor in self.respostas.items():
+            if chave.lower() in titulo.lower():
+                return valor
+        return False
 
     def __enter__(self):
         from conftest import raiz_tk
@@ -518,3 +539,259 @@ def test_cancelar_a_escolha_do_arquivo_nao_faz_nada():
     with _App("", "") as app:
         app.rodar_sem_esperar()
         assert not app.avisos and not app.erros
+
+
+def test_as_duas_perguntas_da_f58_chegam_a_extracao(monkeypatch):
+    """
+    As opções não valem nada se pararem no diálogo. Aqui a extração é trocada
+    por uma que só anota o que recebeu — é o único jeito de provar que a
+    resposta do usuário atravessa a thread de trabalho.
+    """
+    recebido = {}
+
+    def falsa(input_pdf, classificar, **kw):
+        recebido.clear()
+        recebido.update(kw)
+        return []
+
+    monkeypatch.setattr(livro, "extrair", falsa)
+
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    _pdf_de_uma_pagina(entrada)
+
+    with _App(entrada, os.path.join(tmp, "a.epub")) as app:
+        app.rodar()
+        assert not app.erros, app.erros
+        assert recebido["diagramas"] == "render", "o desenho é o padrão da F58"
+        assert recebido["coordenadas"] is False, "coordenada só quando se pede"
+
+    with _App(entrada, os.path.join(tmp, "b.epub"),
+              respostas={"Redesenhar": False, "Coordenadas": True}) as app:
+        app.rodar()
+        assert not app.erros, app.erros
+        assert recebido["diagramas"] == "recorte"
+        assert recebido["coordenadas"] is True
+
+
+# ----------------------------------------------------------------------
+# O diagrama redesenhado (F58)
+# ----------------------------------------------------------------------
+
+def _leitura_firme(fen="8/8/8/4k3/8/8/8/4K3 w - - 0 1"):
+    """Uma leitura que passa no porteiro, montada à mão — sem carregar modelo."""
+    from core import diagrama as diag
+
+    leitura = diag.Leitura(caixa=(0, 0, 64, 64))
+    tabuleiro = {}
+    for i, fila in enumerate(fen.split()[0].split("/")):
+        coluna = 0
+        for ch in fila:
+            if ch.isdigit():
+                coluna += int(ch)
+            else:
+                tabuleiro[(i, coluna)] = ch
+                coluna += 1
+    for r in range(8):
+        for c in range(8):
+            leitura.casas.append(diag.Casa(r, c, tabuleiro.get((r, c)), 1.0,
+                                           confianca_ocupacao=1.0))
+    return leitura
+
+
+def _pagina_com_diagrama(**kw):
+    """Extrai a página de teste com a leitura de diagrama controlada."""
+    doc = _pagina(texto_linhas=("Texto antes do diagrama.",), diagrama=True)
+    try:
+        return livro.extrair_pagina(doc[0], _classificador("x"), dpi=150, **kw)
+    finally:
+        doc.close()
+
+
+def test_o_diagrama_confiavel_sai_desenhado_e_com_o_fen(monkeypatch):
+    """
+    O caminho inteiro da F58 num teste: a leitura passa no porteiro, o diagrama
+    vira desenho, e o FEN viaja junto para virar texto alternativo lá na frente.
+    """
+    monkeypatch.setattr(livro.diagrama, "ler",
+                        lambda img, caixa=None: _leitura_firme())
+    p = _pagina_com_diagrama(diagramas="render")
+
+    figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
+    assert figuras, "o tabuleiro não virou figura"
+    assert figuras[0].origem == "render"
+    assert figuras[0].fen == "8/8/8/4k3/8/8/8/4K3 w - - 0 1"
+    assert figuras[0].aviso is None
+    assert p.diagramas_desenhados == 1
+    assert figuras[0].largura == figuras[0].altura, "o desenho não é quadrado"
+
+
+def test_a_leitura_que_nao_convence_cai_para_o_recorte(monkeypatch):
+    """
+    O porteiro barrando é o caso comum — 9% dos tabuleiros na medição da F58 —
+    e o livro não pode ficar sem diagrama por causa disso: ele sai recortado, e
+    o motivo fica na figura para o relatório do fim.
+    """
+    fraca = _leitura_firme()
+    fraca.casas[60].confianca = 0.10          # a casa mais fraca do tabuleiro
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: fraca)
+
+    p = _pagina_com_diagrama(diagramas="render")
+    figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
+    assert figuras[0].origem == "recorte"
+    assert figuras[0].fen is None
+    assert "10%" in (figuras[0].aviso or "")
+    assert p.diagramas_desenhados == 0
+
+
+def test_sem_modelo_de_diagrama_a_exportacao_nao_cai(monkeypatch):
+    """
+    Um livro de 264 páginas não pode morrer na página 3 porque o `.pth` do
+    diagrama não foi treinado. Cai para o recorte e diz o que faltou.
+    """
+    def sem_modelo(img, caixa=None):
+        raise livro.diagrama.ModeloAusente("modelo de teste ausente")
+
+    monkeypatch.setattr(livro.diagrama, "ler", sem_modelo)
+    p = _pagina_com_diagrama(diagramas="render")
+
+    figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
+    assert figuras[0].origem == "recorte"
+    assert "não deu para desenhar" in (figuras[0].aviso or "")
+
+
+def test_o_modo_recorte_nao_lê_diagrama_nenhum(monkeypatch):
+    """Quem pediu o livro como antes não paga duas redes por tabuleiro."""
+    def nao_deveria(img, caixa=None):
+        raise AssertionError("o modo recorte leu o diagrama")
+
+    monkeypatch.setattr(livro.diagrama, "ler", nao_deveria)
+    p = _pagina_com_diagrama(diagramas="recorte")
+
+    figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
+    assert figuras and figuras[0].origem == "recorte"
+    assert figuras[0].aviso is None, "recortar por opção não é queixa"
+
+
+def test_modo_de_diagrama_invalido_reclama():
+    doc = _pagina(diagrama=True)
+    try:
+        livro.extrair_pagina(doc[0], _classificador(), diagramas="svg")
+    except ValueError as erro:
+        assert "svg" in str(erro)
+    else:
+        raise AssertionError("aceitou um modo que não existe")
+    finally:
+        doc.close()
+
+
+def test_o_recorte_de_queda_segue_a_opcao_de_coordenadas(monkeypatch):
+    """
+    Desenho e recorte convivem no mesmo livro. Se o recorte trouxesse os rótulos
+    quando o desenho não traz, a única diferença visível entre as duas páginas
+    seria a que o leitor não deveria notar.
+    """
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
+    monkeypatch.setattr(livro.diagrama, "confiavel",
+                        lambda leitura, **kw: (False, "de propósito"))
+
+    justo = _pagina_com_diagrama(diagramas="render",
+                                 coordenadas=False)
+    largo = _pagina_com_diagrama(diagramas="render",
+                                 coordenadas=True)
+
+    def figura(p):
+        return [b for b in p.blocos if isinstance(b, livro.Figura)][0]
+
+    assert figura(justo).largura < figura(largo).largura, (
+        "o recorte com coordenadas deveria alcançar os rótulos das casas")
+
+
+def test_a_pagina_de_imagem_se_declara():
+    """
+    Ela não é diagrama nem recorte de tabuleiro — é a página inteira —, e a
+    `origem` precisa dizer isso para o relatório não contá-la como queda.
+    """
+    doc = fitz.open()
+    doc.new_page(width=200, height=200)      # em branco: nenhum contorno
+    try:
+        p = livro.extrair_pagina(doc[0], _classificador(), dpi=72)
+    finally:
+        doc.close()
+    assert p.pagina_de_imagem
+    assert p.blocos[0].origem == "pagina"
+    assert p.diagramas_desenhados == 0
+
+
+def test_do_pdf_ao_desenho_sem_nenhum_dublê():
+    """
+    A costura inteira, com os modelos de verdade: uma página com um diagrama
+    impresso vira uma figura redesenhada com **o mesmo FEN** que entrou.
+
+    Os outros testes desta seção trocam a `diagrama.ler` por uma leitura montada
+    à mão, porque o que eles medem é a decisão do `livro`. Este não troca nada —
+    é o que pega o erro que nenhum deles pegaria: retângulo de exclusão no lugar
+    do retângulo do tabuleiro, que desloca as 64 casas e devolve um FEN errado
+    sem quebrar nada.
+    """
+    from core import diagrama as diag
+    from core import render_diagrama as rd
+
+    fen = "r1bqk2r/pp2bppp/2n1pn2/3p4/3P4/2N1PN2/PP2BPPP/R1BQK2R w - - 0 1"
+    # Impresso com coordenadas, que é como o livro imprime — e é justamente o
+    # que sobra fora da borda para atrapalhar quem recorta pelo retângulo errado.
+    png, _l, _a = rd.desenhar(fen, lado_px=700, coordenadas=True, tons=0)
+
+    doc = fitz.open()
+    pagina = doc.new_page(width=300, height=420)
+    pagina.insert_text((30, 40), "Texto antes do diagrama.", fontsize=10)
+    pagina.insert_image(fitz.Rect(40, 60, 260, 280), stream=png)
+    pagina.insert_text((30, 300), "Texto depois do diagrama.", fontsize=10)
+
+    try:
+        p = livro.extrair_pagina(pagina, _classificador("x"), dpi=300,
+                                 diagramas="render")
+    except diag.ModeloAusente:
+        import pytest
+        pytest.skip("modelo não construído (rode treinar_diagrama.py)")
+    finally:
+        doc.close()
+
+    figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
+    assert len(figuras) == 1, f"{len(figuras)} figuras numa página com um diagrama"
+    assert figuras[0].origem == "render", figuras[0].aviso
+    assert figuras[0].fen == fen
+    assert p.diagramas_desenhados == 1
+
+
+def test_o_texto_alternativo_da_figura_e_o_fen():
+    """
+    Acessibilidade e busca no mesmo campo: o leitor de tela diz a posição, e uma
+    busca por FEN encontra o diagrama. O recorte não sabe de nada e fica com o
+    rótulo genérico.
+    """
+    fen = "8/8/8/4k3/8/8/8/4K3 w - - 0 1"
+    paginas = [livro.PaginaExtraida(
+        numero=0,
+        blocos=[livro.Figura(_png_pequeno(), 40, 40, fen=fen, origem="render"),
+                livro.Figura(_png_pequeno(), 40, 40)])]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        caminho = exportar.para_epub(paginas, os.path.join(tmp, "x.epub"))
+        with zipfile.ZipFile(caminho) as z:
+            xhtml = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+    assert f'alt="{fen}"' in xhtml
+    assert 'alt="Diagrama"' in xhtml, "o recorte perdeu o rótulo genérico"
+
+
+def test_o_docx_leva_o_fen_no_texto_alternativo():
+    fen = "8/8/8/4k3/8/8/8/4K3 w - - 0 1"
+    paginas = [livro.PaginaExtraida(
+        numero=0,
+        blocos=[livro.Figura(_png_pequeno(), 40, 40, fen=fen, origem="render")])]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        caminho = exportar.para_docx(paginas, os.path.join(tmp, "x.docx"))
+        with zipfile.ZipFile(caminho) as z:
+            documento = z.read("word/document.xml").decode("utf-8")
+    assert fen in documento, "o FEN não chegou ao `descr` da figura"
