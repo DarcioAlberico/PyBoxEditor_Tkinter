@@ -8252,31 +8252,98 @@ imprime um diagrama com fonte, monta um PDF com ele, extrai e exige o mesmo FEN 
 
 ### O que fica registrado
 
-**Duas coisas se perdem ao redesenhar.** O ▼/△ de quem joga mora fora da borda e continua
-em lugar nenhum — o `Leitura.fen()` convenciona "brancas a jogar" e avisa que
-convencionou; redesenhando, a convenção passa a parecer leitura. E o cabeçalho do
-exercício ("Ex. 22-3 ★") é texto da página: falta confirmar se escapa do retângulo de
-exclusão e entra no parágrafo, em vez de sumir junto com o recorte.
+**O cabeçalho do exercício não escapa, e agora está medido.** A pergunta ficou em aberto
+na etapa 3 e a F59 a respondeu de passagem, ao exportar a página 220 do Yusupov: ela sai
+com os seis diagramas e **três** caixas de texto. A escala da página é 57 px, a margem de
+exclusão é 80 px (1,4 escalas), e nela cabem 27 caixas por diagrama — **11 delas acima da
+borda**, que são exatamente o `➤ Ex. 22-1 ◀ ★★ ▼`.
 
-## F59 — O modo de fonte embutida — PLANEJADA
+Antes da F58 isso não se via, porque o recorte saía com a margem junto e o cabeçalho ia
+dentro da figura. Com o desenho — ou com o recorte justo — ele some do livro: não vira
+texto, porque foi excluído; não vira figura, porque a figura agora é o tabuleiro. **É
+perda de informação introduzida por esta fase**, e das piores, porque leva junto o ▼/△ de
+quem joga, que é a única coisa na página que diz de quem é o lance.
+
+Duas saídas, e a escolha é medição de outra fase: ler as caixas da faixa e emitir uma
+legenda antes da figura (o `➤`, o `★` e o `▼` teriam de entrar no alfabeto do modelo), ou
+recortar a faixa como imagem e pô-la acima do desenho.
+
+## F59 — O modo de fonte embutida — CONCLUÍDA (com uma verificação em aberto)
 
 O mesmo mapa da F58, entregue como **texto de verdade** em vez de PNG: opção, com o PNG
-continuando padrão. A vantagem é tamanho e escala; o risco é o leitor que força a fonte
-do usuário e transforma o tabuleiro em `rmblkans`.
+continuando padrão. A vantagem é tamanho; o risco é o leitor que força a fonte do usuário
+e transforma o tabuleiro em `rmblkans`.
 
-**EPUB é o caminho limpo:** `@font-face`, item no manifesto com `media-type="font/otf"` e
-`<meta property="ibooks:specified-fonts">true</meta>`, sem o qual o Apple Books ignora a
-fonte embutida. O tabuleiro é um bloco de oito linhas com `line-height: 1em` e
-`letter-spacing: 0` — sobrando um décimo, aparece costura branca entre as filas.
+**O intermediário carrega os dois.** A `Figura` ganhou `linhas` e `fonte` **junto** do
+PNG, e não no lugar dele: são 72 bytes por figura, e é o que permite escolher o modo na
+hora de *escrever o arquivo* em vez de na hora de ler o PDF. A extração custa minutos; a
+escrita, segundos — quem quer o mesmo livro nos dois modos não paga o OCR duas vezes.
 
-**DOCX é o espinhoso, e por dois motivos somados.** O OOXML embute fonte como parte
-**ofuscada** (`.odttf`, primeiros 32 bytes em XOR com um GUID), declarada no
-`word/fontTable.xml` com `w:embedRegular` e ligada por relacionamento, mais
-`w:embedTrueTypeFonts` no `settings.xml` — e o `python-docx` não tem API para nada disso,
-sai pela camada OPC à mão. Além disso, o arquivo da SkakNew-Diagram é **CFF** (`OTTO`), e
-o embutimento do Word é orientado a TrueType: ou se converte o contorno com o fontTools,
-ou o DOCX em modo fonte depende da fonte instalada na máquina de quem abre. Só se dá por
-pronto abrindo o arquivo no Word.
+Medido nas mesmas três páginas do Yusupov, 11 diagramas:
+
+| | PNG | fonte |
+|---|---:|---:|
+| EPUB | 104,5 KB | **19,1 KB** |
+| DOCX | 137,9 KB | **52,3 KB** |
+
+O EPUB cai para 18%: cada diagrama deixa de custar ~7,8 KB e passa a custar ~200 bytes,
+mais os 18 KB da fonte, uma vez. No DOCX a queda é menor porque a fonte embutida vai
+ofuscada e sem subset.
+
+### O EPUB, medido no navegador
+
+A estrutura o teste prende; a **geometria** exige motor de layout, e foi medida com a
+página aberta num deles:
+
+| | |
+|---|---|
+| vão entre filas | **0,000 px** nas sete emendas |
+| tabuleiro | quadrado dentro de 0,02 px |
+| letras `a`–`h` | alinhadas às colunas dentro de 0,02 px, passo de 33,59 px = 1 casa |
+
+**Duas coisas quebraram nessa medição, e nenhuma apareceria num teste de estrutura.**
+
+A primeira: centrar cada linha por si desalinhava a fileira de letras em 1,3 px. As
+linhas do tabuleiro são glifos e a das letras são caixas de 1 em; as larguras diferem por
+um arredondamento, e centrar cada uma reparte a diferença pela metade. Encaixotar tudo
+num bloco que encolhe até o conteúdo (`display: table`) e centrar **o bloco** resolve.
+
+A segunda: o seletor `p.colunas span` pegava junto o `span` do rótulo da fila e o alargava
+de 0,92 em para 1 em — 2,69 px, o tabuleiro andando para um lado e as letras para o outro.
+Uma classe própria (`span.col`) fecha isso.
+
+E o `<meta property="ibooks:specified-fonts">true</meta>`, sem o qual o Apple Books troca
+a fonte embutida pela do leitor: o arquivo passaria em todos os outros leitores e falharia
+só lá, que é o pior tipo de defeito de formato.
+
+### O DOCX, e o que dele não dá para verificar aqui
+
+São **quatro costuras**, e faltar qualquer uma dá um arquivo que abre sem a fonte, ou não
+abre: a extensão `.odttf` no `[Content_Types].xml`, a parte `word/fonts/fonte1.odttf`, a
+entrada no `word/fontTable.xml` com o relacionamento, e o `w:embedTrueTypeFonts` no
+`settings.xml` — em ordem, porque a sequência de `CT_Settings` é fixa no esquema e fora
+de lugar o Word acusa arquivo corrompido.
+
+Saiu pela camada do zip, e não pela do `python-docx`: a biblioteca escreveria o tipo de
+conteúdo como `Override` por nome de parte, e o Word escreve `Default` por extensão.
+Trinta linhas reescrevendo o zip produzem exatamente o que ele produz.
+
+A ofuscação é o XOR dos 32 primeiros bytes com os 16 do GUID **em ordem inversa**,
+aplicados duas vezes (ECMA-376 §15.2.13). O teste desofusca a parte e compara com o
+arquivo do disco, byte a byte.
+
+**O que fica em aberto é o Word.** Não há como abri-lo daqui, e há uma dúvida concreta
+sobre a qual só ele responde: a SkakNew-Diagram é **CFF** (`OTTO`), e o embutimento do
+Word é orientado a TrueType. Se ele recusar, o remédio é converter o contorno com o
+fontTools — e aí a LPPL exige renomear a família, porque arquivo modificado não pode
+sair com o nome do original.
+
+**Diagrama com coordenadas continua saindo em imagem no DOCX.** Alinhar rótulo de outra
+fonte sobre as casas exigiria uma tabela de 81 células por diagrama; no EPUB são três
+linhas de CSS, aqui não. A imagem já traz as coordenadas desenhadas, então nada se perde
+além dos bytes.
+
+Cobertura: `tests/test_f59_fonte_embutida.py`, 14 testes.
 
 ## Fora de escopo (registrado para depois)
 

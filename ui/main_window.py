@@ -1707,6 +1707,19 @@ class MainWindow(tk.Frame):
             "346 tabuleiros de livro, isso acontece em 9% deles.\n\n"
             "Não: todos os diagramas saem recortados da página, como antes.")
 
+        # A fonte embutida (F59) só faz sentido sobre o desenho: recorte de scan
+        # não vira letra. E é opção, não padrão — leitor que força a fonte do
+        # usuário transforma o tabuleiro em `rmblkans`.
+        embutir = desenhar and messagebox.askyesno(
+            "Diagramas como texto, com a fonte embutida?",
+            "Pôr o tabuleiro como texto de verdade, levando a fonte de xadrez "
+            "dentro do arquivo?\n\n"
+            "Ele passa a escalar sem perder nitidez e pesa quase nada. Em "
+            "compensação, depende de o leitor respeitar a fonte embutida — "
+            "quem trocar a fonte pela dele vê letras no lugar do tabuleiro.\n\n"
+            "Não: o diagrama sai como imagem, que funciona em qualquer leitor.",
+            default=messagebox.NO)
+
         coordenadas = messagebox.askyesno(
             "Coordenadas nos diagramas?",
             "Incluir as letras a–h e os números 1–8 em volta do tabuleiro?\n\n"
@@ -1753,7 +1766,8 @@ class MainWindow(tk.Frame):
                                     progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
             exportar.exportar(paginas, saida, formato=formato,
-                              titulo=os.path.splitext(os.path.basename(input_pdf))[0])
+                              titulo=os.path.splitext(os.path.basename(input_pdf))[0],
+                              diagramas="fonte" if embutir else "png")
             if coletor is not None:
                 coletor.gravar_indice()
             return paginas, coletor

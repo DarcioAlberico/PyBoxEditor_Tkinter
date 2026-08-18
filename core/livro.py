@@ -131,6 +131,16 @@ class Figura:
     fen: Optional[str] = None
     origem: str = "recorte"          # "render" | "recorte" | "pagina"
     aviso: Optional[str] = None
+    #: As oito linhas que desenham a mesma posição **na fonte de xadrez**, para
+    #: o modo de fonte embutida da F59.
+    #:
+    #: Vêm **junto** do PNG, e não no lugar dele: são 72 bytes por figura, e é o
+    #: que permite escolher o modo na hora de *escrever o arquivo* em vez de na
+    #: hora de ler o PDF. A extração custa minutos; a escrita, segundos — e
+    #: quem quer o mesmo livro nos dois modos não paga o OCR duas vezes.
+    linhas: Optional[List[str]] = None
+    fonte: Optional[str] = None
+    coordenadas: bool = False
 
 
 Bloco = Union[Paragrafo, Figura]
@@ -407,7 +417,10 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                 fen = leitura.fen()
                 png, larg, alt = render_diagrama.desenhar(
                     fen, fonte=fonte, lado_px=lado, coordenadas=coordenadas)
-                return Figura(png, larg, alt, fen=fen, origem="render")
+                return Figura(png, larg, alt, fen=fen, origem="render",
+                              linhas=render_diagrama.linhas(
+                                  fen, render_diagrama.carregar(fonte)),
+                              fonte=fonte, coordenadas=coordenadas)
         except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta) as erro:
             # Falta de modelo ou de fonte não pode derrubar a exportação de um
