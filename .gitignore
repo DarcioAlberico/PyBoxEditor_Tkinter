@@ -35,6 +35,14 @@ relatorio_treino_erros/
 
 # Scans de livros — grandes e derivados de material com copyright
 ilovepdf_pages-to-jpg/
+/PDF/
+*.epub
+
+# Pasta duplicada do projeto, dentro do próprio projeto: 1,13 **milhão** de
+# arquivos e 819 MB de recortes soltos (`training_data5`, `training_data_2`,
+# `_3`, `_4`). Não é fonte nem base conferida — é sobra de execução antiga, e é
+# o que fazia `git status` varrer um milhão de caminhos a cada chamada.
+/PyBoxEditor_Tkinter/
 
 # Corpus de diagramas vindo de outro projeto (F8.4): 2,8 GB de recortes de
 # tabuleiro com o FEN de cada um, e as 45 mil amostras que `importar_diagramas.py`
