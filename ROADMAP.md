@@ -8399,7 +8399,14 @@ a segmentação de produção, o maior vão da projeção em x, em larguras medi
 | Nunn, *Secrets of Rook Endings* | 1,00 – 1,18 (17–20 px) | nunca acha |
 | Kasparov, *Dynamic Benko* | 2,58 – 3,31 (49–58 px) | acha em 4 de 9 páginas |
 | Yusupov, *Complete* | 2,59 – 2,94 (44–46 px) | quase nunca acha |
-| Aagaard, *Attacking Manual* (1 coluna) | 0,06 – 0,12 (1–2 px) | correto |
+| ~~Aagaard, *Attacking Manual* (1 coluna)~~ | ~~0,06 – 0,12 (1–2 px)~~ | ~~correto~~ |
+
+> **A linha do Aagaard está errada, e a F70 a corrigiu.** O *Attacking Manual* **é de duas
+> colunas** — conferido na página 128, prosa justificada em duas colunas com diagrama. O
+> que se mediu como "vão que não é calha" era a calha do livro **apagada pelo cabeçalho
+> corrente**, e o livro saía embaralhado em 27 das 30 páginas amostradas. Ele entrou aqui
+> como controle de coluna única e não era um: as duas colunas desta tabela que o citam não
+> sustentam nada. O controle de coluna única de verdade é o Darcy Lima. Ver a F70.
 
 A régua cai para **0,8**: 1,25× abaixo da menor calha medida e 6,7× acima do maior vão
 que não é calha. O espaço entre palavras não chega perto porque a projeção é da **página
@@ -8455,12 +8462,17 @@ página de duas colunas lida direito, é **1** por página:
 | 10 páginas rotuladas (7 de 2 colunas) | 10 | **95** | **7** |
 | Nunn, amostra de 8 páginas | 8 | 79 | 6 |
 | Yusupov *Chess Evolution 1*, 7 páginas | 7 | 103 | 4 |
-| Aagaard *Attacking Manual* (1 coluna), 7 | 7 | 8 | 1 |
+| Aagaard *Attacking Manual* (~~1 coluna~~ — **2**, ver F70), 7 | 7 | 8 | 1 |
 | Darcy Lima (1 coluna), 9 páginas | 9 | 8 | 1 |
 
-O livro de coluna única não se mexe: das 16 páginas dos dois livros de uma coluna, uma
-única passa a ser lida em duas — a de *preview* de diagramas do Aagaard, que é uma grade
-3×3 de legendas, e mesmo ali os saltos caem de 8 para 1.
+O livro de coluna única não se mexe: das 16 páginas dos dois livros tidos por de uma
+coluna, uma única passa a ser lida em duas — a de *preview* de diagramas do Aagaard, que é
+uma grade 3×3 de legendas, e mesmo ali os saltos caem de 8 para 1.
+
+**A leitura deste parágrafo mudou com a F70**, e vale registrar o erro: o Aagaard é de
+duas colunas, então as suas 7 páginas não eram um controle passando — eram sete páginas
+saindo embaralhadas, e a fase não percebeu porque contava as colunas certas nos livros
+errados. O único controle de coluna única aqui é o Darcy Lima.
 
 O relatório do fim da exportação passa a dizer quantas páginas saíram com mais de uma
 coluna. Sem esse número não havia como conferir a queixa sem abrir o arquivo.
@@ -8972,6 +8984,137 @@ Depois: `0` ocorrências de `✝` e `17` de `+` na mesma página, com `5.♔xf2 
 intacto.
 
 Cobertura: 3 testes em `tests/test_f61_pgn.py` e 1 em `tests/test_f26_livro.py`.
+
+## F70 — Uma letra do cabeçalho apagava a calha da página inteira — CONCLUÍDA
+
+A F61 fechou dizendo que o livro de duas colunas deixava de sair misturado, e ele
+continuava saindo em parte das páginas. A régua de lá — `calha >= 0,8 × largura mediana de
+caractere` — não era o problema. O problema é que ela media a coisa errada.
+
+Medidas as **354 páginas** do Nunn (`scratchpad/calha_nunn.py`), com a posição da calha
+como verdade de referência — num livro de duas colunas ela fica sempre no mesmo x, e a
+mediana das páginas inequívocas dá 0,505 da largura do texto:
+
+| | |
+|---|---:|
+| páginas de prosa | 352 |
+| de duas colunas (têm vão na posição canônica) | 305 |
+| lidas em duas colunas | 298 |
+| **falsos negativos** | **8** |
+
+Os oito são o capítulo *Solutions to Exercises* — páginas 333 a 351, ímpares —, prosa
+justificada em duas colunas, saindo intercalada. E outras sete passavam por 0 ou 1 px:
+as páginas 38 e 316 empatavam com o limiar, e as 112, 114, 118, 140 e 310 o venciam por
+um pixel.
+
+### A causa não era o limiar, e sim o OR
+
+Em cada página falha há **um único box de 25×27 px em y≈105** — uma letra do cabeçalho
+corrente, que é centralizado, e centralizado é em cima da calha:
+
+| | com o box | sem ele |
+|---|---:|---:|
+| p335 | 7 px → 1 coluna | 31 px → 2 colunas |
+| p345 | 6 px → 1 coluna | 31 px → 2 colunas |
+| p038 | 13 px (empate) | 42 px |
+
+A projeção era `ocupado[x] = True` para **qualquer** box: um caractere apaga a calha da
+página inteira. É por isso que o defeito era errático — "acerta em algumas páginas e erra
+nas outras" era literal, e a variável é onde a letra do cabeçalho calha de cair.
+
+**A calha de verdade do Nunn tem ~56 px (3,3 larguras medianas), e não os 14–20 que a
+régua via.** O que a F61 mediu foi o resto que o cabeçalho deixou, e é por isso que
+`CALHA_EM_CARACTERES` precisou descer a 0,8. Baixá-la nunca foi o remédio: era o sintoma.
+
+### O controle da F61 não era um controle
+
+O *Attacking Manual* entrou na tabela de calibração da F61 como livro de **uma** coluna, e
+os seus 0,06–0,12 serviram de prova do que é "vão que não é calha". Conferida a página 128:
+**é de duas colunas**, prosa justificada com diagrama. O que se mediu como vão inocente era
+a calha do livro apagada pelo mesmo cabeçalho, e o livro saía embaralhado em **27 das 30**
+páginas amostradas. O único controle de coluna única daquela tabela é o Darcy Lima.
+
+### A correção: contar linhas, não boxes
+
+O cabeçalho é **uma** linha. O miolo de uma página de coluna única é coberto por todas as
+quarenta, porque o espaço entre palavras do texto justificado cai num x diferente a cada
+linha e nenhum x central sobrevive à conta. `LINHAS_NA_CALHA = 1`.
+
+Tolerar linha exige um piso, e ele foi medido: no recorte de cinco linhas do
+`test_f16_colunas`, uma linha é 20% da página e a tolerância inventa uma terceira faixa.
+`LINHAS_PARA_TOLERAR = 12` fica no vão — 2,4× acima do recorte e 1,25× abaixo da menor
+página de prosa medida (15 linhas no Nunn, 23 no Aagaard, 30 no Darcy Lima). Abaixo dele
+vale a régua de antes, que é o lado seguro do erro.
+
+Também: o vão que encosta na margem esquerda deixa de poder virar calha. Com o OR ele não
+tinha como existir; com a tolerância ele aparece na página em que só o cabeçalho alcança a
+margem, e faixa aberta ali jogaria os boxes dele para o fim da página.
+
+### A calha certa é larga, e aí cabe gente dentro dela
+
+Achar a calha de verdade quebrou uma coisa que ninguém tinha visto porque não havia como
+ver: o `_por_colunas` **despejava no fim da página** todo box que não caísse em faixa
+nenhuma. Com a calha de 20 px isso nunca disparava — não cabe caractere ali. Com os 56 px
+que a calha tem de verdade, quem mora lá dentro é o caractere central do cabeçalho, o
+mesmo do defeito, e ele passou a sair depois da página inteira.
+
+Aparece como salto a mais na régua: as páginas do Nunn saíam com **2** saltos entre
+colunas em vez de 1, e o segundo era o cabeçalho no fim. Quem cai na calha passa a ficar
+com a faixa **mais próxima**, que é a regra que o `livro._coluna_de` já usava para decidir
+de quem a figura é vizinha.
+
+### O resultado
+
+Páginas lidas em duas ou mais colunas, com o código de produção
+(`scratchpad/verificar_final.py`):
+
+| | antes | depois |
+|---|---:|---:|
+| Nunn, *Secrets of Rook Endings* (2 colunas) | 298/352 | **316**/352 |
+| Aagaard, *Attacking Manual* (2 colunas) | 3/30 | **28**/30 |
+| Yusupov, *Complete* (2 colunas) | 23/35 | **25**/35 |
+| **Darcy Lima (1 coluna) — o controle** | 0/39 | **0/39** |
+
+As oito páginas falhas passam todas, com calha de 51–59 px, e as que passavam por empate
+ganham folga de verdade: 13 px viram 50.
+
+E os saltos entre colunas na ordem de leitura, que é a régua da F61 — numa página de duas
+colunas lida direito, **1** por página (`medir_colunas.py --pdf`):
+
+| | páginas | F1.6 | F61 | hoje |
+|---|---:|---:|---:|---:|
+| Nunn, amostra de 12 em 12 | 12 | 147 | 12 | **12** |
+| Aagaard, amostra de 10 em 10 | 9 | 155 | 156 | **11** |
+| Darcy Lima (1 coluna) — o controle | 11 | 4 | 1 | **1** |
+
+O Aagaard é o número que justifica a fase: 156 saltos onde o certo são 9, e a F61 não
+tinha como saber porque o contava como livro de uma coluna. Na amostra de 12 em 12 do
+Nunn a F61 já acertava tudo — as páginas que ela erra são as do *Solutions to Exercises*,
+e é preciso varrer as 354 para dar com elas.
+
+### O que fica em aberto
+
+**O título de duas linhas sobre a calha ainda a apaga.** A tolerância é de uma linha, e
+duas cruzando derrubam a régua de volta para coluna única. O `sort_boxes_reading_order`
+sabe tratar elemento transversal, mas só depois de as colunas existirem — e aqui elas não
+chegam a existir. Não foi medido quantas páginas têm título de duas linhas.
+
+**Coluna e tabela continuam sendo a mesma coisa**, herdado da F61 e não tocado aqui.
+
+**O Yusupov sai com três faixas no medidor cru** (17 de 25 páginas, contra 11 de 23 antes),
+e isso é artefato da medição, não do produto: são os rótulos `8`–`1` e `a`–`h` ao lado do
+tabuleiro. No caminho real de exportação some, porque o `livro.caixas_e_diagramas` tira os
+diagramas antes de chamar `detectar_colunas` — conferido nas páginas 60, 300, 360 e 600,
+que dão 3 no medidor e 1 ou 2 na exportação.
+
+**A tabela de duas casas largas mudou de defeito, e não some.** Na página 236 do Nunn — uma
+tabela de 4 colunas em cima, texto e diagrama embaixo — a metade de baixo passa a sair
+certa (o texto inteiro antes do diagrama, que é a ordem de leitura correta) e a tabela de
+cima passa a sair partida ao meio, porque a calha achada atravessa a régua vertical dela.
+É o mesmo "coluna e tabela são a mesma coisa" da F61, agora com o sinal trocado nesta
+página.
+
+Cobertura: `tests/test_f70_calha_do_cabecalho.py`, 12 testes.
 
 ## Fora de escopo (registrado para depois)
 

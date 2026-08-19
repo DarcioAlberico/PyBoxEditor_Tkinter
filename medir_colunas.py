@@ -1,11 +1,17 @@
 """
-Mede a detecção de calha — a régua da F61.
+Mede a detecção de calha — a régua da F61, e a projeção da F70.
 
 **Por que existe.** A régua da F1.6 (`calha >= 3 × largura mediana de caractere`)
 nunca foi medida contra livro nenhum, e o efeito disso só aparece no arquivo
 exportado: no Kasparov ela acha a calha em algumas páginas e não em outras, e no
 Nunn não acha em nenhuma. Página lida como coluna única sai com a linha da
 esquerda intercalada com a da direita — que é a queixa que abriu a fase.
+
+**E a F61 não fechou a queixa, porque o limiar não era o defeito** (F70). A
+projeção era um OR, e uma letra do cabeçalho corrente — que é centralizado, isto
+é, em cima da calha — apagava a calha da página inteira. Daí as três colunas de
+régua: `F1.6` é o limiar de 3,0, `F61` é o limiar medido ainda com o OR, e
+`hoje` é a projeção que conta linhas.
 
 Este script é o que reproduz a tabela do ROADMAP. Sobre as páginas rotuladas
 (verdade de segmentação) e, com `--pdf`, sobre uma amostra de páginas de um PDF
@@ -37,16 +43,23 @@ from core.calibracao_de_pagina import paginas_rotuladas
 from core.leitura_de_linha import quebrar_em_linhas
 from core.services.box_service import BoxService
 
+#: Não tolerar linha nenhuma na calha é a projeção por OR de antes da F70.
+SEM_TOLERANCIA = 10 ** 9
+
 #: A régua de antes da F61, para a coluna "antes" da tabela. O `0` de coluna
 #: mínima desliga a fusão de faixa estreita, que também é da F61 — sem isso a
 #: coluna "antes" não seria o comportamento de antes.
-REGUA_DA_F16 = (3.0, 0.02, 0.0)
+REGUA_DA_F16 = (3.0, 0.02, 0.0, SEM_TOLERANCIA)
+
+#: A régua da F61: a calha medida, mas ainda com a projeção por OR. É a coluna
+#: contra a qual a F70 se compara — o que ela mudou não foi limiar nenhum.
+REGUA_DA_F61 = (0.8, 0.01, 0.10, SEM_TOLERANCIA)
 
 DPI = 300
 
 
 @contextlib.contextmanager
-def _regua(em_caracteres, piso, coluna_minima):
+def _regua(em_caracteres, piso, coluna_minima, linhas_para_tolerar):
     """
     Troca a régua da `detectar_colunas` pela duração do bloco.
 
@@ -54,16 +67,22 @@ def _regua(em_caracteres, piso, coluna_minima):
     divergente que deixou a F1.5 medir uma coisa e a aplicação fazer outra
     (ver `medir_paginas.segmentar`). O que se mede aqui é o código de produção
     com outra constante.
+
+    **`LINHAS_PARA_TOLERAR` entrou na régua na F70**, e tinha de entrar: sem
+    ela a coluna "antes" passaria a ser medida com a projeção por linhas, que é
+    justamente o que mudou, e a tabela compararia limiar com limiar quando a
+    diferença está na projeção.
     """
     antes = (BoxService.CALHA_EM_CARACTERES, BoxService.CALHA_DA_PAGINA,
-             BoxService.COLUNA_MINIMA)
+             BoxService.COLUNA_MINIMA, BoxService.LINHAS_PARA_TOLERAR)
     (BoxService.CALHA_EM_CARACTERES, BoxService.CALHA_DA_PAGINA,
-     BoxService.COLUNA_MINIMA) = em_caracteres, piso, coluna_minima
+     BoxService.COLUNA_MINIMA, BoxService.LINHAS_PARA_TOLERAR) = (
+        em_caracteres, piso, coluna_minima, linhas_para_tolerar)
     try:
         yield
     finally:
         (BoxService.CALHA_EM_CARACTERES, BoxService.CALHA_DA_PAGINA,
-         BoxService.COLUNA_MINIMA) = antes
+         BoxService.COLUNA_MINIMA, BoxService.LINHAS_PARA_TOLERAR) = antes
 
 
 def maior_vao(boxes):
@@ -120,8 +139,8 @@ def medir(nome, boxes, reguas):
     px, relativo = maior_vao(boxes)
     saida = {"nome": nome, "vao": px, "relativo": relativo}
     referencia = BoxService.detectar_colunas(boxes)
-    for rotulo, em_caracteres, piso, coluna_minima in reguas:
-        with _regua(em_caracteres, piso, coluna_minima):
+    for rotulo, em_caracteres, piso, coluna_minima, tolerancia in reguas:
+        with _regua(em_caracteres, piso, coluna_minima, tolerancia):
             colunas = BoxService.detectar_colunas(boxes)
             saltos, linhas = saltos_de_coluna(boxes, referencia)
         saida[rotulo] = (len(colunas), saltos, linhas)
@@ -168,11 +187,14 @@ def main():
     raiz = os.path.dirname(os.path.abspath(__file__))
     if args.calha:
         reguas = [(f"{c:g}×", c, BoxService.CALHA_DA_PAGINA,
-                   BoxService.COLUNA_MINIMA) for c in args.calha]
+                   BoxService.COLUNA_MINIMA, BoxService.LINHAS_PARA_TOLERAR)
+                  for c in args.calha]
     else:
-        reguas = [("antes",) + REGUA_DA_F16,
+        reguas = [("F1.6",) + REGUA_DA_F16,
+                  ("F61",) + REGUA_DA_F61,
                   ("hoje", BoxService.CALHA_EM_CARACTERES,
-                   BoxService.CALHA_DA_PAGINA, BoxService.COLUNA_MINIMA)]
+                   BoxService.CALHA_DA_PAGINA, BoxService.COLUNA_MINIMA,
+                   BoxService.LINHAS_PARA_TOLERAR)]
 
     fonte = (_boxes_do_pdf(args.pdf, raiz, args.paginas) if args.pdf
              else _boxes_das_rotuladas(raiz))

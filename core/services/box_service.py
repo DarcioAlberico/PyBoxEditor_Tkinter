@@ -574,8 +574,17 @@ class BoxService:
     #:     calha de verdade   Nunn        1,00 – 1,18   (17–20 px)
     #:                        Kasparov    2,58 – 3,31   (49–58 px)
     #:                        Yusupov     2,59 – 2,94   (44–46 px)
-    #:     vão que não é      Aagaard AM  0,06 – 0,12   (1–2 px)
+    #:     vão que não é      Aagaard AM  0,06 – 0,12   (1–2 px)   ← ver abaixo
     #:                        Yusupov     0,17 – 0,75
+    #:
+    #: **A linha do Aagaard não vale, e a F70 mostrou por quê.** O `Attacking
+    #: Manual` é de **duas** colunas, e o que se mediu ali foi a calha dele
+    #: apagada pelo cabeçalho corrente — não um vão inocente. Ele entrou na
+    #: medição como controle de coluna única e não era um; o controle de
+    #: verdade é o Darcy Lima. Pelo mesmo motivo, os 1,00–1,18 do Nunn são o
+    #: resto que o cabeçalho deixou, e não a calha: ela tem ~3,3 (56 px). Com a
+    #: projeção por linhas da F70 a régua deixa de depender desses números —
+    #: mas 0,8 continua sendo o limiar, porque baixá-lo nunca foi o remédio.
     #:
     #: A 3,0, o Nunn nunca é detectado e o Kasparov é detectado **em algumas
     #: páginas e não em outras** — que é exatamente a queixa: o texto da coluna
@@ -609,6 +618,66 @@ class BoxService:
     #: 4,5× abaixo da menor coluna de verdade.
     COLUNA_MINIMA = 0.10
 
+    #: Quantas linhas de texto podem cruzar a calha sem que ela deixe de existir.
+    #:
+    #: **Uma letra do cabeçalho apagava a calha da página inteira** (F70). A
+    #: projeção era um OR — `ocupado[x]` valia para qualquer box —, e o cabeçalho
+    #: corrente centralizado pousa justamente em cima da calha. Medido no Nunn,
+    #: um único box de 25×27 px em y≈105 derruba a calha de 31 px para 7, e a
+    #: página sai com as duas colunas intercaladas: é a queixa da F61 na sua
+    #: última forma, e explica por que o defeito era errático — a variável é onde
+    #: a letra do cabeçalho calha de cair.
+    #:
+    #: **A calha de verdade do Nunn tem ~56 px (3,3 larguras medianas)**, e não
+    #: os 14–20 que a régua via. O que a F61 mediu foi o resto que o cabeçalho
+    #: deixou, e é por isso que `CALHA_EM_CARACTERES` precisou descer tanto.
+    #:
+    #: Tolerar **uma** linha, medido nas 456 páginas de prosa de 4 livros:
+    #:
+    #:     Nunn (2 colunas)           298 → 316 de 352 páginas
+    #:     Aagaard (2 colunas)          3 →  28 de 30
+    #:     Yusupov Complete (2 col)    23 →  26 de 35
+    #:     Darcy Lima (1 coluna)        0 →   0 de 39   ← o controle
+    #:
+    #: Duas linhas não acrescentam nada no Nunn e começam a partir o Yusupov
+    #: (32 de 35), então o ponto é uma.
+    LINHAS_NA_CALHA = 1
+
+    #: A partir de quantas linhas a página pode desprezar uma delas na calha.
+    #:
+    #: **Uma linha de cinco é 20% da página, e aí a tolerância inventa calha.**
+    #: Medido no recorte de página real do `test_f16_colunas` — cinco linhas,
+    #: duas colunas —, tolerar uma abre uma terceira faixa onde a contagem
+    #: mínima é 1: o vão entre duas palavras que calham de se alinhar em cinco
+    #: linhas seguidas. Na página inteira isso não acontece, porque nenhum x
+    #: central sobrevive a quarenta linhas de texto justificado.
+    #:
+    #: O limiar fica no vão entre o falso e o verdadeiro: 2,4× acima do recorte
+    #: de 5 linhas e 1,25× abaixo da **menor** página de prosa medida — 15
+    #: linhas no Nunn, contra 23 no Aagaard e 30 no Darcy Lima. Abaixo dele vale
+    #: a régua de antes, nenhuma linha tolerada, que é o lado seguro do erro.
+    LINHAS_PARA_TOLERAR = 12
+
+    @staticmethod
+    def _linhas_por_x(linhas: List[List[BoxEntry]], x_min: int,
+                      largura: int) -> np.ndarray:
+        """
+        Quantas linhas de texto cobrem cada x.
+
+        **O que marca é a união dos boxes da linha, e não a caixa que a
+        envolve.** Numa página de duas colunas a banda da `_linhas` recolhe a
+        linha da esquerda e a da direita juntas, porque estão na mesma altura;
+        envolvê-las numa caixa só encheria a calha, que é exatamente o vão que
+        se quer enxergar vazio.
+        """
+        conta = np.zeros(largura + 2, dtype=np.int32)
+        for linha in linhas:
+            desta = np.zeros(largura + 2, dtype=bool)
+            for b in linha:
+                desta[max(0, b.x1 - x_min):max(0, b.x2 - x_min) + 1] = True
+            conta += desta
+        return conta
+
     @staticmethod
     def detectar_colunas(boxes: List[BoxEntry],
                          calha_minima: int = None) -> List[Tuple[int, int]]:
@@ -619,6 +688,14 @@ class BoxService:
         conteúdo nenhum. Usa os boxes, não os pixels: o vão que interessa é
         onde não há *caractere*, e assim funciona igual para página escaneada
         e para imagem já limpa.
+
+        **A projeção conta linhas, e não boxes** (F70). Como OR, ela dava a
+        calha por inexistente assim que **um** caractere caía dentro dela — e o
+        cabeçalho corrente centralizado cai. Contando linhas, o cabeçalho é uma
+        só e passa por `LINHAS_NA_CALHA`, enquanto o miolo de uma página de
+        coluna única é coberto por todas as quarenta: o espaço entre palavras do
+        texto justificado cai num x diferente a cada linha, e nenhum x central
+        sobrevive à conta.
 
         O limiar é relativo à largura mediana de caractere — uma calha de
         verdade é muito mais larga que o espaço entre palavras. Fixar a busca
@@ -641,9 +718,10 @@ class BoxService:
         if largura <= 1:
             return [(x_min, x_max)]
 
-        ocupado = np.zeros(largura + 2, dtype=bool)
-        for b in boxes:
-            ocupado[max(0, b.x1 - x_min):max(0, b.x2 - x_min) + 1] = True
+        linhas = BoxService._linhas(boxes)
+        tolerado = (BoxService.LINHAS_NA_CALHA
+                    if len(linhas) >= BoxService.LINHAS_PARA_TOLERAR else 0)
+        livre = BoxService._linhas_por_x(linhas, x_min, largura) <= tolerado
 
         if calha_minima is None:
             larguras = sorted(b.x2 - b.x1 for b in boxes)
@@ -653,12 +731,19 @@ class BoxService:
 
         cortes = []
         inicio = None
-        for i, cheio in enumerate(ocupado):
-            if not cheio:
+        for i, vago in enumerate(livre):
+            if vago:
                 if inicio is None:
                     inicio = i
             else:
-                if inicio is not None and i - inicio >= calha_minima:
+                # **O vão que encosta na margem esquerda não é calha.** Com o OR
+                # ele não tinha como existir — algum box começa em `x_min` por
+                # definição —, mas a tolerância o cria na página em que só o
+                # cabeçalho alcança a margem. Abrir faixa ali deixaria os boxes
+                # dele fora de toda coluna, e o `_por_colunas` os despeja no fim
+                # da página.
+                if (inicio is not None and inicio > 0
+                        and i - inicio >= calha_minima):
                     cortes.append((inicio, i))
                 inicio = None
 
@@ -769,17 +854,32 @@ class BoxService:
     @staticmethod
     def _por_colunas(boxes: List[BoxEntry],
                      colunas: List[Tuple[int, int]]) -> List[BoxEntry]:
-        """Coluna a coluna; dentro de cada uma, linha a linha."""
+        """
+        Coluna a coluna; dentro de cada uma, linha a linha.
+
+        **Quem cai dentro da calha fica com a faixa mais próxima** (F70), e não
+        no fim da página. Antes sobrava: o box que não coubesse em faixa nenhuma
+        era despejado depois de tudo, e isso era inofensivo enquanto a calha
+        tinha 20 px e nada cabia lá dentro. Com a calha de verdade — 56 px no
+        Nunn — quem mora ali é o caractere central do cabeçalho corrente, o
+        mesmo que apagava a calha, e ele passava a sair depois da página
+        inteira. É a regra que o `livro._coluna_de` já usava para decidir de
+        quem a figura é vizinha.
+        """
+        def da_coluna(b: BoxEntry) -> int:
+            cx = (b.x1 + b.x2) / 2
+            for i, (x1, x2) in enumerate(colunas):
+                if x1 <= cx <= x2:
+                    return i
+            return min(range(len(colunas)),
+                       key=lambda i: min(abs(cx - colunas[i][0]),
+                                         abs(cx - colunas[i][1])))
+
         saida = []
-        restantes = list(boxes)
-        for x1, x2 in colunas:
-            desta = [b for b in restantes if x1 <= (b.x1 + b.x2) / 2 <= x2]
+        for i in range(len(colunas)):
+            desta = [b for b in boxes if da_coluna(b) == i]
             if desta:
-                pegos = set(id(b) for b in desta)
-                restantes = [b for b in restantes if id(b) not in pegos]
                 saida.extend(BoxService._agrupar_em_linhas(desta))
-        # o que não caiu em coluna nenhuma vai no fim, em ordem de linha
-        saida.extend(BoxService._agrupar_em_linhas(restantes))
         return saida
 
     @staticmethod
