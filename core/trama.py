@@ -56,10 +56,17 @@ from core.box_model import BoxEntry
 #: a pena olhar dentro. Abaixo disso é palavra grande, não painel.
 TAMANHO_MINIMO = 4.0
 
-#: O bloco tem de ser bem mais largo que alto. **É o que separa painel de
-#: tabuleiro** (1,00–1,01 contra 2,69 de proporção, medido), e o valor fica no
-#: meio do vão de propósito: nada no material cai entre 1,3 e 2,6.
-RAZAO_MINIMA = 1.5
+#: Quanto o bloco tem de fugir do quadrado para valer uma olhada dentro. Vem do
+#: `diagrama.TOLERANCIA_QUADRADO`, importado e não copiado — ver `candidatos`.
+#:
+#: **Era 1,5, e a tabela caía no vão** (F71). O valor foi posto "no meio do vão
+#: de propósito", com a observação de que nada no material caía entre 1,3 e 2,6.
+#: Caía: a tabela de finais da página 236 do Nunn mede 1342×1099, razão **1,22**.
+#: Moldura fechada, `RETR_EXTERNAL`, e as 276 caixas de caractere de dentro dela
+#: sumiam do livro sem aviso nenhum — não saíam fora de ordem, não saíam.
+#:
+#: E a régua deixa de ser só "mais largo que alto": uma tabela pode ser mais
+#: alta que larga, e a de antes nem olhava para ela.
 
 #: Faixa de altura, em escalas de texto da página, para um componente de dentro
 #: do bloco ser caractere. Larga porque o painel mistura corpo grande ("19") com
@@ -70,6 +77,21 @@ ALTURA_GLIFO = (0.35, 2.5)
 #: da F10, e pelo mesmo motivo: para *decidir*, um punhado basta.
 MIN_GLIFOS = 3
 
+#: E quantos são caracteres demais para serem caractere (F71).
+#:
+#: **A página que é uma fotografia tem escala de texto degenerada**, e é isso
+#: que fabrica o número. Medida a capa do *Chess Evolution 1*,
+#: `preprocess.escala_de_texto` devolve **2 px** — não há texto na página para
+#: pesar —, e com ela `ALTURA_GLIFO` aceita como caractere qualquer grão de
+#: 0,7 a 5 px: o bloco rende **40.382** "glifos" e a página sai de 1 box para
+#: 24 mil. A régua da capacidade não pega isso, e por construção: com escala de
+#: 2 px cabem 1,4 milhão de caracteres na capa, e 40 mil parecem pouco.
+#:
+#: O vão está na contagem, e é largo — 71 no painel da F11, 276 na tabela do
+#: Nunn e 392 na capa do Aagaard, contra 40.382. O teto fica 5× acima do maior
+#: caso bom e 20× abaixo do único caso ruim.
+MAX_GLIFOS = 2000
+
 
 def candidatos(boxes: Sequence[BoxEntry], escala: int) -> List[BoxEntry]:
     """
@@ -77,22 +99,56 @@ def candidatos(boxes: Sequence[BoxEntry], escala: int) -> List[BoxEntry]:
 
     Nada aqui afirma que o bloco tem texto: quem afirma é `aplicar`, depois de
     reler o recorte.
+
+    **A peneira é o complemento exato da do `diagrama`** (F71). Lá, "é
+    tabuleiro" é `razão <= TOLERANCIA_QUADRADO`; aqui se abre o que sobra. Ter
+    as duas presas à mesma constante é o que impede o caso do meio — um bloco
+    que não é quadrado o bastante para virar diagrama e é quadrado demais para
+    ser lido, que era exatamente a tabela do Nunn a 1,22.
+
+    O import é tardio: quem só quer `candidatos` não precisa carregar o
+    `python-chess` que o `diagrama` traz atrás.
     """
+    from core import diagrama
+
     if escala <= 0:
         return []
     piso = escala * TAMANHO_MINIMO
     return [b for b in boxes
             if b.height >= piso and b.width >= piso
-            and b.width >= b.height * RAZAO_MINIMA]
+            and max(b.width / max(1, b.height),
+                    b.height / max(1, b.width)) > diagrama.TOLERANCIA_QUADRADO]
 
 
-def binarizar_bloco(cinza: np.ndarray, bloco: BoxEntry) -> np.ndarray:
+#: Quanto se tira de cada lado do recorte antes de olhar dentro, em escalas de
+#: texto (F71).
+#:
+#: **A moldura fechada reaparece dentro do próprio recorte.** Recortar o bloco
+#: pelo seu retângulo traz a borda junto, e ali dentro ela é de novo o contorno
+#: externo: o `RETR_EXTERNAL` devolve a moldura, e o conteúdo continua sendo
+#: filho de alguém. Na tabela do Nunn o defeito não aparece porque o scan quebra
+#: a borda em pedaços — numa moldura que fecha de verdade, como a de um PDF
+#: vetorial, ele sobreviveria à própria correção. Medido na montagem do
+#: `test_f71`: 0 glifos com a borda dentro, 12 sem ela.
+MARGEM_DA_MOLDURA = 0.25
+
+
+def _margem(escala: int) -> int:
+    return max(2, int(escala * MARGEM_DA_MOLDURA))
+
+
+def binarizar_bloco(cinza: np.ndarray, bloco: BoxEntry,
+                    escala: int = 0) -> np.ndarray:
     """
     O recorte binarizado **com o limiar dele**, não com o da página.
 
     Otsu local, tinta em branco — a mesma convenção de `preprocess.binarize`.
+
+    Vem sem a própria borda: ver `MARGEM_DA_MOLDURA`. Quem chama tem de passar
+    a mesma `escala` ao `glifos`, que é quem devolve a margem às coordenadas.
     """
-    recorte = cinza[bloco.y1:bloco.y2, bloco.x1:bloco.x2]
+    m = _margem(escala)
+    recorte = cinza[bloco.y1 + m:bloco.y2 - m, bloco.x1 + m:bloco.x2 - m]
     if recorte.size == 0:
         return np.zeros((0, 0), np.uint8)
     if recorte.ndim == 3:
@@ -120,13 +176,15 @@ def glifos(local: np.ndarray, bloco: BoxEntry, escala: int) -> List[BoxEntry]:
     piso, teto = escala * ALTURA_GLIFO[0], escala * ALTURA_GLIFO[1]
     contornos, _ = cv2.findContours(local, cv2.RETR_EXTERNAL,
                                     cv2.CHAIN_APPROX_SIMPLE)
+    # A mesma margem que o `binarizar_bloco` tirou, devolvida às coordenadas.
+    m = _margem(escala)
     saida = []
     for c in contornos:
         x, y, w, h = cv2.boundingRect(c)
         if not (piso <= h <= teto) or w > teto * 3:
             continue
-        saida.append(BoxEntry("", bloco.x1 + x, bloco.y1 + y,
-                              bloco.x1 + x + w, bloco.y1 + y + h))
+        saida.append(BoxEntry("", bloco.x1 + m + x, bloco.y1 + m + y,
+                              bloco.x1 + m + x + w, bloco.y1 + m + y + h))
     return saida
 
 
@@ -151,8 +209,8 @@ def aplicar(cinza: np.ndarray, boxes: Sequence[BoxEntry], escala: int
     novas = list(boxes)
 
     for b in candidatos(boxes, escala):
-        dentro = glifos(binarizar_bloco(cinza, b), b, escala)
-        if len(dentro) < MIN_GLIFOS:
+        dentro = glifos(binarizar_bloco(cinza, b, escala), b, escala)
+        if not MIN_GLIFOS <= len(dentro) <= MAX_GLIFOS:
             continue
         novas = [o for o in novas if o is not b] + dentro
         lidos.append(b)

@@ -9107,14 +9107,103 @@ tabuleiro. No caminho real de exportação some, porque o `livro.caixas_e_diagra
 diagramas antes de chamar `detectar_colunas` — conferido nas páginas 60, 300, 360 e 600,
 que dão 3 no medidor e 1 ou 2 na exportação.
 
-**A tabela de duas casas largas mudou de defeito, e não some.** Na página 236 do Nunn — uma
-tabela de 4 colunas em cima, texto e diagrama embaixo — a metade de baixo passa a sair
-certa (o texto inteiro antes do diagrama, que é a ordem de leitura correta) e a tabela de
-cima passa a sair partida ao meio, porque a calha achada atravessa a régua vertical dela.
-É o mesmo "coluna e tabela são a mesma coisa" da F61, agora com o sinal trocado nesta
-página.
+**~~A tabela da página 236 passa a sair partida ao meio.~~** Errado, e corrigido na F71: a
+tabela **não sai de jeito nenhum**, nem antes nem depois desta fase. Ela tem moldura
+fechada, e com `RETR_EXTERNAL` tudo que está dentro dela é contorno filho — o retângulo
+sai como **um** box de 1342×1099, o descarte o joga fora por ser grande, e as 24 células
+vão junto. Medido: 0 boxes dentro do retângulo, contra as 276 caixas de caractere que há
+ali. A leitura em duas colunas desta página está certa, e é a da metade de baixo (texto à
+esquerda, diagrama à direita).
 
 Cobertura: `tests/test_f70_calha_do_cabecalho.py`, 12 testes.
+
+## F71 — A tabela não saía partida: não saía — CONCLUÍDA
+
+A F70 registrou que a tabela da página 236 do Nunn "passa a sair partida ao meio". Errado,
+e o erro é meu: fui olhar o texto exportado e não havia texto nenhum. **Dentro do retângulo
+da tabela há 0 boxes**, contra as 276 caixas de caractere que o papel tem ali. A tabela
+some do livro, e sumia antes da F70 também.
+
+`findContours` roda com `RETR_EXTERNAL`. Moldura fechada, e tudo que está dentro dela é
+contorno **filho**, que não é devolvido: o retângulo sai como **um** box de 1342×1099, o
+descarte o joga fora por ser grande, e as 24 células vão junto. É o mecanismo que a
+`descartar_blocos_nao_texto` documenta desde a F1.8 como uma *vantagem* — é o que impede o
+tabuleiro de virar 64 caixas de casa. Para uma tabela, é a perda silenciosa do conteúdo.
+
+### A manobra já existia, e a peneira é que estava no lugar errado
+
+A F11 já fazia exatamente isto — olhar dentro do bloco antes de jogá-lo fora, com Otsu
+local — para o painel de pontuação do Yusupov. O que a impedia de ver a tabela era a
+peneira que protege o diagrama, `largura >= altura × 1,5`, posta "no meio do vão de
+propósito" porque nada no material caía entre 1,3 e 2,6.
+
+Caía. A tabela mede 1342×1099, razão **1,22**:
+
+| | razão | o que era |
+|---|---:|---|
+| tabuleiro (medidos 509 blocos) | 1,000 – 1,072 (p95) | diagrama, não se abre |
+| **tabela de finais, Nunn p236** | **1,22** | ficava no vão |
+| painel de pontuação, Yusupov | 2,69 | o caso da F11 |
+
+A régua passa a ser a **mesma** que o `diagrama` usa para dizer o que é tabuleiro
+(`TOLERANCIA_QUADRADO`, 1,12), importada e não copiada. Assim o caso do meio deixa de
+existir por construção: o que o `diagrama` reconhece como tabuleiro é exatamente o que aqui
+não se abre, e não há mais faixa em que um bloco seja quadrado demais para ser lido e pouco
+quadrado para virar diagrama. De quebra a régua deixa de ser só "mais largo que alto" —
+uma tabela pode estar em pé.
+
+### Duas coisas que abrir mais blocos escancarou
+
+**A página que é uma fotografia rende 40.382 "glifos".** Medida a capa do *Chess Evolution
+1*: `escala_de_texto` devolve **2 px** — não há texto na página para pesar —, e com essa
+régua `ALTURA_GLIFO` aceita como caractere qualquer grão entre 0,7 e 5 px. A página saía de
+1 box para **24.041**. Uma régua de capacidade não pega isso e por construção: com escala
+de 2 px "cabem" 1,4 milhão de caracteres na capa. O vão está na contagem e é largo — 71 no
+painel da F11, 276 na tabela, 392 na capa do Aagaard, contra 40.382 —, então
+`MAX_GLIFOS = 2000`, 5× acima do maior caso bom e 20× abaixo do único ruim.
+
+**A moldura fechada reaparece dentro do próprio recorte.** Recortar o bloco pelo seu
+retângulo traz a borda junto, e ali dentro ela é de novo o contorno externo — o
+`RETR_EXTERNAL` devolve a moldura e o conteúdo continua sendo filho de alguém. Na tabela do
+Nunn isso não aparece porque o scan quebra a borda em pedaços; numa moldura que fecha de
+verdade, o defeito sobreviveria à própria correção. `MARGEM_DA_MOLDURA` tira 0,25 altura de
+caractere de cada lado antes de olhar. Medido na montagem do teste: 0 glifos com a borda
+dentro, 12 sem ela.
+
+### O resultado
+
+A página 236 no caminho de exportação:
+
+| | antes | depois |
+|---|---:|---:|
+| boxes na página | 557 | **895** |
+| boxes dentro da tabela | **0** | **338** |
+| colunas detectadas | 2 | 1 |
+
+E a tabela sai em 16 linhas, cada uma da esquerda para a direita — que é como se lê uma
+tabela. A página passar a ser lida em **uma** coluna é a consequência certa: a calha que a
+F70 achava ali era o vão entre o texto e o diagrama da metade de baixo, e com as células
+preenchendo a largura ela deixa de existir. Nada de "a tabela sai partida": ela sai.
+
+Efeito no resto, medido em 84 páginas de 5 livros — só cresce onde havia bloco engolido, e
+nenhuma explosão:
+
+    Nunn        +38 boxes (a capa)        Yusupov Complete   +0
+    Aagaard      +7 boxes (a capa)        Chess Evolution    +0
+    Darcy      +152 boxes (a capa e 4 páginas de texto)
+
+### O que fica em aberto
+
+**A tabela é lida como texto corrido, e não como tabela.** As células saem na ordem certa,
+mas nada marca onde uma acaba e a outra começa: no EPUB isso é um parágrafo por linha da
+tabela, com as colunas separadas por espaço. Para o livro de finais do Nunn, em que a
+tabela *é* o conteúdo, ler na ordem certa já é a diferença entre ter e não ter — mas não é
+uma tabela.
+
+**A moldura ainda vira um box.** Ela deixa de engolir o conteúdo, mas continua na página
+como retângulo descartado; o que sai do `trama.aplicar` são os caracteres, não a estrutura.
+
+Cobertura: `tests/test_f71_tabela_engolida.py`, 9 testes.
 
 ## Fora de escopo (registrado para depois)
 
