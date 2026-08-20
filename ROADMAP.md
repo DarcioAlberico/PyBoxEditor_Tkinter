@@ -23,7 +23,7 @@ Todos os itens P0 abaixo foram reproduzidos executando o código, não inferidos
 | Fase | Tema | Resultado esperado | Status |
 |------|------|--------------------|--------|
 | **F0** | Desbloqueio | O app abre, edita e salva sem exceção | **concluída** (F0.1–F0.4) |
-| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9, F1.5b) |
+| **F1** | Qualidade de OCR | Acurácia medível; segmentação e leitura corretas | **concluída** (F1.1–F1.9, F1.4b, F1.5b) |
 | **F2** | Saída PDF | PDF pesquisável, sem rasterizar o documento | **concluída** (F2.1–F2.4) |
 | **F3** | Produtividade | Revisão de 2.000 caracteres/página deixa de ser inviável | **concluída** (F3.1–F3.9) |
 | **F4** | UI | Interface responsiva, sem congelar | **concluída** (F4.1–F4.8) |
@@ -553,7 +553,59 @@ quarentena em vez de apagar**.
 
 Resultado na base real: 105 → 103 classes, 0 problemas graves, 127.263 amostras.
 
-Cobertura: `tests/test_f14_dataset.py`, 24 testes.
+Cobertura: `tests/test_f14_dataset.py`, 36 testes.
+
+### F1.4b — O diagnóstico que acusava e não consertava — CONCLUÍDA
+
+A F1.4 deixou instalada a verificação da base, e ela funcionou: **quatro erros** duas
+semanas depois, no diálogo de quem só queria treinar.
+
+```
+[ERRO] ligature_ça: formato antigo; o código atual gravaria em
+       'ligature_hex_00e70061', partindo a classe em duas
+[ERRO] ligature_çã: formato antigo; ... 'ligature_hex_00e700e3' ...
+[ERRO] ç: formato antigo; o código atual gravaria em 'sym_231', ...
+[ERRO] sym_231, ç: 2 pastas para o mesmo caractere 'ç'
+```
+
+E o botão era **OK**. O conserto — renomear duas pastas e juntar `ç` com `sym_231` sem
+perder nenhum dos 126 PNGs — ficava para o usuário fazer no Explorer, com o treino
+recusado até terminar. `planejar_migracao` e `aplicar_migracao` já sabiam fazer isso
+desde a F1.4; **nada na interface as chamava**.
+
+**O que mudou é a ligação, não o algoritmo.** `sanear_dataset` planeja e aplica até
+convergir (a cascata existe: quarentenar o único arquivo de uma pasta a deixa vazia, e
+pasta vazia é outro problema), e os dois lugares onde o erro aparece passam a oferecer o
+conserto: o diálogo da verificação e a recusa do treino, que agora corrige e **treina em
+seguida**, sem o usuário ter de recomeçar.
+
+**Nem todo erro se conserta renomeando, e o que sobra não se adivinha.** Pasta cujo nome
+não decodifica — o caso do `sym_f7` que deu origem à F1.4 — não tem para onde ser
+renomeada: o caractere dela é justamente o que está perdido. Ela vai inteira para
+`_quarentena`, que tira as amostras do caminho do treino sem apagá-las. Adivinhar o
+caractere seria repetir o defeito original.
+
+**A mesclagem trocava o nome de todo arquivo por UUID**, com o comentário "os arquivos
+são UUID". Das 30 amostras de `ç` na base real, **nenhuma** era: elas vêm da coleta, e o
+nome é `p0005_c041_fb798529.png` — página 5, confiança 41%, que é por onde a revisão
+ordena "mais duvidoso primeiro" e o índice CSV acha o recorte. Agora só troca de nome
+quem colide de verdade.
+
+**A correção não é automática de graça, é automática com uma pergunta.** A base é dado do
+usuário e a migração mexe nas pastas dele; o diálogo diz o que vai acontecer — inclusive
+que nada é apagado — antes do sim. Depois do sim não há mais nenhuma.
+
+Na base real, uma passada de 3 ações:
+
+| | antes | depois |
+|---|---:|---:|
+| problemas graves | 4 | **0** |
+| arquivos na base | 571.674 | **571.674** |
+| `sym_231` | 60 | **90** (as 30 de `ç`) |
+
+A validação que recusava o treino passa a devolver zero problemas graves.
+
+Cobertura: `tests/test_f14b_correcao_automatica.py`, 7 testes, e mais 7 na F1.4.
 
 ### F1.5 — Pré-processamento fraco para material escaneado — CONCLUÍDA
 

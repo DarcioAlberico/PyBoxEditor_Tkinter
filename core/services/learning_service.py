@@ -154,6 +154,24 @@ class LearningService:
         from core.dataset_check import validar_dataset
         return validar_dataset(self.data_dir, checar_pngs=checar_pngs)
 
+    def sanear_dados(self, checar_pngs: bool = False,
+                     callback: Optional[Callable[[str], None]] = None) -> List[str]:
+        """
+        Corrige o que `validar_dados` acusa: renomeia, mescla e quarentena.
+
+        `checar_pngs` acompanha o da validação que achou o problema — o caminho
+        rápido não lê arquivo nenhum, e então não há PNG ilegível a mover.
+
+        O k-NN em memória é descartado: ele foi montado com os nomes de pasta
+        antigos, e as amostras mescladas ainda não estão na matriz dele.
+        """
+        from core.dataset_check import sanear_dataset
+        registro = sanear_dataset(self.data_dir, checar_pngs=checar_pngs,
+                                  log=callback)
+        if registro:
+            self._learner = None
+        return registro
+
     def caminho_relatorio(self) -> str:
         """Onde o último treino gravou o relatório (pode não existir ainda)."""
         pasta = os.path.dirname(os.path.abspath(self.model_path))
@@ -164,13 +182,19 @@ class LearningService:
                      should_stop: Optional[Callable[[], bool]] = None,
                      validar: bool = True,
                      balanceamento: str = "sqrt",
-                     calibrar: bool = True) -> bool:
+                     calibrar: bool = True,
+                     corrigir: bool = False) -> bool:
         """
         Treina a rede neural com os dados atuais.
 
         `balanceamento` controla o sorteio das amostras (ver
         `core.neural_trainer.pesos_de_amostragem`). O padrão compensa o
         desbalanceamento de 25.075:1 da base.
+
+        `corrigir=True` sanea a base antes de desistir, em vez de só levantar
+        `DatasetInvalido`. Continua sendo decisão de quem chama, e não o
+        padrão: a correção mexe nas pastas do usuário, e o pedido de treino
+        sozinho não autoriza isso.
         """
         if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             if callback:
@@ -182,6 +206,15 @@ class LearningService:
             # ruído no modelo. Foi assim que 127 amostras de "f7" passaram
             # meses treinando a classe "?" sem ninguém notar.
             graves = [p for p in self.validar_dados() if p.grave]
+            if graves and corrigir:
+                if callback:
+                    callback(f"{len(graves)} problema(s) na base; corrigindo...")
+                for linha in self.sanear_dados(callback=callback):
+                    if callback:
+                        callback(linha)
+                # Revalidar, e não confiar no registro: o que importa é a base
+                # ter ficado treinável, não a migração ter dito que fez algo.
+                graves = [p for p in self.validar_dados() if p.grave]
             if graves:
                 raise DatasetInvalido(graves)
 

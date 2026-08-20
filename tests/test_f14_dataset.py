@@ -21,7 +21,8 @@ import numpy as np
 
 from core.learner import (NomeDePastaInvalido, char_to_folder, folder_to_char)
 from core.dataset_check import (aplicar_migracao, nome_canonico,
-                                planejar_migracao, validar_dataset)
+                                planejar_migracao, sanear_dataset,
+                                validar_dataset)
 
 
 def _base(tmp, conteudo):
@@ -299,6 +300,152 @@ def test_migracao_e_idempotente():
         _base(tmp, {"sym_f7": 20, "upper_A": 12})
         aplicar_migracao(tmp, planejar_migracao(tmp))
         assert planejar_migracao(tmp) == []
+
+
+# ----------------------------------------------------------------------
+# Correção automática (F1.4b)
+#
+# A verificação sabia dizer o que estava errado e parava aí. Na base real isso
+# eram 4 erros — 'ligature_ça', 'ligature_çã', 'ç' e a colisão de 'ç' com
+# 'sym_231' — que o usuário teria de resolver renomeando e juntando pastas no
+# Explorer, que é onde amostra se perde.
+# ----------------------------------------------------------------------
+
+def test_correcao_resolve_o_caso_da_base_real():
+    """As 4 recusas de treino que motivaram esta correção, na mesma base."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _base(tmp, {"ligature_ça": 37, "ligature_çã": 59,
+                    "ç": 30, "sym_231": 60, "upper_A": 12})
+
+        assert [p for p in validar_dataset(tmp, checar_pngs=False) if p.grave]
+        sanear_dataset(tmp, checar_pngs=False)
+
+        assert not [p for p in validar_dataset(tmp, checar_pngs=False) if p.grave]
+        assert os.path.isdir(os.path.join(tmp, "ligature_hex_00e70061"))
+        assert os.path.isdir(os.path.join(tmp, "ligature_hex_00e700e3"))
+        assert not os.path.exists(os.path.join(tmp, "ç"))
+        # A classe partida em duas volta inteira: 30 + 60.
+        assert len(os.listdir(os.path.join(tmp, "sym_231"))) == 90
+
+
+def test_correcao_preserva_o_nome_de_origem():
+    """
+    O nome do arquivo é dado, não enfeite.
+
+    `p0005_c041_fb798529.png` é página 5, confiança 41% — é por ele que a
+    revisão ordena "mais duvidoso primeiro" e que o índice CSV da coleta acha o
+    recorte. A primeira versão da mesclagem trocava todos por UUID.
+    """
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmp:
+        _base(tmp, {"sym_231": 5})
+        d = os.path.join(tmp, "ç")
+        os.makedirs(d)
+        img = np.full((32, 32), 255, dtype=np.uint8)
+        img[4:28, 4:28] = 0
+        Image.fromarray(img).save(os.path.join(d, "p0005_c041_fb798529.png"))
+
+        sanear_dataset(tmp, checar_pngs=False)
+
+        assert os.path.isfile(os.path.join(tmp, "sym_231",
+                                           "p0005_c041_fb798529.png"))
+
+
+def test_mesclagem_renomeia_so_quem_colide():
+    """Nome repetido nas duas pastas não pode sumir em silêncio."""
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmp:
+        img = np.full((32, 32), 255, dtype=np.uint8)
+        img[6:26, 6:26] = 0
+        for pasta in ("ç", "sym_231"):
+            os.makedirs(os.path.join(tmp, pasta))
+            Image.fromarray(img).save(os.path.join(tmp, pasta, "000.png"))
+
+        sanear_dataset(tmp, checar_pngs=False)
+
+        sobreviventes = os.listdir(os.path.join(tmp, "sym_231"))
+        assert len(sobreviventes) == 2, "uma amostra foi perdida na mesclagem"
+        assert "000.png" in sobreviventes
+
+
+def test_pasta_indecifravel_vai_para_quarentena_com_as_amostras():
+    """
+    O caso do 'sym_f7': não dá para renomear o que não se sabe ler.
+
+    Adivinhar o caractere é o defeito original — 127 amostras entrando como
+    '?'. Sair do caminho do treino é o que a correção pode fazer sozinha, e sem
+    apagar nada: as amostras esperam em '_quarentena' por quem as identifique.
+    """
+    from core.dataset_check import PASTA_QUARENTENA
+    with tempfile.TemporaryDirectory() as tmp:
+        _base(tmp, {"sym_zzz": 20, "upper_A": 12})
+
+        sanear_dataset(tmp, checar_pngs=False)
+
+        assert not os.path.exists(os.path.join(tmp, "sym_zzz"))
+        guardadas = os.path.join(tmp, PASTA_QUARENTENA, "sym_zzz")
+        assert len(os.listdir(guardadas)) == 20, "as amostras foram perdidas"
+        assert not [p for p in validar_dataset(tmp, checar_pngs=False) if p.grave]
+
+
+def test_correcao_rapida_nao_le_arquivo_algum():
+    """
+    `checar_pngs=False` é o modo do caminho do treino, e tem que casar com a
+    validação rápida: ela não lê PNG, então não há PNG ilegível para mover.
+    Ler a base inteira ali custaria os ~18 s da varredura completa para achar
+    problema que ninguém tinha reportado.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        _base(tmp, {"upper_A": 12})
+        with open(os.path.join(tmp, "upper_A", "quebrado.png"), "wb") as f:
+            f.write(b"lixo")
+
+        assert planejar_migracao(tmp, checar_pngs=False) == []
+        assert planejar_migracao(tmp, checar_pngs=True), "o modo completo devia ver"
+
+
+def test_correcao_converge_e_e_idempotente():
+    """Cascata (arquivo -> pasta vazia) numa chamada só, e nada na seguinte."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _base(tmp, {"upper_A": 12, "sym_f7": 20})
+        os.makedirs(os.path.join(tmp, "lower_ü"), exist_ok=True)
+        with open(os.path.join(tmp, "lower_ü", "so_esse.png"), "wb") as f:
+            f.write(b"lixo")
+
+        registro = sanear_dataset(tmp)
+
+        assert registro and not any("ATENÇÃO" in r for r in registro), registro
+        assert not any("FALHOU" in r for r in registro), registro
+        assert not os.path.exists(os.path.join(tmp, "lower_ü"))
+        assert os.path.isdir(os.path.join(tmp, "ligature_f7"))
+        assert validar_dataset(tmp) == []
+        assert sanear_dataset(tmp) == [], "a segunda passada mexeu na base"
+
+
+def test_todo_problema_grave_tem_conserto():
+    """
+    A promessa da UI: ela só oferece "corrigir" para tipo que está nesta lista.
+
+    Se um dia nascer um problema grave novo, ou ele entra em `TIPOS_CORRIGIVEIS`
+    com conserto de verdade, ou este teste denuncia a promessa vazia.
+    """
+    from core.dataset_check import TIPOS_CORRIGIVEIS, PASTA_QUARENTENA
+    with tempfile.TemporaryDirectory() as tmp:
+        _base(tmp, {"sym_zzz": 20, "ç": 5, "sym_231": 5, "upper_A": 12})
+        os.makedirs(os.path.join(tmp, "upper_B"))
+        with open(os.path.join(tmp, "upper_A", "quebrado.png"), "wb") as f:
+            f.write(b"lixo")
+
+        graves = [p for p in validar_dataset(tmp) if p.grave]
+        tipos = {p.tipo for p in graves}
+        assert tipos == {"nome_invalido", "pasta_vazia", "colisao", "png_ilegivel"},            f"tipo grave sem cobertura neste teste: {tipos}"
+        assert tipos <= set(TIPOS_CORRIGIVEIS)
+
+        sanear_dataset(tmp)
+
+        assert not [p for p in validar_dataset(tmp) if p.grave]
+        # E nada foi apagado: o suspeito está guardado.
+        assert os.path.isdir(os.path.join(tmp, PASTA_QUARENTENA))
 
 
 # ----------------------------------------------------------------------

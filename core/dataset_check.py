@@ -14,7 +14,7 @@ treino**, em vez de virar ruído no modelo.
 import glob
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import cv2
 import numpy as np
@@ -27,6 +27,14 @@ MIN_AMOSTRAS_POR_CLASSE = 10
 # Arquivos suspeitos vão para cá em vez de serem apagados. Começa com '_' para
 # não ser confundido com uma classe (as classes não têm esse prefixo).
 PASTA_QUARENTENA = "_quarentena"
+
+#: Problemas graves que `sanear_dataset` sabe resolver sozinho — hoje, todos.
+#:
+#: A lista existe para o dia em que aparecer um tipo novo: quem oferece o
+#: "corrigir automaticamente" pergunta aqui antes, em vez de prometer conserto
+#: para um problema que a migração não sabe tocar.
+TIPOS_CORRIGIVEIS = frozenset({"nome_invalido", "pasta_vazia", "colisao",
+                               "png_ilegivel"})
 
 
 @dataclass
@@ -44,7 +52,7 @@ class Problema:
 @dataclass
 class Acao:
     """Uma correção proposta pela migração."""
-    tipo: str          # renomear | mesclar | remover_pasta | remover_arquivo
+    tipo: str          # renomear | mesclar | remover_pasta | quarentena | quarentena_pasta
     origem: str
     destino: Optional[str] = None
     motivo: str = ""
@@ -211,8 +219,15 @@ def rotulos_contraditorios(data_dir: str, limite: int = 12) -> List[Problema]:
         f"{detalhe}", grave=False)]
 
 
-def planejar_migracao(data_dir: str) -> List[Acao]:
-    """Correções necessárias, sem aplicar nada."""
+def planejar_migracao(data_dir: str, checar_pngs: bool = True) -> List[Acao]:
+    """
+    Correções necessárias, sem aplicar nada.
+
+    `checar_pngs=False` pula a leitura de cada arquivo — a mesma economia que
+    `validar_dataset` faz no caminho rápido. Sem isso, corrigir a base antes do
+    treino custaria os ~18 s da varredura completa para achar problemas que a
+    validação rápida nem tinha reportado.
+    """
     acoes: List[Acao] = []
     existentes = set(_classes(data_dir))
 
@@ -220,18 +235,31 @@ def planejar_migracao(data_dir: str) -> List[Acao]:
         caminho = os.path.join(data_dir, pasta)
         arquivos = _pngs(caminho)
 
-        for arq in arquivos:
-            if not png_legivel(arq):
-                acoes.append(Acao("quarentena", os.path.join(pasta, os.path.basename(arq)),
-                                  motivo="PNG ilegível"))
-
         if not arquivos:
             acoes.append(Acao("remover_pasta", pasta,
                               motivo="vazia, ocupa índice de classe à toa"))
             continue
 
         canonico = nome_canonico(pasta)
-        if canonico is None or canonico == pasta:
+        if canonico is None:
+            # Não dá para renomear o que não se sabe ler: o caractere da pasta
+            # é justamente o que está perdido. Sair do caminho do treino é o
+            # que se pode fazer sozinho — treinar assim é o defeito original,
+            # amostras entrando como '?'. Vai para a quarentena inteira, de
+            # onde volta assim que alguém identificar o caractere.
+            acoes.append(Acao(
+                "quarentena_pasta", pasta,
+                motivo=f"nome não corresponde a caractere algum; "
+                       f"{len(arquivos)} amostra(s) seriam treinadas como '?'"))
+            continue
+
+        if checar_pngs:
+            for arq in arquivos:
+                if not png_legivel(arq):
+                    acoes.append(Acao("quarentena", os.path.join(pasta, os.path.basename(arq)),
+                                      motivo="PNG ilegível"))
+
+        if canonico == pasta:
             continue
 
         tipo = "mesclar" if canonico in existentes else "renomear"
@@ -241,10 +269,30 @@ def planejar_migracao(data_dir: str) -> List[Acao]:
     return acoes
 
 
+def _nome_livre(destino: str, arquivo: str) -> str:
+    """
+    Como o arquivo se chama depois de mudar de pasta.
+
+    **Mantém o nome de origem**, e isso não é detalhe: o da coleta é
+    `p0005_c041_fb798529.png` — página 5, confiança 41% —, é por ele que a
+    revisão ordena "mais duvidoso primeiro" e que o índice CSV acha o recorte.
+    A primeira versão trocava tudo por UUID "porque os arquivos são UUID"; das
+    30 amostras da pasta 'ç' na base real, nenhuma era.
+
+    Só quem colide troca de nome, porque perder amostra em silêncio é o erro
+    que não se pode cometer aqui.
+    """
+    import uuid
+
+    nome = os.path.basename(arquivo)
+    if os.path.exists(os.path.join(destino, nome)):
+        return f"{uuid.uuid4()}.png"
+    return nome
+
+
 def aplicar_migracao(data_dir: str, acoes: List[Acao]) -> List[str]:
     """Executa as ações. Devolve o registro do que foi feito."""
     import shutil
-    import uuid
 
     feito = []
     for a in acoes:
@@ -258,6 +306,19 @@ def aplicar_migracao(data_dir: str, acoes: List[Acao]) -> List[str]:
                 os.makedirs(quarentena, exist_ok=True)
                 shutil.move(origem, os.path.join(
                     quarentena, f"{a.origem.replace(os.sep, '_')}"))
+            elif a.tipo == "quarentena_pasta":
+                quarentena = os.path.join(data_dir, PASTA_QUARENTENA)
+                os.makedirs(quarentena, exist_ok=True)
+                destino = os.path.join(quarentena, a.origem)
+                if os.path.exists(destino):
+                    # Já houve uma quarentena com esse nome. Juntar os arquivos
+                    # em vez de falhar: o `shutil.move` de pasta para pasta
+                    # existente aninharia uma dentro da outra.
+                    for arq in _pngs(origem):
+                        shutil.move(arq, os.path.join(destino, _nome_livre(destino, arq)))
+                    os.rmdir(origem)
+                else:
+                    shutil.move(origem, destino)
             elif a.tipo == "remover_pasta":
                 os.rmdir(origem)
             elif a.tipo == "renomear":
@@ -266,9 +327,7 @@ def aplicar_migracao(data_dir: str, acoes: List[Acao]) -> List[str]:
                 destino = os.path.join(data_dir, a.destino)
                 os.makedirs(destino, exist_ok=True)
                 for arq in _pngs(origem):
-                    # Nome novo: os arquivos são UUID, mas colisão sairia cara
-                    # (perda silenciosa de amostra).
-                    shutil.move(arq, os.path.join(destino, f"{uuid.uuid4()}.png"))
+                    shutil.move(arq, os.path.join(destino, _nome_livre(destino, arq)))
                 os.rmdir(origem)
             else:
                 continue
@@ -276,3 +335,45 @@ def aplicar_migracao(data_dir: str, acoes: List[Acao]) -> List[str]:
         except OSError as e:
             feito.append(f"FALHOU {a}: {e}")
     return feito
+
+
+#: Quantas vezes `sanear_dataset` planeja e aplica antes de desistir.
+#:
+#: Mais de uma porque uma correção descobre a seguinte: quarentenar o único
+#: arquivo de uma pasta a deixa vazia, e pasta vazia é outro problema — a
+#: primeira passada não podia vê-lo. Duas bastam para as cascatas que existem
+#: hoje; quatro é folga para não travar caso apareça uma mais longa.
+PASSADAS_MAX = 4
+
+
+def sanear_dataset(data_dir: str, checar_pngs: bool = True,
+                   log: Optional[Callable[[str], None]] = None) -> List[str]:
+    """
+    Aplica sozinho tudo o que `planejar_migracao` sabe corrigir, até convergir.
+
+    É a resposta à pergunta que o diagnóstico deixava no colo do usuário: a
+    verificação dizia "'ç' está em formato antigo; o código atual gravaria em
+    'sym_231', partindo a classe em duas" e parava aí — renomear e mesclar as
+    pastas à mão, com o Explorer aberto, é onde a amostra se perde.
+
+    O que ela **não** faz é adivinhar. Pasta cujo nome não decodifica sai do
+    caminho do treino pela quarentena, não por um palpite de caractere; e
+    nenhum arquivo é apagado (ver `aplicar_migracao`).
+
+    Devolve o registro do que foi feito, linha a linha.
+    """
+    registro: List[str] = []
+
+    for passada in range(PASSADAS_MAX):
+        acoes = planejar_migracao(data_dir, checar_pngs=checar_pngs)
+        if not acoes:
+            return registro
+        if log:
+            log(f"passada {passada + 1}: {len(acoes)} correção(ões)")
+        registro.extend(aplicar_migracao(data_dir, acoes))
+
+    if planejar_migracao(data_dir, checar_pngs=checar_pngs):
+        registro.append(
+            f"ATENÇÃO: ainda restam correções depois de {PASSADAS_MAX} "
+            "passadas — rode a verificação da base para ver o que sobrou.")
+    return registro

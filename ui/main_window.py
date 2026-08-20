@@ -531,13 +531,18 @@ class MainWindow(tk.Frame):
         return False
 
     def _run_task(self, titulo, trabalho, ao_concluir,
-                  ao_cancelar=None, indeterminado=False):
+                  ao_cancelar=None, indeterminado=False, ao_falhar=None):
         """
         Executa `trabalho(handle)` numa thread, com progresso e cancelamento.
 
         `trabalho` roda FORA da thread da UI e não pode tocar em widget algum —
         ela calcula e devolve dados. Quem mexe na tela é `ao_concluir`, chamado
         de volta na thread da interface.
+
+        `ao_falhar(exc)` recebe a exceção antes do aviso genérico e devolve
+        `True` quando já tratou o caso. É o que deixa uma falha *conhecida* —
+        base de treino inválida, por exemplo — virar uma pergunta útil em vez
+        de um "DatasetInvalido: ..." que o usuário não tem como responder.
         """
         self.status.reset_cancel_button()
         self.status.start_task(f"{titulo}...", indeterminado=indeterminado)
@@ -564,6 +569,8 @@ class MainWindow(tk.Frame):
 
         def falhou(exc):
             encerrar(f"{titulo}: erro.")
+            if ao_falhar and ao_falhar(exc):
+                return
             messagebox.showerror(titulo, f"{type(exc).__name__}: {exc}")
 
         self.parent.config(cursor="watch")
@@ -872,6 +879,8 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Aprender com Página Atual (Coletar)", command=self.learn_from_current_page)
         m_tools.add_command(label="Verificar base de treino...",
                             command=self.verificar_base_treino)
+        m_tools.add_command(label="Corrigir base de treino...",
+                            command=self.corrigir_base_treino)
         m_tools.add_command(label="Treinar Rede Neural", command=self.train_neural_network)
         m_tools.add_command(label="Relatório do último treino...",
                             command=self.abrir_relatorio_treino)
@@ -3473,10 +3482,107 @@ class MainWindow(tk.Frame):
                 if len(avisos) > 10:
                     linhas.append(f"  ... e mais {len(avisos) - 10}")
 
+            if self._corrigiveis(graves):
+                linhas.append("")
+                linhas.append(self.EXPLICACAO_DA_CORRECAO)
+                linhas.append("")
+                linhas.append("Corrigir agora?")
+                if messagebox.askyesno("Base de treino", "\n".join(linhas),
+                                       icon="warning"):
+                    self.corrigir_base_treino(checar_pngs=True)
+                return
+
             mostrar = messagebox.showerror if graves else messagebox.showinfo
             mostrar("Base de treino", "\n".join(linhas))
 
         self._run_task("Verificar base de treino", trabalho, concluir,
+                       indeterminado=True)
+
+    #: O que a correção automática faz, na ordem em que faz — o texto que o
+    #: usuário lê antes de autorizar mexer nas pastas dele.
+    EXPLICACAO_DA_CORRECAO = (
+        "A correção automática:\n"
+        "  - renomeia a pasta de formato antigo para o nome atual;\n"
+        "  - mescla-a na pasta certa quando as duas já existem (nenhuma "
+        "amostra é perdida);\n"
+        "  - remove pasta vazia, que ocupa índice de classe à toa;\n"
+        "  - move para '_quarentena' o que não dá para identificar — PNG "
+        "ilegível e pasta cujo nome não é caractere nenhum.\n"
+        "\n"
+        "Nenhuma amostra é apagada: o que sai do caminho do treino fica em "
+        "'_quarentena', dentro da própria base."
+    )
+
+    @staticmethod
+    def _corrigiveis(problemas):
+        """Os problemas que a correção automática sabe resolver."""
+        from core.dataset_check import TIPOS_CORRIGIVEIS
+        return [p for p in problemas if p.tipo in TIPOS_CORRIGIVEIS]
+
+    def corrigir_base_treino(self, checar_pngs=True, depois=None):
+        """
+        Sanea a base sozinho: renomeia, mescla, quarentena.
+
+        Existe porque o diagnóstico parava no meio do caminho. Ele dizia que
+        'ç' e 'sym_231' são a mesma classe partida em duas — e deixava o
+        usuário juntar as duas pastas à mão, no Explorer, que é exatamente
+        onde amostra se perde.
+
+        `depois` encadeia o que motivou a correção (o treino, tipicamente).
+        Roda no `ao_concluir`, ou seja na thread da UI e com a tarefa anterior
+        já encerrada — é seguro disparar outra tarefa dali.
+        """
+        if self._busy("A correção"):
+            return
+
+        def trabalho(h):
+            h.log("Corrigindo a base de treino...")
+            registro = self.learning_service.sanear_dados(
+                checar_pngs=checar_pngs, callback=h.log)
+            # Revalidar em vez de confiar no registro: o que interessa é a base
+            # ter ficado treinável, não a migração ter dito que fez algo.
+            #
+            # Pelo caminho rápido, mesmo quando a correção leu os PNGs: o que
+            # não deu certo já está no registro como FALHOU, e reler os 571 mil
+            # arquivos de novo custaria outra varredura completa para confirmar
+            # o que a última passada da migração acabou de conferir.
+            restantes = [p for p in self.learning_service.validar_dados()
+                         if p.grave]
+            recusas = [r for r in registro
+                       if r.startswith("FALHOU") or r.startswith("ATENÇÃO")]
+            return registro, restantes, recusas
+
+        def concluir(resultado):
+            registro, restantes, recusas = resultado
+
+            if restantes or recusas:
+                linhas = [f"{len(registro)} correção(ões) aplicada(s), mas a "
+                          "base ainda não está pronta para o treino:"]
+                linhas += [f"  {p}" for p in restantes[:12]]
+                if len(restantes) > 12:
+                    linhas.append(f"  ... e mais {len(restantes) - 12}")
+                linhas += [f"  {r}" for r in recusas[:6]]
+                messagebox.showerror("Corrigir base de treino", "\n".join(linhas))
+                return
+
+            if not registro:
+                messagebox.showinfo("Corrigir base de treino",
+                                    "Nada a corrigir: a base já está sã.")
+            else:
+                linhas = [f"{len(registro)} correção(ões) aplicada(s):"]
+                linhas += [f"  {r}" for r in registro[:15]]
+                if len(registro) > 15:
+                    linhas.append(f"  ... e mais {len(registro) - 15}")
+                if depois is None:
+                    messagebox.showinfo("Corrigir base de treino",
+                                        "\n".join(linhas))
+                else:
+                    self.status.set(f"Base corrigida: {len(registro)} ação(ões).")
+
+            if depois is not None:
+                depois()
+
+        self._run_task("Corrigir base de treino", trabalho, concluir,
                        indeterminado=True)
 
     def train_neural_network(self):
@@ -3506,6 +3612,18 @@ class MainWindow(tk.Frame):
         if epochs is None:
             return
 
+        self._treinar_rede(epochs)
+
+    def _treinar_rede(self, epochs, ja_corrigiu=False):
+        """
+        A tarefa do treino, separada para poder ser refeita.
+
+        `ja_corrigiu` corta a volta: se a base voltou a ser recusada logo
+        depois de ter sido saneada, o problema não é do tipo que a correção
+        automática resolve, e insistir seria um laço.
+        """
+        from core.services.learning_service import DatasetInvalido
+
         def trabalho(h):
             # should_stop é consultado a cada época: cancelar mantém salvo o
             # melhor modelo obtido até ali.
@@ -3514,6 +3632,33 @@ class MainWindow(tk.Frame):
                 callback=h.log,
                 should_stop=lambda: h.cancelled,
             )
+
+        def falhou(exc):
+            """A base recusada vira uma pergunta com resposta, não um traceback."""
+            if not isinstance(exc, DatasetInvalido) or ja_corrigiu:
+                return False
+            corrigiveis = self._corrigiveis(exc.problemas)
+            if not corrigiveis:
+                return False
+
+            linhas = [f"O treino não começou: {len(exc.problemas)} problema(s) "
+                      "na base."]
+            linhas += [f"  {p}" for p in exc.problemas[:10]]
+            if len(exc.problemas) > 10:
+                linhas.append(f"  ... e mais {len(exc.problemas) - 10}")
+            linhas.append("")
+            linhas.append(self.EXPLICACAO_DA_CORRECAO)
+            linhas.append("")
+            linhas.append("Corrigir e treinar?")
+
+            if messagebox.askyesno("Treinar rede neural", "\n".join(linhas),
+                                   icon="warning"):
+                # checar_pngs=False para casar com a validação que recusou o
+                # treino: ela é a rápida, que não lê arquivo nenhum.
+                self.corrigir_base_treino(
+                    checar_pngs=False,
+                    depois=lambda: self._treinar_rede(epochs, ja_corrigiu=True))
+            return True
 
         def concluir(sucesso):
             if not sucesso:
@@ -3548,7 +3693,8 @@ class MainWindow(tk.Frame):
                 )
             self._avisar_do_modelo()
 
-        self._run_task("Treinar rede neural", trabalho, concluir, indeterminado=True)
+        self._run_task("Treinar rede neural", trabalho, concluir,
+                       indeterminado=True, ao_falhar=falhou)
 
     #: Costura de teste, como a da F3.6.
     DIALOGO_DIAGRAMA = DialogoDiagrama
