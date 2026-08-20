@@ -8908,15 +8908,16 @@ O livro exportado não muda nem corre risco.
 
 ### O que a medição diz que falta
 
-**Prova visual do trecho mascarado.** O que separa `dynamic` de `drazic` não é o
-dicionário nem a largura: é o que está desenhado ali. O árbitro da F1.5b já sabe pontuar
-um recorte contra um caractere; apontá-lo para as letras candidatas é a evidência que
-falta, e é uma fase inteira.
+**Prova visual do trecho mascarado** — **virou a F69, e foi feita.** O que separa
+`dynamic` de `drazic` não é o dicionário nem a largura: é o que está desenhado ali. O
+árbitro da F1.5b já sabe pontuar um recorte contra um caractere; apontá-lo para as letras
+candidatas é a evidência que falta, e é uma fase inteira.
 
 **O vocabulário do próprio livro é um bom juiz e ainda não existe como peça.** Ele exige
 duas passadas — ler o livro para saber o que ele fala, depois reparar — e vale por si:
 `medir_lexico.py` mede o alarme falso do léxico geral, e 2.829 palavras contra 310.465
-mudariam esse número.
+mudariam esse número. **Continua em aberto depois da F69**: a prova visual ataca o outro
+lado do mesmo erro e não dispensa este.
 
 ## F67 — O `⩱`, o `⩲` e a faixa que ninguém podia pesquisar — CONCLUÍDA
 
@@ -9036,6 +9037,194 @@ Depois: `0` ocorrências de `✝` e `17` de `+` na mesma página, com `5.♔xf2 
 intacto.
 
 Cobertura: 3 testes em `tests/test_f61_pgn.py` e 1 em `tests/test_f26_livro.py`.
+
+## F69 — A prova visual do reparo, e o comprimento deixa de decidir — CONCLUÍDA (instrumento)
+
+A F66 fechou nomeando o que faltava: *"o que separa `dynamic` de `drazic` não é o
+dicionário nem a largura: é o que está desenhado ali"*. Esta fase é essa evidência, e o
+número que ela existe para virar é a precisão de 62,5% que reprovou o reparo lá.
+
+O reparo da F66 escolhia por **comprimento** — do menos escondido para o mais, e parava no
+primeiro molde que desse. É Occam com a geometria, e é a única régua que existe quando não
+se olha o papel: por ela `drazic` ganha de `dynamic`, porque casa sem esconder caractere
+nenhum. Não é defeito da regra; é o limite de decidir sem prova.
+
+### A pergunta é a do árbitro, feita ao contrário
+
+O árbitro da F1.5b pontua um recorte e devolve **o que leu**. Aqui o dicionário já disse o
+que deveria estar escrito, e o que falta saber é se o papel concorda:
+
+> "o dicionário diz que neste pedaço está um `y`; quanto você dá a `y`?"
+
+`predict_topk` não responde isso, e não é questão de conveniência: a resposta certa
+costuma estar **longe do topo** — se estivesse no topo, o caractere não teria saído
+errado. `NeuralPredictor.probabilidade_de(recorte, char)` é a pergunta invertida, e devolve
+0,0 para classe que o modelo não conhece — que é o mesmo que "não posso afirmar isto", e é
+a resposta segura para um número que **autoriza uma troca**.
+
+### Onde cortar, quando não há vale
+
+Provar `yn` num box exige partir o box, e a repartição igual erraria por construção: as
+letras que colam não têm a mesma largura. Um vale do perfil resolveria, mas de cada quatro
+colagens **uma não tem vale nenhum** (F66) — em negrito e itálico os traços se soldam, que
+é justamente onde a prova precisa falar.
+
+`BoxService.provar_letras` varre ±40% de uma letra em passos de 20%, cada junta
+independente das outras: 5 posições por junta, e cobre de `il` a `wn` sem depender do
+perfil. Uma letra só dispensa corte — é o box largo que escondia uma ligadura inteira.
+
+**A nota é sempre a do pedaço mais fraco**, nos três níveis: a letra dentro do box, o box
+dentro do trecho, o trecho dentro da palavra. É a mesma escolha do `_cortes_endossados` e
+pelo mesmo motivo — `dynamic` só está ali se o `y` **e** o `n` estiverem, e uma média
+deixaria um `y` convincente pagar por um `n` que não existe.
+
+### A costura, e por que ela é uma função
+
+`core.lexico` raciocina em índices de box e em letras; a prova mora na imagem.
+`BoxService.prova_de_reparo(imagem, boxes, probabilidade)` devolve o `(caixas, letras) ->
+nota` que `lexico.reparar` consome, e é a única passagem entre os dois — o léxico continua
+sem saber o que é um pixel, como `generate_boxes_opencv` não sabe o que é um modelo e
+recebe o `arbitro`. Um trecho que cai sobre **dois** boxes reparte as letras entre eles de
+todos os modos com ao menos uma por box, e vale o melhor.
+
+Sem `provar`, `reparar` faz **exatamente** o que fazia na F66. A fase não conserta o que
+havia: acrescenta um juiz, e quem não passa por ele continua com o juiz antigo.
+
+### O resultado
+
+Nas 10 páginas rotuladas (8 do Kasparov, 2 do Aagaard), com o modelo de 249 classes de
+2026-08-20:
+
+| | reparos | pelo rótulo automático |
+|---|---:|---|
+| sem prova (o que a F66 media) | 5 | 2 certos, 3 errados |
+| com prova, pontuando todos (régua 0,0) | 26 | 14 certos, 12 errados |
+| **destes, os que passam a régua 0,5** | **19** | **13 certos, 6 errados** |
+
+**A régua separa as duas populações inteiras, e o vão é o resultado desta fase.** Vistas as
+26 notas da linha do meio:
+
+|  | reparos | nota |
+|---|---:|---|
+| aceitos pela régua | 19 | **0,884 – 1,000** |
+| recusados | 7 | **0,000 – 0,004** |
+
+Não há uma única nota entre 0,004 e 0,884 — fator 221, e a régua pode ficar em qualquer
+ponto do vão sem mudar uma linha do resultado. 0,5 é o que também se lê em voz alta: "o
+papel concorda mais do que discorda".
+
+**Seis dos sete recusados são erro de verdade, e são de dois tipos.** Quatro vêm de lance
+que escapou do `notacao._fatiar` porque a figurina foi lida como letra, e que o dicionário
+então "conserta": `Ndl` → `Geidl`, `Bfl` → `Kifl` (duas vezes), `NChess` → `Ichess`. Os
+outros dois são palavras que o OCR leu **certas** — falta-lhes só o espaço — e que a troca
+estragaria: `wehave` → `behave` e `Ifwe` → `Iftime`. Este último é literalmente a cauda do
+ABBYY que a F66 apontou como o que mata o léxico geral como juiz.
+
+Os seis tiram **0,000**. O papel não desenha nada daquilo, e a prova diz isso sem precisar
+saber o que é um lance, o que é um nome ou o que é espaço faltando — que é o que torna esta
+régua diferente das três que teriam de ser escritas para cobrir os mesmos casos.
+
+**O sétimo é o preço, e ele tem nome:** `Dfnce` → `Defence` está **certo** e sai com 0,004.
+É da página do Aagaard cujo rótulo tem 297 boxes — a menor das dez —, e a prova simplesmente
+não enxerga a palavra. É o que a régua custa, e é o lado seguro de errar: quem reescreve
+texto em silêncio paga em recall, não em precisão, e a fila de revisão continua vendo essa
+palavra porque ela segue fora do dicionário.
+
+Do outro lado, os que entram são a queixa que abriu a F66, resolvida: `Dmamic` → `Dynamic`
+(0,996 e 0,999, nas três páginas em que aparece), mais `Beoko` → `Benko`, `zug3wang` →
+`zugzwang`, `Sectets` → `Secrets`, `cloK` → `close`, `tbe` → `the`, `fow` → `few`, `eafer`
+→ `safer`, `woald`/`wodd`/`coald`/`shodd` → `would`/`could`/`should`.
+
+> **O rótulo automático é teto, e não conta** — é o mesmo defeito que a F66 registrou. Os
+> **seis** que ele chama de errados acima da régua são todos rótulo **truncado**: ele diz
+> `eample` onde o reparo escreve `example`, `tonamt` onde escreve `tournament`, `Dmic`
+> onde escreve `Dynamic`, `difcult` onde escreve `difficult`, `Wadering` onde escreve
+> `Wandering` — e num caso não há rótulo nenhum (`wiWh` → `within`, 0,940). É o rótulo que
+> está incompleto, não o reparo. **Nada disto foi conferido no impresso nesta fase**: o que
+> se leu aqui foram os rótulos, e a conferência à mão que escolheu as réguas foi feita
+> sobre o modelo anterior.
+
+### A régua é uma probabilidade, e por isso ela não atravessa uma calibração
+
+**Este é o número que mais precisa de cuidado no futuro.** `NOTA_MINIMA` é lida na saída da
+softmax, e a softmax depende da temperatura da F1.9. O modelo com que esta tabela foi
+tirada está em `temperatura = 1.0` — softmax cru, porque **todo treino grava assim de
+propósito** (`_gravar_meta`, F26) e a calibração ainda não foi refeita.
+
+A consequência é a mesma que `AVISO_SEM_CALIBRACAO` dá para a fila de revisão: herdar esta
+régua depois de `python calibrar_modelo.py --gravar` é aplicar um limiar medido sobre uma
+escala à outra. O vão de 0,004 a 0,884 é largo o bastante para provavelmente sobreviver,
+mas "provavelmente" não é medida — quem calibrar refaz a varredura com
+`medir_reparo.py --nota`, que existe para isso.
+
+### O custo, medido
+
+Página 13 do Kasparov, 1.575 boxes, 100 deles largos:
+
+| | chamadas ao modelo | tempo |
+|---|---:|---:|
+| como a fase nasceu | 89.694 | 58,7 s |
+| guardando a resposta por pedaço | **19.374** | **14,8 s** |
+
+A varredura repete recorte: com três letras são 25 partições e 75 perguntas, mas só 35
+pedaços distintos. Guardar a resposta por `(início, fim, letra)` não muda nota nenhuma — o
+modelo é determinístico — e é o que faz a fase caber em minutos. Ainda assim são ~15 s por
+página, e é mais uma razão de isto ser instrumento e não caminho de revisão.
+
+### A maiúscula que a máscara comia, e a pergunta errada por trás dela
+
+O dicionário é todo minúsculo, e é por isso que `_remontar` remonta em vez de devolver a
+palavra dele — trocando só o pedaço estragado, o `D` de `Dynamic` fica de pé. Isso resolve
+**enquanto a máscara começa depois da inicial**, que é o caso comum: colar exige um vizinho
+à esquerda. Quando ela pega a inicial, a letra vem do dicionário e a maiúscula ia junto:
+`Wandering` lido `Whndering` saía `wandering`.
+
+**E o estrago não era só na saída.** As letras que vão à prova saíam do mesmo lugar, então
+a pergunta ao modelo era pela **classe errada** — `W` e `w` são classes separadas, porque
+são desenhos separados, e a prova pedia a probabilidade do minúsculo sobre um maiúsculo
+impresso. Medido nas mesmas 10 páginas, `Whndering` sai de **0,619 para 0,903** com a
+pergunta certa: era a pior nota aceita da tabela, e a causa não era o papel.
+
+Um segundo caso mudou de vencedor: `Dfnce` propunha `prince` e passa a propor `Defence`,
+que é o que está impresso. Continua abaixo da régua, porque a prova não enxerga nem um nem
+outro — só que agora o que a régua recusa é um reparo **certo**, e é ele o preço nomeado
+acima.
+
+`_com_a_inicial_do_lido` é a regra, num lugar só, e vale para os dois caminhos — o da F66
+também tinha o defeito. **Ela para na inicial de propósito**: o candidato pode ter
+comprimento diferente do lido, então nenhuma posição interna corresponde à outra. Palavra
+toda em maiúscula sairia meio a meio, e não há nenhuma no material medido.
+
+### A outra régua, e o que ela não faz
+
+**`MIN_PARA_REPARAR = 3`, e não o `MIN_PARTE = 2` da triagem.** Sinalizar `p1ay` é barato e
+útil; **reparar** um núcleo de duas letras é adivinhar, porque quase não sobra âncora fora
+da máscara. É 3 e não 4 porque a 4 se perde `fow` → `few`, que está certo e tira 1,000 na
+prova; régua que custa acerto sem comprar recusa não fica de pé, e é a conta da F24 e da
+F36. Note que ela **não** é o que barra o lance de xadrez: `Ndl`, `Bfl` e `NChess` têm
+núcleo de três e passam por ela — quem os mata é a nota.
+
+### O que fica em aberto
+
+**O livro continua não chamando o reparo, e isso é decisão, não pendência.** O contrato 2
+da SPEC §5.8 diz que palavra fora do dicionário é sinalizada e **nunca** aproximada da mais
+parecida; embarcar a troca é emendar esse contrato, não uma consequência de a prova
+existir. `livro.py` não mudou e o livro exportado não corre risco nenhum desta fase.
+
+**O empate no topo é resolvido por ordem alfabética.** Dois candidatos com a mesma nota
+acima da régua entram como se um tivesse ganhado; `Reparo.vantagem` sai 0,0 e denuncia, mas
+ninguém lê o campo ainda. Não há caso no material medido, e a régua que resolveria —
+recusar vantagem zero — não tem população que a escolha.
+
+**O vocabulário do próprio livro continua fora**, herdado da F66: ele exige duas passadas e
+vale por si, e a prova visual não o dispensa — ataca o outro lado do mesmo erro.
+
+Cobertura: `tests/test_f69_prova_do_reparo.py`, 27 testes — as duas metades e a costura,
+com `provar` injetado. O modelo não entra em teste nenhum, pelo motivo da F27: teste que
+precisa de rede treinada não roda em máquina limpa.
+
+Reproduzir: `python medir_reparo.py --prova --exemplos`, e
+`python medir_reparo.py --nota 0 0.3 0.5` para a varredura da régua.
 
 ## F70 — Uma letra do cabeçalho apagava a calha da página inteira — CONCLUÍDA
 

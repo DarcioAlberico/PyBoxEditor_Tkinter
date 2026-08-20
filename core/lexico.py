@@ -551,15 +551,30 @@ def _casa(palavra: str, lido: str, trechos: Sequence[Tuple[int, int]],
     return palavra[pos_pal:] == lido[pos_lido:]
 
 
+def _com_a_inicial_do_lido(texto: str, lido: str) -> str:
+    """
+    `texto` com a caixa que a inicial tinha no papel (F69).
+
+    **O dicionário é todo minúsculo**, e por isso `_remontar` remonta em vez de
+    devolver a palavra dele: `Dynamic` viraria `dynamic` e o livro perderia a
+    maiúscula. Isso resolve enquanto a máscara começa depois da inicial — que é
+    o caso comum, porque colar exige um vizinho à esquerda. Quando ela **pega**
+    a inicial, a letra vem do dicionário e a maiúscula some assim mesmo:
+    `Wandering` lido `Whndering` saía `wandering`.
+
+    A inicial é a única posição cuja caixa se conhece sem adivinhar, e é por
+    isso que a regra para aqui: o candidato pode ter comprimento diferente do
+    lido, então posição interna nenhuma corresponde à outra. Palavra toda em
+    maiúscula sairia meio a meio, e não há nenhuma no material medido.
+    """
+    if lido[:1].isupper() and texto[:1].islower():
+        return texto[0].upper() + texto[1:]
+    return texto
+
+
 def _remontar(palavra: str, lido: str, trechos: Sequence[Tuple[int, int]],
               extras: Sequence[int]) -> str:
-    """
-    O lido com os trechos mascarados trocados pelos do dicionário.
-
-    Remonta em vez de devolver a palavra do dicionário porque **o dicionário é
-    minúsculo**: `Dynamic` vira `dynamic` e o livro perderia a maiúscula. O que
-    se conserta é só o pedaço que a colagem estragou.
-    """
+    """O lido com os trechos mascarados trocados pelos do dicionário."""
     saida, pos_lido, pos_pal = [], 0, 0
     for (ini, fim), extra in zip(trechos, extras):
         n = ini - pos_lido
@@ -569,7 +584,7 @@ def _remontar(palavra: str, lido: str, trechos: Sequence[Tuple[int, int]],
         pos_pal += (fim - ini) + extra
         pos_lido = fim
     saida.append(lido[pos_lido:])
-    return "".join(saida)
+    return _com_a_inicial_do_lido("".join(saida), lido)
 
 
 def _candidatos(nuc: str, trechos, forma, total: int):
@@ -588,12 +603,21 @@ def _candidatos(nuc: str, trechos, forma, total: int):
 
 
 def _letras_do_trecho(palavra: str, nuc: str, trechos, extras) -> List[str]:
-    """O que o candidato diz que está escrito em cada trecho mascarado."""
+    """
+    O que o candidato diz que está escrito em cada trecho mascarado.
+
+    **Com a caixa do papel, e não a do dicionário** (F69). O modelo tem `W` e
+    `w` em classes separadas — são desenhos diferentes —, e perguntar por `w`
+    sobre um `W` impresso é perguntar pela classe errada. `Whndering` ->
+    `wandering` é o caso: a prova pontuava a inicial contra o minúsculo e
+    tirava a pior nota aceita da tabela.
+    """
     saida, pos_lido, pos_pal = [], 0, 0
     for (ini, fim), extra in zip(trechos, extras):
         n = ini - pos_lido
         pos_pal += n
-        saida.append(palavra[pos_pal:pos_pal + (fim - ini) + extra])
+        pedaco = palavra[pos_pal:pos_pal + (fim - ini) + extra]
+        saida.append(_com_a_inicial_do_lido(pedaco, nuc) if ini == 0 else pedaco)
         pos_pal += (fim - ini) + extra
         pos_lido = fim
     return saida

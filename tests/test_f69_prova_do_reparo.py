@@ -27,7 +27,8 @@ from core.services.box_service import BoxService
 
 #: Pequeno e explícito de propósito: quem lê o teste precisa saber **quais**
 #: candidatos existem, e com a lista de 73 mil palavras isso é invisível.
-PROSA = {"hater", "hammer", "few", "flow", "the", "of", "and", "player"}
+PROSA = {"hater", "hammer", "few", "flow", "the", "of", "and", "player",
+         "wandering"}
 
 
 @pytest.fixture
@@ -163,6 +164,52 @@ def test_reparos_da_pagina_repassa_a_prova(lex):
     provar = _provar_de({"mm": 0.90, "t": 0.10})
     (r,) = lexico.reparos_da_pagina(boxes, {2}, lex, provar)
     assert r.corrigida == "hammer"
+
+
+# ------------------------------------------------------ a caixa da inicial
+
+def test_a_mascara_na_inicial_nao_come_a_maiuscula(lex):
+    """
+    `Whndering` -> `Wandering`, e não `wandering`. O dicionário é todo
+    minúsculo, e enquanto a máscara começa depois da inicial isso não aparece —
+    `_remontar` só troca o pedaço estragado. Quando ela **pega** a inicial, a
+    letra vem do dicionário e a maiúscula ia junto.
+    """
+    provar = _provar_de({"Wa": 0.90, "wa": 0.10})
+    r = lexico.reparar(_simbolos("Whndering"), {0, 1}, lex, provar)
+    assert r is not None and r.corrigida == "Wandering"
+
+
+def test_a_prova_pergunta_pela_caixa_do_papel(lex):
+    """
+    O modelo tem `W` e `w` em classes separadas — são desenhos diferentes —, e
+    perguntar por `w` sobre um `W` impresso é perguntar pela classe errada. Foi
+    o que rebaixou `Whndering` à pior nota aceita da tabela da F69.
+    """
+    perguntas = []
+
+    def provar(caixas, letras):
+        perguntas.append(letras)
+        return 0.9
+
+    lexico.reparar(_simbolos("Whndering"), {0, 1}, lex, provar)
+    assert perguntas and all(x[0] == "W" for x in perguntas)
+
+
+def test_inicial_minuscula_continua_minuscula(lex):
+    """A regra é preservar, não capitalizar: `fow` -> `few`, e não `Few`."""
+    provar = _provar_de({"e": 0.95})
+    r = lexico.reparar(_simbolos("fow"), {1}, lex, provar)
+    assert r is not None and r.corrigida == "few"
+
+
+def test_a_maiuscula_volta_tambem_sem_prova(lex):
+    """
+    O defeito é do remonte, não da prova: o caminho da F66 o tinha igual, e
+    consertá-lo só no caminho novo deixaria os dois discordando.
+    """
+    r = lexico.reparar(_simbolos("Whndering"), {0, 1}, lex)
+    assert r is not None and r.corrigida == "Wandering"
 
 
 # --------------------------------------------- a rede respondendo a pergunta
