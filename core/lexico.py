@@ -452,37 +452,51 @@ MAX_ESCONDIDOS = 2
 #: Quanto o desenho precisa sustentar o candidato para a troca valer, de 0 a 1
 #: (F69).
 #:
-#: Medido nas 7 páginas rotuladas do Kasparov, com os 18 reparos propostos
-#: conferidos **no impresso** um a um — o rótulo à mão não serve de verdade
-#: aqui, porque em três daquelas páginas ele está incompleto:
+#: Medido nas 10 páginas rotuladas (8 do Kasparov, 2 do Aagaard), com o modelo
+#: de 249 classes de 2026-08-20. Pontuando **todos** os candidatos (régua 0,0)
+#: saem 26 reparos, e as notas deles são duas populações e nada no meio:
 #:
-#:     nota da prova    reparos      certos
-#:     0,611 – 0,976       7            7
-#:     0,000 – 0,082      11            5
+#:     nota da prova    reparos
+#:     0,884 – 1,000      19        aceitos
+#:     0,000 – 0,004       7        recusados
 #:
-#: O vão vai de **0,027** (a maior nota de um reparo errado) a **0,611** (a
-#: menor de um certo), e nada cai dentro dele — fator 23. Qualquer limiar ali
-#: dá o mesmo resultado; 0,5 é o que também se lê em voz alta ("o papel
-#: concorda mais do que discorda").
+#: O vão vai de **0,004** a **0,884** — fator 221 —, e a régua pode ficar em
+#: qualquer ponto dele sem mudar uma linha do resultado. 0,5 é o que também se
+#: lê em voz alta ("o papel concorda mais do que discorda").
 #:
-#: **O que ele recusa é metade dos acertos, e é o preço combinado**: `Dynamic`,
-#: `Wandering` e `compensation` estão certos e ficam de fora, porque a prova não
-#: os enxergou. Reescrever texto em silêncio só se paga com precisão alta; para
-#: recall há a fila de revisão, que continua vendo todos eles.
+#: **Seis dos sete recusados são erro de verdade**, e tiram 0,000: quatro são
+#: lance que escapou do `notacao._fatiar` porque a figurina foi lida como letra
+#: e que o dicionário então "conserta" (`Ndl` → `Geidl`, `Bfl` → `Kifl`,
+#: `NChess` → `Ichess`), e dois são palavras lidas **certas** a que só falta o
+#: espaço (`wehave` → `behave`, `Ifwe` → `Iftime`).
+#:
+#: **O sétimo é o preço, e tem nome**: `Dfnce` → `Defence` está certo e sai com
+#: 0,004, porque a prova não enxerga a palavra. É o lado seguro de errar — quem
+#: reescreve texto em silêncio paga em recall, não em precisão, e a fila de
+#: revisão continua vendo essa palavra.
+#:
+#: **A régua é uma probabilidade, e não atravessa uma calibração.** Ela é lida
+#: na saída da softmax, que depende da temperatura da F1.9, e a tabela acima
+#: saiu de um modelo em `temperatura = 1.0` — softmax cru, que é o que todo
+#: treino grava de propósito. Depois de `python calibrar_modelo.py --gravar` o
+#: vão provavelmente sobrevive, de tão largo, mas "provavelmente" não é medida:
+#: quem calibrar refaz a varredura com `medir_reparo.py --nota`.
 NOTA_MINIMA = 0.5
 
 #: Menor palavra que se repara — mais longa que a que se sinaliza.
 #:
 #: Sinalizar `p1ay` é barato e útil; **reparar** um núcleo de duas letras é
-#: adivinhar, porque quase não sobra âncora fora da máscara. Medido, os 5 piores
-#: reparos propostos são lance de xadrez que escapou do `notacao._fatiar` porque
-#: a figurina foi lida como letra — `♗f1` virando `Bf`, `♕c2` virando `Qc` —, e
-#: todos têm núcleo de **duas** letras.
+#: adivinhar, porque quase não sobra âncora fora da máscara.
 #:
 #: **É 3 e não 4, e a diferença foi medida.** A 4 o `fow` → `few` se perde, e ele
-#: está certo e tira 0,950 na prova; a 3 nada de errado volta, porque o que a
+#: está certo e tira 1,000 na prova; a 3 nada de errado volta, porque o que a
 #: `NOTA_MINIMA` barra continua barrado. Régua que custa acerto e não compra
 #: recusa não fica — é a conta da F24 e da F36.
+#:
+#: **Ela não é o que barra o lance de xadrez**, e a primeira versão desta nota
+#: dizia que sim. Os reparos que nascem de figurina lida como letra — `Ndl`,
+#: `Bfl`, `NChess` — têm núcleo de **três** e passam por aqui inteiros; quem os
+#: mata é a nota da prova, que lhes dá 0,000. Ver `NOTA_MINIMA`.
 MIN_PARA_REPARAR = 3
 
 #: Quantos trechos mascarados uma palavra pode ter para valer a busca.
