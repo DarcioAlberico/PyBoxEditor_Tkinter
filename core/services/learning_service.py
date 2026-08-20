@@ -143,6 +143,12 @@ class LearningService:
             return "?", 0.0
         return self._predictor.predict(crop_np)
 
+    def probabilidade_de(self, crop_np: np.ndarray, char: str) -> float:
+        """Quanto a rede dá a **esta** classe neste recorte (F69). 0,0 sem modelo."""
+        if not self.load_predictor():
+            return 0.0
+        return self._predictor.probabilidade_de(crop_np, char)
+
     def validar_dados(self, checar_pngs: bool = False):
         """Problemas na base de treino. Lista vazia = pode treinar."""
         from core.dataset_check import validar_dataset

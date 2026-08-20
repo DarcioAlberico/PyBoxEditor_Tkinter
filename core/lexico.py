@@ -449,6 +449,42 @@ SUSPEITA_DE_COLAGEM = 1.5
 #: caracteres nem muda. Dois basta e limita a busca.
 MAX_ESCONDIDOS = 2
 
+#: Quanto o desenho precisa sustentar o candidato para a troca valer, de 0 a 1
+#: (F69).
+#:
+#: Medido nas 7 páginas rotuladas do Kasparov, com os 18 reparos propostos
+#: conferidos **no impresso** um a um — o rótulo à mão não serve de verdade
+#: aqui, porque em três daquelas páginas ele está incompleto:
+#:
+#:     nota da prova    reparos      certos
+#:     0,611 – 0,976       7            7
+#:     0,000 – 0,082      11            5
+#:
+#: O vão vai de **0,027** (a maior nota de um reparo errado) a **0,611** (a
+#: menor de um certo), e nada cai dentro dele — fator 23. Qualquer limiar ali
+#: dá o mesmo resultado; 0,5 é o que também se lê em voz alta ("o papel
+#: concorda mais do que discorda").
+#:
+#: **O que ele recusa é metade dos acertos, e é o preço combinado**: `Dynamic`,
+#: `Wandering` e `compensation` estão certos e ficam de fora, porque a prova não
+#: os enxergou. Reescrever texto em silêncio só se paga com precisão alta; para
+#: recall há a fila de revisão, que continua vendo todos eles.
+NOTA_MINIMA = 0.5
+
+#: Menor palavra que se repara — mais longa que a que se sinaliza.
+#:
+#: Sinalizar `p1ay` é barato e útil; **reparar** um núcleo de duas letras é
+#: adivinhar, porque quase não sobra âncora fora da máscara. Medido, os 5 piores
+#: reparos propostos são lance de xadrez que escapou do `notacao._fatiar` porque
+#: a figurina foi lida como letra — `♗f1` virando `Bf`, `♕c2` virando `Qc` —, e
+#: todos têm núcleo de **duas** letras.
+#:
+#: **É 3 e não 4, e a diferença foi medida.** A 4 o `fow` → `few` se perde, e ele
+#: está certo e tira 0,950 na prova; a 3 nada de errado volta, porque o que a
+#: `NOTA_MINIMA` barra continua barrado. Régua que custa acerto e não compra
+#: recusa não fica — é a conta da F24 e da F36.
+MIN_PARA_REPARAR = 3
+
 #: Quantos trechos mascarados uma palavra pode ter para valer a busca.
 #:
 #: Com dois já são nove combinações de comprimento por palavra; com três, a
@@ -463,6 +499,12 @@ class Reparo:
     palavra: str                #: como saiu do OCR
     corrigida: str
     indices: List[int]          #: os boxes que a compõem, na ordem
+    #: Quanto o desenho sustenta o candidato escolhido, de 0 a 1 (F69), e
+    #: quanto ele ficou à frente do segundo colocado. São os dois números que
+    #: decidem se a troca vale, e ficam guardados para o relatório poder dizer
+    #: **por que** cada palavra foi trocada — sem eles a fase não tem tabela.
+    nota: float = 0.0
+    vantagem: float = 0.0
 
     def __str__(self):
         return f"{self.palavra!r} -> {self.corrigida!r}"
@@ -530,8 +572,36 @@ def _remontar(palavra: str, lido: str, trechos: Sequence[Tuple[int, int]],
     return "".join(saida)
 
 
+def _candidatos(nuc: str, trechos, forma, total: int):
+    """As palavras do dicionário que casam com a máscara neste comprimento."""
+    baixo = nuc.lower()
+    inicial = None if trechos and trechos[0][0] == 0 else baixo[0]
+    reparticoes = ([(total,)] if len(trechos) == 1
+                   else [(a, total - a) for a in range(total + 1)])
+    achados = {}
+    for extras in reparticoes:
+        for p in forma.get((len(baixo) + total, inicial), ()):
+            if _casa(p, baixo, trechos, extras):
+                achados[_remontar(p, nuc, trechos, extras)] = (p, extras)
+    achados.pop(nuc, None)
+    return achados
+
+
+def _letras_do_trecho(palavra: str, nuc: str, trechos, extras) -> List[str]:
+    """O que o candidato diz que está escrito em cada trecho mascarado."""
+    saida, pos_lido, pos_pal = [], 0, 0
+    for (ini, fim), extra in zip(trechos, extras):
+        n = ini - pos_lido
+        pos_pal += n
+        saida.append(palavra[pos_pal:pos_pal + (fim - ini) + extra])
+        pos_pal += (fim - ini) + extra
+        pos_lido = fim
+    return saida
+
+
 def reparar(simbolos: Sequence[Tuple[str, int]], largos: Set[int],
-            lex: Lexico) -> Optional[Reparo]:
+            lex: Lexico, provar=None,
+            nota_minima: float = NOTA_MINIMA) -> Optional[Reparo]:
     """
     A palavra estragada pela colagem, corrigida — ou `None`.
 
@@ -550,7 +620,7 @@ def reparar(simbolos: Sequence[Tuple[str, int]], largos: Set[int],
         return None
 
     nuc, indices = boxes_do_nucleo(simbolos)
-    if len(nuc) < MIN_PARTE or lex.conhece(nuc):
+    if len(nuc) < MIN_PARA_REPARAR or lex.conhece(nuc):
         return None
 
     # Cada caractere do núcleo sabe de que box veio: um box pode ter trazido
@@ -571,32 +641,59 @@ def reparar(simbolos: Sequence[Tuple[str, int]], largos: Set[int],
         return None
 
     forma = _indice_por_forma(lex)
-    baixo = nuc.lower()
-    inicial = None if mascara[0] else baixo[0]
+    # Os boxes de **cada** trecho, e não os da palavra: é a esse pedaço de papel
+    # que a prova visual vai perguntar o que está escrito.
+    caixas_do_trecho = []
+    for principio, fim in trechos:      # não `ini`: o do núcleo ainda vale
+        vistos = []
+        for i in de_qual[principio:fim]:
+            if i not in vistos:
+                vistos.append(i)
+        caixas_do_trecho.append(vistos)
 
-    # **Do menos escondido para o mais, e para no primeiro que der.** É Occam
-    # com a geometria: se a máscara já casa sem esconder caractere nenhum, supor
-    # que o box escondeu mais dois é inventar. Sem isso, `harvestng` perderia
-    # `harvesting` para o empate com uma palavra de duas letras a mais.
+    # **Sem prova visual, o Occam da geometria é tudo que há** (F66): do menos
+    # escondido para o mais, e desiste no primeiro empate. Com ela, o
+    # comprimento deixa de decidir sozinho — o `Dmamic` do cabeçalho perdia
+    # `dynamic` para `drazic` justamente aqui, porque `drazic` não precisa
+    # esconder caractere nenhum e o papel não era consultado (F69).
+    todos = {}
     for total in range(0, MAX_ESCONDIDOS + 1):
-        # Distribui os caracteres escondidos entre os trechos.
-        reparticoes = ([(total,)] if len(trechos) == 1
-                       else [(a, total - a) for a in range(total + 1)])
-        achados = set()
-        for extras in reparticoes:
-            for p in forma.get((len(baixo) + total, inicial), ()):
-                if _casa(p, baixo, trechos, extras):
-                    achados.add(_remontar(p, nuc, trechos, extras))
-        achados.discard(nuc)
-        if len(achados) == 1:
-            return Reparo(palavra=nuc, corrigida=achados.pop(), indices=indices)
-        if achados:
-            return None         # empate neste comprimento: desiste, não escala
-    return None
+        achados = _candidatos(nuc, trechos, forma, total)
+        if provar is None:
+            if len(achados) == 1:
+                return Reparo(palavra=nuc, corrigida=achados.popitem()[0],
+                              indices=indices)
+            if achados:
+                return None
+            continue
+        todos.update(achados)
+
+    if provar is None or not todos:
+        return None
+
+    # A nota de um candidato é a do trecho mais fraco dele, pelo mesmo motivo
+    # que a de um trecho é a da letra mais fraca: a palavra só está ali se
+    # **todos** os pedaços estiverem.
+    notas = []
+    for corrigida, (palavra, extras) in todos.items():
+        letras = _letras_do_trecho(palavra, nuc, trechos, extras)
+        nota = min((provar(caixas, letra)
+                    for caixas, letra in zip(caixas_do_trecho, letras)),
+                   default=0.0)
+        notas.append((nota, corrigida))
+    notas.sort(reverse=True)
+
+    melhor, corrigida = notas[0]
+    if melhor < nota_minima:
+        return None
+    return Reparo(palavra=nuc, corrigida=corrigida, indices=indices,
+                  nota=melhor,
+                  vantagem=melhor - (notas[1][0] if len(notas) > 1 else 0.0))
 
 
-def reparos_da_pagina(boxes: Sequence, largos: Set[int],
-                      lex: Lexico) -> List[Reparo]:
+def reparos_da_pagina(boxes: Sequence, largos: Set[int], lex: Lexico,
+                      provar=None,
+                      nota_minima: float = NOTA_MINIMA) -> List[Reparo]:
     """
     Os reparos de uma página inteira — a mesma população que `suspeitas_da_pagina`.
 
@@ -608,7 +705,7 @@ def reparos_da_pagina(boxes: Sequence, largos: Set[int],
         return []
     saida = []
     for simbolos in _palavras_de_prosa(boxes):
-        reparo = reparar(simbolos, largos, lex)
+        reparo = reparar(simbolos, largos, lex, provar, nota_minima)
         if reparo is not None:
             saida.append(reparo)
     return saida

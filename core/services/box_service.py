@@ -1,3 +1,5 @@
+import itertools
+
 import cv2
 import numpy as np
 from typing import List, Optional, Set, Tuple
@@ -300,6 +302,170 @@ class BoxService:
             menor = min(menor, float(arbitro(pedaco)[1]))
 
         return list(cortes) if menor > float(p_inteiro) + margem else []
+
+    #: Quanto a prova visual desloca o corte para cada lado da repartição igual,
+    #: em frações da largura de uma letra, e de quanto em quanto.
+    #:
+    #: **A repartição igual sozinha erraria por construção**: as letras que
+    #: colam não têm a mesma largura — `y`+`n`, `w`+`n`, `v`+`i` —, e cortar no
+    #: meio parte a maior. Um vale do perfil resolveria, mas de cada quatro
+    #: colagens uma não tem vale nenhum (F66): em negrito e itálico os traços se
+    #: soldam, e é justamente onde a prova precisa falar.
+    #:
+    #: Varrer ±40% de uma letra em passos de 20% custa 5 posições por junta e
+    #: cobre de `il` a `wn` sem depender do perfil.
+    DESLOCAMENTO_DE_PROVA = 0.4
+    PASSO_DE_PROVA = 0.2
+
+    @staticmethod
+    def provar_letras(imagem_cinza: np.ndarray, box: BoxEntry, letras: str,
+                      probabilidade) -> float:
+        """
+        Quanto o desenho deste box sustenta **estas** letras, de 0 a 1 (F69).
+
+        É a pergunta invertida do árbitro. O `_cortes_endossados` pergunta "vale
+        a pena cortar aqui?" e deixa o modelo escolher o que leu; aqui o
+        dicionário já disse o que deveria estar escrito, e o que falta é saber
+        se o papel concorda. `probabilidade(recorte, char) -> float` é quem
+        responde, injetado como o `arbitro` é — este módulo não conhece o modelo.
+
+        **A nota é a do pedaço mais fraco**, e não a média, pela mesma razão que
+        o `_cortes_endossados` usa a menor: `dynamic` só está ali se o `y` e o
+        `n` estiverem os dois, e uma média deixaria um `y` convincente pagar por
+        um `n` que não existe.
+
+        **O corte é o melhor entre os que se experimenta**, porque a partição
+        certa não se conhece: parte-se da repartição igual e varre-se em volta
+        (`DESLOCAMENTO_DE_PROVA`). Uma letra só dispensa corte, e é o caso do
+        box largo que escondia uma ligadura inteira.
+
+        **A varredura repete pedaço, e o pedaço é que custa.** Com três letras
+        são 25 partições e 75 perguntas, mas só 35 pedaços distintos: a primeira
+        letra tem 5 recortes possíveis, e cada um deles reaparece nas 5
+        partições que só diferem da segunda junta em diante. Guardar a resposta
+        por `(início, fim, letra)` não muda nota nenhuma — o modelo é
+        determinístico — e é o que faz a fase caber em minutos.
+        """
+        largura = box.x2 - box.x1
+        if not letras or largura <= 0:
+            return 0.0
+
+        def recorte_de(ini, fim):
+            pedaco = imagem_cinza[box.y1:box.y2, box.x1 + ini:box.x1 + fim]
+            if pedaco.size and getattr(box, "negativo", False):
+                return negativo.positivar(pedaco)
+            return pedaco
+
+        visto = {}
+
+        def pontuar(ini, fim, c):
+            chave = (ini, fim, c)
+            if chave not in visto:
+                pedaco = recorte_de(ini, fim)
+                visto[chave] = (0.0 if pedaco.size == 0
+                                else float(probabilidade(pedaco, c)))
+            return visto[chave]
+
+        def nota(limites):
+            menor = 1.0
+            for (ini, fim), c in zip(zip(limites, limites[1:]), letras):
+                menor = min(menor, pontuar(ini, fim, c))
+                if menor == 0.0:
+                    return 0.0
+            return menor
+
+        if len(letras) == 1:
+            return nota([0, largura])
+
+        # Cada junta desliza em volta da repartição igual, independente das
+        # outras: com três letras, a primeira pode estar larga e a segunda
+        # estreita, e uma varredura única não alcançaria as duas.
+        letra = largura / len(letras)
+        passos = []
+        d = -BoxService.DESLOCAMENTO_DE_PROVA
+        while d <= BoxService.DESLOCAMENTO_DE_PROVA + 1e-9:
+            passos.append(d)
+            d += BoxService.PASSO_DE_PROVA
+
+        melhor = 0.0
+        for combinacao in itertools.product(passos, repeat=len(letras) - 1):
+            limites = [0]
+            for i, desloc in enumerate(combinacao, start=1):
+                corte = int(round(letra * (i + desloc)))
+                # Cada pedaço precisa sobrar com alguma coisa dentro.
+                limites.append(min(largura - 1, max(limites[-1] + 1, corte)))
+            limites.append(largura)
+            melhor = max(melhor, nota(limites))
+            if melhor == 1.0:
+                break
+        return melhor
+
+    @staticmethod
+    def prova_de_reparo(imagem_cinza: np.ndarray, boxes: List[BoxEntry],
+                        probabilidade):
+        """
+        O `provar` que o `lexico.reparar` consome (F69), pronto para injetar.
+
+        O léxico raciocina em índices de box e em letras; a prova mora na
+        imagem. Esta função é a única costura entre os dois, e existe para que
+        `core.lexico` continue sem saber o que é um pixel — como
+        `generate_boxes_opencv` não sabe o que é um modelo, e recebe o
+        `arbitro`.
+
+        A assinatura devolvida é `(caixas, letras) -> nota`, onde `caixas` são
+        índices em `boxes`, na ordem em que a palavra os atravessa.
+
+        **Um trecho mascarado pode cair sobre mais de um box**, quando duas
+        colagens se encostam, e aí não se sabe quantas letras couberam em cada
+        um: reparte-se o pedaço do candidato entre eles de todos os modos com
+        pelo menos uma letra por box, e vale o melhor. A nota da repartição é a
+        do box mais fraco, pelo mesmo motivo que a de `provar_letras` é a da
+        letra mais fraca — a palavra só está ali se **todos** os pedaços
+        estiverem.
+
+        **Menos letras que boxes é impossível**, e sai 0,0: cada caractere
+        mascarado veio de um box largo, então o candidato traz pelo menos uma
+        letra por box. Chegar aqui seria máscara e boxes discordando, e a
+        resposta segura é não autorizar a troca.
+
+        A memória é o que torna a fase pagável: os candidatos de uma mesma
+        palavra caem todos sobre os mesmos boxes, e muitos repetem as letras do
+        trecho (`dynamic` e `dynamics` perguntam o mesmo `yn`). Sem ela cada
+        candidato repagaria a varredura inteira de `provar_letras`.
+        """
+        memoria = {}
+
+        def provar(caixas, letras: str) -> float:
+            caixas = tuple(caixas)
+            if not letras or not caixas or len(letras) < len(caixas):
+                return 0.0
+            chave = (caixas, letras)
+            if chave in memoria:
+                return memoria[chave]
+
+            if len(caixas) == 1:
+                nota = BoxService.provar_letras(imagem_cinza, boxes[caixas[0]],
+                                                letras, probabilidade)
+            else:
+                nota = 0.0
+                for cortes in itertools.combinations(range(1, len(letras)),
+                                                     len(caixas) - 1):
+                    limites = (0,) + cortes + (len(letras),)
+                    menor = 1.0
+                    for (ini, fim), i in zip(zip(limites, limites[1:]), caixas):
+                        menor = min(menor, BoxService.provar_letras(
+                            imagem_cinza, boxes[i], letras[ini:fim],
+                            probabilidade))
+                        if menor == 0.0:
+                            break
+                    nota = max(nota, menor)
+                    if nota == 1.0:
+                        break
+
+            memoria[chave] = nota
+            return nota
+
+        return provar
 
     @staticmethod
     def dividir_glifos_colados(boxes: List[BoxEntry], imagem_bin: np.ndarray,

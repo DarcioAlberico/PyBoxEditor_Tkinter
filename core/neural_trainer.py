@@ -687,6 +687,9 @@ class NeuralPredictor:
         self.meta_path = meta_path
         self.model = None
         self.idx_to_char = {}
+        # O inverso, construído na primeira `probabilidade_de` (F69). Não sai do
+        # `load` porque quem só reconhece nunca precisa dele.
+        self._char_to_idx = None
         self.device = get_device()
         self.loaded = False
         # 1.0 = softmax cru. Modelo gravado antes da F1.9 não tem o campo, e
@@ -778,6 +781,29 @@ class NeuralPredictor:
         valores, indices = torch.topk(probs, k)
         return [(self.idx_to_char.get(int(i), "?"), float(v))
                 for v, i in zip(valores, indices)]
+
+    def probabilidade_de(self, img_np, char: str) -> float:
+        """
+        Quanto a rede dá a **esta** classe, e não à vencedora dela (F69).
+
+        `predict_topk` só serve quem quer as candidatas mais prováveis. A prova
+        visual faz a pergunta ao contrário — "o dicionário diz que aqui está um
+        `y`; quanto você dá a `y`?" —, e a resposta certa costuma estar longe do
+        topo: se estivesse no topo, o caractere não teria saído errado.
+
+        Zero para classe que o modelo não conhece, que é o mesmo que dizer "não
+        posso afirmar isto" — e é a resposta segura, porque quem chama usa o
+        número para **autorizar** uma troca.
+        """
+        if not self.loaded:
+            return 0.0
+        if self._char_to_idx is None:
+            self._char_to_idx = {c: i for i, c in self.idx_to_char.items()}
+        idx = self._char_to_idx.get(char)
+        if idx is None:
+            return 0.0
+        probs = self._probabilidades(img_np)
+        return 0.0 if probs is None else float(probs[idx])
 
     def margem_de_confianca(self, img_np) -> float:
         """
