@@ -475,12 +475,24 @@ MAX_ESCONDIDOS = 2
 #: reescreve texto em silêncio paga em recall, não em precisão, e a fila de
 #: revisão continua vendo essa palavra.
 #:
-#: **A régua é uma probabilidade, e não atravessa uma calibração.** Ela é lida
-#: na saída da softmax, que depende da temperatura da F1.9, e a tabela acima
-#: saiu de um modelo em `temperatura = 1.0` — softmax cru, que é o que todo
-#: treino grava de propósito. Depois de `python calibrar_modelo.py --gravar` o
-#: vão provavelmente sobrevive, de tão largo, mas "provavelmente" não é medida:
-#: quem calibrar refaz a varredura com `medir_reparo.py --nota`.
+#: **A régua é uma probabilidade, e mesmo assim atravessou a calibração** — e
+#: isso é medido, não suposto. Ela é lida na saída da softmax, que depende da
+#: temperatura da F1.9, e a tabela acima saiu de um modelo em `temperatura =
+#: 1.0`. Revarrida sobre o modelo de 258 classes calibrado a **T = 2,0993**, o
+#: dobro da escala, os 18 reparos se separam igual:
+#:
+#:     nota da prova    reparos
+#:     0,777 – 0,998      13        aceitos
+#:     0,000 – 0,052       5        recusados
+#:
+#: O vão encolhe de 221x para 15x e continua sendo um vão, com o 0,5 dentro. Os
+#: pesos também mudaram entre as duas tabelas, então não é um A/B da temperatura
+#: — é mais forte que isso: a separação é **do método**, e não de uma escala.
+#:
+#: Quem mexer aqui depois de retreinar refaz a varredura com
+#: `medir_reparo.py --nota`, e confere que o `modelo_sha256` e a temperatura são
+#: os mesmos no fim da corrida e no começo. Sem isso a medida sai misturada, e
+#: saiu duas vezes antes de a trava existir (F1.9, re-medida de 2026-08-20).
 NOTA_MINIMA = 0.5
 
 #: Menor palavra que se repara — mais longa que a que se sinaliza.

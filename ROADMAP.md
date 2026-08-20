@@ -1196,6 +1196,56 @@ leitura errada, não da surpresa. E a temperatura gravada só passa a valer quan
 aplicação **recarrega** o modelo: a janela que estava aberta seguiu com o predictor em
 memória de antes.
 
+#### Re-medida em 2026-08-20 — e o que decide se calibrar paga é o próprio T
+
+Dois modelos treinados no **mesmo dia**, com o **mesmo número de classes** (258) e sobre as
+mesmas 10 páginas rotuladas, caíram em lados opostos. É o caso que separa "a calibração
+funciona" de "a calibração funciona aqui":
+
+| pesos | T ajustado | ECE dentro da amostra | leave-one-page-out | páginas que melhoram |
+|---|---:|---|---|---:|
+| 17:37 | **1,212** | 0,0198 → 0,0192 | 0,0303 → **0,0308** | 4 de 10 |
+| 18:18 | **2,099** | 0,0276 → **0,0133** | 0,0300 → **0,0248** | 8 de 10 |
+
+E a triagem, que é a pergunta prática:
+
+| | revisa | acha dos erros | a custo igual (5% da página) |
+|---|---:|---:|---:|
+| 17:37, T=1 | 6,3% | 49,2% | 45,2% |
+| 17:37, calibrado | 8,0% | 54,5% | 48,7% |
+| 18:18, T=1 | 2,1% | 24,4% | 53,4% |
+| 18:18, calibrado | 8,7% | **63,7%** | **58,3%** |
+
+**A régua é o próprio T ajustado, e ele é a medida de quanto o modelo exagera.** Perto de
+1,0 não há o que corrigir: a temperatura vira ruído, o leave-one-out piora, e o que sobra
+de ganho na triagem (1 a 3 pontos a custo igual, sumindo depois de 10% da página) não paga
+aplicar a uma escala um limiar medido em outra. Perto de 2,1 ela vale muito — e é onde
+estavam os dois modelos que a fase mediu antes (1,968 em 04/08 e 2,122 em 06/08).
+
+Isto **não** contradiz nada acima; explica. O que a F1.9 mediu foi que a calibração paga
+nos modelos que ela viu, e todos exageravam. O modelo das 17:37 é o primeiro que não
+exagerava, e nele a mesma receita não rendeu.
+
+**A leitura operacional: `calibrar_modelo.py` sem `--gravar` primeiro, e olhar duas
+linhas** — o T ajustado e a média ponderada do leave-one-page-out. T perto de 1 com a média
+piorando é motivo para **não** gravar. É o que a F26 já dizia por outro caminho ao mandar
+recalibrar depois de todo treino; o que faltava era dizer que recalibrar às vezes responde
+"não precisa".
+
+> **Uma ressalva sobre o leave-one-out desta casa.** A re-medida de 06/08 registra que o T
+> de cada dobra saía idêntico (2,122), o que fazia dele um teste fraco. Nas duas dobras de
+> hoje ele deixou de sair: 0,936 a 1,212 no modelo das 17:37 e 1,865 a 2,145 no das 18:18.
+> As dobras discordam, então o teste voltou a medir generalização — e é por isso que a
+> média ponderada pôde piorar num dos dois.
+
+**E o metadado precisa ser conferido, não presumido.** O modelo foi retreinado **seis
+vezes** no dia 20, e cada treino zera a temperatura de propósito (`_gravar_meta`): uma
+calibração gravada às 17:23 foi apagada pelo treino das 17:32 sem nada avisar. Duas
+medições longas saíram misturadas antes de isso aparecer. Quem for medir sobre o modelo
+grava o `modelo_sha256` **antes e depois** da corrida e descarta o resultado se ele mudar —
+`impressao_do_modelo` existe para isso desde a F7.3, e aqui ela serve para invalidar a
+medida, não só o par.
+
 Cobertura: `tests/test_f19_calibracao.py`, 21 testes.
 
 ### F1.6 — Ordenação de leitura ignora colunas — CONCLUÍDA
@@ -9153,9 +9203,38 @@ propósito** (`_gravar_meta`, F26) e a calibração ainda não foi refeita.
 
 A consequência é a mesma que `AVISO_SEM_CALIBRACAO` dá para a fila de revisão: herdar esta
 régua depois de `python calibrar_modelo.py --gravar` é aplicar um limiar medido sobre uma
-escala à outra. O vão de 0,004 a 0,884 é largo o bastante para provavelmente sobreviver,
-mas "provavelmente" não é medida — quem calibrar refaz a varredura com
-`medir_reparo.py --nota`, que existe para isso.
+escala à outra. O vão de 0,004 a 0,884 parece largo o bastante para sobreviver, mas
+"parece" não é medida — e a medida foi feita no mesmo dia, logo abaixo.
+
+#### A régua sobrevive à calibração, e isso passou a ser medido
+
+Modelo de **258 classes** treinado às 18:18 do mesmo dia e calibrado a **T = 2,0993** — o
+dobro da escala da tabela acima, que saiu em softmax cru. Mesmas 10 páginas:
+
+| | reparos | nota |
+|---|---:|---|
+| aceitos pela régua 0,5 | 13 | **0,777 – 0,998** |
+| recusados | 5 | **0,000 – 0,052** |
+
+**O vão encolheu de 221x para 15x e continua sendo um vão**: nada entre 0,052 e 0,777, e o
+0,5 continua dentro dele. A régua não precisou mexer.
+
+Os quatro erros de verdade que ela barra são os mesmos de sempre — `wehave` → `behave` e
+`Ifwe` → `Iftime` (palavras lidas certas, só sem espaço), `fChess` → `lchess` e `Afier` →
+`Alfier` (nome). E o preço continua tendo o mesmo nome: `Dg6nce` → `Defence` está certo,
+sai com 0,051 e é recusado.
+
+**Não é um A/B limpo da temperatura**, e vale dizer: os pesos também mudaram, e o modelo lê
+a página de outro jeito — onde antes saía `zug3wang` agora sai `zugwang`, `eafer` virou
+`çafer`, `Whndering` virou `Wndering`. O que estas duas tabelas mostram juntas é que a
+separação é **do método**, e não de uma escala específica: em softmax cru ou calibrado, a
+prova dá quase 1 ao que está no papel e quase 0 ao que não está.
+
+**Como isto foi medido, porque sem a trava não teria sido.** O modelo foi retreinado seis
+vezes no dia e duas varreduras longas saíram misturadas antes de alguém perceber. As duas
+tabelas acima só entraram porque a corrida grava o `modelo_sha256` **e** a temperatura
+antes e depois, e se descarta sozinha se qualquer um dos dois mudar — ver a re-medida de
+2026-08-20 na F1.9.
 
 ### O custo, medido
 
