@@ -150,7 +150,25 @@ class Figura:
     coordenadas: bool = False
 
 
-Bloco = Union[Paragrafo, Figura]
+@dataclass
+class Tabela:
+    """
+    Uma tabela do livro — as células, linha a linha (F72).
+
+    **Existe porque ler na ordem certa não era ler como tabela.** A F71 tirou a
+    tabela de dentro da moldura que a engolia, e ela passou a sair como texto
+    corrido: as células na ordem certa, mas sem nada que dissesse onde uma
+    acabava e a outra começava. No livro de finais do Nunn a tabela *é* o
+    conteúdo — `W: Win (1 ♖e1!)` na casa de `B♖h2` × `W♔d1` é a informação —, e
+    um parágrafo por linha com as colunas separadas por espaço não a preserva.
+
+    `linhas[i][j]` é o texto da célula, e a matriz é retangular: célula vazia é
+    string vazia. Quem exporta decide o que fazer com a primeira linha.
+    """
+    linhas: List[List[str]]
+
+
+Bloco = Union[Paragrafo, Figura, Tabela]
 
 
 @dataclass
@@ -174,7 +192,22 @@ class PaginaExtraida:
 
     @property
     def texto(self) -> str:
-        return "\n\n".join(b.texto for b in self.blocos if isinstance(b, Paragrafo))
+        """
+        Todo o texto da página, parágrafos **e** células (F72).
+
+        A tabela entra porque quem chama isto pergunta o que está escrito na
+        página: é daqui que sai o alfabeto para escolher a fonte dos símbolos, e
+        deixar a tabela de fora fazia a figurina dentro da célula sair sem a
+        fonte que a desenha — medido no EPUB da página 236, `♖` nu na célula e
+        `<span class="sim">♔</span>` no parágrafo da mesma página.
+        """
+        partes = []
+        for b in self.blocos:
+            if isinstance(b, Paragrafo):
+                partes.append(b.texto)
+            elif isinstance(b, Tabela):
+                partes.extend(" ".join(fila) for fila in b.linhas)
+        return "\n\n".join(partes)
 
 
 # ----------------------------------------------------------------------
@@ -442,6 +475,170 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     return "".join(partes).strip(), fracos
 
 
+#: Quanto da faixa uma régua de tabela precisa atravessar para ser régua (F72).
+#:
+#: A moldura é o que dá a grade, e a grade é o que separa célula de célula. Não
+#: dá para tirá-la dos boxes: o `trama.aplicar` troca o bloco pelo que há dentro
+#: dele, e a moldura não sobrevive à troca — vai-se buscá-la na imagem, onde ela
+#: continua desenhada.
+#:
+#: Medido na tabela da página 236 do Nunn, que tem 4 colunas: a 0,6 aparecem 4
+#: divisórias verticais e falta uma (a tabela sairia com 3 colunas); a 0,5 e a
+#: 0,4 aparecem as 5 certas; a 0,3 entra uma sexta que não existe, na borda de
+#: uma coluna de texto. O limiar fica no meio do vão.
+REGUA_DA_TABELA = 0.5
+
+#: Quanto do lado a régua precisa atravessar. Ver `REGUA_DA_TABELA`.
+
+
+def _faixas_de_tinta(perfil: np.ndarray, minimo: float) -> List[Tuple[int, int]]:
+    """Os trechos contíguos em que o perfil passa do mínimo."""
+    faixas, inicio = [], None
+    for i, v in enumerate(perfil):
+        if v >= minimo:
+            if inicio is None:
+                inicio = i
+        elif inicio is not None:
+            faixas.append((inicio, i - 1))
+            inicio = None
+    if inicio is not None:
+        faixas.append((inicio, len(perfil) - 1))
+    return faixas
+
+
+#: Quanto a moldura pode invadir o retângulo do texto, em frações dele.
+#:
+#: **Não é margem de segurança inventada: um pedaço da moldura vira glifo.** O
+#: `trama.glifos` lê o que há dentro do bloco, e um trecho de borda partido pelo
+#: scan tem tamanho de caractere. Medido na página 236 do Nunn, o texto começa
+#: em x=156 e a régua esquerda em x=159 — a moldura fica *dentro* do retângulo
+#: do texto, e a régua que a fecha seria descartada por não vir antes dele.
+TOLERANCIA_DA_MOLDURA = 0.02
+
+
+def _cercam(reguas: Sequence[Tuple[int, int]], inicio: int, fim: int
+            ) -> List[Tuple[int, int]]:
+    """
+    As réguas que fecham o texto entre `inicio` e `fim`, e as de dentro.
+
+    **É o que dispensa uma folga arbitrária.** Sabe-se onde está o texto, não
+    onde está a moldura — ela não sobrevive à troca do bloco pelo conteúdo
+    (F71). Procurar "a régua a tantos pixels" erra assim que a célula tem mais
+    respiro: medido, o texto começa a 7 px da régua na tabela do Nunn e a 130 px
+    na montagem do `test_f72`. Procurar a **última antes** e a **primeira
+    depois** não depende de distância nenhuma.
+    """
+    tol = max(2, int((fim - inicio) * TOLERANCIA_DA_MOLDURA))
+    antes = [r for r in reguas if r[1] <= inicio + tol]
+    depois = [r for r in reguas if r[0] >= fim - tol]
+    if not antes or not depois:
+        return []
+    topo, base = antes[-1], depois[0]
+    return [r for r in reguas if topo[0] <= r[0] and r[1] <= base[1]]
+
+
+def _grade(img: np.ndarray, regiao: Tuple[int, int, int, int]
+           ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+    """
+    As réguas da moldura: `(horizontais, verticais)`, em coordenadas da página.
+
+    Cada eixo é projetado na **extensão inteira da página**, e não numa janela
+    em volta do texto: a régua se acha por onde ela está, e o `_cercam` escolhe
+    as que pertencem a esta moldura. O que passa por régua tem de atravessar
+    metade da faixa, e linha de texto não atravessa.
+
+    **As verticais são medidas só no miolo**, entre a primeira e a última
+    horizontal. Medi-las na altura toda mistura a divisória da tabela com o vão
+    entre as colunas do texto que vem antes e depois dela, e foi assim que a
+    divisória mais fraca da página 236 se perdeu.
+    """
+    x1, y1, x2, y2 = regiao
+    if x2 <= x1 or y2 <= y1:
+        return [], []
+
+    escuro = img < 128
+    largura = escuro[:, x1:x2 + 1]
+    horizontais = _cercam(
+        _faixas_de_tinta(largura.sum(axis=1) / largura.shape[1],
+                         REGUA_DA_TABELA), y1, y2)
+    if len(horizontais) < 2:
+        return [], []
+
+    miolo = escuro[horizontais[0][1]:horizontais[-1][0] + 1, :]
+    if miolo.size == 0:
+        return [], []
+    verticais = _cercam(
+        _faixas_de_tinta(miolo.sum(axis=0) / miolo.shape[0],
+                         REGUA_DA_TABELA), x1, x2)
+    return horizontais, verticais
+
+
+def _celulas(cortes: Sequence[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    """Os vãos **entre** réguas consecutivas — é onde mora o conteúdo."""
+    return [(cortes[i][1] + 1, cortes[i + 1][0] - 1)
+            for i in range(len(cortes) - 1)
+            if cortes[i + 1][0] - cortes[i][1] > 2]
+
+
+def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
+                      classificar: Callable, conf_minima: float,
+                      coletor, numero: int):
+    """
+    `(Tabela, boxes consumidos, topo, fracos)` — ou `None`, se não há tabela.
+
+    **A marca diz onde olhar, e a grade decide.** Os boxes vêm marcados de
+    dentro de uma moldura (F71), mas moldura não é tabela: o painel de pontuação
+    da F11 vem marcado igual e não tem grade nenhuma. Sem duas linhas e duas
+    colunas de réguas, devolve `None` e o conteúdo segue o caminho de sempre —
+    parágrafos, como saía antes desta fase.
+
+    **Uma moldura por página.** Duas tabelas na mesma página entrariam no mesmo
+    retângulo envolvente e sairiam como uma só, embaralhada; não há caso no
+    material medido, e o preço de errar seria alto demais para adivinhar.
+    """
+    de_moldura = [b for b in boxes if getattr(b, "moldura", False)]
+    if not de_moldura:
+        return None
+
+    regiao = (min(b.x1 for b in de_moldura), min(b.y1 for b in de_moldura),
+              max(b.x2 for b in de_moldura), max(b.y2 for b in de_moldura))
+    horizontais, verticais = _grade(img, regiao)
+    filas, colunas = _celulas(horizontais), _celulas(verticais)
+    if len(filas) < 2 or len(colunas) < 2:
+        return None
+
+    matriz: List[List[str]] = []
+    usados: List[BoxEntry] = []
+    fracos = 0
+    for ya, yz in filas:
+        fila: List[str] = []
+        for xa, xz in colunas:
+            dentro = [b for b in de_moldura
+                      if ya <= (b.y1 + b.y2) / 2 <= yz
+                      and xa <= (b.x1 + b.x2) / 2 <= xz]
+            usados.extend(dentro)
+            partes = []
+            # **`_agrupar_em_linhas`, e não a ordem de leitura da página.**
+            # Aquela procura colunas, e dentro de uma célula acha: duas linhas
+            # curtas deixam um vão vertical que passa por calha, e a célula sai
+            # lida coluna a coluna. Medido na página 236 do Nunn, a primeira
+            # célula saía `w win ( 1 B Draw ( l ♖e 1` — as duas linhas
+            # intercaladas. Célula se lê linha a linha, sempre.
+            for sub in quebrar_em_linhas(
+                    BoxService._agrupar_em_linhas(dentro)):
+                texto, n = _texto_da_linha(img, sub, classificar, conf_minima,
+                                           coletor, numero)
+                fracos += n
+                if texto:
+                    partes.append(texto)
+            fila.append(" ".join(partes))
+        matriz.append(fila)
+
+    if not any(c for fila in matriz for c in fila):
+        return None
+    return Tabela(matriz), usados, regiao[1], fracos
+
+
 @dataclass
 class Linha:
     """Uma linha de texto lida, com o lugar dela na página."""
@@ -697,8 +894,23 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                               blocos=[Figura(png, larg, alt, origem="pagina")],
                               pagina_de_imagem=True)
 
-    medidas: List[Linha] = []
     fracos = 0
+    # A tabela sai da página antes das linhas: as células dela não são linhas de
+    # prosa, e deixá-las virar parágrafo é o defeito que a F72 fecha.
+    achado = _tabela_da_pagina(img, boxes, classificar, conf_minima, coletor,
+                               numero)
+    tabela = topo_da_tabela = None
+    if achado is not None:
+        tabela, usados, topo_da_tabela, fracos = achado
+        consumidos = {id(b) for b in usados}
+        boxes = [b for b in boxes if id(b) not in consumidos]
+        # As colunas **não** se recontam aqui, e chegou-se a isso medindo: as
+        # células atravessam a página e apagam a calha, então recontá-las sem a
+        # tabela parecia devolver as duas colunas de baixo. Nas 6 tabelas do
+        # material a conta não muda em nenhuma — a página que tem tabela é de
+        # coluna única também abaixo dela.
+
+    medidas: List[Linha] = []
     for linha in quebrar_em_linhas(boxes):
         texto, n = _texto_da_linha(img, linha, classificar, conf_minima,
                                    coletor, numero)
@@ -778,21 +990,43 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             resultado.blocos.extend(figura(d))
         pendentes = restam
 
+    def soltar_tabela(ate: Optional[int] = None) -> None:
+        """
+        A tabela entra pela altura, como as figuras, e não no fim da página.
+
+        Atravessa a largura toda, então não é de coluna nenhuma: o que a
+        posiciona é só o topo dela contra o topo da linha corrente.
+        """
+        nonlocal corrente, tabela
+        if tabela is None or (ate is not None and topo_da_tabela >= ate):
+            return
+        resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
+        corrente = []
+        resultado.blocos.append(tabela)
+        tabela = None
+
     coluna_anterior: Optional[int] = None
     for medida in medidas:
         if coluna_anterior is not None and medida.coluna != coluna_anterior:
             # O rodapé da coluna que se deixa entra antes do topo da próxima.
             despejar(coluna_anterior)
         despejar(medida.coluna, ate=medida.topo)
+        soltar_tabela(ate=medida.topo)
         corrente.append(medida)
         coluna_anterior = medida.coluna
     resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
     corrente = []
+    soltar_tabela()
     for _col, d in pendentes:
         resultado.blocos.extend(figura(d))
 
-    resultado.caracteres = sum(len(b.texto) for b in resultado.blocos
-                               if isinstance(b, Paragrafo))
+    # As células contam como caractere da página: são texto lido, e é por este
+    # número que o relatório do fim da exportação diz se a página rendeu (F72).
+    resultado.caracteres = sum(
+        len(b.texto) if isinstance(b, Paragrafo)
+        else sum(len(c) for fila in b.linhas for c in fila)
+        for b in resultado.blocos
+        if isinstance(b, (Paragrafo, Tabela)))
     resultado.diagramas_desenhados = sum(
         1 for b in resultado.blocos
         if isinstance(b, Figura) and b.origem == "render")

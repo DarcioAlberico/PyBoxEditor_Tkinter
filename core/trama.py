@@ -212,6 +212,11 @@ def aplicar(cinza: np.ndarray, boxes: Sequence[BoxEntry], escala: int
         dentro = glifos(binarizar_bloco(cinza, b, escala), b, escala)
         if not MIN_GLIFOS <= len(dentro) <= MAX_GLIFOS:
             continue
+        # A marca é o que sobra do bloco: a moldura some aqui, e sem ela nada na
+        # página diria onde estava a tabela (F72). Quem decide se aquilo vira
+        # `<table>` é a estrutura, não a marca.
+        for g in dentro:
+            g.moldura = True
         novas = [o for o in novas if o is not b] + dentro
         lidos.append(b)
 

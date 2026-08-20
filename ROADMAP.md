@@ -9205,6 +9205,122 @@ como retângulo descartado; o que sai do `trama.aplicar` são os caracteres, nã
 
 Cobertura: `tests/test_f71_tabela_engolida.py`, 9 testes.
 
+## F72 — A tabela sai como tabela — CONCLUÍDA
+
+A F71 tirou a tabela de dentro da moldura que a engolia e ela passou a sair na ordem certa,
+mas como prosa: as células uma atrás da outra, sem nada que dissesse onde uma acabava e a
+outra começava. No livro de finais do Nunn a tabela **é** o conteúdo — `W: Win (1 ♖e1!)` na
+casa de `B♖h2` × `W♔d1` é a informação —, e um parágrafo por linha com as colunas separadas
+por espaço não a preserva.
+
+### Onde está a tabela: a marca, e o merge que a apagava
+
+A moldura **não sobrevive** à correção da F71: o `trama.aplicar` troca o bloco pelo que há
+dentro dele, e o retângulo some. Sem ele não sobra na página nada que diga onde a tabela
+estava. Daí a marca: `BoxEntry.moldura`, posta em cada glifo na hora da troca.
+
+E ela se perdia logo em seguida. O `merge_vertical_boxes` **constrói uma caixa nova** e
+copiava só `negativo`; medido na página 236, os 277 boxes chegavam marcados e saíam sem
+marca nenhuma. Agora `moldura` viaja junto, e basta um dos dois lados do merge tê-la — o
+pingo e o corpo do `i` são o mesmo caractere.
+
+**A marca diz onde olhar, e não o que aquilo é.** O painel de pontuação da F11 vem marcado
+igual: quem decide é a grade, e sem duas linhas e duas colunas de réguas o conteúdo segue
+o caminho de sempre.
+
+### A grade vem da imagem, e sem folga arbitrária
+
+As réguas se procuram onde elas estão — na imagem —, projetando a tinta na extensão inteira
+da página. Passa por régua o que atravessa metade da faixa; linha de texto não atravessa.
+
+Duas coisas que a medição obrigou:
+
+**As verticais são medidas só no miolo**, entre a primeira e a última horizontal. Medi-las
+na altura toda mistura a divisória da tabela com o vão entre as colunas do texto que vem
+antes e depois dela, e foi assim que a divisória mais fraca da página 236 se perdeu — a
+tabela sairia com 3 colunas em vez de 4. O limiar também foi medido: a 0,6 falta essa
+divisória; a 0,5 e a 0,4 aparecem as 5 certas; a 0,3 entra uma sexta que não existe.
+
+**A régua se acha por vizinhança, não por distância.** A primeira tentativa procurava a
+moldura a tantos pixels do texto, e erra assim que a célula tem mais respiro: 7 px na
+tabela do Nunn contra 130 px na montagem do teste, com caracteres de altura parecida.
+`_cercam` pega a última régua **antes** do texto e a primeira **depois**, com uma tolerância
+de 2% — porque um pedaço da moldura partido pelo scan vira glifo e entra no retângulo do
+texto: medido, o texto começa em x=156 e a régua esquerda em x=159.
+
+### E dentro da célula não se lê como se lê a página
+
+Com a grade pronta e o modelo de verdade rodando, a primeira célula saiu
+`w win ( 1 B Draw ( l ♖e 1` — as duas linhas dela **intercaladas**. A culpa é de usar a
+ordem de leitura da página dentro da célula: ela procura colunas, e numa célula de duas
+linhas curtas acha uma, porque o vão vertical entre as palavras passa por calha. Célula se
+lê linha a linha, sempre — `_agrupar_em_linhas`, que agrupa sem procurar coluna nenhuma.
+Depois: `w w in ( 1 ♖e 1 ! ) B Draw ( l ♖a2 !)`.
+
+### O resultado
+
+Página 236 do Nunn, do PDF ao EPUB:
+
+| | |
+|---|---|
+| grade encontrada | 6 filas × 4 colunas |
+| boxes consumidos pela tabela | 264 de 265 |
+| células com texto | 21 de 24 |
+| no EPUB | `<table>` com `<tr>`/`<td>` e fio de célula |
+
+As 3 células vazias não são todas perda: duas estão vazias no papel, onde está impresso `*`.
+A terceira, e mais duas da mesma coluna, saem vazias porque **a recuperação da F71 não
+trouxe nada delas** — contados os boxes por célula, chegam 0 onde há texto impresso. É
+perda da recuperação, não da grade.
+
+No livro inteiro, e nos outros três:
+
+| | páginas | tabelas |
+|---|---:|---:|
+| Nunn, *Secrets of Rook Endings* | 354 | **6** (7×4, 4×4, 9×3, 6×4, 7×4, 7×4) |
+| Aagaard, *Attacking Manual* | 33 | 0 |
+| Darcy Lima | 40 | 0 |
+| Yusupov, *Complete* | 44 | 0 |
+
+**O Darcy dava 6 e nenhuma existia.** Foi a primeira versão da busca de réguas, a que
+procurava a moldura a uma distância fixa do texto: ela achava "grades" de 24 e de 17
+colunas em páginas de prosa com diagrama. Procurar a régua que **cerca** o texto, em vez de
+a que está a tantos pixels, derrubou as seis sem custar nenhuma das do Nunn — que é o que
+uma peneira boa faz.
+
+Medida também a recontagem de colunas depois de tirar a tabela da página, que parecia
+necessária (as células apagam a calha): **não muda em nenhuma das 6**. A página que tem
+tabela é de coluna única abaixo dela também, e o código ficou de fora.
+
+**As células entram no texto da página** (`PaginaExtraida.texto`), e isso não é arrumação:
+é de lá que sai o alfabeto que escolhe a fonte dos símbolos da F62. Sem elas a figurina
+saía nua dentro da célula e vestida no parágrafo da mesma página — `♖` contra
+`<span class="sim">♔</span>`, medido no EPUB.
+
+O DOCX ganha a tabela pelo `Table Grid`, que é o único estilo de grade do template padrão
+do Word. Sem ele a tabela sai sem fio e não se vê onde a célula acaba.
+
+**Sem `<th>`, e não é descuido**: nada aqui sabe se a primeira fila é cabeçalho. O que se
+mediu foi a grade, e a grade não diz o que a célula significa — marcar cabeçalho por
+posição erraria em toda tabela que começa com dado, e o leitor de tela anunciaria
+"coluna: W: Win" como se fosse título.
+
+### O que fica em aberto
+
+**Uma moldura por página.** Duas tabelas na mesma página entrariam no mesmo retângulo
+envolvente e sairiam como uma só, embaralhada. Não há caso no material medido, e adivinhar
+o agrupamento custaria mais do que o defeito que evitaria.
+
+**A célula não guarda a quebra de linha.** As linhas de dentro dela viram um texto só,
+separado por espaço: `W: Win (1 ♖e1!) B: Draw (1...♖a2!)` sai numa linha, e no papel são
+duas. Para esta tabela isso não perde informação; para uma de duas frases independentes,
+perderia.
+
+**A pontuação miúda continua fora**, herdado da F71: o filtro de altura de `trama.glifos`
+não deixa passar ponto nem vírgula, e o que encosta na divisória vai junto com ela.
+
+Cobertura: `tests/test_f72_tabela_no_epub.py`, 12 testes.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

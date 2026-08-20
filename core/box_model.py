@@ -63,6 +63,18 @@ class BoxEntry:
     # lido como margem. Campo novo entra por último, sempre.
     margem: float = SEM_MARGEM
 
+    # O box foi lido de **dentro** de um bloco que a moldura fechava (F72) — o
+    # `trama.aplicar` o marca ao trocar o bloco pelo que havia dentro dele.
+    #
+    # Serve para achar a tabela sem redescobri-la: a moldura some na troca, e
+    # sem a marca não sobra na página nada que diga onde ela estava. Quem decide
+    # se aquilo vira `<table>` é a estrutura dos boxes, não esta marca — o
+    # painel de pontuação da F11 vem marcado igual e continua saindo como
+    # parágrafo, porque não tem grade.
+    #
+    # Entra por último pela regra do `margem`: `from_state` carrega por posição.
+    moldura: bool = False
+
     def as_tuple(self):
         return (self.char, self.x1, self.y1, self.x2, self.y2)
 
@@ -76,12 +88,13 @@ class BoxEntry:
         inclusive.
 
         Estado gravado antes da F8.1 tem sete campos e continua carregando; o
-        de antes da F10 tem oito, e o de antes da F44 tem nove. Os campos que
-        faltam ficam no valor padrão, que é o que aquele box queria dizer.
+        de antes da F10 tem oito, o de antes da F44 tem nove e o de antes da F72
+        tem dez. Os campos que faltam ficam no valor padrão, que é o que aquele
+        box queria dizer.
         """
         return (self.char, self.x1, self.y1, self.x2, self.y2,
                 self.confidence, self.source, self.angulo, self.negativo,
-                self.margem)
+                self.margem, self.moldura)
 
     @classmethod
     def from_state(cls, estado) -> "BoxEntry":

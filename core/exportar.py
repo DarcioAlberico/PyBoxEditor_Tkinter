@@ -22,7 +22,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import fitz
 
-from core.livro import Figura, PaginaExtraida, Paragrafo
+from core.livro import Figura, PaginaExtraida, Paragrafo, Tabela
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,6 +34,9 @@ p.primeira { text-indent: 0; }
 figure { margin: 1.2em 0; text-align: center; page-break-inside: avoid; }
 img { max-width: 88%; height: auto; }
 hr.pagina { border: 0; border-top: 1px solid #ccc; margin: 1.6em 0 1em; }
+table { border-collapse: collapse; margin: 1.2em auto; width: 100%; }
+td { border: 1px solid #666; padding: 0.3em 0.45em; vertical-align: top; }
+td p { text-indent: 0; text-align: left; margin: 0; }
 """
 
 #: Os dois jeitos de pôr o diagrama no arquivo (F59).
@@ -180,7 +183,21 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
     corpo, i = [], 0
     primeiro = True
     for bloco in pagina.blocos:
-        if isinstance(bloco, Figura):
+        if isinstance(bloco, Tabela):
+            # **Sem `<th>`, e não é descuido.** Nada aqui sabe se a primeira
+            # fila é cabeçalho: o que se mediu foi a grade, e a grade não diz o
+            # que a célula significa. Marcar cabeçalho por posição erraria em
+            # toda tabela que começa com dado — e o leitor de tela anunciaria
+            # "coluna: W: Win" como se fosse título (F72).
+            filas = []
+            for fila in bloco.linhas:
+                celulas = "".join(
+                    f"<td>{_com_simbolos(c, simbolos) if simbolos else html.escape(c)}</td>"
+                    for c in fila)
+                filas.append(f"<tr>{celulas}</tr>")
+            corpo.append("<table>\n" + "\n".join(filas) + "\n</table>")
+            primeiro = True
+        elif isinstance(bloco, Figura):
             if diagramas == "fonte" and em_fonte(bloco):
                 corpo.append(_diagrama_em_texto(bloco))
             else:
@@ -635,6 +652,19 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 # que a busca do Word encontra.
                 forma._inline.docPr.set("descr", _alternativo(bloco))
                 doc.paragraphs[-1].alignment = 1   # centralizado
+            elif isinstance(bloco, Tabela):
+                # `Table Grid` é o único estilo de grade que o template padrão
+                # do Word traz; sem estilo nenhum a tabela sai sem fio e o
+                # leitor não vê onde uma célula acaba.
+                t = doc.add_table(rows=len(bloco.linhas),
+                                  cols=len(bloco.linhas[0]))
+                try:
+                    t.style = doc.styles["Table Grid"]
+                except KeyError:
+                    pass
+                for fila, textos in zip(t.rows, bloco.linhas):
+                    for celula, texto in zip(fila.cells, textos):
+                        celula.text = texto
             else:
                 p = escrever_paragrafo(bloco.texto)
                 if bloco.titulo:

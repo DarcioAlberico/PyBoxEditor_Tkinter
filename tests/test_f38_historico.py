@@ -40,8 +40,16 @@ def _estados(boxes):
 
 def test_as_state_leva_todos_os_campos():
     b = BoxEntry("fi", 1, 2, 3, 4, confidence=0.75, source="lote", angulo=90,
-                 negativo=True, margem=0.4)
-    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True, 0.4)
+                 negativo=True, margem=0.4, moldura=True)
+    assert b.as_state() == ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True, 0.4, True)
+
+
+def test_estado_anterior_a_moldura_continua_carregando():
+    """O mesmo contrato da `margem`, um campo depois (F72)."""
+    antigo = ("fi", 1, 2, 3, 4, 0.75, "lote", 90, True, 0.4)
+    b = BoxEntry.from_state(antigo)
+    assert (b.angulo, b.negativo, b.margem) == (90, True, 0.4)
+    assert b.moldura is False
 
 
 def test_estado_anterior_a_margem_continua_carregando():

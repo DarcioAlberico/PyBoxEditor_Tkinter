@@ -1031,9 +1031,14 @@ class BoxService:
                 continue
 
             b1 = boxes[i]
+            # `moldura` viaja junto com `negativo`, e pelo mesmo motivo: o merge
+            # constrói uma caixa nova, e o que não for copiado aqui se perde
+            # calado. Medido na página 236 do Nunn, os 277 boxes lidos de dentro
+            # da tabela chegavam marcados e saíam daqui sem marca nenhuma (F72).
             current_merged = BoxEntry(
                 b1.char, b1.x1, b1.y1, b1.x2, b1.y2,
-                negativo=getattr(b1, "negativo", False)
+                negativo=getattr(b1, "negativo", False),
+                moldura=getattr(b1, "moldura", False),
             )
             used_indices.add(i)
 
@@ -1087,6 +1092,11 @@ class BoxService:
                         current_merged.y1 = new_y1
                         current_merged.x2 = new_x2
                         current_merged.y2 = new_y2
+                        # Basta um dos dois ter vindo de dentro da moldura: o
+                        # pingo e o corpo do 'i' são o mesmo caractere, e a
+                        # caixa fundida está onde os dois estavam.
+                        current_merged.moldura = (current_merged.moldura
+                                                  or getattr(b2, "moldura", False))
 
                         used_indices.add(j)
                         merged_something = True
