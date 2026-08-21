@@ -500,6 +500,43 @@ def test_o_resumo_explica_todo_recorte_que_nao_ficou():
             assert esperado in c.resumo(), (esperado, c.resumo())
 
 
+def test_o_instrumento_do_livro_inteiro_nao_reescreve_a_regra_do_teto():
+    """
+    **A trava da F52**: instrumento que copia a regra de produção mede a cópia.
+
+    `medir_coleta._teto_sorteado` reimplementa a amostragem de reservatório
+    porque no livro inteiro não dá para guardar 425 mil recortes em memória —
+    o instrumento trabalha com classe, impressão, página e confiança, e nunca
+    com a imagem. Reimplementar é legítimo; divergir não é: os números do
+    livro no ROADMAP falam do `Coletor`, não do script.
+
+    Se este teste quebrar, ou o `Coletor` mudou e o instrumento ficou para
+    trás, ou o contrário — e a tabela da F93 passou a descrever outra coisa.
+    """
+    import medir_coleta
+
+    teto = 7
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"),
+                           max_por_classe=teto, deduplicar=False)
+        amostras = []
+        for pagina in range(120):
+            # Duas classes, para o sorteio ter de manter dois reservatórios.
+            for palpite in ("o", "s"):
+                c(_recorte(igual=pagina), palpite, 0.3, pagina=pagina)
+                amostras.append(medir_coleta.Amostra(
+                    char_to_folder(palpite), pagina, pagina, 0.3))
+
+        do_coletor = sorted((l["arquivo"].split(os.sep)[0], l["pagina"] - 1)
+                            for l in c.linhas)
+        do_script = sorted((a.classe, a.pagina)
+                           for a in medir_coleta._teto_sorteado(amostras, teto))
+
+        assert do_coletor == do_script, (
+            "o instrumento do livro inteiro e o Coletor sortearam diferente")
+        assert len(do_coletor) == 2 * teto
+
+
 # ----------------------------------------------------------------------
 # A promoção
 # ----------------------------------------------------------------------

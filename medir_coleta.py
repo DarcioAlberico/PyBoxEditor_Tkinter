@@ -26,10 +26,22 @@ rotulado é box que não cerca caractere.
     python medir_coleta.py --varrer        # a varredura dos limiares da porta
     python medir_coleta.py --so page-0020  # só estas páginas
 
-Reproduz a tabela da F93 no ROADMAP.
+**O livro inteiro responde outras perguntas, e é preciso saber quais.** Sem
+gabarito não há "certos, errados, espúrios" — essa tabela só existe onde alguém
+rotulou à mão, e são 10 páginas. O que só o livro inteiro responde é o que
+depende de **escala**: quanto a pilha se repete ao longo de 300 páginas e quanto
+o teto por classe a enviesava. As 10 páginas não podiam responder isso — com 10
+páginas, qualquer amostra toca todas elas.
+
+    python medir_coleta.py --livro ilovepdf_pages-to-jpg     # pasta de imagens
+    python medir_coleta.py --livro livro.pdf --limite 20     # ou um PDF
+    python medir_coleta.py --pdf livro.pdf                   # só a dedução
+
+Reproduz as tabelas da F93 no ROADMAP.
 """
 
 import argparse
+import glob
 import os
 import sys
 from collections import Counter
@@ -72,6 +84,25 @@ class Recorte:
                 and normalizar(self.palpite) == normalizar(self.verdade))
 
 
+def boxes_e_recortes(arr, predictor, caminho="pagina"):
+    """
+    `(boxes, recortes)` de uma página em cinza, pelo caminho pedido.
+
+    Extraído para o modo de livro inteiro poder usar **o mesmo** caminho que a
+    medição contra as páginas rotuladas: se os dois divergirem, o número do
+    livro não fala do mesmo botão que a tabela das 10 páginas.
+    """
+    from core import livro, vertical
+
+    if caminho == "pagina":
+        boxes, _t, _e, _r, _c = livro.caixas_e_diagramas(
+            arr, lambda r: predictor.predict(r) if r.size else ("", 0.0))
+        return boxes, [vertical.recorte_de_pe(arr, b) for b in boxes]
+    boxes = BoxService.generate_boxes_opencv(Image.fromarray(arr),
+                                             separar_colados=True)
+    return boxes, [arr[b.y1:b.y2, b.x1:b.x2] for b in boxes]
+
+
 def colher(predictor, raiz=".", so=None, caminho="pagina"):
     """
     `[Recorte]` de todas as páginas rotuladas, na ordem das páginas.
@@ -87,8 +118,6 @@ def colher(predictor, raiz=".", so=None, caminho="pagina"):
       diferença entre as duas colunas **é** o quanto a exclusão de diagrama já
       limpa a pilha, e medir na errada foi o primeiro erro desta fase.
     """
-    from core import livro, vertical
-
     recortes = []
     for numero, (imagem, caminho_box) in enumerate(paginas_rotuladas(raiz)):
         nome = os.path.basename(imagem)
@@ -100,13 +129,7 @@ def colher(predictor, raiz=".", so=None, caminho="pagina"):
             continue
 
         arr = np.array(img)
-        if caminho == "pagina":
-            boxes, _t, _e, _r, _c = livro.caixas_e_diagramas(
-                arr, lambda r: predictor.predict(r) if r.size else ("", 0.0))
-            crus = [vertical.recorte_de_pe(arr, b) for b in boxes]
-        else:
-            boxes = BoxService.generate_boxes_opencv(img, separar_colados=True)
-            crus = [arr[b.y1:b.y2, b.x1:b.x2] for b in boxes]
+        boxes, crus = boxes_e_recortes(arr, predictor, caminho)
         if not boxes:
             continue
 
@@ -366,6 +389,201 @@ def medir_deducao_em_pdf(caminho, paginas, predictor):
         doc.close()
 
 
+# ----------------------------------------------------------------------
+# O livro inteiro — sem rótulo, e é por isso que as perguntas são outras
+# ----------------------------------------------------------------------
+
+class Amostra:
+    """
+    Um recorte do livro, **sem a imagem**.
+
+    A imagem sai da memória assim que a impressão é tirada, e é o que torna a
+    passada pelo livro inteiro possível: 322 páginas dão ~300 mil recortes, e
+    guardá-los custaria dezenas de gigabytes para responder perguntas que só
+    precisam de classe, impressão, página e confiança.
+    """
+
+    __slots__ = ("classe", "impressao", "pagina", "conf")
+
+    def __init__(self, classe, impressao, pagina, conf):
+        self.classe = classe
+        self.impressao = impressao
+        self.pagina = pagina
+        self.conf = conf
+
+
+def paginas_do_livro(alvo):
+    """
+    `[(rótulo, imagem em cinza)]` — de uma pasta de imagens ou de um PDF.
+
+    Um livro **escaneado** neste projeto costuma ser uma pasta de páginas em
+    JPG (é o que o `ilovepdf` deixa), e não um PDF; um digital é um PDF. Os
+    dois entram aqui porque a pergunta é a mesma.
+    """
+    if os.path.isdir(alvo):
+        arquivos = sorted(f for f in glob.glob(os.path.join(alvo, "*"))
+                          if f.lower().endswith((".jpg", ".jpeg", ".png")))
+        for caminho in arquivos:
+            yield os.path.basename(caminho), np.array(
+                Image.open(caminho).convert("L"))
+        return
+
+    import fitz
+
+    from core import livro
+
+    doc = fitz.open(alvo)
+    try:
+        for n in range(doc.page_count):
+            yield f"página {n + 1}", livro._pagina_cinza(doc[n], 300)
+    finally:
+        doc.close()
+
+
+def percorrer(alvo, predictor, limite=None, caminho="pagina"):
+    """Uma passada pelo livro. `[Amostra]`, na ordem das páginas."""
+    from core.learner import char_to_folder
+
+    amostras = []
+    for numero, (rotulo, arr) in enumerate(paginas_do_livro(alvo)):
+        if limite is not None and numero >= limite:
+            break
+        boxes, crus = boxes_e_recortes(arr, predictor, caminho)
+        na_pagina = 0
+        for cru in crus:
+            if not getattr(cru, "size", 0):
+                continue
+            char, conf = predictor.predict(cru)
+            if not char:
+                continue
+            imagem = coleta._cinza(cru)
+            if imagem is None:
+                continue
+            amostras.append(Amostra(char_to_folder(char),
+                                    coleta._impressao(imagem), numero, conf))
+            na_pagina += 1
+        if numero % 20 == 0 or limite:
+            print(f"  {rotulo}: {na_pagina} recortes "
+                  f"({len(amostras)} até aqui)", flush=True)
+    return amostras
+
+
+def _paginas_por_classe(escolhidas, classes):
+    """(mediana, pior) de páginas distintas por classe, entre `classes`."""
+    por_classe = {}
+    for a in escolhidas:
+        if a.classe in classes:
+            por_classe.setdefault(a.classe, set()).add(a.pagina)
+    if not por_classe:
+        return 0.0, 0
+    valores = sorted(len(v) for v in por_classe.values())
+    return float(np.median(valores)), valores[0]
+
+
+def _teto_primeiro_a_chegar(amostras, teto):
+    """O comportamento anterior à F93, reconstruído para a comparação."""
+    conta, ficaram = Counter(), []
+    for a in amostras:
+        if conta[a.classe] < teto:
+            conta[a.classe] += 1
+            ficaram.append(a)
+    return ficaram
+
+
+def _teto_sorteado(amostras, teto, semente=coleta.SEMENTE_PADRAO):
+    """Amostragem de reservatório, igual à do `Coletor._vaga`."""
+    import random
+
+    sorteio = random.Random(semente)
+    reserva, vistos = {}, Counter()
+    for a in amostras:
+        lista = reserva.setdefault(a.classe, [])
+        vistos[a.classe] += 1
+        if len(lista) < teto:
+            lista.append(a)
+            continue
+        j = sorteio.randrange(vistos[a.classe])
+        if j < teto:
+            lista[j] = a
+    return [a for lista in reserva.values() for a in lista]
+
+
+def relatorio_do_livro(amostras, nome, tetos=(30, 100, 300)):
+    """
+    O que dá para medir num livro **sem rótulo**, que não é o mesmo de antes.
+
+    Sem gabarito não há "certos, errados, espúrios": essa tabela só existe nas
+    10 páginas rotuladas. O que o livro inteiro responde — e as 10 páginas não
+    respondiam, porque a escala é o dado — é quanto a pilha se repete e quanto
+    o teto a enviesava.
+    """
+    paginas = len({a.pagina for a in amostras})
+    distintas = {}
+    for a in amostras:
+        distintas.setdefault(a.classe, set()).add(a.impressao)
+    unicas = sum(len(v) for v in distintas.values())
+    duvidosos = sum(1 for a in amostras if a.conf < coleta.LIMIAR_PADRAO)
+
+    print(f"\n# {nome}\n")
+    print(f"{len(amostras)} recortes em {paginas} páginas, "
+          f"{len(distintas)} classes.\n")
+
+    print("## A dedução\n")
+    print("| coleta | na pasta | repetidos |")
+    print("|---|---:|---:|")
+    print(f"| sem dedução | {len(amostras)} | — |")
+    corte = 100.0 * (len(amostras) - unicas) / max(1, len(amostras))
+    print(f"| com dedução | {unicas} | {len(amostras) - unicas} "
+          f"({corte:.1f}%) |")
+
+    print(f"\n## Os dois modos do botão\n")
+    print("| modo | na pasta | por página |")
+    print("|---|---:|---:|")
+    print(f"| todos | {unicas} | {unicas / max(1, paginas):.0f} |")
+    duvidosos_unicos = len({(a.classe, a.impressao) for a in amostras
+                            if a.conf < coleta.LIMIAR_PADRAO})
+    print(f"| só os duvidosos (conf < {coleta.LIMIAR_PADRAO}) | "
+          f"{duvidosos_unicos} | {duvidosos_unicos / max(1, paginas):.1f} |")
+    print(f"\n{duvidosos} recorte(s) abaixo do piso antes da dedução "
+          f"({100.0 * duvidosos / max(1, len(amostras)):.1f}% da pilha).")
+
+    # A partir daqui, só o que a dedução deixou: é o que a coleta grava.
+    vistas, deduzidas = {}, []
+    for a in amostras:
+        chave = vistas.setdefault(a.classe, set())
+        if a.impressao not in chave:
+            chave.add(a.impressao)
+            deduzidas.append(a)
+
+    print("\n## O viés do teto\n")
+    candidatos = Counter(a.classe for a in deduzidas)
+    print("| teto | classes que enchem | na pasta | páginas por classe "
+          "(mediana) | a pior |")
+    print("|---|---:|---:|---:|---:|")
+    for teto in tetos:
+        cheias = {c for c, n in candidatos.items() if n > teto}
+        if not cheias:
+            print(f"| {teto} | 0 | — | — | — |")
+            continue
+        primeiros = _teto_primeiro_a_chegar(deduzidas, teto)
+        sorteados = _teto_sorteado(deduzidas, teto)
+        m1, p1 = _paginas_por_classe(primeiros, cheias)
+        m2, p2 = _paginas_por_classe(sorteados, cheias)
+        print(f"| {teto} — primeiro-a-chegar | {len(cheias)} | "
+              f"{len(primeiros)} | {m1:.0f} | {p1} |")
+        print(f"| {teto} — sorteado (F93) | {len(cheias)} | "
+              f"{len(sorteados)} | **{m2:.0f}** | {p2} |")
+
+    print("\n## As classes mais cheias, depois da dedução\n")
+    from core.learner import folder_to_char
+
+    print("| classe | recortes | de quantas páginas |")
+    print("|---|---:|---:|")
+    for classe, n in candidatos.most_common(10):
+        de = len({a.pagina for a in deduzidas if a.classe == classe})
+        print(f"| `{folder_to_char(classe)}` | {n} | {de} de {paginas} |")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--so", nargs="+", help="só páginas cujo nome contenha isto")
@@ -380,6 +598,11 @@ def main():
     ap.add_argument("--pdf", help="um PDF digital, para medir a dedução nele")
     ap.add_argument("--paginas", type=int, default=8,
                     help="quantas páginas do --pdf")
+    ap.add_argument("--livro",
+                    help="uma pasta de páginas em imagem, ou um PDF: mede o "
+                         "livro inteiro, sem gabarito")
+    ap.add_argument("--limite", type=int,
+                    help="parar depois de N páginas do --livro")
     args = ap.parse_args()
 
     from core.neural_trainer import NeuralPredictor
@@ -388,6 +611,17 @@ def main():
     if not predictor.load():
         print("Modelo não carregou — esta medição precisa dele.")
         return 1
+
+    if args.livro:
+        nome = os.path.basename(os.path.normpath(args.livro))
+        print(f"Percorrendo {nome}...", flush=True)
+        amostras = percorrer(args.livro, predictor, limite=args.limite,
+                             caminho=args.caminho)
+        if not amostras:
+            print("Nenhum recorte — o caminho está certo?")
+            return 1
+        relatorio_do_livro(amostras, nome)
+        return 0
 
     print("Colhendo as páginas rotuladas...")
     recortes = colher(predictor, so=args.so, caminho=args.caminho)

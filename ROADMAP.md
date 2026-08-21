@@ -9644,7 +9644,7 @@ Cobertura: `tests/test_f72_tabela_no_epub.py`, 12 testes.
 
 ---
 
-## F93 — A pasta de revisão passa a ter régua, e três dos quatro defeitos eram do coletor — CONCLUÍDA
+## F93 — A pasta de revisão passa a ter régua, e o teto pegava uma página só — CONCLUÍDA
 
 "Criar Recortes para Revisão" existe desde a F2.7 e nunca tinha sido medido. A acurácia do
 modelo tem régua (`medir_paginas.py`); o que a pasta de revisão **entrega** não tinha, e é
@@ -9755,6 +9755,47 @@ em vez de espalhá-los pela pasta. Nas 10 páginas do Yusupov, o topo dessa fila
 margem empata com a confiança; nada aqui a promove a critério. O custo é uma inferência por
 arquivo **gravado** — com a dedução na frente, e não por box da página.
 
+### O livro escaneado inteiro — 322 páginas, e é a escala que fala
+
+As 10 páginas rotuladas respondem "o que tem na pasta"; o que depende de **escala** elas não
+podem responder, e a métrica do teto saturava nelas (com 10 páginas, qualquer amostra toca
+as 10). `medir_coleta.py --livro` faz uma passada por um livro sem gabarito, guardando por
+recorte só classe, impressão, página e confiança — a imagem sai da memória assim que a
+impressão é tirada, que é o que torna 425 mil recortes viáveis.
+
+Kasparov, *The Dynamic Benko Gambit* — 322 páginas escaneadas:
+
+**425.550 recortes, 1.322 por página, 230 classes.** A dedução tira **7,7%** (32.637), na
+mesma faixa dos 9,8% das páginas rotuladas — e distante dos **82,5%** do PDF digital. Os
+três números juntos são o achado: em scan o mesmo glifo nunca sai com os mesmos pixels; em
+PDF digital sai sempre. A dedução paga onde o livro é renderizado, e não atrapalha onde não é.
+
+O modo "só os duvidosos" rende **4.765 recortes no livro todo** — 14,8 por página, 1,1% da
+pilha. É o mesmo porte dos 3.943 em 264 páginas que a F2.7 mediu no Chess Evolution 1.
+
+E o teto, com espaço para falar. O teto máximo de páginas distintas que uma classe pode
+cobrir é o próprio teto, então a coluna certa é quanto dele se alcança:
+
+| teto | classes que enchem | páginas por classe (mediana) | do teto possível | a pior classe |
+|---|---:|---:|---:|---:|
+| 30 — primeiro-a-chegar | 123 | 14 | 47% | 2 |
+| 30 — sorteado (F93) | 123 | **28** | **93%** | 19 |
+| 100 — primeiro-a-chegar | 90 | 18 | 18% | 3 |
+| 100 — sorteado (F93) | 90 | **81** | **81%** | 42 |
+| 300 — primeiro-a-chegar | 65 | 24 | 8% | 4 |
+| 300 — sorteado (F93) | 65 | **180** | **60%** | 88 |
+
+**Quanto maior o teto, pior era o primeiro-a-chegar** — e o mecanismo está na tabela das
+classes cheias: `e` aparece 30.519 vezes em 318 das 322 páginas, quase 100 por página. Com
+teto de 300 e primeiro-a-chegar, as 300 amostras de `e` se esgotavam em **três páginas** do
+livro; a pior classe medida ficou em quatro. Sorteando, as mesmas 300 vagas cobrem 180
+páginas. O tamanho do arquivo é idêntico — 26.959 recortes nos dois casos —, e o que muda é
+só de onde eles vêm.
+
+O instrumento reimplementa a amostragem porque no livro inteiro não há memória para os
+recortes; `test_o_instrumento_do_livro_inteiro_nao_reescreve_a_regra_do_teto` é a trava da
+F52 contra os dois divergirem, e cobra que o script e o `Coletor` sorteiem igual.
+
 ### O que fica em produção
 
 Dedução ligada, teto sorteado, nome com a confiança na frente, índice com a segunda
@@ -9763,9 +9804,9 @@ ficou, com o motivo: `total + descartados` é o que chegou, e a identidade é te
 mesmo padrão do teto, em que um número escondido deixaria uma régua mal calibrada varrer um
 livro inteiro sem ninguém notar.
 
-Cobertura: `tests/test_f27_coleta.py`, 34 testes (11 novos). Reproduzir:
+Cobertura: `tests/test_f27_coleta.py`, 35 testes (12 novos). Reproduzir:
 `python medir_coleta.py`, `--varrer` para as curvas da porta, `--pdf <arquivo>` para a
-dedução em PDF digital.
+dedução em PDF digital, `--livro ilovepdf_pages-to-jpg` para o livro escaneado inteiro.
 
 ---
 

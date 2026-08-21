@@ -103,9 +103,14 @@ MAX_POR_CLASSE: Optional[int] = None
 #: - **todos** enche a pasta de acertos com alguns intrusos no meio, que é
 #:   exatamente a forma de achar erro batendo o olho numa grade de miniaturas.
 #:
-#: A segunda opção é a que pede teto: um livro inteiro dá ~260 mil recortes, e
-#: algumas centenas por classe já são mais do que se olha de uma vez. Quem está
-#: engordando a base, porém, quer justamente os 260 mil — ver `MAX_POR_CLASSE`.
+#: A segunda opção é a que pede teto: um livro inteiro dá centenas de milhares de
+#: recortes — 425.550 medidos nas 322 páginas do Benko escaneado, 1.322 por
+#: página —, e algumas centenas por classe já são mais do que se olha de uma vez.
+#: Quem está engordando a base, porém, quer justamente todos eles — ver
+#: `MAX_POR_CLASSE`.
+#:
+#: A primeira rende pouco e rende denso: no mesmo livro, **4.765 recortes abaixo
+#: do piso**, 1,1% da pilha e 14,8 por página.
 LIMIAR_PADRAO = 0.5
 
 COLUNAS = ["arquivo", "palpite", "confianca", "segunda", "p2", "margem",
