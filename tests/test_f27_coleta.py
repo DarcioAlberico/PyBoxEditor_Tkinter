@@ -15,6 +15,7 @@ Rodar sem pytest:      python tests/test_f27_coleta.py
 """
 
 import csv
+import itertools
 import os
 import sys
 import tempfile
@@ -28,8 +29,32 @@ from core import coleta, livro
 from core.learner import CharacterLearner, char_to_folder
 
 
-def _recorte(valor=120, lado=20):
-    return np.full((lado, lado), valor, dtype=np.uint8)
+_serie = itertools.count()
+
+
+def _recorte(valor=120, lado=20, igual=None):
+    """
+    Um recorte **diferente a cada chamada**, porque a coleta deduplica (F93).
+
+    `igual=n` devolve sempre o mesmo recorte para o mesmo `n`: é como se
+    escreve, aqui, "o mesmo glifo apareceu outra vez na página" — que é o caso
+    para o qual a dedução existe.
+
+    A marca fica em blocos de 4x4 e não em pixels soltos: a impressão da dedução
+    é o hash do redimensionamento para 32x32, e um pixel isolado pode ser comido
+    pela interpolação. São **dois** blocos porque um só dá 61 recortes distintos
+    e há teste que pede 250 — o primeiro corte deste ajudante repetiu-se em
+    silêncio e derrubou justamente o teste do "sem teto não descarta nada".
+
+    E os valores ficam bem abaixo do fundo (0..60 contra 120) para o recorte
+    nunca sair uniforme por acaso: um `Coletor(filtrar=True)` o recusaria por
+    falta de contraste, que é um motivo que nenhum destes testes está pedindo.
+    """
+    marca = next(_serie) if igual is None else igual
+    img = np.full((lado, lado), valor, dtype=np.uint8)
+    img[:4, :4] = marca % 61
+    img[:4, 4:8] = (marca // 61) % 61
+    return img
 
 
 # ----------------------------------------------------------------------
@@ -117,15 +142,40 @@ def test_a_pasta_da_quarentena_usa_o_nome_que_a_base_usa():
                                               char_to_folder(palpite))), palpite
 
 
-def test_o_nome_do_arquivo_carrega_pagina_e_confianca():
+def test_o_nome_do_arquivo_carrega_confianca_e_pagina():
     """Para ordenar por 'mais duvidoso primeiro' sem abrir o índice."""
     with tempfile.TemporaryDirectory() as tmp:
         c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"))
         caminho = c(_recorte(), "o", 0.37, pagina=41)
 
         nome = os.path.basename(caminho)
-        assert nome.startswith("p0042_c037_"), nome
+        assert nome.startswith("c037_p0042_"), nome
         assert nome.endswith(".png")
+
+
+def test_ordenar_por_nome_da_a_fila_do_mais_duvidoso():
+    """
+    **A ordem prometida tem de ser a que sai** (F93).
+
+    O nome sempre carregou os dois números, e a promessa sempre foi "ordenar
+    por mais duvidoso primeiro sem abrir o índice". Com a página na frente,
+    porém, clicar em Nome no Explorer dava a ordem do **livro**: o recorte mais
+    duvidoso da classe podia estar na página 240, no fim da lista. Este teste é
+    a promessa, e não o formato — por isso ordena de verdade em vez de conferir
+    prefixo.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"))
+        # O mais duvidoso está na última página, que é o caso que o formato
+        # antigo mandava para o fim da lista.
+        c(_recorte(), "o", 0.90, pagina=0)
+        c(_recorte(), "o", 0.60, pagina=5)
+        c(_recorte(), "o", 0.10, pagina=240)
+
+        pasta = os.path.join(tmp, "revisao", char_to_folder("o"))
+        confiancas = [int(n[1:4]) for n in sorted(os.listdir(pasta))]
+        assert confiancas == sorted(confiancas), (
+            f"a ordem por nome não é a do mais duvidoso: {confiancas}")
 
 
 def test_o_teto_por_classe_impede_uma_classe_de_inundar():
@@ -136,8 +186,14 @@ def test_o_teto_por_classe_impede_uma_classe_de_inundar():
         c(_recorte(), "s", 0.3, pagina=0)
 
         assert c.gravados[char_to_folder("o")] == 3
-        assert c.ignorados_por_teto == 7
+        # Sete candidatos não couberam. Desde a F93 o teto sorteia, então
+        # alguns deles entraram no lugar de um anterior em vez de serem
+        # ignorados — o que a conta cobra é que os sete estão explicados.
+        assert c.ignorados_por_teto + c.trocados_pelo_teto == 7
         assert c.total == 4, "o teto de uma classe não pode calar as outras"
+        # E o disco tem de bater com a contagem: o sorteio apaga o que trocou.
+        pasta = os.path.join(tmp, "revisao", char_to_folder("o"))
+        assert len(os.listdir(pasta)) == 3, os.listdir(pasta)
 
 
 def test_sem_teto_e_o_padrao_e_ele_nao_descarta_nada():
@@ -238,6 +294,213 @@ def test_sem_recorte_nao_ha_indice():
 
 
 # ----------------------------------------------------------------------
+# A F93 — a pasta de revisão a serviço de quem revisa
+# ----------------------------------------------------------------------
+
+def test_a_mesma_imagem_entra_uma_vez_so():
+    """
+    **É igualdade, não semelhança.** Dois recortes com a mesma impressão são o
+    mesmo tensor 32x32 que a rede recebe: treinar nos dois ensina exatamente o
+    que treinar num deles ensina, e na grade de miniaturas a segunda cópia é
+    uma chance a menos de o intruso aparecer. Medido num PDF digital, 82,5% da
+    pilha era cópia.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"))
+        for _ in range(50):
+            c(_recorte(igual=1), "o", 0.3, pagina=0)
+
+        assert c.total == 1
+        assert c.ignorados_por_repeticao == 49
+        assert "repetido" in c.resumo(), c.resumo()
+
+
+def test_a_dedução_nao_encosta_em_recorte_diferente():
+    """
+    A contrapartida do teste acima, e a que impede a dedução de virar perda: o
+    que a rede sabe distinguir tem de chegar inteiro à pasta.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"))
+        for i in range(20):
+            c(_recorte(igual=i), "o", 0.3, pagina=0)
+
+        assert c.total == 20
+        assert c.ignorados_por_repeticao == 0
+
+
+def test_a_dedução_e_por_classe():
+    """
+    O mesmo desenho em duas classes é duas amostras: a pasta de `o` e a de `c`
+    guardam coisas diferentes mesmo quando o recorte é o mesmo — é justamente
+    o par que o revisor precisa ver lado a lado.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"))
+        c(_recorte(igual=7), "o", 0.3, pagina=0)
+        c(_recorte(igual=7), "c", 0.3, pagina=0)
+
+        assert c.total == 2
+        assert c.ignorados_por_repeticao == 0
+
+
+def test_o_teto_sorteia_sobre_o_livro_e_nao_pega_as_primeiras_paginas():
+    """
+    **O defeito que esta troca fecha, medido:** com teto de 30 e
+    primeiro-a-chegar, a mediana das classes que encheram era **1 página** —
+    a classe inteira saía da primeira página em que apareceu. Sorteando, sobem
+    para 8 das 10. O itálico da página 200, o borrado e o quebrado são
+    exatamente o que a revisão quer ver, e eram os descartados.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"),
+                           max_por_classe=10)
+        for pagina in range(200):
+            c(_recorte(), "o", 0.3, pagina=pagina)
+
+        assert c.total == 10
+        pasta = os.path.join(tmp, "revisao", char_to_folder("o"))
+        assert len(os.listdir(pasta)) == 10, "sobrou arquivo trocado no disco"
+
+        paginas = sorted(l["pagina"] for l in c.linhas)
+        assert max(paginas) > 100, (
+            f"o teto ficou com o começo do livro: {paginas}")
+        assert len(set(paginas)) == 10, f"páginas repetidas: {paginas}"
+
+
+def test_o_sorteio_do_teto_e_reproduzivel():
+    """
+    Amostra aleatória e resultado reproduzível não se opõem: o que o sorteio
+    precisa é não depender da ordem das páginas, e não é sortear diferente a
+    cada rodada. Sem isto, duas coletas do mesmo livro não se comparam.
+    """
+    def paginas_coletadas(pasta):
+        c = coleta.Coletor(pasta=pasta, max_por_classe=5)
+        for pagina in range(60):
+            c(_recorte(igual=pagina), "o", 0.3, pagina=pagina)
+        return sorted(l["pagina"] for l in c.linhas)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        assert (paginas_coletadas(os.path.join(tmp, "a"))
+                == paginas_coletadas(os.path.join(tmp, "b")))
+
+
+def test_o_indice_so_lista_o_que_esta_no_disco():
+    """
+    O sorteio apaga o arquivo que trocou; o índice tem de esquecê-lo junto.
+    Um CSV que aponta para PNG que não existe é pior que um CSV incompleto:
+    quem revisa ordena por ele e clica em nada.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        pasta = os.path.join(tmp, "revisao")
+        c = coleta.Coletor(pasta=pasta, max_por_classe=4)
+        for pagina in range(40):
+            c(_recorte(), "o", 0.3, pagina=pagina)
+        caminho = c.gravar_indice()
+
+        with open(caminho, encoding="utf-8-sig", newline="") as f:
+            linhas = list(csv.DictReader(f))
+        assert len(linhas) == 4
+        for l in linhas:
+            assert os.path.exists(os.path.join(pasta, l["arquivo"])), l
+
+
+def test_o_indice_traz_a_segunda_candidata():
+    """
+    Quem revisa e acha um recorte na pasta errada quer saber **para onde ele
+    ia**. É dado no CSV e não régua: a F47 mediu que a margem não ganha da
+    confiança no ponto de operação, e nada aqui a promove a critério.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        pasta = os.path.join(tmp, "revisao")
+        c = coleta.Coletor(pasta=pasta,
+                           detalhar=lambda img: [("o", 0.40), ("c", 0.30),
+                                                 ("e", 0.05)])
+        c(_recorte(), "o", 0.40, pagina=0)
+        caminho = c.gravar_indice()
+
+        with open(caminho, encoding="utf-8-sig", newline="") as f:
+            linha = next(iter(csv.DictReader(f)))
+        assert linha["segunda"] == "c"
+        assert float(linha["p2"]) == 0.30
+        assert abs(float(linha["margem"]) - 0.25) < 1e-6
+
+
+def test_sem_detalhar_o_indice_sai_igual_e_a_coleta_nao_quebra():
+    """
+    O `detalhar` é opcional e custa uma inferência: quem não o passa — a suíte,
+    e qualquer chamada de biblioteca — não pode pagar por ele nem quebrar.
+    E se a rede levantar no meio de um livro de 264 páginas, a coleta continua:
+    perder a segunda candidata de um recorte não vale perder a coleta inteira.
+    """
+    def explode(img):
+        raise RuntimeError("a rede caiu")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for nome, detalhar in (("sem", None), ("quebrado", explode)):
+            c = coleta.Coletor(pasta=os.path.join(tmp, nome), detalhar=detalhar)
+            assert c(_recorte(), "o", 0.3, pagina=0) is not None
+            caminho = c.gravar_indice()
+            with open(caminho, encoding="utf-8-sig", newline="") as f:
+                linha = next(iter(csv.DictReader(f)))
+            assert linha["segunda"] == ""
+            assert linha["palpite"] == "o"
+
+
+def test_a_porta_esta_desligada_e_o_instrumento_continua_medindo():
+    """
+    **A hipótese era boa e a medição a derrubou** — e o padrão desta suíte é
+    fixar a conclusão, não só o código. Nas 10 páginas rotuladas o melhor corte
+    de geometria pega 11 recortes sem caractere e leva **49 caracteres de
+    verdade** junto: as medianas de lado, área, tinta e proporção coincidem nos
+    dois lados, porque depois da exclusão de diagrama o que sobra sem rótulo é
+    texto que o rotulador não rotulou.
+
+    É a mesma decisão da F47 com a margem: o instrumento fica, a conclusão é
+    não. Reproduzir: `python medir_coleta.py --varrer`.
+    """
+    assert coleta.Coletor().filtrar is False, (
+        "a porta voltou a ligada sem medição nova — ver F93")
+
+    # E ela continua sabendo dizer o que recusaria, para a próxima medição.
+    branco = np.full((20, 20), 200, dtype=np.uint8)
+    assert coleta.motivo_de_recusa(branco) == "sem contraste"
+    assert coleta.motivo_de_recusa(np.zeros((2, 30), dtype=np.uint8)) == "minúsculo"
+    assert coleta.motivo_de_recusa(_recorte()) == ""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"), filtrar=True)
+        assert c(branco, "o", 0.3, pagina=0) is None
+        assert c.recusados == {"sem contraste": 1}
+        assert "não eram caractere" in c.resumo(), c.resumo()
+
+
+def test_o_resumo_explica_todo_recorte_que_nao_ficou():
+    """
+    **Nada some em silêncio.** É o padrão do módulo desde o teto: um número
+    escondido é o que deixaria uma régua mal calibrada varrer um livro inteiro
+    sem ninguém notar.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"),
+                           max_por_classe=2, filtrar=True)
+        chegaram = 0
+        for _ in range(9):                                   # entram e sobram
+            c(_recorte(), "o", 0.3, pagina=0)
+            chegaram += 1
+        for _ in range(4):                                   # repetidos
+            c(_recorte(igual=99), "s", 0.3, pagina=0)
+            chegaram += 1
+        for _ in range(3):                                   # recusados
+            c(np.full((20, 20), 200, dtype=np.uint8), "e", 0.3, pagina=0)
+            chegaram += 1
+
+        assert c.total + c.descartados == chegaram, c.resumo()
+        for esperado in ("repetido", "não eram caractere", "além do teto"):
+            assert esperado in c.resumo(), (esperado, c.resumo())
+
+
+# ----------------------------------------------------------------------
 # A promoção
 # ----------------------------------------------------------------------
 
@@ -315,11 +578,17 @@ def test_a_extracao_entrega_ao_coletor_o_que_reprovou():
     """
     O piso de confiança já derrubava esses caracteres — 3.943 no Chess
     Evolution 1. A fase só para de jogá-los fora.
+
+    **Sem dedução aqui de propósito.** O que se cobra é a ligação entre a
+    extração e o coletor — "chegou exatamente o que foi reprovado" —, e com a
+    dedução ligada a igualdade viraria `<=`: as letras repetidas da página são,
+    para a rede, o mesmo recorte. Isso é o assunto de outro teste.
     """
     doc = fitz.open()
     doc.new_page(width=300, height=200).insert_text((30, 40), "abc def", fontsize=12)
     with tempfile.TemporaryDirectory() as tmp:
-        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"), origem="teste")
+        c = coleta.Coletor(pasta=os.path.join(tmp, "revisao"), origem="teste",
+                           deduplicar=False)
         try:
             # tudo abaixo do piso: todo caractere é reprovado
             p = livro.extrair_pagina(doc[0], lambda r: ("z", 0.10), dpi=150,

@@ -1659,7 +1659,10 @@ class MainWindow(tk.Frame):
                 "as outras — revisar 4.000 recortes de 'o' não ensina mais que "
                 "revisar algumas centenas. Para bater o olho numa grade de "
                 "miniaturas, algumas centenas por classe; para engordar a base "
-                "com o livro inteiro, sem teto.",
+                "com o livro inteiro, sem teto.\n\n"
+                "Havendo teto, o que fica é sorteado sobre o livro inteiro, e "
+                "não são os primeiros que aparecerem: senão a classe inteira "
+                "sairia das primeiras páginas.",
                 initialvalue=digitado)
             if digitado is None:
                 return self.CANCELADO
@@ -1885,7 +1888,11 @@ class MainWindow(tk.Frame):
             coletor = coleta.Coletor(
                 pasta=pasta, origem=os.path.basename(input_pdf),
                 max_por_classe=teto,
-                limiar=None if todos else coleta.LIMIAR_PADRAO)
+                limiar=None if todos else coleta.LIMIAR_PADRAO,
+                # A segunda candidata só é perguntada para o recorte que vai
+                # ser gravado, e não para todo box da página: com a dedução na
+                # frente, é uma inferência por arquivo em disco. Ver `detalhar`.
+                detalhar=self.learning_service.candidatas)
 
             def progresso(atual, total):
                 h.raise_if_cancelled()
@@ -1906,6 +1913,12 @@ class MainWindow(tk.Frame):
                     "  • está certo — deixe onde está",
                     "  • está na classe errada — mova para a pasta certa",
                     "  • não é caractere — apague",
+                    "",
+                    "Ordene por Nome: o nome começa pela confiança, então a "
+                    "fila sai com os mais duvidosos na frente.",
+                    f"O {coleta.NOME_DO_INDICE} ao lado traz a segunda "
+                    "candidata de cada recorte — é ela que diz para qual pasta "
+                    "ele provavelmente devia ir.",
                     "",
                     "Depois, 'Promover recortes revistos para a base'."]
             (messagebox.showinfo if coletor.total else messagebox.showwarning)(

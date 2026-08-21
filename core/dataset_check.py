@@ -274,8 +274,11 @@ def _nome_livre(destino: str, arquivo: str) -> str:
     Como o arquivo se chama depois de mudar de pasta.
 
     **Mantém o nome de origem**, e isso não é detalhe: o da coleta é
-    `p0005_c041_fb798529.png` — página 5, confiança 41% —, é por ele que a
+    `c041_p0005_fb798529.png` — confiança 41%, página 5 —, é por ele que a
     revisão ordena "mais duvidoso primeiro" e que o índice CSV acha o recorte.
+    (A ordem dos dois campos trocou na F93, justamente para essa ordenação
+    funcionar; o nome antigo, `p0005_c041_…`, continua na base e continua
+    sendo preservado aqui como qualquer outro.)
     A primeira versão trocava tudo por UUID "porque os arquivos são UUID"; das
     30 amostras da pasta 'ç' na base real, nenhuma era.
 

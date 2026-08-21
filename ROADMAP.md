@@ -589,7 +589,8 @@ caractere seria repetir o defeito original.
 são UUID". Das 30 amostras de `ç` na base real, **nenhuma** era: elas vêm da coleta, e o
 nome é `p0005_c041_fb798529.png` — página 5, confiança 41%, que é por onde a revisão
 ordena "mais duvidoso primeiro" e o índice CSV acha o recorte. Agora só troca de nome
-quem colide de verdade.
+quem colide de verdade. (A F93 inverteu os dois campos, `c041_p0005_…`, porque com a
+página na frente essa ordenação não era a que o nome prometia.)
 
 **A correção não é automática de graça, é automática com uma pergunta.** A base é dado do
 usuário e a migração mexe nas pastas dele; o diálogo diz o que vai acontecer — inclusive
@@ -9640,6 +9641,133 @@ perderia.
 não deixa passar ponto nem vírgula, e o que encosta na divisória vai junto com ela.
 
 Cobertura: `tests/test_f72_tabela_no_epub.py`, 12 testes.
+
+---
+
+## F93 — A pasta de revisão passa a ter régua, e três dos quatro defeitos eram do coletor — CONCLUÍDA
+
+"Criar Recortes para Revisão" existe desde a F2.7 e nunca tinha sido medido. A acurácia do
+modelo tem régua (`medir_paginas.py`); o que a pasta de revisão **entrega** não tinha, e é
+outra pergunta:
+
+> dos arquivos que caíram em `revisao_ocr/lower_o/`, quantos são um `o`?
+
+`medir_coleta.py` responde nas 10 páginas rotuladas à mão — as mesmas da calibração —
+classificando cada recorte em três, porque os três importam por motivos diferentes:
+**certo** (é o contraste que faz o intruso saltar aos olhos na grade), **errado** (é o
+material de treino que a fase existe para colher) e **espúrio** (não há caractere nenhum ali;
+o modelo foi obrigado a responder e respondeu).
+
+### O ponto de partida, medido
+
+| modo | na pasta | certos | errados | espúrios |
+|---|---:|---:|---:|---:|
+| todos | 10.853 | **93,7%** | 2,6% | 3,7% |
+| só os duvidosos | 58 | 10,3% | **55,2%** | 34,5% |
+
+Os dois modos fazem o que prometem: o primeiro é contraste, o segundo é densidade de erro —
+58 arquivos para achar 32 erros, contra 10.853 para achar 282. O que estava errado não era
+a composição da pasta; era **tudo o que acontece com ela depois**.
+
+### O primeiro erro desta fase foi medir no caminho errado
+
+A primeira rodada usou `generate_boxes_opencv` na página inteira, que é como `medir_paginas`
+e a calibração medem, e deu **6,6% de espúrios**. O botão não faz isso: ele passa por
+`livro.caixas_e_diagramas`, que tira os respingos e o miolo dos diagramas **antes** de
+classificar. No caminho certo são 3,7% — a exclusão de diagrama já resolvia metade do
+problema que eu ia atacar. `medir_coleta.py --caminho cru` guarda a comparação.
+
+### A porta que não paga — medida, e desligada
+
+A hipótese: recorte que não é caractere entra como caractere, e geometria o pega. Está
+errada, e a varredura mostra por quê — as medianas coincidem nos dois lados:
+
+| | lado | área | tinta | proporção | confiança |
+|---|---:|---:|---:|---:|---:|
+| caractere | 17 | 380 | 0,491 | 1,364 | 0,9996 |
+| espúrio | 16 | 380 | 0,505 | 1,366 | 0,9966 |
+
+Nenhum corte tem troca acima de 1x. O melhor deles pega **11 espúrios e leva 49 caracteres
+de verdade junto**.
+
+**O motivo é estrutural, e é a parte que vale guardar.** Depois de a exclusão de diagrama
+passar, o que sobra sem rótulo não é lixo: é tinta com forma de texto que o rotulador humano
+não rotulou — cabeça de página, número de folha, nota de rodapé. Nenhuma régua de geometria
+separa isso de texto, **porque é texto**. E o contraste, que eu tinha como a régua segura,
+nunca dispara: o box nasce de um componente conexo de tinta, então há sempre tinta e sempre
+papel dentro dele — mediana 255 dos dois lados.
+
+Fica ligável (`Coletor(filtrar=True)`) e fica medido. É a mesma decisão da F47 com a margem:
+**o instrumento fica, a conclusão é não.** O que a mudaria é uma pilha em que o espúrio de
+verdade sobreviva à exclusão de diagrama — um scan sujo, uma página com trama.
+
+### Os três que pagam
+
+**1. A mesma renderização entrava muitas vezes.** Em PDF digital o mesmo glifo sai byte a
+byte igual toda vez.
+
+| | na pasta | repetidos |
+|---|---:|---:|
+| Chess Evolution 1, 6 páginas, sem dedução | 4.093 | — |
+| com dedução | 717 | **3.376 (82,5%)** |
+
+Nas páginas rotuladas, que são JPG de scan, são 9,8% — e a diferença entre os dois números
+**é** o achado: em scan o mesmo glifo nunca sai com os mesmos pixels, em PDF digital sai
+sempre. A régua é igualdade e não semelhança: a impressão é o hash dos 32x32 que a rede
+recebe, então dois recortes com a mesma impressão são o **mesmo tensor**, e treinar nos dois
+ensina o que treinar num deles ensina. Não há como colapsar duas amostras que o modelo saiba
+distinguir.
+
+Custo honesto: a pasta fica marginalmente mais densa em erro (93,7% → 93,2% de certos),
+porque o que se repete são as letras comuns e elas estão certas. Isso é o efeito desejado —
+o que a grade precisa não é de mais acertos, é de miniaturas diferentes umas das outras.
+
+**2. O teto guardava os primeiros N, que são as primeiras páginas.** Contar páginas
+distintas na pasta inteira não mede nada — com 147 classes e 10 páginas, qualquer amostra
+toca as 10. O viés é **dentro** da classe, e das 147 classes, 43 passam de um teto de 30:
+
+| teto | na pasta | páginas por classe (mediana) | a pior classe |
+|---|---:|---:|---:|
+| sem teto | 9.792 | 10 | 6 |
+| primeiro-a-chegar (antes) | 1.902 | **1** | 1 |
+| sorteado (F93) | 1.902 | **8** | 4 |
+
+**Mediana de uma página.** A classe inteira saía da primeira página em que aparecia: uma
+fonte, um estado de scan, um contexto — e o itálico da página 200, o borrado e o quebrado,
+que são exatamente o que a revisão quer ver, eram descartados em silêncio depois que o teto
+enchia. Trocado por amostragem de reservatório: uma passada, mesma memória, amostra uniforme
+do livro inteiro. Semente fixa, para duas coletas do mesmo livro se compararem.
+
+**3. "Mais duvidoso primeiro" não funcionava.** O nome do arquivo carregava página e
+confiança nessa ordem — `p0042_c037_…` —, e a intenção documentada era ordenar por dúvida
+sem abrir o índice. Só que clicar em Nome no Explorer ordena por **página**, e o recorte mais
+duvidoso da classe podia estar na página 240, no fim da lista. Trocados de lugar
+(`c037_p0042_…`), a ordem prometida é a que sai, e a página continua ali para desempatar.
+
+### E o índice ganhou a segunda candidata
+
+Quem revisa e acha um recorte na pasta errada quer saber **para onde ele ia**. O CSV ganhou
+`segunda`, `p2` e `margem`; ordenado por `margem`, ele agrupa os pares que o modelo confunde
+em vez de espalhá-los pela pasta. Nas 10 páginas do Yusupov, o topo dessa fila é
+`-`/`.`, `'`/`,`, `"`/`u`, `w`/`M` — que é a lista de pares para conferir em bloco.
+
+**É dado, e não régua.** A F47 mediu as duas curvas e concluiu que no ponto de operação a
+margem empata com a confiança; nada aqui a promove a critério. O custo é uma inferência por
+arquivo **gravado** — com a dedução na frente, e não por box da página.
+
+### O que fica em produção
+
+Dedução ligada, teto sorteado, nome com a confiança na frente, índice com a segunda
+candidata, porta desligada e medida. E `resumo()` passou a explicar cada recorte que não
+ficou, com o motivo: `total + descartados` é o que chegou, e a identidade é testada — é o
+mesmo padrão do teto, em que um número escondido deixaria uma régua mal calibrada varrer um
+livro inteiro sem ninguém notar.
+
+Cobertura: `tests/test_f27_coleta.py`, 34 testes (11 novos). Reproduzir:
+`python medir_coleta.py`, `--varrer` para as curvas da porta, `--pdf <arquivo>` para a
+dedução em PDF digital.
+
+---
 
 ## Fora de escopo (registrado para depois)
 

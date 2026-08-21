@@ -335,6 +335,10 @@ def test_correcao_preserva_o_nome_de_origem():
     `p0005_c041_fb798529.png` é página 5, confiança 41% — é por ele que a
     revisão ordena "mais duvidoso primeiro" e que o índice CSV da coleta acha o
     recorte. A primeira versão da mesclagem trocava todos por UUID.
+
+    **O nome de exemplo é o formato anterior à F93 de propósito**: a base real
+    tem os dois, e o que se cobra aqui é que o nome de origem sobreviva, seja
+    ele qual for.
     """
     from PIL import Image
     with tempfile.TemporaryDirectory() as tmp:

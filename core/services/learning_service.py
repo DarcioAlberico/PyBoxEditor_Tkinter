@@ -149,6 +149,19 @@ class LearningService:
             return 0.0
         return self._predictor.probabilidade_de(crop_np, char)
 
+    def candidatas(self, crop_np: np.ndarray, k: int = 3):
+        """
+        As `k` classes mais prováveis, `[(char, prob), ...]`. Vazio sem modelo.
+
+        Passagem para `NeuralPredictor.predict_topk`, que a UI não deve alcançar
+        por dentro. Quem a usa hoje é a coleta (F93): a segunda candidata vai
+        para o índice da revisão, e é ela que diz **para onde ia** o recorte que
+        caiu na pasta errada.
+        """
+        if not self.load_predictor():
+            return []
+        return self._predictor.predict_topk(crop_np, k=k)
+
     def validar_dados(self, checar_pngs: bool = False):
         """Problemas na base de treino. Lista vazia = pode treinar."""
         from core.dataset_check import validar_dataset
