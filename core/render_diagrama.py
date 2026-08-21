@@ -255,7 +255,16 @@ def linhas(fen: str, fonte: Optional[Fonte] = None,
 # As oito linhas → PNG
 # ----------------------------------------------------------------------
 
-def _rotulos(orientacao: str) -> Tuple[List[str], List[str]]:
+def rotulos(orientacao: str) -> Tuple[List[str], List[str]]:
+    """
+    (letras das colunas, números das filas) na ordem em que se imprimem.
+
+    Pública desde a F95: o EPUB em modo de fonte embutida escreve os
+    rótulos em texto, e escrevia `a`–`h` fixo. Num diagrama impresso do
+    lado das pretas as oito linhas já vêm giradas, e o rótulo fixo
+    chamaria `h8` de `a1` sem nada denunciar. Um lugar só para os dois
+    usos, que é a disciplina da F5.2.
+    """
     colunas = list("abcdefgh")
     filas = [str(n) for n in range(8, 0, -1)]
     if orientacao == "preta":
@@ -309,7 +318,7 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
 
         if coordenadas:
             corpo = casa * CORPO_ROTULO
-            colunas, filas = _rotulos(orientacao)
+            colunas, filas = rotulos(orientacao)
             for i, rotulo in enumerate(filas):
                 largura_texto = fitz.get_text_length(rotulo, FONTE_DO_ROTULO, corpo)
                 pagina.insert_text(
@@ -333,3 +342,7 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
     buffer = io.BytesIO()
     imagem.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue(), pix.width, pix.height
+
+
+#: Nome interno antigo, mantido para quem já importava.
+_rotulos = rotulos

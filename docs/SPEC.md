@@ -1593,6 +1593,100 @@ tinha, porque nenhuma das 124 correções de ocupação chegava a modelo nenhum.
 Ponta a ponta, nos 25 diagramas: **posição possível sem o árbitro vai de 15/25 para
 23/25**, e é essa linha que diz que a leitura melhorou, não que o árbitro remendou mais.
 
+### 7.14 O tabuleiro aninhado, os rótulos e o título — [feito, F95, em `core/diagrama.py`]
+
+Três coisas saíram da mesma medição: o comando **Ler posição dos diagramas** passado por
+21 páginas de 5 livros, contra um gabarito escrito à mão
+(`tests/dados/paginas_com_diagrama.txt`). Instrumento: `medir_rotulos.py`.
+
+| | antes | depois |
+|---|---:|---:|
+| diagramas achados | 48 de 50 | **50 de 50** |
+| tabuleiros inventados | 0 | **0** |
+| decisões "há coordenadas?" certas | — | **50 de 50** |
+| títulos lidos | — | **29** (de 30 achados) |
+
+**A premissa da F7.1 tinha um limite que ninguém tinha topado.** "O tabuleiro sai como um
+contorno só" vale enquanto ele for contorno **externo**; a página 199 do Yusupov imprime
+os dois diagramas do capítulo dentro de um painel sombreado, e com `RETR_EXTERNAL` o
+painel é o contorno e os tabuleiros são filhos dele. Dois impressos, zero achados, e o
+comando dizia "nenhum diagrama encontrado".
+
+A segunda passada (`_aninhados`) refaz os contornos com `RETR_LIST` e peneira com duas
+provas independentes — **e as duas fazem falta**:
+
+- **preenchimento** ≥ 0,90: um tabuleiro com moldura fechada é um borrão cheio; os
+  contornos-escada que as casas escuras formam por dentro enchem 0,20 a 0,43;
+- **xadrez** ≥ 12,0 (`pontuacao_de_tabuleiro`): a diferença de tinta entre as 32 casas
+  ímpares e as 32 pares, medida no anel de fundo de cada casa.
+
+Sozinho, o xadrez escolheria a escada — ela pontua 42,3 contra 30,9 do tabuleiro inteiro,
+porque é um recorte deslocado do mesmo tabuleiro. Sozinho, o preenchimento aceitaria
+qualquer quadrado preto.
+
+O piso do xadrez **não foi afinado, foi posto no meio de um vão**: em 49 tabuleiros de 5
+livros ele vai de 19,7 a 124,3, e em recortes de texto do mesmo tamanho de -1,1 a 3,1.
+Ele mede tom, e não binarização, pelo mesmo motivo do resíduo da F7.1: a casa escura é
+cinza chapado num livro e hachura diagonal noutro, e binarizada a hachurada fica branca.
+
+**A ordem de leitura passou a ser coluna a coluna.** Era `sort(key=(y1, x1))`, e na página
+221 do Yusupov o diagrama da direita começa em y=358 e o da esquerda em y=359 — a primeira
+fila de seis saía invertida. Estável, ordenar por fila ainda erra a página de duas
+colunas, que é a armadilha da F61 aplicada a figura; e aqui a fase pôde conferir, porque
+passou a ler os títulos: nos dois livros com página de seis diagramas a numeração desce a
+coluna da esquerda antes de começar a da direita.
+
+#### Os rótulos das casas — `ler_rotulos`
+
+**Achar que existem não precisa de classificador, e é isso que faz a exportação poder
+escolher.** O que separa uma banda de rótulos de uma banda de prosa é geometria: rótulo de
+casa tem uma marca por raia, e são oito raias. Medido em 20 tabuleiros, quem rotula tem as
+8 e quem não rotula chega a 4 — o corte fica em 7.
+
+Ler o que dizem precisa, e é de lá que sai a **orientação**, a única pergunta do diagrama
+que nada mais no diagrama responde. A paridade das casas não serve: girar o tabuleiro 180°
+troca fila e coluna ao mesmo tempo e conserva a paridade, então a casa de baixo à esquerda
+é escura nas duas orientações. A régua exige 4 rótulos batendo e 2 de vantagem sobre a
+hipótese contrária; abaixo disso a resposta é `None`, que não é "brancas embaixo".
+
+`ler` girou as casas de volta, então o FEN é sempre o da posição. Quem se vira é o desenho
+— `render_diagrama.desenhar(orientacao=...)` e, no modo de fonte embutida da F59, os
+rótulos em texto, que agora saem de `render_diagrama.rotulos` em vez de um `a`-`h` fixo.
+
+#### O título — `ler_titulo`
+
+A F60 e a F67 procuraram **acima** da borda, porque é ali que o Yusupov imprime. O Nunn
+imprime embaixo — o número do diagrama e a avaliação da posição na mesma linha —, e a
+legenda saía como parágrafo solto.
+
+A assimetria que isso exigiu: **a borda que conta é a que olha para o tabuleiro**. Acima é
+o pé da caixa (a maiúscula sobe acima da banda e a minúscula não, e pelo topo `Diagram`
+saía `agram`); abaixo é o topo, pelo motivo espelhado — o `437` do Nunn nasce a 1,29
+escalas da borda e desce até 2,3.
+
+`Titulo` devolve as caixas que consumiu, e `livro` as tira do texto da página: a legenda
+de baixo começa dentro da margem de exclusão e acaba fora dela, então ela chega ao texto e
+sairia duas vezes no arquivo exportado.
+
+#### A escolha na exportação
+
+`livro.extrair` aceita um terceiro valor em `coordenadas`: `COMO_NO_LIVRO`, que decide
+**por diagrama** pelo que `ler_rotulos` achou. O padrão da API continua `False` — quem
+chamava não tem o livro mudando debaixo de si —, e é a janela de exportação que oferece a
+terceira resposta primeiro, em duas perguntas encaixadas.
+
+#### O que fica fora, e está medido
+
+- **A banda é a margem de exclusão (1,4 alturas de caractere), e é o invariante que dá
+  segurança ao resto**: o que a margem já exclui do texto pode virar título sem custo,
+  porque não sairia em lugar nenhum. Legenda mais longe continua sendo prosa — e não há
+  régua de distância que separe as duas, porque a prosa da página 80 do Darcy Lima começa
+  a 1,40 escalas e a legenda do Nunn na página 89 está a 1,76.
+- **Título achado não é título lido**: um caractere fraco derruba a linha inteira, que é a
+  regra da F67. Dos 30 achados, 29 saíram com texto.
+- **Diagrama de fato invertido não foi medido em livro**, porque os cinco livros imprimem
+  tudo do lado das brancas. Medido está que a régua não dispara em 50 diagramas certos.
+
 ### 7.11 O corte do Ctrl+D e a seta da lista — [feito, F4.7]
 
 **O corte olha a tinta, não a proporção do box.** A regra antiga era "mais largo que

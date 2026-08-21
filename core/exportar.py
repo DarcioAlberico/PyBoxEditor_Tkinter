@@ -157,7 +157,12 @@ def _diagrama_em_texto(figura: Figura) -> str:
     `<span>`: o `span` mede uma casa na fonte do tabuleiro, e o `i` desenha o
     rótulo pequeno, centrado nela.
     """
-    filas = [str(n) for n in range(8, 0, -1)]
+    from core import render_diagrama
+
+    # Os rótulos saem do mesmo lugar que os do PNG, e não de uma lista escrita
+    # aqui: o diagrama impresso do lado das pretas tem as `linhas` giradas
+    # (F95), e um `a`–`h` fixo rotularia `h8` como `a1` sem nada denunciar.
+    letras, filas = render_diagrama.rotulos(figura.orientacao)
     linhas = []
     for i, linha in enumerate(figura.linhas or []):
         if figura.coordenadas:
@@ -168,7 +173,7 @@ def _diagrama_em_texto(figura: Figura) -> str:
         # (`p.colunas span`) pegava junto o `span.rot` desta mesma linha e o
         # alargava de 0,92 em para 1 em — 2,69 px medidos no navegador, que é o
         # tabuleiro andando para um lado e as letras para o outro.
-        colunas = "".join(f'<span class="col"><i>{c}</i></span>' for c in "abcdefgh")
+        colunas = "".join(f'<span class="col"><i>{c}</i></span>' for c in letras)
         linhas.append(f'<p class="colunas"><span class="rot"></span>'
                       f'{colunas}</p>')
     titulo = html.escape(_alternativo(figura))

@@ -58,7 +58,7 @@ Do outro lado do pipeline, a F6.1 fecha o caminho: as mesmas páginas rendem par
 **32, 27, 24, 20 e 12 lances** exportadas em PGN, com a abertura do livro saindo certa em
 todas.
 
-Cobertura: **1.035 testes**, `pytest` na raiz, 78 segundos.
+Cobertura: **1.614 testes**, `pytest` na raiz, 189 segundos.
 
 > As digitalizações não estão no repositório (`ilovepdf_pages-to-jpg/` é material com
 > direitos autorais). Num clone limpo sobram 2 páginas rotuladas com imagem, não 9, e os
@@ -9908,6 +9908,194 @@ fazer sem sobrescrever o modelo calibrado.
 Cobertura: `tests/test_f94_letras.py`, 18 testes. Reproduzir:
 `python importar_letras.py --faltantes "PDF/*/*.pdf"` e
 `python importar_letras.py --pdf "PDF/*/*.pdf" --letras "ŃńŠšŽžČčĆćÅåŞşØø" --destino revisao_letras`.
+
+## F95 — O diagrama dentro do painel, e o que está impresso em volta dele — CONCLUÍDA
+
+A pergunta que abriu a fase foi "onde a leitura de diagramas ainda erra?", e a resposta
+não veio de ler o código: veio de passar o comando **Ler posição dos diagramas** por 21
+páginas de 5 livros e comparar com o que está impresso nelas. O gabarito ficou em
+`tests/dados/paginas_com_diagrama.txt`, escrito à mão, e o instrumento em
+`medir_rotulos.py`.
+
+| | antes | depois |
+|---|---:|---:|
+| diagramas achados | 48 de 50 | **50 de 50** |
+| tabuleiros inventados | 0 | **0** |
+| decisões "há coordenadas?" certas | — | **50 de 50** |
+| títulos lidos | — | **29** (de 30 achados) |
+| custo da localização, por página | 0,00 s | 0,03 s (máximo 0,17) |
+
+### Os dois que faltavam eram dois que ninguém podia achar
+
+A premissa do módulo desde a F7.1 é que "o tabuleiro sai como **um** contorno só", porque
+tem moldura fechada e o `findContours` roda com `RETR_EXTERNAL`. Ela vale enquanto o
+tabuleiro **for** contorno externo, e a página 199 do Yusupov mostra quando ele não é: os
+dois diagramas do capítulo estão dentro de um painel sombreado que atravessa a coluna
+inteira. O painel é o contorno; os tabuleiros são filhos dele e nunca chegam à lista de
+boxes. Medido: 3.745 contornos na página, o maior deles o painel (649x1441, proporção
+2,22), e **nenhum** quadrado grande. O comando respondia "nenhum diagrama encontrado", e o
+texto ainda mandava conferir a borda da página.
+
+A segunda passada refaz os contornos com `RETR_LIST` — que devolve os de dentro também — e
+peneira com **duas provas independentes**, porque nenhuma das duas basta sozinha:
+
+| contorno da página 199 | lado | preenchimento | xadrez |
+|---|---:|---:|---:|
+| **tabuleiro de cima** | 589x587 | **0,96** | 30,9 |
+| escada das casas escuras | 570x558 | 0,21 | **42,3** |
+| escada, outro recorte | 555x568 | 0,20 | 28,3 |
+| **tabuleiro de baixo** | 584x591 | **0,96** | 32,2 |
+| escada das casas escuras | 567x566 | 0,20 | 48,4 |
+
+O xadrez sozinho escolheria a escada, que pontua **mais** que o tabuleiro inteiro — ela é
+um recorte deslocado do mesmo tabuleiro, e o alinhamento dela com as casas é acidental.
+O preenchimento sozinho deixaria passar qualquer quadrado preto. Juntos, os dois
+tabuleiros passam e os dez contornos internos caem.
+
+### A prova do xadrez, e por que ela é a peneira certa
+
+`pontuacao_de_tabuleiro` é a diferença média de tinta entre as 32 casas ímpares e as 32
+pares, medida **no anel de fundo de cada casa** — a peça mora no meio, e incluí-la
+apagaria a diferença que se quer medir. Medida em 49 tabuleiros e 5 recortes de texto do
+mesmo tamanho:
+
+| origem | menor | maior |
+|---|---:|---:|
+| tabuleiro hachurado (Nunn) | 19,7 | 38,3 |
+| tabuleiro hachurado (Dvoretsky) | 20,2 | 22,8 |
+| tabuleiro chapado (Yusupov) | 36,0 | 46,2 |
+| tabuleiro chapado (Aagaard) | 32,9 | 44,2 |
+| tabuleiro chapado (Darcy Lima) | 92,2 | 124,3 |
+| **recorte de texto** | **-1,1** | **3,1** |
+
+O vão entre 3,1 e 19,7 é de seis vezes. **O piso não foi afinado, foi posto no meio de um
+vão** — que é a diferença entre um limiar que se justifica e um que se ajusta.
+
+Ela mede tom, e não binarização, e isso não é detalhe: a casa escura destes livros tem
+dois desenhos — cinza chapado num livro, hachura diagonal noutro —, e binarizada a
+hachurada fica branca na moda. É o mesmo motivo pelo qual a F7.1 lê resíduo e não tom
+absoluto, aplicado à localização.
+
+### A ordem estava errada duas vezes
+
+`localizar` ordenava por `(y1, x1)`. Na página 221 do Yusupov, que tem seis diagramas em
+duas colunas, o da direita começa em y=358 e o da esquerda em y=359 — **a primeira fila
+saía invertida**, e as outras duas certas por acaso. Quem via "Diagrama 1 de 6" via o
+`Ex. 22-4`.
+
+Estável, ordenar por fila ainda não é a ordem de leitura de uma página de duas colunas —
+é a mesma armadilha que a F61 documenta para o texto. E aqui a fase pôde **conferir** em
+vez de supor, porque passou a ler os títulos: nas duas páginas de seis diagramas do
+material, `Ex. 22-1` a `Ex. 22-6` no Yusupov e os círculos de 1 a 6 no Aagaard, a
+numeração desce a coluna da esquerda antes de começar a da direita. Por fila sairia
+1, 4, 2, 5, 3, 6.
+
+Coluna a coluna cobre também a fila única: dois diagramas lado a lado são duas colunas de
+um, e saem da esquerda para a direita como sairiam por fila. Não há layout que peça a
+outra ordem.
+
+### As coordenadas, e a escolha que não existia
+
+**A queixa que abriu esta metade:** para gerar o DOCX ou o EPUB, poder escolher se as
+coordenadas entram. A escolha existia desde a F58 — `coordenadas=True|False` — mas era
+para o livro inteiro e cega: nada no programa sabia o que o livro trazia. Um mesmo volume
+imprime o exercício com `a`-`h` e o diagrama do meio da prosa sem.
+
+`ler_rotulos` responde isso, e **a prova é geométrica, não é leitura**: rótulo de casa tem
+uma marca por raia, e são oito raias. Contando raias ocupadas nas quatro bandas de 20
+tabuleiros:
+
+| livro | esquerda | abaixo | imprime coordenadas? |
+|---|---:|---:|---|
+| Yusupov (Chess Evolution) | 8 | 8 | sim |
+| Dvoretsky | 8 | 8 | sim |
+| Nunn | 0 | 0 | não |
+| Aagaard | 0–4 | 0 | não |
+| Darcy Lima | 0–3 | 0–2 | não |
+
+Os dois grupos não encostam. O corte fica em 7 de 8, que deixa passar uma raia comida pelo
+recorte sem abrir a porta para a prosa que corre ao lado do tabuleiro. Nas 50 leituras do
+gabarito, **50 decisões certas** — e nenhuma delas precisa do modelo de texto, o que
+importa: a exportação decide "como no livro" mesmo antes de carregar a rede.
+
+`livro.extrair` passou a aceitar um terceiro valor, `COMO_NO_LIVRO`, e ele decide **por
+diagrama**. O padrão da API continua `False`, para quem chamava não ter o livro mudando
+debaixo de si; a janela de exportação é que passou a oferecer a terceira resposta primeiro.
+
+### O que os rótulos dizem além de existirem
+
+Lidos, eles respondem a única pergunta do diagrama que **nada mais no diagrama responde**:
+para que lado ele está virado. `ler` sempre supôs brancas embaixo, e um diagrama impresso
+do lado das pretas saía com o FEN girado 180° — plausível, legal, e errado.
+
+**A paridade das casas não serve, e é o engano tentador.** Girar o tabuleiro 180° troca
+fila e coluna ao mesmo tempo, e a soma dos índices conserva a paridade: a casa de baixo à
+esquerda é escura nas duas orientações (`a1` numa, `h8` na outra). O único sinal impresso
+que distingue as duas é o rótulo.
+
+A régua é conservadora porque errar aqui estraga um diagrama que estava certo. Medido nos
+rótulos lidos com o modelo de 105 classes:
+
+| livro | letras lidas | contra `a`-`h` | contra `h`-`a` |
+|---|---|---:|---:|
+| Yusupov | `abcdefgh` | 8 | 0 |
+| Dvoretsky | `abCdefOh` | 6 | 0 |
+
+| livro | números lidos | contra `8`-`1` | contra `1`-`8` |
+|---|---|---:|---:|
+| Yusupov | `87654321` | 8 | 0 |
+| Dvoretsky | `37))43)1` | 4 | 0 |
+
+O Dvoretsky é o caso difícil — os algarismos dele estão numa fonte que o modelo nunca viu
+— e ainda assim a distância entre as duas hipóteses é de 4 a 6. Exige-se 4 acertos e 2 de
+vantagem; abaixo disso a resposta é `None`, que **não** é "brancas embaixo".
+
+O FEN sai sempre o da posição, com as casas giradas de volta. Quem se vira é o desenho:
+`render_diagrama.desenhar(orientacao=...)` e, no modo de fonte embutida, os rótulos em
+texto — que eram `a`-`h` fixos e agora saem de `render_diagrama.rotulos`, um lugar só para
+os dois usos.
+
+### O título, e o lado que ninguém tinha olhado
+
+A F60 trouxe de volta o cabeçalho do diagrama, e a F67 o fez virar texto. As duas
+procuraram **acima** da borda, porque é ali que o Yusupov imprime. O Nunn imprime embaixo:
+o número do diagrama à esquerda e a avaliação da posição à direita, na mesma linha. Nada
+no programa olhava para lá — a legenda saía como parágrafo solto, sem nada dizendo de que
+diagrama ela era, e num livro de finais ela **é** o índice.
+
+`ler_titulo` olha os dois lados, e a assimetria que ele precisou aprender é de um pixel de
+teoria e dois de medição: **a borda que conta é a que olha para o tabuleiro**. Acima é o
+pé da caixa — a maiúscula sobe acima da banda e a minúscula não, e medir pelo topo fazia
+`Diagram` sair `agram` (a F60 já documentava isso). Abaixo é o topo, pelo motivo
+espelhado: o `437` do Nunn nasce a 1,29 escalas do tabuleiro e desce até 2,3, e medido
+pelo pé ele não existia.
+
+Lidos, 29 títulos em 50 diagramas: `Diagram 1-4`, `Ex. 22-1`, `437 /`, `Diagrama A`. E as
+caixas que o título consome voltam com ele, para quem exporta tirá-las do texto da página
+— a legenda de baixo começa dentro da margem de exclusão e **acaba fora**, então ela chega
+ao texto e sairia duas vezes no livro.
+
+### O que esta fase NÃO resolve, e está medido
+
+- **A banda é a margem de exclusão, e legenda mais longe que ela continua sendo prosa.**
+  É o invariante que dá segurança ao resto: o que a margem já exclui do texto pode virar
+  título sem custo nenhum, porque não vai sair em lugar nenhum. Além de 1,4 escalas a
+  conta se inverte. Medido: a legenda do Nunn está a 1,29 escalas na página 266 e a 1,76
+  na 89 — a primeira vira legenda, a segunda continua parágrafo. E não há régua de
+  distância que separe as duas: na página 80 do Darcy Lima a **prosa** começa a 1,40.
+- **Título achado não é título lido.** Um caractere fraco derruba a linha inteira, que é a
+  regra da F67 e continua sendo a certa — um buraco no meio de `Ex. 22-1` é o número do
+  exercício. Dos 30 achados, 29 saíram com texto.
+- **Um diagrama de fato invertido não foi medido**, porque o material não tem nenhum: os
+  cinco livros imprimem tudo do lado das brancas. O que está medido é que a régua **não
+  dispara** em 50 diagramas certos, e que ela reconhece o rótulo invertido montado à mão
+  (`tests/test_f95_rotulos_e_titulo.py`).
+- **A localização continua sem tolerar diagrama cortado pela borda da página.** Nenhuma
+  das duas passadas o acha, e o gabarito não tem esse caso.
+
+Cobertura: `tests/test_f95_rotulos_e_titulo.py`, 26 testes, mais 6 em
+`tests/test_f26_livro.py`. Reproduzir: `python medir_rotulos.py` e
+`python medir_rotulos.py --sem-aninhados`.
 
 ## Fora de escopo (registrado para depois)
 

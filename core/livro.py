@@ -106,7 +106,10 @@ CONF_MINIMA = 0.5
 
 #: Vão entre dois caracteres que vira espaço, em larguras medianas de caractere
 #: **da linha** — não da página, que mistura corpo 9 com corpo 12.
-VAO_DE_ESPACO = 0.35
+#:
+#: O número mora em `diagrama` desde a F95, porque o título do diagrama usa a
+#: mesma régua e aquele módulo não pode importar este. Uma definição só.
+VAO_DE_ESPACO = diagrama.VAO_DE_ESPACO
 
 #: Recuo que abre parágrafo, e salto vertical que abre parágrafo, ambos em
 #: alturas de linha.
@@ -148,6 +151,11 @@ class Figura:
     linhas: Optional[List[str]] = None
     fonte: Optional[str] = None
     coordenadas: bool = False
+    #: Para que lado o tabuleiro foi desenhado (F95). É "preta" quando o livro
+    #: imprimiu o diagrama do lado das pretas e os rótulos disseram isso — e aí
+    #: as `linhas` já vêm giradas, e quem escreve o rótulo em texto tem de girar
+    #: junto, ou o `a1` do desenho ficaria rotulado `h8`.
+    orientacao: str = "branca"
 
 
 @dataclass
@@ -262,6 +270,21 @@ class Diagrama:
     #: lista por diagrama e é o que separa um cabeçalho pesquisável de um
     #: retrato dele.
     caixas_da_faixa: List[BoxEntry] = field(default_factory=list)
+    #: As coordenadas que o livro imprimiu em volta **deste** tabuleiro (F95).
+    #:
+    #: É o que faz `coordenadas="auto"` existir: até aqui a exportação recebia
+    #: um booleano para o livro inteiro e não tinha como saber o que o livro
+    #: trazia. Traz também a orientação, que é a única coisa no diagrama capaz
+    #: de dizer se ele foi impresso do lado das pretas.
+    rotulos: diagrama.Rotulos = field(default_factory=diagrama.Rotulos)
+    #: A legenda impressa **abaixo** da borda, quando há (F95).
+    #:
+    #: A `faixa` cobre o que está acima, e por seis fases foi o único lado que
+    #: alguém olhou. No Nunn a legenda é o número do diagrama e fica embaixo —
+    #: `437`, com a avaliação da posição do outro lado da mesma linha —, e ela
+    #: some do livro exportado pelo mesmo motivo que o cabeçalho sumia antes da
+    #: F60: a margem a exclui do texto, e a figura é só o tabuleiro.
+    legenda: diagrama.Titulo = field(default_factory=diagrama.Titulo)
 
     @property
     def topo(self) -> int:
@@ -337,7 +360,7 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     parágrafo é *negativo* ali, e nenhuma régua de salto pega isso.
     """
     pil = Image.fromarray(img)
-    antes, _th, escala, _cinza = BoxService.boxes_antes_do_descarte(
+    antes, th, escala, _cinza = BoxService.boxes_antes_do_descarte(
         pil, max_contornos=BoxService.MAX_CONTORNOS_DE_TEXTO)
     escala = escala or 1
     if not antes:
@@ -345,10 +368,16 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
         # dela custaria minutos e devolveria ruído.
         return [], [], escala, 0, []
 
+    # `imagem` e `binaria` abrem a segunda passada da F95, que acha o tabuleiro
+    # impresso dentro de um painel — o `th` é o mesmo que já foi calculado aqui,
+    # então não é custo novo.
     diagramas = [Diagrama(exclusao=_com_margem(r, escala * MARGEM_DIAGRAMA,
                                                img.shape),
-                          tabuleiro=r)
-                 for r in diagrama.localizar(antes, escala=escala)]
+                          tabuleiro=r,
+                          rotulos=diagrama.ler_rotulos(img, r, escala,
+                                                       classificar))
+                 for r in diagrama.localizar(antes, escala=escala,
+                                             imagem=img, binaria=th)]
 
     minima = MIN_AREA_GLIFO * escala * escala
     todas = BoxService.generate_boxes_opencv(pil, arbitro=classificar)
@@ -387,6 +416,32 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     ornamento = _celulas_de_ornamento(respingos, escala)
     grandes = [b for b in grandes
                if _celula(b, escala) not in ornamento]
+
+    # **A legenda de baixo é procurada no texto da página, e não no que a
+    # margem comeu** (F95). É a assimetria que a F60 não tinha por que notar: o
+    # cabeçalho encosta na borda de cima e cabe inteiro na margem, mas a legenda
+    # de baixo começa dentro dela e **acaba fora** — o `437` do Nunn nasce a
+    # 1,29 escalas do tabuleiro e desce até 2,3, e a exclusão vai a 1,4. Ela
+    # chega aqui como texto de página, e é preciso tirá-la de lá para não sair
+    # duas vezes no livro.
+    #
+    # Depois do descarte do respingo, e não antes: um fragmento da régua
+    # decorativa caído sob o tabuleiro entraria na legenda, e uma marca ilegível
+    # derruba a legenda inteira (`_texto_das_marcas`).
+    #
+    # Só quem não tem faixa acima é procurado abaixo: nestes livros a legenda é
+    # uma só, e o outro lado é o rótulo das casas.
+    for d in diagramas:
+        if d.faixa is not None:
+            continue
+        achado = diagrama.ler_titulo(img, d.tabuleiro, escala, classificar,
+                                     boxes=grandes, rotulos=d.rotulos)
+        # Acima é território da faixa, e ela já respondeu que não há nada.
+        if achado.lado != "abaixo":
+            continue
+        d.legenda = achado
+        usadas = {id(b) for b in achado.caixas}
+        grandes = [b for b in grandes if id(b) not in usadas]
 
     # As colunas saem das mesmas caixas que a ordem de leitura ordena, e depois
     # do descarte do ornamento: a régua decorativa do cabeçalho atravessa a
@@ -812,10 +867,30 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
 #: exatamente o que este módulo exportava antes.
 MODOS_DE_DIAGRAMA = ("render", "recorte")
 
+#: O terceiro valor de `coordenadas`: as que o livro imprimiu (F95).
+#:
+#: Não é o padrão da API — quem chamava com `True` ou `False` continua tendo o
+#: livro inteiro de um jeito só —, mas é o que a janela de exportação oferece
+#: primeiro. Diagrama por diagrama, e não por livro: um mesmo volume imprime o
+#: exercício com coordenadas e o diagrama no meio da prosa sem.
+COMO_NO_LIVRO = "auto"
+
+
+def _quer_coordenadas(escolha, d: Diagrama) -> bool:
+    """
+    Este diagrama sai com rótulo de casa?
+
+    `escolha` é `True`, `False` ou `COMO_NO_LIVRO`. No terceiro caso quem
+    responde é o que `diagrama.ler_rotulos` achou em volta **deste** tabuleiro.
+    """
+    if escolha == COMO_NO_LIVRO:
+        return d.rotulos.presentes
+    return bool(escolha)
+
 
 def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
-                        dpi_figura: int, modo: str, coordenadas: bool,
-                        fonte: str, lado: int) -> Figura:
+                        dpi_figura: int, modo: str, coordenadas, fonte: str,
+                        lado: int) -> Figura:
     """
     Um tabuleiro da página vira figura: desenhado, se merecer; recortado, se não.
 
@@ -826,20 +901,33 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
     recorte convivem no mesmo livro, e um com rótulo e outro sem seria a única
     diferença visível entre uma página em que o modelo se saiu bem e outra em
     que não.
+
+    **`coordenadas` tem três valores desde a F95**, e o terceiro é
+    `COMO_NO_LIVRO`: cada diagrama sai com o que o livro imprimiu em volta
+    dele. Quem resolve é `_quer_coordenadas`, e ela responde por diagrama.
+
+    **A orientação lida entra no desenho, e não no FEN** (F95). O FEN é sempre o
+    da posição; se o livro imprimiu o diagrama do lado das pretas, é o desenho
+    que se vira, para a página exportada continuar parecendo a página impressa.
     """
     aviso = None
+    quer = _quer_coordenadas(coordenadas, d)
     if modo == "render":
         try:
-            leitura = diagrama.ler(img, d.tabuleiro)
+            leitura = diagrama.ler(img, d.tabuleiro,
+                                   orientacao=d.rotulos.orientacao or "branca")
             passa, aviso = diagrama.confiavel(leitura)
             if passa:
                 fen = leitura.fen()
                 png, larg, alt = render_diagrama.desenhar(
-                    fen, fonte=fonte, lado_px=lado, coordenadas=coordenadas)
+                    fen, fonte=fonte, lado_px=lado, coordenadas=quer,
+                    orientacao=leitura.orientacao)
                 return Figura(png, larg, alt, fen=fen, origem="render",
                               linhas=render_diagrama.linhas(
-                                  fen, render_diagrama.carregar(fonte)),
-                              fonte=fonte, coordenadas=coordenadas)
+                                  fen, render_diagrama.carregar(fonte),
+                                  leitura.orientacao),
+                              fonte=fonte, coordenadas=quer,
+                              orientacao=leitura.orientacao)
         except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta) as erro:
             # Falta de modelo ou de fonte não pode derrubar a exportação de um
@@ -847,16 +935,17 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
             # por diagrama, onde quem lê o relatório vai ver.
             aviso = f"não deu para desenhar: {erro}"
 
-    rect = d.exclusao if coordenadas else d.tabuleiro
+    rect = d.exclusao if quer else d.tabuleiro
     png, larg, alt = _png_do_recorte(img, rect, dpi, dpi_figura)
-    return Figura(png, larg, alt, origem="recorte", aviso=aviso)
+    return Figura(png, larg, alt, origem="recorte", aviso=aviso,
+                  coordenadas=quer)
 
 
 def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    dpi: int = 300, conf_minima: float = CONF_MINIMA,
                    dpi_figura: int = DPI_FIGURA,
                    coletor: Optional[Callable] = None,
-                   diagramas: str = "render", coordenadas: bool = False,
+                   diagramas: str = "render", coordenadas=False,
                    fonte: str = render_diagrama.FONTE_PADRAO,
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO
                    ) -> PaginaExtraida:
@@ -873,14 +962,24 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     se lê muito antes dele. Cada figura entra na coluna a que pertence, e a
     coluna que se deixa é despejada antes de a próxima começar.
 
-    `coordenadas` é **falso por padrão** nos dois modos. O livro impresso traz
-    `a`–`h` e `8`–`1` para quem vai falar da posição em voz alta; num arquivo
-    que se lê no tablet elas ocupam espaço e não dizem nada que o tabuleiro já
-    não diga.
+    `coordenadas` tem três valores (F95): `True`, `False` e `COMO_NO_LIVRO`.
+    O padrão continua sendo `False` — o livro impresso traz `a`–`h` e `8`–`1`
+    para quem vai falar da posição em voz alta, e num arquivo que se lê no
+    tablet elas ocupam espaço e não dizem nada que o tabuleiro já não diga.
+    `COMO_NO_LIVRO` decide **por diagrama**, pelo que `diagrama.ler_rotulos`
+    achou em volta de cada um; e um mesmo livro mistura os dois casos na mesma
+    página.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
                          f"(use um de {MODOS_DE_DIAGRAMA})")
+    # Recusado, e não tratado como verdadeiro: `coordenadas` passou a aceitar
+    # uma string (F95), e a partir daí um `"Auto"` com maiúscula ou um `"nao"`
+    # seriam **verdadeiros** — o livro inteiro sairia rotulado, em silêncio, por
+    # causa de um erro de digitação.
+    if coordenadas not in (True, False, COMO_NO_LIVRO):
+        raise ValueError(f"coordenadas inválidas: {coordenadas!r} "
+                         f"(use True, False ou {COMO_NO_LIVRO!r})")
 
     img = _pagina_cinza(page, dpi)
     boxes, tabuleiros, _escala, respingos, colunas = caixas_e_diagramas(
@@ -950,14 +1049,21 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
                                         fonte=fonte, lado=lado_do_diagrama)
-        ja_esta_dentro = principal.origem == "recorte" and coordenadas
+        # A legenda de baixo entra **depois** da figura, que é onde ela está
+        # impressa (F95). Não é `titulo=True`: título embaixo da figura viraria
+        # um `<h2>` no meio do texto seguinte, e o que ela é, é legenda.
+        depois = ([Paragrafo(d.legenda.texto)]
+                  if d.legenda.texto and not (principal.origem == "recorte"
+                                              and principal.coordenadas)
+                  else [])
+        ja_esta_dentro = principal.origem == "recorte" and principal.coordenadas
         if d.faixa is None or ja_esta_dentro:
-            return [principal]
+            return [principal] + depois
 
         cabecalho = _faixa_em_texto(img, d, classificar, conf_minima, coletor,
                                     numero)
         if cabecalho is not None:
-            return [cabecalho, principal]
+            return [cabecalho, principal] + depois
 
         # A faixa entra na mesma escala do tabuleiro: o que na página media a
         # largura da borda tem de medir, no arquivo, a largura da figura.
@@ -965,7 +1071,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         alvo = int(round((d.faixa[2] - d.faixa[0]) * principal.largura / na_pagina))
         png, larg, alt = _png_do_recorte(img, d.faixa, dpi, dpi_figura,
                                          largura_px=alvo)
-        return [Figura(png, larg, alt, origem="faixa"), principal]
+        return [Figura(png, larg, alt, origem="faixa"), principal] + depois
 
     # Intercalar texto e figura, coluna a coluna e por posição vertical.
     metricas = _metricas_por_coluna(medidas)
@@ -1037,7 +1143,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             paginas: Optional[Sequence[int]] = None,
             conf_minima: float = CONF_MINIMA, dpi_figura: int = DPI_FIGURA,
             coletor: Optional[Callable] = None,
-            diagramas: str = "render", coordenadas: bool = False,
+            diagramas: str = "render", coordenadas=False,
             fonte: str = render_diagrama.FONTE_PADRAO,
             lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
             progress_callback=None) -> List[PaginaExtraida]:

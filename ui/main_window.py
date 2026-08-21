@@ -1736,13 +1736,29 @@ class MainWindow(tk.Frame):
             "Não: o diagrama sai como imagem, que funciona em qualquer leitor.",
             default=messagebox.NO)
 
-        coordenadas = messagebox.askyesno(
-            "Coordenadas nos diagramas?",
-            "Incluir as letras a–h e os números 1–8 em volta do tabuleiro?\n\n"
-            "O livro impresso as traz para quem vai falar da posição em voz "
-            "alta. Num arquivo que se lê na tela elas ocupam espaço e não dizem "
-            "nada que o tabuleiro já não diga — por isso o padrão é sem.",
-            default=messagebox.NO)
+        # São três respostas, e elas saem em duas perguntas encaixadas — como o
+        # par desenhar/embutir logo acima (F95). Um `askyesnocancel` daria as
+        # três numa caixa só, mas o Escape e o X da janela cairiam na terceira,
+        # e "fechei a caixa" não é "faça como o livro".
+        como_no_livro = messagebox.askyesno(
+            "Seguir as coordenadas do livro?",
+            "Seguir o que o livro imprimiu em volta de cada tabuleiro?\n\n"
+            "As letras a–h e os números 1–8 são reconhecidos diagrama a "
+            "diagrama, e cada um sai como está na página — inclusive quando o "
+            "mesmo livro traz o exercício com coordenadas e o diagrama do meio "
+            "da prosa sem.\n\n"
+            "Não: você escolhe um dos dois para o livro inteiro.")
+        coordenadas = livro.COMO_NO_LIVRO
+        if not como_no_livro:
+            coordenadas = messagebox.askyesno(
+                "Coordenadas nos diagramas?",
+                "Incluir as letras a–h e os números 1–8 em volta do "
+                "tabuleiro?\n\n"
+                "O livro impresso as traz para quem vai falar da posição em voz "
+                "alta. Num arquivo que se lê na tela elas ocupam espaço e não "
+                "dizem nada que o tabuleiro já não diga — por isso o padrão "
+                "é sem.",
+                default=messagebox.NO)
 
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
@@ -3728,6 +3744,13 @@ class MainWindow(tk.Frame):
         A geração aqui é própria e sem descarte. Custa uma passada de contornos
         (0,36 s numa página de 1.605 boxes) e não mexe em `self.boxes`, que
         continua sendo a lista de caracteres da página.
+
+        **O modelo de texto entra junto desde a F95**, e não é para ler o
+        tabuleiro: é para ler o que está impresso em volta dele — o título e as
+        coordenadas das casas. Sem ele o comando ainda acha os diagramas e
+        ainda diz se há coordenadas (a prova disso é geométrica), mas o título
+        fica sem texto e a orientação, sem resposta. Por isso a falta do modelo
+        aqui **não** é erro: o comando segue sem ele.
         """
         from core import diagrama as diag
 
@@ -3735,12 +3758,20 @@ class MainWindow(tk.Frame):
             messagebox.showinfo("Diagramas", "Abra uma imagem ou PDF primeiro.")
             return
 
+        classificar = None
+        if self.learning_service.load_predictor():
+            classificar = self.learning_service.predict_neural
+            # O título do diagrama é texto lido pela rede, e texto lido pela
+            # rede leva o aviso do modelo junto (F26) — a mesma regra dos outros
+            # caminhos, que a F95 fez este comando passar a ter.
+            self._avisar_do_modelo()
+
         try:
             # `separar_colados=False`: cortar glifo colado não muda onde o
             # tabuleiro está, e aqui só se procura o tabuleiro.
             contornos = self.box_service.generate_boxes_opencv(
                 self.image, descartar_nao_texto=False, separar_colados=False)
-            leituras = diag.ler_pagina(self.image, contornos)
+            leituras = diag.ler_pagina(self.image, contornos, classificar)
         except diag.ModeloAusente as e:
             messagebox.showerror("Diagramas", str(e))
             return
@@ -3749,8 +3780,9 @@ class MainWindow(tk.Frame):
             messagebox.showinfo(
                 "Diagramas",
                 "Nenhum diagrama encontrado nesta página.\n\n"
-                "O tabuleiro é reconhecido por ser um contorno grande e "
-                "quadrado; um diagrama cortado na borda da página não casa.")
+                "O tabuleiro é reconhecido por ser um desenho grande, quadrado "
+                "e em xadrez — inclusive quando está impresso dentro de um "
+                "painel. Um diagrama cortado na borda da página não casa.")
             return
 
         fen = self.DIALOGO_DIAGRAMA(self.parent, self.image, leituras,

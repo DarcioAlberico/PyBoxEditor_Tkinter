@@ -48,8 +48,15 @@ def _classificador(char="a", confianca=0.99):
 
 
 def _pagina(texto_linhas=("Uma linha de prosa comum.",), diagrama=False,
-            largura=300, altura=400):
-    """Uma página PDF com texto e, se pedido, um quadrado do tamanho de um tabuleiro."""
+            largura=300, altura=400, rotulos=False, legenda=""):
+    """
+    Uma página PDF com texto e, se pedido, um quadrado do tamanho de um tabuleiro.
+
+    `rotulos` põe as letras `a`–`h` e os números `8`–`1` em volta dele, como o
+    livro impresso faz — é o que `coordenadas="auto"` da F95 vai buscar. E
+    `legenda` põe uma linha logo abaixo da borda, que é onde o Nunn imprime o
+    número do diagrama.
+    """
     doc = fitz.open()
     p = doc.new_page(width=largura, height=altura)
     for i, linha in enumerate(texto_linhas):
@@ -64,6 +71,13 @@ def _pagina(texto_linhas=("Uma linha de prosa comum.",), diagrama=False,
                     p.draw_rect(fitz.Rect(40 + j * 20, 150 + k * 20,
                                           60 + j * 20, 170 + k * 20),
                                 fill=(0.75, 0.75, 0.75))
+        if rotulos:
+            for j, ch in enumerate("abcdefgh"):
+                p.insert_text((47 + j * 20, 320), ch, fontsize=8)
+            for k, ch in enumerate("87654321"):
+                p.insert_text((32, 165 + k * 20), ch, fontsize=8)
+        if legenda:
+            p.insert_text((45, 322), legenda, fontsize=8)
     return doc
 
 
@@ -434,7 +448,12 @@ class _App:
     """
 
     #: título da pergunta → resposta. O que não casar responde "não".
-    PADRAO = {"Redesenhar": True, "Coordenadas": False, "Guardar": False}
+    #:
+    #: `Seguir` é a primeira das duas perguntas de coordenada (F95): "como no
+    #: livro?". Só quem responde não é perguntado em seguida se quer ou não
+    #: quer para o livro inteiro, e é essa segunda que `Coordenadas` responde.
+    PADRAO = {"Redesenhar": True, "Seguir": False, "Coordenadas": False,
+              "Guardar": False}
 
     def __init__(self, entrada, saida, coletar=False, respostas=None):
         from tkinter import filedialog, messagebox
@@ -574,6 +593,15 @@ def test_as_duas_perguntas_da_f58_chegam_a_extracao(monkeypatch):
         assert recebido["diagramas"] == "recorte"
         assert recebido["coordenadas"] is True
 
+    # A terceira resposta da F95: nem sim nem não para o livro inteiro — cada
+    # diagrama como o livro o imprimiu.
+    with _App(entrada, os.path.join(tmp, "c.epub"),
+              respostas={"Seguir": True, "Coordenadas": False}) as app:
+        app.rodar()
+        assert not app.erros, app.erros
+        assert recebido["coordenadas"] == livro.COMO_NO_LIVRO, (
+            "'como no livro' parou no diálogo")
+
 
 # ----------------------------------------------------------------------
 # O diagrama redesenhado (F58)
@@ -615,7 +643,7 @@ def test_o_diagrama_confiavel_sai_desenhado_e_com_o_fen(monkeypatch):
     vira desenho, e o FEN viaja junto para virar texto alternativo lá na frente.
     """
     monkeypatch.setattr(livro.diagrama, "ler",
-                        lambda img, caixa=None: _leitura_firme())
+                        lambda img, caixa=None, **k: _leitura_firme())
     p = _pagina_com_diagrama(diagramas="render")
 
     figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
@@ -635,7 +663,7 @@ def test_a_leitura_que_nao_convence_cai_para_o_recorte(monkeypatch):
     """
     fraca = _leitura_firme()
     fraca.casas[60].confianca = 0.10          # a casa mais fraca do tabuleiro
-    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: fraca)
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None, **k: fraca)
 
     p = _pagina_com_diagrama(diagramas="render")
     figuras = [b for b in p.blocos if isinstance(b, livro.Figura)]
@@ -650,7 +678,7 @@ def test_sem_modelo_de_diagrama_a_exportacao_nao_cai(monkeypatch):
     Um livro de 264 páginas não pode morrer na página 3 porque o `.pth` do
     diagrama não foi treinado. Cai para o recorte e diz o que faltou.
     """
-    def sem_modelo(img, caixa=None):
+    def sem_modelo(img, caixa=None, **k):
         raise livro.diagrama.ModeloAusente("modelo de teste ausente")
 
     monkeypatch.setattr(livro.diagrama, "ler", sem_modelo)
@@ -663,7 +691,7 @@ def test_sem_modelo_de_diagrama_a_exportacao_nao_cai(monkeypatch):
 
 def test_o_modo_recorte_nao_lê_diagrama_nenhum(monkeypatch):
     """Quem pediu o livro como antes não paga duas redes por tabuleiro."""
-    def nao_deveria(img, caixa=None):
+    def nao_deveria(img, caixa=None, **k):
         raise AssertionError("o modo recorte leu o diagrama")
 
     monkeypatch.setattr(livro.diagrama, "ler", nao_deveria)
@@ -692,7 +720,7 @@ def test_o_recorte_de_queda_segue_a_opcao_de_coordenadas(monkeypatch):
     quando o desenho não traz, a única diferença visível entre as duas páginas
     seria a que o leitor não deveria notar.
     """
-    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None, **k: _leitura_firme())
     monkeypatch.setattr(livro.diagrama, "confiavel",
                         lambda leitura, **kw: (False, "de propósito"))
 
@@ -755,7 +783,7 @@ def test_o_cabecalho_legivel_vira_titulo(monkeypatch):
     comum: é o que dá `<h2>` no EPUB e `Heading 2` no DOCX, por onde o sumário
     do leitor navega.
     """
-    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None, **k: _leitura_firme())
     doc = _pagina_com_cabecalho()
     try:
         p = livro.extrair_pagina(doc[0], _classificador("x"), dpi=150,
@@ -779,7 +807,7 @@ def test_o_cabecalho_ilegivel_continua_saindo_como_imagem(monkeypatch):
     o buraco nela é o número do exercício. Medido na página 220, o hífen de
     `Ex. 22-4` sai com 0,108 de confiança — o `★` e o `▼` saem com 1,000.
     """
-    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None: _leitura_firme())
+    monkeypatch.setattr(livro.diagrama, "ler", lambda img, caixa=None, **k: _leitura_firme())
     doc = _pagina_com_cabecalho()
     try:
         p = livro.extrair_pagina(doc[0], _classificador("x", 0.20), dpi=150,
@@ -826,6 +854,109 @@ def test_o_recorte_com_coordenadas_nao_duplica_o_cabecalho():
 
     figuras = _figuras(p)
     assert len(figuras) == 1 and figuras[0].origem == "recorte"
+
+
+# ----------------------------------------------------------------------
+# As coordenadas como o livro as imprimiu (F95)
+# ----------------------------------------------------------------------
+
+def _extrair(doc, **kw):
+    try:
+        return livro.extrair_pagina(doc[0], _classificador("x"), dpi=150, **kw)
+    finally:
+        doc.close()
+
+
+def test_como_no_livro_nao_poe_coordenada_onde_o_livro_nao_pos():
+    """
+    A terceira resposta da F95, no caso mais comum: o livro que não rotula
+    continua saindo sem rótulo, sem ninguém ter de escolher isso.
+    """
+    p = _extrair(_pagina(diagrama=True), diagramas="recorte",
+                 coordenadas=livro.COMO_NO_LIVRO)
+
+    figuras = _figuras(p)
+    assert figuras and not figuras[0].coordenadas
+
+
+def test_como_no_livro_poe_coordenada_onde_o_livro_pos():
+    p = _extrair(_pagina(diagrama=True, rotulos=True), diagramas="recorte",
+                 coordenadas=livro.COMO_NO_LIVRO)
+
+    figuras = _figuras(p)
+    assert figuras and figuras[0].coordenadas, (
+        "o tabuleiro rotulado saiu sem os rótulos")
+
+
+def test_coordenada_que_nao_existe_reclama():
+    """
+    `coordenadas` aceita string desde a F95, e a partir daí `"Auto"` com
+    maiúscula seria **verdadeiro** — o livro inteiro sairia rotulado em
+    silêncio, por um erro de digitação.
+    """
+    doc = _pagina(diagrama=True)
+    try:
+        livro.extrair_pagina(doc[0], _classificador(), coordenadas="Auto")
+    except ValueError as erro:
+        assert "Auto" in str(erro)
+    else:
+        raise AssertionError("aceitou uma escolha que não existe")
+    finally:
+        doc.close()
+
+
+def test_o_booleano_continua_mandando_no_livro_inteiro():
+    """
+    `True` e `False` não consultam a página: quem pediu um livro inteiro de um
+    jeito só continua tendo isso, e é por isso que o padrão não mudou.
+    """
+    com = _extrair(_pagina(diagrama=True, rotulos=True), diagramas="recorte",
+                   coordenadas=False)
+    sem = _extrair(_pagina(diagrama=True), diagramas="recorte",
+                   coordenadas=True)
+
+    assert not _figuras(com)[0].coordenadas
+    assert _figuras(sem)[0].coordenadas
+
+
+def test_a_legenda_de_baixo_e_reconhecida_como_do_diagrama():
+    """
+    O lado que a F60 nunca olhou. O `437` do Nunn fica embaixo do tabuleiro, e
+    o `_faixa_acima` só procurava acima — a legenda saía como parágrafo solto,
+    sem nada dizendo de que diagrama ela era.
+    """
+    doc = _pagina(diagrama=True, legenda="437")
+    try:
+        _boxes, diagramas, _e, _r, _c = livro.caixas_e_diagramas(
+            _cinza(doc[0]), _classificador("x"))
+    finally:
+        doc.close()
+
+    assert diagramas, "o tabuleiro não foi achado"
+    assert diagramas[0].legenda.lado == "abaixo"
+    assert diagramas[0].legenda.texto
+
+
+def test_a_legenda_de_baixo_vira_paragrafo_e_nao_sai_duas_vezes():
+    """
+    O `437` do Nunn começa dentro da margem de exclusão e acaba fora dela, então
+    ele chega ao texto da página. Vira legenda **e** sai de lá — senão sairia
+    uma vez colado na figura e outra solto no meio da prosa.
+    """
+    p = _extrair(_pagina(texto_linhas=("Texto antes do diagrama.",),
+                         diagrama=True, legenda="437"),
+                 diagramas="recorte")
+
+    blocos = p.blocos
+    figuras = [i for i, b in enumerate(blocos) if isinstance(b, livro.Figura)]
+    assert figuras, "o tabuleiro não virou figura"
+    depois = blocos[figuras[0] + 1:]
+    assert depois and isinstance(depois[0], livro.Paragrafo), (
+        "a legenda não entrou depois da figura")
+    assert not depois[0].titulo, "legenda embaixo da figura não é título"
+    assert sum(1 for b in blocos
+               if isinstance(b, livro.Paragrafo)
+               and b.texto == depois[0].texto) == 1, "a legenda saiu em dobro"
 
 
 def test_diagrama_sem_nada_em_cima_vem_sozinho():

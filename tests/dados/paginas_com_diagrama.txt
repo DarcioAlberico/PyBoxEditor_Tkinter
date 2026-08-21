@@ -1,0 +1,41 @@
+# Gabarito da F95: o que está impresso em 21 páginas de 5 livros.
+#
+# Escrito à mão, olhando as páginas renderizadas — não sai de leitura nenhuma
+# do programa. Um gabarito que saísse do programa mediria o programa contra ele
+# mesmo, que é o defeito que a F1.3 registrou.
+#
+# Uma linha por página:
+#
+#     fragmento do nome do PDF | página (1-based) | diagramas | coordenadas?
+#
+# `coordenadas` é `sim`, `nao` ou `-` (a página não tem diagrama, então não há o
+# que responder). É a resposta que a exportação usa em `coordenadas="auto"`.
+#
+# As oito páginas sem diagrama estão aqui de propósito: metade do risco da
+# segunda passada da F95 é inventar tabuleiro onde não há, e sem elas na conta
+# esse risco não seria medido.
+#
+# Os PDFs não estão no repositório (material com direitos autorais). Num clone
+# limpo o `medir_rotulos.py` diz que não os achou e sai.
+
+Chess Evolution |  10 | 2 | sim
+Chess Evolution |  11 | 3 | sim
+Chess Evolution |  93 | 0 | -
+Chess Evolution | 146 | 0 | -
+Chess Evolution | 199 | 2 | sim     # os dois dentro de um painel sombreado
+Chess Evolution | 221 | 6 | sim
+Chess Evolution | 222 | 6 | sim
+Chess Evolution | 225 | 0 | -
+Dvoretsky       | 123 | 2 | sim
+Dvoretsky       | 205 | 2 | sim
+Dvoretsky       | 286 | 2 | sim
+Nunn            |  54 | 4 | nao
+Nunn            |  89 | 2 | nao
+Nunn            | 195 | 0 | -
+Nunn            | 266 | 3 | nao
+Aagaard         |  40 | 3 | nao
+Aagaard         |  66 | 2 | nao
+Aagaard         | 224 | 6 | nao
+Estrat          |  48 | 0 | -
+Estrat          |  80 | 2 | nao
+Estrat          | 112 | 3 | nao

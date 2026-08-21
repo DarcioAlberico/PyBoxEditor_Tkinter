@@ -391,11 +391,28 @@ class DialogoDiagrama:
     def _leitura(self) -> diag.Leitura:
         return self.leituras[self.atual]
 
+    def _cabecalho(self) -> str:
+        """
+        A linha de cima: qual diagrama é, como está lido, e como o livro o
+        chama (F95).
+
+        **O título do livro vem antes do número da lista**, quando há. É por ele
+        que alguém acha a posição — `Ex. 22-4` é o que está impresso na página
+        e o que se procuraria depois; "Diagrama 4 de 6" só diz onde ele caiu
+        nesta leitura.
+        """
+        leitura = self._leitura()
+        partes = [f"Diagrama {self.atual + 1} de {len(self.leituras)}"]
+        if leitura.titulo.texto:
+            partes.insert(0, leitura.titulo.texto)
+        partes.append(self.tabuleiro().resumo())
+        if leitura.rotulos.presentes:
+            partes.append(leitura.rotulos.resumo())
+        return "  —  ".join(partes)
+
     def _desenhar(self):
         tabuleiro = self.tabuleiro()
-        self.lbl_titulo.config(
-            text=f"Diagrama {self.atual + 1} de {len(self.leituras)}  —  "
-                 f"{tabuleiro.resumo()}")
+        self.lbl_titulo.config(text=self._cabecalho())
         self.var_fen.set(tabuleiro.fen())
         self.lbl_avisos.config(text="\n".join(tabuleiro.avisos()))
         self._desenhar_recorte()
