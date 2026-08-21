@@ -605,7 +605,13 @@ def promover(pasta: str = PASTA_PADRAO, data_dir: str = "training_data",
             if imagem is None:
                 resultado.ilegiveis.append(completo)
                 continue
-            learner.learn(imagem, char)
+            # O nome de origem atravessa a promoção (F94). Na quarentena da
+            # F2.7 ele carrega confiança e página; na da F94, a procedência —
+            # `fonte-times_…` é semente desenhada, `pdf-dvoretsky_…` veio do
+            # livro. Depois de promovida, é o único lugar onde essa diferença
+            # ainda existe, e é ela que diz quais amostras trocar quando um
+            # livro com a letra finalmente aparecer.
+            learner.learn(imagem, char, nome=arquivo)
             aprendidos += 1
             if apagar:
                 try:

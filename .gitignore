@@ -53,6 +53,12 @@ ilovepdf_pages-to-jpg/
 Diagramas-outro-projeto/
 training_data_diagrama_corpus/
 
+# Quarentena da revisão (F2.7, F94): amostra **por conferir**, e não base.
+# Um livro inteiro deixa centenas de milhares de PNG aqui — 392.913 medidos no
+# Benko —, e o que sobrevive à revisão sai daqui para `training_data/` pela
+# promoção. É a base que é versionada; esta pasta é o rascunho dela.
+revisao_*/
+
 # Fonte do léxico (F9.1) — 31 MB de listas do ABBYY FineReader. O que o programa
 # usa é o produto de `importar_lexico.py`, 0,94 MB em assets/lexico/, e esse vai.
 Lista de Palavras/

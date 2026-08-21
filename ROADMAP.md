@@ -9810,6 +9810,105 @@ dedução em PDF digital, `--livro ilovepdf_pages-to-jpg` para o livro escaneado
 
 ---
 
+---
+
+## F94 — A letra que o OCR não consegue aprender sozinho — CONCLUÍDA
+
+**Um caractere sem classe é um erro garantido, e o ciclo normal não fecha esse buraco.** A
+rede só emite uma das classes que tem; se `š` não é classe, todo `š` do livro sai como outra
+coisa — e a revisão da F2.7 não o pega, porque o recorte cai na pasta de `s` e ali ele
+*parece* certo. Coletar → revisar → promover colhe o que o modelo leu, e o modelo não leu.
+
+Então a classe tem de nascer de fora do OCR. `importar_letras.py` a faz nascer de duas
+fontes, e o `--faltantes` diz quando: ele lê a camada de texto de um PDF e lista o que
+aquele livro tem e o modelo não conhece — antes de qualquer OCR rodar. É o gatilho para
+livro futuro.
+
+### O que a camada de texto vale, e foram três respostas erradas antes da certa
+
+O rótulo vem do PDF, não do modelo. Parece a melhor procedência possível — é o que o editor
+do livro escreveu — e **nestes livros ela mente**, pelo defeito inteiro da F2.5: as fontes
+de figurinha são Type0/Identity-H e o produtor escreveu qualquer coisa no `ToUnicode`. Nos
+seis PDFs do projeto, `·` aparece 19.331 vezes, `>` 18.573, `ʘ` 514. Nenhum está impresso em
+página nenhuma: são ♔♕♖♗♘.
+
+**Primeira tentativa: filtrar por fonte.** Medir a concordância da camada em letras de
+controle que o modelo conhece bem, e colher só das fontes que passassem. No Aagaard, cinco
+fontes passaram com 85% a 97% — e as 54 amostras de `Å` colhidas delas eram **54 desenhos de
+rei**. O portão não podia funcionar, e a razão é estrutural: a mesma face desenha o texto e a
+figurinha, mapeia o texto certo e a figurinha errado, e as letras de controle nunca visitam a
+figurinha. Só apareceu porque a folha de contato foi gerada e olhada.
+
+**Segunda tentativa: filtrar por livro.** Hipótese natural depois da primeira — os Yusupov
+seriam os livros ruins. Medido: Yusupov Complete tem **89,9%** de concordância nas letras de
+controle e Dvoretsky **91,2%**. A camada está alinhada e bem mapeada nos dois. Hipótese morta.
+
+**Terceira: perguntar ao modelo, recorte a recorte** — e aqui a régua certa não foi a
+primeira que escrevi. O modelo nunca vai *confirmar* a letra nova (é por não a ter que ela
+está sendo criada); o que ele pode é reconhecer a letra-base — num `š` de verdade ele lê `s`.
+A primeira régua presumia a favor do recorte: entrava tudo, menos o que o modelo
+contradissesse com confiança ≥ 0,90. O argumento era que hesitação não desmente, e que
+recusar por ela jogaria fora o recorte estranho — que é o que a classe nova mais precisa.
+
+Nas 58 amostras colhidas dos seis PDFs, rotuladas a olho na folha de contato:
+
+| régua | dos 27 bons | dos 31 de lixo |
+|---|---:|---:|
+| presume a favor (contradição ≥ 0,90) | 27 | **31** |
+| presume contra (só leitura plausível) | 17 | **0** |
+
+**O lixo mora justamente na hesitação, e tinha de morar**: um borrão de trama ou um pedaço de
+régua não pertence a classe nenhuma, então o softmax se espalha. O `♗` mais confiante da
+pilha deu 0,871 e passava por baixo do limiar — e baixá-lo até pegá-lo mataria o `å` que o
+modelo lê como `ä` a 0,590, que é bom. **Não há limiar; há inversão da presunção.**
+
+O preço são 10 amostras boas em 27, e é o preço certo aqui: isto **semeia** uma classe, e uma
+amostra errada na semente ensina a letra errada sem ninguém para pegá-la depois — a classe é
+nova, não há com o que comparar. Volume quem dá é a fonte.
+
+### A semente de fonte, e um `has_glyph` que mentiu
+
+Para a letra que os livros não têm — `Ń` não aparece **uma vez** nos seis PDFs —, o glifo é
+desenhado de faces serifadas do sistema, em três corpos, com a dedução da F93 tirando o que
+sair igual. Quinze faces cobrem as 16 letras.
+
+A primeira ideia foi melhor e não funcionou: extrair a fonte embutida do próprio livro, para
+a semente ter a forma que aquele livro imprime. `fitz.Font.has_glyph` respondeu **sim** para
+as 16 letras nas duas faces embutidas do Dvoretsky — e a renderização saiu vazia até para o
+`a`. Por isso `faces_disponiveis` confere por **tinta**, com letras de controle: uma face que
+devolve `.notdef` entrega um retângulo, e um retângulo promovido para a classe de `ń` ensina
+que `ń` é um retângulo.
+
+### O resultado
+
+737 amostras em 16 classes: `Ń ń Š š Ž ž Č č Ć ć Å å Ş ş Ø ø`. Dezessete vieram de livro
+(todas do Dvoretsky, todas conferidas a olho), 720 de fonte. As 108 do Aagaard, as 103 do
+Yusupov Complete e as 28 do Yusupov corrigido ficaram de fora, nomeadas no relatório.
+
+**Nada foi direto para `training_data`**: sai em `revisao_letras/`, com folha de contato por
+classe, e entra na base pela promoção da F2.7. É a mesma propriedade de segurança, e aqui ela
+pagou duas vezes — foi a folha que pegou os 54 reis e depois os 31 borrões.
+
+### A procedência atravessa a promoção
+
+O `learner.learn` renomeava toda amostra para UUID, e depois de promovida a semente ficava
+indistinguível da amostra de livro. Não é cosmético: a semente existe para a classe existir
+enquanto nenhum livro traz a letra, e quando um trouxer é ela que se troca — sem o nome não
+há como achar qual, numa base de 130 mil arquivos. `learn` passou a aceitar o nome de origem,
+higienizado (`_nome_de_amostra`: só-ASCII, sem separador de caminho, colisão vira UUID). É a
+mesma lição que o `dataset_check._nome_livre` já tinha aprendido do outro lado.
+
+### O que fica em aberto
+
+**A semente não está medida de ponta a ponta.** Que ela faz a classe existir é certo; se ela
+*ajuda* o modelo a ler a letra no livro impresso, só o próximo treino diz — o
+`relatorio_treino.txt` traz acurácia por classe. É a verificação que esta fase não podia
+fazer sem sobrescrever o modelo calibrado.
+
+Cobertura: `tests/test_f94_letras.py`, 18 testes. Reproduzir:
+`python importar_letras.py --faltantes "PDF/*/*.pdf"` e
+`python importar_letras.py --pdf "PDF/*/*.pdf" --letras "ŃńŠšŽžČčĆćÅåŞşØø" --destino revisao_letras`.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

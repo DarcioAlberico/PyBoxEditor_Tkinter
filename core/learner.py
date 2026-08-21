@@ -26,6 +26,26 @@ from typing import Tuple, List, Optional
 EXTRAS_LEGIVEIS = "+-"
 
 
+def _nome_de_amostra(nome: str = "") -> str:
+    """
+    Como o PNG da amostra se chama: o nome de origem, ou um UUID.
+
+    **Só-ASCII e sem separador de caminho**, e as duas exigências têm cicatriz.
+    O `cv2.imwrite` devolve `False` em vez de levantar quando o caminho não é
+    ASCII no Windows, e foi assim que a pasta `lower_ä` da base ficou vazia —
+    as amostras eram descartadas em silêncio. E um nome vindo de fora que
+    trouxesse `..` ou uma barra escreveria fora da pasta da classe.
+
+    Nome que não sobrevive à limpeza vira UUID, que é o que sempre foi.
+    """
+    limpo = "".join(c for c in os.path.basename(nome or "")
+                    if c.isascii() and (c.isalnum() or c in "-_."))
+    limpo = limpo.strip(".")
+    if limpo.lower().endswith(".png"):
+        limpo = limpo[:-4]
+    return f"{limpo[:80]}.png" if limpo else f"{uuid.uuid4()}.png"
+
+
 def char_to_folder(char: str) -> str:
     """
     Converte um caractere em um nome de pasta seguro para Windows,
@@ -371,7 +391,7 @@ class CharacterLearner:
         except OSError:
             pass        # sem cache o programa só fica lento, não quebra
 
-    def learn(self, crop_np: np.ndarray, char: str):
+    def learn(self, crop_np: np.ndarray, char: str, nome: str = ""):
         """
         Grava uma amostra nova e a torna consultável na hora.
 
@@ -379,6 +399,9 @@ class CharacterLearner:
         um box marcado como `fi` era descartado em silêncio — apesar de o
         `char_to_folder` ter um ramo `ligature_*` justamente para isso. É a
         mesma classe de perda calada que a F5.2 corrigiu no `.box`.
+
+        `nome` é o nome de origem do arquivo, quando quem chama tem um. Sem
+        ele, UUID como sempre — ver `_nome_de_amostra`.
         """
         if not char:
             return
@@ -398,8 +421,24 @@ class CharacterLearner:
 
         img_resized = cv2.resize(img_gray, (LADO, LADO))
 
-        filename = f"{uuid.uuid4()}.png"
+        # **O nome de origem passa quando há um**, e é a mesma lição que o
+        # `dataset_check._nome_livre` já aprendeu: "o nome do arquivo é dado, não
+        # enfeite". Ali a mesclagem trocava tudo por UUID "porque os arquivos são
+        # UUID", e das 30 amostras de `ç` da base real nenhuma era.
+        #
+        # Aqui o que se perderia é a **procedência**: a F94 semeia classe nova
+        # com glifo desenhado de fonte do sistema, e depois de promovida uma
+        # amostra dessas fica indistinguível de uma que veio do livro. Não é
+        # detalhe — semente e amostra real ensinam coisas diferentes, e a hora
+        # de trocar uma pela outra é quando um livro com a letra aparecer. Sem o
+        # nome, não há como achar quais trocar.
+        filename = _nome_de_amostra(nome)
         path = os.path.join(save_dir, filename)
+        if os.path.exists(path):
+            # Colisão: quem chega depois troca de nome, e não sobrescreve.
+            # Perder amostra em silêncio é o erro que não se pode cometer aqui.
+            filename = f"{uuid.uuid4()}.png"
+            path = os.path.join(save_dir, filename)
 
         # cv2.imwrite devolve False em vez de levantar quando não consegue
         # gravar — notoriamente em caminhos não-ASCII no Windows. Foi assim que
