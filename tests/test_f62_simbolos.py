@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 from core import exportar
-from gerar_fonte_de_simbolos import ORIGEM, cobertura, simbolos_do_modelo
+from gerar_fonte_de_simbolos import (EMPRESTADOS, ORIGEM, cobertura,
+                                     simbolos_do_modelo)
 
 
 def test_o_recorte_cobre_o_que_a_fonte_inteira_cobre():
@@ -42,7 +43,7 @@ def test_o_recorte_cobre_o_que_a_fonte_inteira_cobre():
 
 
 def test_o_recorte_e_muito_menor_que_a_fonte_inteira():
-    """A razão de ele existir. 641 KB para desenhar quinze glifos."""
+    """A razão de ele existir. 641 KB para desenhar vinte e sete glifos."""
     if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
         pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
 
@@ -54,6 +55,27 @@ def test_as_figurinas_estao_no_recorte():
     if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
         pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
     assert cobertura(exportar.SUBSET_DOS_SIMBOLOS, "♔♕♖♗♘♙") == "♔♕♖♗♘♙"
+
+
+def test_os_emprestados_estao_no_recorte():
+    """
+    O outro jeito de o livro sair errado, e o primeiro teste não pega este.
+
+    Ele compara o recorte com a fonte inteira, e os emprestados **não estão na
+    fonte inteira** — é por isso que foram emprestados. Some um par do
+    `EMPRESTADOS` e a comparação com a Noto continua verde, com o `→` virando
+    quadradinho no EPUB. Quem cobra estes é esta lista.
+    """
+    if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
+        pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
+
+    pedidos = "".join(EMPRESTADOS)
+    tem = cobertura(exportar.SUBSET_DOS_SIMBOLOS, pedidos)
+    faltando = [c for c in pedidos if c not in tem]
+
+    assert not faltando, (
+        f"o recorte não desenha {' '.join(faltando)} — rode "
+        f"`python gerar_fonte_de_simbolos.py`")
 
 
 def test_o_recorte_e_o_escolhido_quando_basta():

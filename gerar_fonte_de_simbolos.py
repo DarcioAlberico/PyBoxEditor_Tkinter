@@ -2,7 +2,7 @@
 Recorta da fonte de símbolos só os glifos que o modelo sabe ler (F62).
 
 A `NotoSansSymbols2` tem 641 KB e ~2.600 codepoints; o alfabeto do modelo tem
-**40 símbolos fora do ASCII**, e ela desenha 14 deles. Embutir a fonte inteira
+**71 símbolos fora do ASCII**, e ela desenha 19 deles. Embutir a fonte inteira
 num EPUB de xadrez é levar o bloco de dominós, o de I Ching e o de alquimia
 para desenhar seis figurinas — medido, o EPUB de três páginas passou de 19 KB
 para 327 KB só por causa dela.
@@ -18,7 +18,7 @@ dependência de desenvolvimento, como o `pytest`.
 **A família é renomeada, e não é capricho.** Subset é modificação, e a OFL pede
 que a versão modificada não se passe pela original — além do mais, uma família
 com o nome da Noto instalada na máquina de quem abre o arquivo entraria em
-conflito com esta, que tem 14 glifos.
+conflito com esta, que tem 27 glifos.
 
 Quando o alfabeto do modelo crescer, este script tem de rodar de novo. Quem
 avisa é o `tests/test_f62_simbolos.py`, que compara a cobertura do subset com o
@@ -51,7 +51,7 @@ FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
 
 #: Símbolo → o caractere que o desenha na `SkakNew-Figurine`.
 #:
-#: **Estes cinco não existem em fonte redistribuível nenhuma deste sistema.**
+#: **A Noto não desenha nenhum destes.**
 #: Varridos os 578 arquivos de `C:\\Windows\\Fonts` e da pasta do usuário, o `⩱`
 #: e o `⩲` — "ligeira vantagem" de cada lado, que é o símbolo mais comum destes
 #: livros depois das figurinas — aparecem em quatro famílias: Segoe UI Symbol e
@@ -59,7 +59,7 @@ FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
 #: viajar dentro de um EPUB.
 #:
 #: A saída é a fonte que **já está no repositório**: a SkakNew-Figurine é LPPL,
-#: desenha os cinco, e o que falta a ela é só o `cmap` — como toda fonte de
+#: desenha todos eles, e o que falta a ela é só o `cmap` — como toda fonte de
 #: xadrez antiga, ela põe símbolo em posição de letra. Aqui o glifo é copiado e
 #: **remapeado para o codepoint certo**, que é o contrário do que este projeto
 #: inteiro desfaz nos PDFs de entrada: lá a letra mente sobre o desenho; aqui o
@@ -83,6 +83,17 @@ FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
 #: `+−` e `−+` ("brancas ganham", "pretas ganham") — no alfabeto do modelo eles
 #: são ligadura, não símbolo.
 #:
+#: O `→` ("com ataque", `sym_8594`, o `A`) e o `⨀` (zugzwang, `sym_10752`, o
+#: `D`) entraram depois, pela mesma régua. O `⨀` teve um candidato a mais: a
+#: **própria Noto desenha o `⊙` (U+2299)**, mesma forma, e reaproveitá-lo
+#: pouparia até a conversão de contorno. Posto ao lado do recorte do livro, o
+#: traço da Noto é grosso demais — o livro imprime o círculo fino, que é o `D`.
+#: O atalho não apareceria no código e apareceria na página.
+#:
+#: O `⨀` é U+2A00 porque é assim que o modelo o emite; a convenção do Informator
+#: é o U+2299. Trocar o rótulo é retreinar, e não é serviço deste script, que
+#: desenha o alfabeto que existe.
+#:
 #: O `±` fica de fora porque é U+00B1: abaixo do `PISO_DO_SIMBOLO`, e portanto
 #: desenhado pela fonte de texto do leitor, que o tem.
 EMPRESTADOS = {
@@ -91,7 +102,9 @@ EMPRESTADOS = {
     "∓": "e",      # vantagem das pretas
     "∞": "k",      # posição pouco clara
     "↑": "C",      # com iniciativa
+    "→": "A",      # com ataque
     "⇄": "V",      # com contra-jogo
+    "⨀": "D",      # zugzwang
 }
 
 #: Emprestados que entram espelhados na horizontal.
