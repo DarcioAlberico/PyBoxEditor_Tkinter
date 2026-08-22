@@ -3745,6 +3745,19 @@ class MainWindow(tk.Frame):
         (0,36 s numa página de 1.605 boxes) e não mexe em `self.boxes`, que
         continua sendo a lista de caracteres da página.
 
+        **Duas páginas de livro têm custo de ordens diferentes** (F96), e desde
+        ela o comando tem dois caminhos em vez de um:
+
+        | página | contornos | caminho | custo |
+        |---|---:|---|---:|
+        | comum | ~2.000 | `localizar`, com os contornos | ~1 s |
+        | de trama | 85.903 | detector da F96, sem contorno | 0,76 s |
+
+        Quem decide é o `MAX_CONTORNOS_DE_TEXTO`, e a decisão é **por caminho,
+        não por desistência**: acima do teto o estágio de caracteres devolve
+        lista vazia, e `ler_pagina` procura o tabuleiro pelo desenho dele. Sem
+        isso a página de trama custava 63 s só no merge — e, antes da F96, 250 s.
+
         **O modelo de texto entra junto desde a F95**, e não é para ler o
         tabuleiro: é para ler o que está impresso em volta dele — o título e as
         coordenadas das casas. Sem ele o comando ainda acha os diagramas e
@@ -3767,10 +3780,21 @@ class MainWindow(tk.Frame):
             self._avisar_do_modelo()
 
         try:
-            # `separar_colados=False`: cortar glifo colado não muda onde o
-            # tabuleiro está, e aqui só se procura o tabuleiro.
-            contornos = self.box_service.generate_boxes_opencv(
-                self.image, descartar_nao_texto=False, separar_colados=False)
+            # **O estágio pedido passou a ser o que `localizar` espera** (F96).
+            # Este comando chamava `generate_boxes_opencv(descartar_nao_texto=
+            # False)`, que não para aí: segue para `dividir_linhas_coladas`
+            # medindo perfil de tinta dentro dos blocos grandes que o descarte
+            # teria tirado — o custo que o docstring do `boxes_antes_do_descarte`
+            # documenta desde a F26, e que ninguém tinha vindo cobrar aqui.
+            #
+            # **E com teto**, que é o que faz a página de trama responder. Sem
+            # ele a 96 do Yusupov leva 63 s só no merge; com ele ela chega ao
+            # `ler_pagina` sem caixa nenhuma, e lá o detector da F96 acha o
+            # diagrama em 0,76 s. O teto não perde a página: troca o caminho.
+            contornos, _th, _escala, _cinza = (
+                self.box_service.boxes_antes_do_descarte(
+                    self.image,
+                    max_contornos=self.box_service.MAX_CONTORNOS_DE_TEXTO))
             leituras = diag.ler_pagina(self.image, contornos, classificar)
         except diag.ModeloAusente as e:
             messagebox.showerror("Diagramas", str(e))

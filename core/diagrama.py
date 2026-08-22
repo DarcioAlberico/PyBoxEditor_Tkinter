@@ -1552,6 +1552,37 @@ def ler_pagina(imagem, boxes: Sequence[BoxEntry],
     coordenadas dizem isto". Sem ele, os rótulos ainda são **achados** (a prova
     é geométrica), o título sai só como retângulo e a orientação fica `None` —
     com ele, o título vira texto e a orientação é decidida.
+
+    **`boxes` vazio não quer dizer página vazia** (F96). É a resposta de
+    `boxes_antes_do_descarte` quando a página passa do `MAX_CONTORNOS_DE_TEXTO`,
+    e a página que faz isso não é necessariamente uma fotografia: a 96 do
+    Yusupov dá 85.903 contornos sendo prosa em duas colunas com um diagrama e um
+    painel de sumário — quem os produz é a trama do painel. Sem teto, o merge
+    dessa página custa 63 s; com teto, ela chega aqui sem caixa nenhuma.
+
+    Nesse caso, e **só** nesse, quem acha o tabuleiro é `deteccao_de_tabuleiro`,
+    que não passa por caractere nenhum e responde em 0,76 s. A porta é estreita
+    de propósito: com `boxes` na mão, o `localizar` é melhor — 50 de 50 no
+    gabarito da F95 contra 51 com um inventado do outro (ver F96). O detector
+    entra onde o `localizar` não tem do que se alimentar, não no lugar dele.
+
+    **E entra com a peneira da F95 armada**, que é o que separa o tabuleiro do
+    retângulo grande qualquer. Sem ela, a página 134 do Yusupov ganha um
+    "diagrama" de 1.521x1.571 px que é o cabeçalho do capítulo mais a prosa — e
+    ainda sai pela borda de cima. Medido nas quatro páginas de trama do livro,
+    `pontuacao_de_tabuleiro` sobre o recorte endireitado:
+
+    | | menor | maior |
+    |---|---:|---:|
+    | os 7 tabuleiros de verdade | **40,89** | 55,28 |
+    | os 2 retângulos inventados | 0,10 | **1,53** |
+
+    O vão é de vinte e seis vezes, e o piso da F95 (12,0) cai no meio dele. O
+    preço é conhecido e está na F96: onde o recorte do detector pega a moldura
+    junto, como nos diagramas do Darcy Lima, a peneira derruba o diagrama bom.
+    Numa página que chega aqui sem caixa nenhuma, porém, o outro prato da
+    balança é vazio: sem o detector não há diagrama nenhum, e com ele sem
+    peneira haveria um errado.
     """
     from core import preprocess
 
@@ -1559,8 +1590,13 @@ def ler_pagina(imagem, boxes: Sequence[BoxEntry],
     binaria = preprocess.remover_textura(arr, preprocess.binarize(arr, "auto"))
     escala = preprocess.escala_de_texto(binaria)
 
+    caixas = localizar(boxes, escala=escala, imagem=arr, binaria=binaria)
+    if not caixas and not boxes:
+        from core import deteccao_de_tabuleiro as det
+        caixas = det.localizar(arr, piso_do_xadrez=PISO_DO_XADREZ)
+
     leituras = []
-    for caixa in localizar(boxes, escala=escala, imagem=arr, binaria=binaria):
+    for caixa in caixas:
         rotulos = ler_rotulos(arr, caixa, escala, classificar)
         leitura = ler(imagem, caixa,
                       orientacao=rotulos.orientacao or "branca")

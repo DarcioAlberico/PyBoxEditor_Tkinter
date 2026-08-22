@@ -217,5 +217,72 @@ def test_recorte_sai_no_lado_pedido():
     assert achado.recorte(pg, 320).shape == (320, 320)
 
 
+# ----------------------------------------------------------------------
+# A porta: `ler_pagina` sem caixa nenhuma
+# ----------------------------------------------------------------------
+
+def _sem_modelo(monkeypatch):
+    """`ler` fora do caminho: aqui o que se prova é **onde** a caixa foi achada."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(diag, "ler",
+                        lambda imagem, caixa=None, **kw: SimpleNamespace(caixa=caixa))
+
+
+def test_pagina_sem_caixas_procura_o_tabuleiro_pelo_desenho(monkeypatch):
+    """A página que o pipeline de texto recusou não fica sem diagrama (F96).
+
+    `boxes` vazio é a resposta de `boxes_antes_do_descarte` acima do
+    `MAX_CONTORNOS_DE_TEXTO`, e antes desta fase ela terminava aqui: sem
+    contorno, `localizar` não tem o que recolher e a página respondia "nenhum
+    diagrama encontrado" — na 96 do Yusupov, que tem um.
+    """
+    _sem_modelo(monkeypatch)
+    pg = pagina(com=[(80, 100), (620, 100)])
+
+    leituras = diag.ler_pagina(pg, [])
+
+    assert len(leituras) == 2
+    assert all(l.caixa is not None for l in leituras)
+
+
+def test_pagina_com_caixas_nao_chama_o_detector(monkeypatch):
+    """A porta é estreita: com contornos na mão, quem manda é o `localizar`.
+
+    É o que impede a troca de um detector que acerta 50 de 50 por um que
+    inventa 1 — a medição da F96. O detector entra onde o outro não tem do que
+    se alimentar, não no lugar dele.
+    """
+    from core.box_model import BoxEntry
+
+    _sem_modelo(monkeypatch)
+    chamadas = []
+    monkeypatch.setattr(det, "localizar",
+                        lambda *a, **k: chamadas.append(a) or [])
+
+    pg = pagina(com=[(80, 100)])
+    # Um box de caractere qualquer: basta `boxes` não estar vazio.
+    assert diag.ler_pagina(pg, [BoxEntry("a", 10, 10, 24, 40)]) == []
+    assert chamadas == [], "o detector foi chamado com contornos disponíveis"
+
+
+def test_a_porta_leva_a_peneira_da_f95_junto(monkeypatch):
+    """Sem ela, o retângulo grande qualquer entra como diagrama.
+
+    O caso real é a página 134 do Yusupov, onde o cabeçalho do capítulo mais a
+    prosa formam um retângulo de 1.521x1.571 px que o detector aceita e a prova
+    de xadrez recusa: 1,53 contra os 40,89 do tabuleiro da mesma página.
+    """
+    _sem_modelo(monkeypatch)
+    pg = pagina(com=[(80, 100)], altura=1400)
+    # Um retângulo grande, quadrado e cheio — e que não é tabuleiro.
+    pg[700:1300, 100:700] = 40
+
+    leituras = diag.ler_pagina(pg, [])
+
+    assert len(leituras) == 1, "o retângulo preto entrou como diagrama"
+    assert leituras[0].caixa[1] < 700
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -10097,7 +10097,7 @@ Cobertura: `tests/test_f95_rotulos_e_titulo.py`, 26 testes, mais 6 em
 `tests/test_f26_livro.py`. Reproduzir: `python medir_rotulos.py` e
 `python medir_rotulos.py --sem-aninhados`.
 
-## F96 — O detector vindo de fora, e o laço que travava a página — MEDIDO: o de casa ganha, e o merge cai 4×
+## F96 — O detector vindo de fora, e o laço que travava a página — CONCLUÍDA: o de casa ganha, o de fora fica com a página de trama, e o merge cai 4×
 
 A pergunta que abriu a fase veio de fora: uma skill de outro projeto (o visualizador do
 ChessVisionOFF) traz um detector de tabuleiro que não depende de nada do pipeline de texto,
@@ -10230,8 +10230,9 @@ este, não porque alguma página de hoje precise dela.
 - **A ordem de leitura é a de `diagrama.ordem_de_leitura`**, importada, não reimplementada:
   duas ordens fazem o "diagrama 2" da tela não ser o `[Diagram "2"]` da exportação, que é
   metade do que a F95 corrigiu.
-- **Não muda nada no caminho de produção.** `extrair_diagramas` continua com `localizar`,
-  que é quem acerta 50 de 50.
+- **No caminho de produção, `localizar` continua sendo quem responde** — é quem acerta 50
+  de 50. O detector ganhou uma porta estreita ao lado dele, e não o lugar dele: só a página
+  que chega sem contorno nenhum passa por ela. Ver "A porta", adiante.
 
 ### O laço que travava a página, e o teto que não é a saída
 
@@ -10271,24 +10272,69 @@ para 111,60 s.
 `MAX_CONTORNOS_DE_TEXTO` diz "acima disto a página não é de texto", e a 96 dá 85.903
 contornos sendo uma página de texto comum: duas colunas de prosa, um diagrama e um painel de
 sumário. Quem produz os contornos é a **trama do painel**, não a ausência de texto. Armar o
-teto ali troca 63 s de espera por perder a página inteira — o texto e o diagrama junto. Por
-isso `extrair_diagramas` continua sem teto, e por isso o número que mais importa desta fase é
-outro: **o detector da F96 responde nessa página em 0,76 s, e acha o diagrama.**
+teto ali troca 63 s de espera por perder a página inteira — o texto e o diagrama junto.
+
+**A não ser que perder o caminho não seja perder a página**, e é o que o detector desta fase
+permite: ele responde nessa página em 0,76 s, e acha o diagrama. Com isso o teto deixa de ser
+desistência e vira desvio — é a seção seguinte.
+
+### A porta: o detector entra onde o `localizar` não tem do que se alimentar
+
+O comando **Ler posição dos diagramas** passou a ter dois caminhos, e quem escolhe é o
+`MAX_CONTORNOS_DE_TEXTO` — que deixou de significar "desista desta página" e passou a
+significar "esta página se resolve pelo outro lado".
+
+| página do Yusupov | contornos | antes | depois |
+|---|---:|---|---|
+| 11 | 1.108 | 3 diagramas, 0,43 s | 3 diagramas, 0,41 s |
+| 41 | 494 | 6 diagramas, 0,44 s | 6 diagramas, 0,46 s |
+| 199 | 3.745 | 2 diagramas, 2,46 s | 2 diagramas, 2,44 s |
+| 222 | 574 | 6 diagramas, 0,49 s | 6 diagramas, 0,44 s |
+| **97** | **85.903** | 2 diagramas, **49,64 s** | **1 diagrama, 1,44 s** |
+| **135** | **38.964** | 1 diagrama, **19,72 s** | 1 diagrama, **1,46 s** |
+
+Abaixo do teto **nada muda** — mesma contagem, mesmo tempo, mesmo caminho. As duas páginas
+que trocam de caminho são as de trama, e as duas melhoram nos dois eixos.
+
+**A 97 melhora também no que acha.** O caminho de hoje devolvia dois diagramas ali, e o
+primeiro é o ornamento do "CHAPTER 10" no alto da página — 188x169 px, prova de xadrez
+**-1,05**. O segundo é o diagrama de verdade, mas recortado em 588x615, com a legenda de cima
+dentro. O detector devolve um só, em 572x573: quadrado, e com a grade em registro.
+
+### A peneira da F95 vai junto, e é ela que fecha a porta
+
+Sem ela a página 135 ganha um "diagrama" de 1.521x1.571 px que é o cabeçalho do capítulo mais
+a prosa, e que ainda sai pela borda de cima da página (`y1 = -281`). Medido nas quatro páginas
+de trama do livro, `pontuacao_de_tabuleiro` sobre o recorte endireitado:
+
+| | menor | maior |
+|---|---:|---:|
+| os 7 tabuleiros de verdade | **40,89** | 55,28 |
+| os 2 retângulos inventados | 0,10 | **1,53** |
+
+Vinte e seis vezes de vão, e o piso da F95 (12,0) cai no meio dele. O mesmo piso que, aplicado
+ao detector **em todas as páginas**, derrubava 3 diagramas bons do Darcy Lima — a diferença é
+o outro prato da balança: numa página que chega sem caixa nenhuma, o que se perde ao recusar
+é nada, e o que se ganha ao aceitar errado é um FEN errado na tela.
+
+**O gabarito não se mexeu**: 50 de 50, 0 inventados. Nenhuma das 21 páginas passa do teto, e a
+porta não abre onde há contorno. O que mudou lá foi o custo do preparo, pelo índice do merge —
+de mediana 0,52 s e máximo 11,51 s para **0,19 s e 1,91 s**.
 
 ### O que isto abre
 
-- **`extrair_diagramas` pela porta da F96 quando o pipeline de texto fica caro.** É a única
-  saída medida que não perde a página: 0,76 s contra 63 s, com o diagrama achado. Falta
-  decidir o gatilho — contagem de contornos, tempo gasto, ou sempre.
+- **A porta abre pela contagem de contornos, que é o sinal barato.** Fica em aberto o caso
+  que ela não cobre: a página que não passa do teto e mesmo assim custa caro. O gatilho por
+  tempo gasto pega esse, e exige poder interromper o estágio no meio.
 - **O enquadramento do detector portado** é o que o separa de ser substituto: enquanto ele
   pegar a moldura junto num livro, a peneira que o corrige derruba diagrama bom noutro.
 - **O merge ainda cresce mais que linear** na mancha de trama. O índice tirou 4×; o que falta
   é não reexaminar a mesma vizinhança a cada fusão.
 
-Cobertura: `tests/test_f96_deteccao_de_tabuleiro.py`, 13 testes, mais 7 em
-`tests/test_f311_merge.py` — quatro deles comparam o merge, caixa a caixa, com uma
-transcrição do laço original. Nenhum precisa de material.
-Reproduzir: `python medir_rotulos.py --por-contorno` e
+Cobertura: `tests/test_f96_deteccao_de_tabuleiro.py`, 16 testes — três deles pela porta do
+`ler_pagina` —, mais 7 em `tests/test_f311_merge.py`, quatro dos quais comparam o merge caixa
+a caixa com uma transcrição do laço original. Nenhum precisa de material.
+Reproduzir: `python medir_rotulos.py`, `python medir_rotulos.py --por-contorno` e
 `python medir_rotulos.py --por-contorno --piso-xadrez 12.0`.
 
 ## Fora de escopo (registrado para depois)
