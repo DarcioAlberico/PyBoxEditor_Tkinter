@@ -62,11 +62,23 @@ class BoxService:
 
     #: Acima disto a página não é de texto, e não vale medi-la.
     #:
-    #: **O custo é do `merge_vertical_boxes`, que é quadrático.** Medido nas
-    #: páginas do Yusupov a 300 dpi: a 11, de texto, dá 2.131 contornos e o
-    #: merge leva 0,4 s; a 8, que é quase toda imagem, dá **78.558** e o mesmo
-    #: merge leva **160 s** — 37× mais contorno, 400× mais tempo. O limiar fica
-    #: uma ordem de grandeza acima da página de texto mais carregada.
+    #: **O custo é do `merge_vertical_boxes`.** Medido nas páginas do Yusupov a
+    #: 300 dpi: a 11, de texto, dá 2.131 contornos e o merge leva 0,4 s; a 8,
+    #: que é quase toda imagem, dá **78.558** e o mesmo merge levava **160 s** —
+    #: 37× mais contorno, 400× mais tempo. O limiar fica uma ordem de grandeza
+    #: acima da página de texto mais carregada.
+    #:
+    #: **A premissa da primeira linha é falsa, e a F96 tem o contraexemplo.** A
+    #: página 96 do mesmo livro dá **85.903** contornos e é uma página de texto
+    #: comum: duas colunas de prosa, um diagrama e um painel de sumário. Quem
+    #: produz os contornos é a trama do painel, não a ausência de texto. Ou
+    #: seja, quem passa este teto perde a página inteira — o texto e o diagrama
+    #: junto —, e é por isso que ele continua sendo `None` por omissão.
+    #:
+    #: O índice espacial da F96 tirou 4× do merge e **não** resolve isto: a
+    #: página 96 saiu de 250,81 s para 62,77 s, que ainda não é tempo de tela.
+    #: Quem responde nela em 0,76 s, e achando o diagrama, é
+    #: `core.deteccao_de_tabuleiro` — ver o que a F96 deixou em aberto.
     MAX_CONTORNOS_DE_TEXTO = 20000
 
     @staticmethod
@@ -1152,6 +1164,47 @@ class BoxService:
     FOLGA_DE_PONTUACAO = 0.50
 
     @staticmethod
+    def _grade_de_caixas(boxes: List[BoxEntry], celula: int) -> dict:
+        """Índice espacial das caixas: célula quadrada -> índices que a tocam (F96).
+
+        Uma caixa entra em todas as células que o seu retângulo cruza, e não só
+        na do canto: o tabuleiro e a tarja cruzam dezenas delas, e indexá-los
+        por um ponto só os faria sumir da busca de quase todo vizinho.
+        """
+        grade: dict = {}
+        for k, b in enumerate(boxes):
+            for cx in range(b.x1 // celula, b.x2 // celula + 1):
+                for cy in range(b.y1 // celula, b.y2 // celula + 1):
+                    grade.setdefault((cx, cy), []).append(k)
+        return grade
+
+    @staticmethod
+    def _vizinhos_na_grade(grade: dict, celula: int, i: int, usados: set,
+                           x1: int, y1: int, x2: int, y2: int) -> List[int]:
+        """Os índices maiores que `i` cujas caixas tocam o retângulo, **em ordem**.
+
+        A ordem é a de índice, e não é detalhe de implementação: o merge fica
+        com o *primeiro* candidato que passa nas duas provas, então devolver
+        outra ordem trocaria qual caixa cresce e qual é absorvida.
+
+        A limpeza de `usados` acontece aqui, na célula visitada. Sem ela, uma
+        região densa pagaria de novo, a cada busca, por caixas já consumidas —
+        que é metade do custo que esta fase foi tirar.
+        """
+        achados = set()
+        for cx in range(x1 // celula, x2 // celula + 1):
+            for cy in range(y1 // celula, y2 // celula + 1):
+                chave = (cx, cy)
+                lista = grade.get(chave)
+                if not lista:
+                    continue
+                vivos = [k for k in lista if k not in usados]
+                if len(vivos) != len(lista):
+                    grade[chave] = vivos
+                achados.update(k for k in vivos if k > i)
+        return sorted(achados)
+
+    @staticmethod
     def merge_vertical_boxes(boxes: List[BoxEntry]) -> List[BoxEntry]:
         """
         Mescla boxes verticalmente alinhados e próximos (ex: pingo do 'i', ':', ';').
@@ -1189,6 +1242,50 @@ class BoxService:
         SHORT_THRESH = median_h * 0.6
         MIN_HORIZ_OVERLAP_RATIO = 0.3
 
+        # **O que tirava minutos de uma página aqui (F96).** O laço de dentro
+        # varria a página inteira para cada caixa, e **cada fusão o reiniciava**.
+        # Medido no Yusupov a 300 dpi, a mesma página antes e depois do índice:
+        #
+        #     página   caixas   saída     antes    depois
+        #        198   11.457   3.745    9,70 s    1,96 s
+        #        134   38.964   2.749   95,74 s   21,75 s
+        #         96   85.903   2.252  250,81 s   62,77 s
+        #
+        # A terceira coluna é o que explica as outras duas: 38.964 caixas viram
+        # 2.749, isto é, ~36 mil fusões, cada uma seguida de uma varredura nova
+        # do começo. Não é o `n²` da varredura só; é o `n²` vezes as fusões.
+        #
+        # **E não fica linear**: a página que cresce absorve milhares de caixas,
+        # e o retângulo de busca cresce com ela. O que o índice tira é o custo
+        # de olhar a página inteira; o que sobra é o custo de olhar a mancha,
+        # que numa página de trama é grande. Ver o que a F96 deixou em aberto.
+        #
+        # **As duas condições de merge são locais**, e é isso que o índice usa:
+        # nenhum critério aceita distância vertical acima de `folga_maxima`, e a
+        # prova horizontal exige sobreposição em `x` — logo o candidato tem de
+        # tocar o retângulo `(x1, y1) .. (x2, y2 + folga_maxima)` da caixa que
+        # está crescendo. `_vizinhos_na_grade` devolve exatamente quem toca
+        # esse retângulo, **em ordem de índice**, que é a ordem em que o laço de
+        # antes os encontraria. Mesma escolha, mesma saída — o que muda é não
+        # olhar as outras 85 mil.
+        #
+        # **`ordenada` não é suposição, e o índice depende dela.** Numa lista
+        # ordenada por `y1`, toda caixa de índice maior começa em `y1` maior ou
+        # igual, e o retângulo acima é um limite de verdade. Quem vem de
+        # `boxes_antes_do_descarte` chega ordenado — conferido nas páginas 10,
+        # 40, 96 e 198 do Yusupov, zero pares fora de ordem —, mas
+        # `vertical.fundir_pingos` chama isto com as coordenadas transpostas, e
+        # ali `y1` é o `x1` de origem. Quando a lista não chega ordenada, o laço
+        # é exatamente o de antes: o índice sai de cena, e com ele qualquer
+        # risco de mudar resultado. `tests/test_f311_merge.py` prende os dois
+        # caminhos contra uma transcrição do laço original.
+        ordenada = all(boxes[k].y1 <= boxes[k + 1].y1
+                       for k in range(len(boxes) - 1))
+        folga_maxima = max(2.0, median_h * max(BoxService.FOLGA_DE_DIACRITICO,
+                                               BoxService.FOLGA_DE_PONTUACAO))
+        celula = max(16, int(median_h))
+        grade = BoxService._grade_de_caixas(boxes, celula) if ordenada else None
+
         merged_boxes = []
         used_indices = set()
 
@@ -1212,11 +1309,38 @@ class BoxService:
             while merged_something:
                 merged_something = False
 
-                for j in range(i + 1, len(boxes)):
+                # **O índice só vale enquanto a busca for pequena.** Uma caixa
+                # do tamanho da página — a tarja do `negativo`, a moldura de
+                # uma tabela — faz o retângulo cobrir tudo, e aí percorrer as
+                # células custa mais que percorrer as caixas: medido, 3.000
+                # caixas mais **uma** do tamanho da página iam de 0,03 s para
+                # 10,52 s. Quando as células passam de quantas caixas ainda
+                # restam, a varredura direta é a barata, e é ela que roda.
+                limite_y = current_merged.y2 + int(folga_maxima) + 1
+                celulas = ((current_merged.x2 // celula
+                            - current_merged.x1 // celula + 1)
+                           * (limite_y // celula
+                              - current_merged.y1 // celula + 1))
+
+                if grade is not None and celulas <= len(boxes) - i:
+                    candidatos = BoxService._vizinhos_na_grade(
+                        grade, celula, i, used_indices,
+                        current_merged.x1, current_merged.y1,
+                        current_merged.x2, limite_y)
+                else:
+                    candidatos = range(i + 1, len(boxes))
+
+                for j in candidatos:
                     if j in used_indices:
                         continue
 
                     b2 = boxes[j]
+
+                    # Numa lista ordenada por `y1` — e os candidatos da grade
+                    # também saem em ordem de índice —, a primeira caixa longe
+                    # demais garante que o resto está mais longe ainda.
+                    if ordenada and b2.y1 - current_merged.y2 > folga_maxima:
+                        break
                     dist_vert = b2.y1 - current_merged.y2
 
                     h1 = current_merged.y2 - current_merged.y1

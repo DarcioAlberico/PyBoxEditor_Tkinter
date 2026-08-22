@@ -21,6 +21,13 @@ ele mesmo.
     python medir_rotulos.py
     python medir_rotulos.py --sem-aninhados     # como era antes da F95
     python medir_rotulos.py --titulos           # imprime o que leu de cada um
+    python medir_rotulos.py --por-contorno      # o detector da F96, sem passar
+                                                # pela segmentação de caracteres
+    python medir_rotulos.py --por-contorno --piso-xadrez 12.0   # com a peneira da F95
+
+**O custo sai em duas linhas** (F96), e é o que separa os dois caminhos: o
+`localizar` da F7.1 é barato e o que ele exige antes de si não é. Quem compara
+só a primeira linha compara a ponta de dois pipelines de custo muito diferente.
 
 As digitalizações e os PDFs não estão no repositório. Num clone limpo este
 script diz o que não achou e sai — como o `medir_paginas.py` já faz.
@@ -67,10 +74,20 @@ class Contagem:
         self.rotulos_certos = self.rotulos_medidos = 0
         self.titulos = self.titulos_lidos = 0
         self.custos = []
+        #: `boxes_antes_do_descarte` — sempre medido, porque `ler_rotulos` e
+        #: `ler_titulo` precisam dele de todo jeito. Quem diz se a **localização**
+        #: depende dele é `preparo_exigido` (F96).
+        self.custos_preparo = []
+        self.preparo_exigido = True
+
+    @staticmethod
+    def _resumo(custos) -> str:
+        if not custos:
+            return "0,00 s"
+        mediana = sorted(custos)[len(custos) // 2]
+        return f"mediana {mediana:.2f} s, máximo {max(custos):.2f} s"
 
     def texto(self) -> str:
-        mediana = (sorted(self.custos)[len(self.custos) // 2]
-                   if self.custos else 0.0)
         return (
             f"{self.paginas} páginas\n"
             f"  achar     {self.achados} de {self.esperados} diagramas"
@@ -79,15 +96,18 @@ class Contagem:
             f" decisões 'há coordenadas?' certas\n"
             f"  título    {self.titulos} achados, {self.titulos_lidos} lidos"
             f" (dos {self.achados} diagramas)\n"
-            f"  custo     mediana {mediana:.2f} s por página,"
-            f" máximo {max(self.custos or [0]):.2f} s")
+            f"  localizar {self._resumo(self.custos)} por página\n"
+            f"  preparo   {self._resumo(self.custos_preparo)} por página"
+            f"  (a localização depende dele:"
+            f" {'sim' if self.preparo_exigido else 'NÃO'})")
 
 
-def medir(itens, *, aninhados=True, mostrar_titulos=False,
-          progresso=None) -> Contagem:
+def medir(itens, *, aninhados=True, mostrar_titulos=False, por_contorno=False,
+          piso_xadrez=None, progresso=None) -> Contagem:
     import fitz
     from PIL import Image
 
+    from core import deteccao_de_tabuleiro as det
     from core import diagrama as diag
     from core.services.box_service import BoxService
     from core.services.learning_service import LearningService
@@ -98,6 +118,7 @@ def medir(itens, *, aninhados=True, mostrar_titulos=False,
         progresso("  sem modelo de texto: título e orientação ficam de fora")
 
     contagem = Contagem()
+    contagem.preparo_exigido = not por_contorno
     abertos = {}
     for fragmento, numero, quantos, tem_coordenadas in itens:
         if fragmento not in abertos:
@@ -115,16 +136,26 @@ def medir(itens, *, aninhados=True, mostrar_titulos=False,
         pix = doc[numero - 1].get_pixmap(dpi=300, colorspace=fitz.csGRAY,
                                          alpha=False)
         img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width)
+        # O preparo continua sendo pago mesmo no caminho da F96: `ler_rotulos` e
+        # `ler_titulo` precisam da escala e dos boxes da página. O que muda é
+        # que a **localização** deixa de depender dele — e é por isso que o
+        # custo sai em duas linhas.
+        comeco = time.time()
         antes, binaria, escala, _cinza = BoxService.boxes_antes_do_descarte(
             Image.fromarray(img),
             max_contornos=BoxService.MAX_CONTORNOS_DE_TEXTO)
+        preparo = time.time() - comeco
 
         comeco = time.time()
-        caixas = diag.localizar(
-            antes, escala=escala,
-            imagem=img if aninhados else None,
-            binaria=binaria if aninhados else None)
+        if por_contorno:
+            caixas = det.localizar(img, piso_do_xadrez=piso_xadrez)
+        else:
+            caixas = diag.localizar(
+                antes, escala=escala,
+                imagem=img if aninhados else None,
+                binaria=binaria if aninhados else None)
         contagem.custos.append(time.time() - comeco)
+        contagem.custos_preparo.append(preparo)
 
         contagem.paginas += 1
         contagem.esperados += quantos
@@ -158,6 +189,12 @@ def main(argv=None):
                    help="desliga a segunda passada: mede o estado anterior à F95")
     p.add_argument("--titulos", action="store_true",
                    help="imprime o título e os rótulos lidos de cada diagrama")
+    p.add_argument("--por-contorno", action="store_true",
+                   help="usa o detector da F96, que não passa pela segmentação"
+                        " de caracteres")
+    p.add_argument("--piso-xadrez", type=float, default=None,
+                   help="liga a peneira da F95 no detector da F96"
+                        " (12.0 é o PISO_DO_XADREZ)")
     args = p.parse_args(argv)
 
     if not os.path.exists(args.gabarito):
@@ -165,10 +202,19 @@ def main(argv=None):
         return 1
 
     itens = ler_gabarito(args.gabarito)
-    print(f"{len(itens)} páginas no gabarito"
-          + (" (segunda passada desligada)" if args.sem_aninhados else ""))
+    if args.por_contorno:
+        como = " (detector da F96" + (
+            f", peneira da F95 em {args.piso_xadrez})" if args.piso_xadrez
+            else ", sem a peneira da F95)")
+    elif args.sem_aninhados:
+        como = " (segunda passada desligada)"
+    else:
+        como = ""
+    print(f"{len(itens)} páginas no gabarito{como}")
     contagem = medir(itens, aninhados=not args.sem_aninhados,
-                     mostrar_titulos=args.titulos, progresso=print)
+                     mostrar_titulos=args.titulos,
+                     por_contorno=args.por_contorno,
+                     piso_xadrez=args.piso_xadrez, progresso=print)
     if not contagem.paginas:
         print("nenhuma página medida — os PDFs não estão neste clone",
               file=sys.stderr)

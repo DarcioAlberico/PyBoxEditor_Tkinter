@@ -10097,6 +10097,200 @@ Cobertura: `tests/test_f95_rotulos_e_titulo.py`, 26 testes, mais 6 em
 `tests/test_f26_livro.py`. Reproduzir: `python medir_rotulos.py` e
 `python medir_rotulos.py --sem-aninhados`.
 
+## F96 — O detector vindo de fora, e o laço que travava a página — MEDIDO: o de casa ganha, e o merge cai 4×
+
+A pergunta que abriu a fase veio de fora: uma skill de outro projeto (o visualizador do
+ChessVisionOFF) traz um detector de tabuleiro que não depende de nada do pipeline de texto,
+e a pergunta era se ele serve aqui. Serve para uma coisa e não serve para a outra, e as
+duas estão medidas.
+
+| gabarito da F95, 21 páginas, 50 diagramas | achados | não achados | inventados |
+|---|---:|---:|---:|
+| **`diagrama.localizar` (F95, o de hoje)** | **50** | **0** | **0** |
+| detector portado | 51 | 0 | **1** |
+| detector portado + peneira da F95 | 47 | **3** | 0 |
+
+O de casa ganha nas duas colunas que importam, e **fica**. O que a fase deixa no repositório
+é `core/deteccao_de_tabuleiro.py` com 13 testes, por dois motivos que a tabela não mede — a
+página que o pipeline de texto recusa e o diagrama torto, ambos adiante.
+
+**E o que ela conserta é outra coisa, achada no caminho**: medir quem paga a localização
+levou ao `merge_vertical_boxes`, que sozinho respondia pelas páginas de quatro minutos. Com
+um índice espacial ele cai de 250,81 s para 62,77 s na pior delas, com saída idêntica caixa
+a caixa. Está adiante, em "O laço que travava a página".
+
+### O que a fase foi procurar: quem paga a localização
+
+`localizar` custa 0,03 s por página (mediana do gabarito, máximo 0,14). Esse número é
+verdadeiro e engana, porque ele exige `boxes_antes_do_descarte` antes de si — binarizar,
+tirar trama, aplicar negativo, empilhar vertical e fundir pingos. Medido em 24 páginas de
+cada um de cinco livros:
+
+| livro | mediana | pior página |
+|---|---:|---:|
+| Dvoretsky | 0,50 s | 0,71 s |
+| Nunn | 0,80 s | 1,07 s |
+| Darcy Lima | 0,97 s | 1,27 s |
+| Aagaard | 1,01 s | 1,64 s |
+| **Yusupov** | 0,66 s | **256,54 s** |
+
+A última coluna não é ruído de medição, e o estágio que a produz é um só:
+
+| página do Yusupov | contornos | `merge_vertical_boxes` |
+|---|---:|---:|
+| 198 | 11.436 | 11,59 s |
+| 134 | 38.945 | 106,76 s |
+| **96** | **85.883** | **275,35 s** |
+
+Todos os outros estágios daquelas páginas somam menos de 1 s. O
+`MAX_CONTORNOS_DE_TEXTO = 20000` existe exatamente para isto e o `medir_rotulos` o passa —
+**quem não passa é `extrair_diagramas`**, que chama `generate_boxes_opencv` sem teto. A
+leitura de diagramas da UI congela por 4 minutos nessa página, e o docstring do
+`boxes_antes_do_descarte` já culpava o caminho errado (`dividir_linhas_coladas`): medido
+estágio a estágio, o `dividir_linhas_coladas` não chega a ser o problema, o merge é.
+
+E armar a guarda não devolve o diagrama: ela devolve **lista vazia**. Numa página que o
+pipeline de texto recusa, hoje não há como achar tabuleiro nenhum.
+
+### O detector portado, e o que ele custa
+
+Ele procura o tabuleiro pelo que ele é — quadrilátero grande, quase quadrado, com xadrez
+dentro — a partir de `adaptiveThreshold` + `findContours(RETR_LIST)`, sem caractere nenhum
+no caminho. Nas mesmas 24 páginas por livro: **0,26 a 0,48 s por página, pior caso 0,82 s**,
+sem uma única página fora da faixa.
+
+No gabarito ele fica em 0,21 s (máximo 0,62) contra 0,03 s do `localizar` — **sete vezes mais
+caro na ponta**, e é assim que tem de ser lido: o que ele economiza é o preparo, não a
+localização.
+
+### Contagem não é acerto — o que a página 80 do Darcy Lima ensinou
+
+Na primeira comparação o detector portado "acertou" 2 de 2 nessa página. As caixas dizem
+outra coisa:
+
+| | diagrama de cima | diagrama de baixo |
+|---|---|---|
+| `localizar` (F95) | 840x781 | 843x817 |
+| detector portado | **1212x1191** | **1146x1134** |
+
+Ele pegou o tabuleiro **mais a moldura de anotação em volta** — 44% a mais de lado. O recorte
+sai com a grade 8x8 fora de registro, e quem diz isso sem precisar olhar é a prova de xadrez
+da F95: `pontuacao_de_tabuleiro` dá **-6,43** e **2,35** nos dois recortes, num livro cujos
+tabuleiros a F95 mediu entre **92,2 e 124,3**. É o vão de seis vezes da F95 sendo usado como
+foi feito para ser.
+
+Ou seja: a contagem batia e o recorte não servia. **Uma medição que conta caixas mede o
+detector pela metade** — e foi por isso que a peneira entrou como opção em vez de ficar de
+fora.
+
+### A peneira da F95 conserta um caso e quebra dois
+
+`piso_do_xadrez` liga `pontuacao_de_tabuleiro` sobre o recorte endireitado. Onde os três
+caminhos divergem:
+
+| página | gabarito | F95 | portado | portado + peneira |
+|---|---:|---:|---:|---:|
+| Chess Evolution 199 | 2 | 2 | **3** | 2 |
+| Darcy Lima 80 | 2 | 2 | 2 (recorte errado) | **0** |
+| Darcy Lima 112 | 3 | 3 | 3 | **2** |
+
+*(as outras 18 páginas do gabarito batem nos quatro)*
+
+A peneira mata o falso positivo da página do painel — a mesma página 199 que a F95 teve de
+resolver — e mata junto os recortes largos do Darcy Lima, que ela está certa em recusar: o
+que ela recusa ali **não é tabuleiro**, é tabuleiro com moldura. O defeito não é da peneira,
+é do enquadramento do detector, e é onde ele teria de melhorar para virar substituto.
+
+### Os quatro cantos, que é o que ele traz de novo
+
+`localizar` devolve o retângulo envolvente do contorno e `ler` recorta esse retângulo. O
+detector portado guarda os quatro cantos e desentorta por homografia. A pergunta é a partir
+de quando isso paga; medido num tabuleiro sintético, contando quantas das 64 casas ainda
+caem na cor que deveriam:
+
+| giro | recorte pelo bbox | recorte pelos cantos |
+|---:|---:|---:|
+| 1° a 3° | 64 | 64 |
+| 4° | 62 | **64** |
+| 5° | 57 | **64** |
+| 6° | 46 | **64** |
+| 10° | 23 | **64** |
+
+**Até 3° o bbox serve** e a homografia não paga nada — que é o caso de todo o material medido
+até aqui, PDF nativo ou digitalização bem-comportada. A partir de 4° ela é a diferença entre
+ler o diagrama e ler metade de duas casas por casa. Está guardada porque o acervo não é só
+este, não porque alguma página de hoje precise dela.
+
+### O que fica, e o que não muda
+
+- **Fica** `core/deteccao_de_tabuleiro.py`, com `detectar`, `localizar` (mesma forma de
+  saída de `diagrama.localizar`, para poder trocar um pelo outro) e `endireitar`.
+- **Fica** `medir_rotulos.py --por-contorno [--piso-xadrez 12.0]`, que é como esta tabela se
+  refaz.
+- **A ordem de leitura é a de `diagrama.ordem_de_leitura`**, importada, não reimplementada:
+  duas ordens fazem o "diagrama 2" da tela não ser o `[Diagram "2"]` da exportação, que é
+  metade do que a F95 corrigiu.
+- **Não muda nada no caminho de produção.** `extrair_diagramas` continua com `localizar`,
+  que é quem acerta 50 de 50.
+
+### O laço que travava a página, e o teto que não é a saída
+
+`merge_vertical_boxes` era o único estágio que explicava as páginas de minutos — todos os
+outros somam menos de 1 s nelas. O laço de dentro varria a página inteira para cada caixa e
+**cada fusão o reiniciava**, e é a segunda metade que pesa: numa página de trama, 38.964
+caixas viram 2.749, ou seja ~36 mil reinícios.
+
+As duas condições de merge são **locais**. Nenhuma aceita distância vertical acima de
+`folga_maxima`, e a prova horizontal exige sobreposição em `x` — então o candidato tem de
+tocar um retângulo em volta da caixa que está crescendo. Um índice por células devolve
+exatamente quem toca esse retângulo, **em ordem de índice**, que é a ordem em que o laço de
+antes os encontraria: mesma escolha, mesma saída, sem olhar as outras 85 mil.
+
+| página | caixas | saída | antes | depois |
+|---|---:|---:|---:|---:|
+| 198 | 11.457 | 3.745 | 9,70 s | **1,96 s** |
+| 134 | 38.964 | 2.749 | 95,74 s | **21,75 s** |
+| 96 | 85.903 | 2.252 | 250,81 s | **62,77 s** |
+
+Saída idêntica, caixa a caixa, nas três. E **não fica linear**: o que o índice tira é o custo
+de olhar a página inteira, e o que sobra é o de olhar a mancha — que numa página de trama é
+grande.
+
+**E o índice tem um caso em que ele é o problema.** Uma caixa do tamanho da página — a tarja
+do `negativo`, a moldura de uma tabela — faz o retângulo de busca cobrir tudo, e aí percorrer
+células custa mais que percorrer caixas: medido, 3.000 caixas mais **uma** do tamanho da
+página saem de 0,03 s para **10,52 s**. Foi a suíte que pegou, ao dobrar de tempo.
+
+Por isso a escolha é **por busca, e não por página**: quando as células do retângulo passam
+de quantas caixas ainda restam, quem roda é a varredura direta. Com a guarda, o mesmo caso
+fica em **0,20 s** — abaixo do que era antes do índice, porque a varredura direta ganhou a
+parada antecipada por `y1` que a lista ordenada permite. A suíte inteira caiu de 226,94 s
+para 111,60 s.
+
+**O teto de contornos não é a outra saída, e a página 96 é o contraexemplo.** O
+`MAX_CONTORNOS_DE_TEXTO` diz "acima disto a página não é de texto", e a 96 dá 85.903
+contornos sendo uma página de texto comum: duas colunas de prosa, um diagrama e um painel de
+sumário. Quem produz os contornos é a **trama do painel**, não a ausência de texto. Armar o
+teto ali troca 63 s de espera por perder a página inteira — o texto e o diagrama junto. Por
+isso `extrair_diagramas` continua sem teto, e por isso o número que mais importa desta fase é
+outro: **o detector da F96 responde nessa página em 0,76 s, e acha o diagrama.**
+
+### O que isto abre
+
+- **`extrair_diagramas` pela porta da F96 quando o pipeline de texto fica caro.** É a única
+  saída medida que não perde a página: 0,76 s contra 63 s, com o diagrama achado. Falta
+  decidir o gatilho — contagem de contornos, tempo gasto, ou sempre.
+- **O enquadramento do detector portado** é o que o separa de ser substituto: enquanto ele
+  pegar a moldura junto num livro, a peneira que o corrige derruba diagrama bom noutro.
+- **O merge ainda cresce mais que linear** na mancha de trama. O índice tirou 4×; o que falta
+  é não reexaminar a mesma vizinhança a cada fusão.
+
+Cobertura: `tests/test_f96_deteccao_de_tabuleiro.py`, 13 testes, mais 7 em
+`tests/test_f311_merge.py` — quatro deles comparam o merge, caixa a caixa, com uma
+transcrição do laço original. Nenhum precisa de material.
+Reproduzir: `python medir_rotulos.py --por-contorno` e
+`python medir_rotulos.py --por-contorno --piso-xadrez 12.0`.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
