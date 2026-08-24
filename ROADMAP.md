@@ -10536,7 +10536,87 @@ eram as mesmas nas duas fontes.
   rótulo em fonte de texto do modo de fonte embutida — o `<i>` dentro do `<span>` do EPUB, e
   o diagrama com coordenadas que no DOCX ainda cai para imagem. Fica anotado no mapa.
 
-## F99 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
+## F99 — A coordenada desenhada pela própria fonte de xadrez — CONCLUÍDA
+
+A F98 deixou anotado que a Chess Merida tem, além dos oito pedaços da moldura, mais dezesseis
+glifos que trazem o filete **com o rótulo da fila ou da coluna desenhado ao lado**. São eles
+que esta fase usa, e o que eles compram é uma limitação de cada formato:
+
+| | antes | agora |
+|---|---|---|
+| PNG | rótulo na `helv` do PyMuPDF | rótulo no tipo do livro |
+| EPUB | `<i>` dentro de `<span>` para pôr rótulo de fonte de texto em cima de uma casa | dez linhas de texto, e acabou |
+| DOCX | **diagrama com coordenada saía como imagem** | sai como texto |
+
+A do DOCX estava escrita no docstring da `para_docx` desde a F59 — "alinhar rótulo de outra
+fonte sobre as casas exigiria uma tabela de 81 células por diagrama" —, e a fase mostra que o
+motivo dela era a fonte, e não o formato.
+
+### O que os dezesseis glifos são, e como se acharam
+
+`0xC0`–`0xC7` são as filas 1 a 8 e `0xC8`–`0xCF` as colunas `a` a `h`, na moldura simples;
+`0xE0`–`0xEF` os mesmos dezesseis na dupla. O `LEEME__D.TXT` diz a faixa e não diz a ordem,
+e a ordem se leu na geometria antes de se conferir no desenho:
+
+- as oito primeiras têm a tinta de `x=~700` a `2015` e ocupam o cheio da altura — é o filete
+  **vertical** com um algarismo à esquerda. A primeira delas começa em `x=896`, a mais
+  estreita das oito: é o `1`.
+- as oito seguintes têm a tinta de `x=0` a `2048` e vão de `y=546` a `2013` — filete
+  **horizontal** com uma letra embaixo. A sétima começa em `y=300`, e não em 546: é o `g`,
+  que é a única das oito com perna. Confirma que a ordem é `a`–`h`.
+
+### O quadro, e o que ele obriga
+
+    canto   topo topo … topo   canto
+    fila 8  ┃  as oito casas ┃  direita
+    …
+    fila 1  ┃  as oito casas ┃  direita
+    canto   col.a  …  col.h    canto
+
+Dez linhas de dez caracteres. **O rótulo vem junto do filete, e isso não é escolha nossa**:
+o glifo `0xC0` *é* a borda esquerda com um `1` ao lado. Daí a consequência que atravessa o
+resto: não há coordenada sem moldura por este caminho, e `moldura="sem"` continua saindo pela
+caneta e pela fonte de texto. A `grade()` devolve `None` nesse caso e no da fonte que não tem
+os glifos — e devolver `None` é a resposta certa, não uma falha: a SkakNew-Diagram tem 46
+codepoints e nenhum deles é filete.
+
+**Os cantos são nomeados pelo canto do tabuleiro que fecham, e não pelo lugar da tinta**, que
+é o oposto: o glifo do canto de cima à esquerda tem a tinta embaixo à direita da própria
+casa, porque a casa dele fica acima e à esquerda do tabuleiro. Errar isso dá um quadro que
+parece certo de longe e tem as quinas viradas para fora.
+
+### O recorte na tinta
+
+A grade tem dez casas de lado, mas a tinta não chega às bordas dela: o filete de cima mora no
+pé da casa de cima, e o rótulo da fila ocupa pouco mais da metade da casa da esquerda. Sem
+recortar, o diagrama sairia com quase uma casa de branco em cima e à direita e nada embaixo —
+torto dentro da própria figura. Recorta-se pela tinta, com folga de 7% de casa.
+
+**E o recorte é determinístico apesar de medir a tinta**: a moldura fecha o desenho dos
+quatro lados, e as oito filas e as oito colunas saem em todo diagrama. A caixa da tinta é a
+mesma para uma dada fonte, moldura e escala — não depende de onde estão as peças. Está preso
+em teste, com um tabuleiro vazio contra um cheio.
+
+### A cascata da CSS, que a segunda fonte tornou alcançável
+
+Achado no caminho, e não é da coordenada: a família da fonte morava em `div.diagrama p`,
+regra emitida **uma vez por fonte embutida**. Enquanto havia uma fonte só, as cópias diziam
+todas a mesma coisa. Com duas, a segunda venceria a primeira em cascata e o livro inteiro
+sairia na última fonte declarada — inclusive os diagramas desenhados com a outra. Hoje a
+regra geral sai uma vez e a família sai numa classe por fonte, escolhida pela figura.
+
+Na prática o `livro.extrair` usa uma fonte por livro, então isto era um defeito latente e não
+um defeito visto. Ficou fechado do mesmo jeito, junto com a duplicação da folha inteira.
+
+### O que ficou de fora
+
+- **Os cantos arredondados** (`a s d f` na simples, `A S D F` na dupla) — os mesmos quatro
+  cantos com a quina redonda. Não há como oferecê-los sem uma quinta resposta na caixa da
+  F97, e a caixa já tem três.
+- **A moldura em glifo sem coordenada.** Faria a SkakNew e a Merida desenharem molduras de
+  geometrias diferentes para a mesma escolha do usuário, e a da caneta já vale para as duas.
+
+## F100 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
 
 Desde o treino de 21/08 a base andou e o modelo não: `training_data/` tinha **314 pastas
 para 292 classes**. Uma pasta que não é classe não é dado esperando — é dado que o modelo
@@ -10673,86 +10753,6 @@ Cobertura: os 9 testes de `tests/test_f62_simbolos.py` — o primeiro deles é q
 recorte desatualizado, e reprovava antes de o script rodar.
 Reproduzir: `python gerar_fonte_de_simbolos.py --conferir` diz o que falta;
 `python gerar_fonte_de_simbolos.py` refaz o recorte.
-
-## F99 — A coordenada desenhada pela própria fonte de xadrez — CONCLUÍDA
-
-A F98 deixou anotado que a Chess Merida tem, além dos oito pedaços da moldura, mais dezesseis
-glifos que trazem o filete **com o rótulo da fila ou da coluna desenhado ao lado**. São eles
-que esta fase usa, e o que eles compram é uma limitação de cada formato:
-
-| | antes | agora |
-|---|---|---|
-| PNG | rótulo na `helv` do PyMuPDF | rótulo no tipo do livro |
-| EPUB | `<i>` dentro de `<span>` para pôr rótulo de fonte de texto em cima de uma casa | dez linhas de texto, e acabou |
-| DOCX | **diagrama com coordenada saía como imagem** | sai como texto |
-
-A do DOCX estava escrita no docstring da `para_docx` desde a F59 — "alinhar rótulo de outra
-fonte sobre as casas exigiria uma tabela de 81 células por diagrama" —, e a fase mostra que o
-motivo dela era a fonte, e não o formato.
-
-### O que os dezesseis glifos são, e como se acharam
-
-`0xC0`–`0xC7` são as filas 1 a 8 e `0xC8`–`0xCF` as colunas `a` a `h`, na moldura simples;
-`0xE0`–`0xEF` os mesmos dezesseis na dupla. O `LEEME__D.TXT` diz a faixa e não diz a ordem,
-e a ordem se leu na geometria antes de se conferir no desenho:
-
-- as oito primeiras têm a tinta de `x=~700` a `2015` e ocupam o cheio da altura — é o filete
-  **vertical** com um algarismo à esquerda. A primeira delas começa em `x=896`, a mais
-  estreita das oito: é o `1`.
-- as oito seguintes têm a tinta de `x=0` a `2048` e vão de `y=546` a `2013` — filete
-  **horizontal** com uma letra embaixo. A sétima começa em `y=300`, e não em 546: é o `g`,
-  que é a única das oito com perna. Confirma que a ordem é `a`–`h`.
-
-### O quadro, e o que ele obriga
-
-    canto   topo topo … topo   canto
-    fila 8  ┃  as oito casas ┃  direita
-    …
-    fila 1  ┃  as oito casas ┃  direita
-    canto   col.a  …  col.h    canto
-
-Dez linhas de dez caracteres. **O rótulo vem junto do filete, e isso não é escolha nossa**:
-o glifo `0xC0` *é* a borda esquerda com um `1` ao lado. Daí a consequência que atravessa o
-resto: não há coordenada sem moldura por este caminho, e `moldura="sem"` continua saindo pela
-caneta e pela fonte de texto. A `grade()` devolve `None` nesse caso e no da fonte que não tem
-os glifos — e devolver `None` é a resposta certa, não uma falha: a SkakNew-Diagram tem 46
-codepoints e nenhum deles é filete.
-
-**Os cantos são nomeados pelo canto do tabuleiro que fecham, e não pelo lugar da tinta**, que
-é o oposto: o glifo do canto de cima à esquerda tem a tinta embaixo à direita da própria
-casa, porque a casa dele fica acima e à esquerda do tabuleiro. Errar isso dá um quadro que
-parece certo de longe e tem as quinas viradas para fora.
-
-### O recorte na tinta
-
-A grade tem dez casas de lado, mas a tinta não chega às bordas dela: o filete de cima mora no
-pé da casa de cima, e o rótulo da fila ocupa pouco mais da metade da casa da esquerda. Sem
-recortar, o diagrama sairia com quase uma casa de branco em cima e à direita e nada embaixo —
-torto dentro da própria figura. Recorta-se pela tinta, com folga de 7% de casa.
-
-**E o recorte é determinístico apesar de medir a tinta**: a moldura fecha o desenho dos
-quatro lados, e as oito filas e as oito colunas saem em todo diagrama. A caixa da tinta é a
-mesma para uma dada fonte, moldura e escala — não depende de onde estão as peças. Está preso
-em teste, com um tabuleiro vazio contra um cheio.
-
-### A cascata da CSS, que a segunda fonte tornou alcançável
-
-Achado no caminho, e não é da coordenada: a família da fonte morava em `div.diagrama p`,
-regra emitida **uma vez por fonte embutida**. Enquanto havia uma fonte só, as cópias diziam
-todas a mesma coisa. Com duas, a segunda venceria a primeira em cascata e o livro inteiro
-sairia na última fonte declarada — inclusive os diagramas desenhados com a outra. Hoje a
-regra geral sai uma vez e a família sai numa classe por fonte, escolhida pela figura.
-
-Na prática o `livro.extrair` usa uma fonte por livro, então isto era um defeito latente e não
-um defeito visto. Ficou fechado do mesmo jeito, junto com a duplicação da folha inteira.
-
-### O que ficou de fora
-
-- **Os cantos arredondados** (`a s d f` na simples, `A S D F` na dupla) — os mesmos quatro
-  cantos com a quina redonda. Não há como oferecê-los sem uma quinta resposta na caixa da
-  F97, e a caixa já tem três.
-- **A moldura em glifo sem coordenada.** Faria a SkakNew e a Merida desenharem molduras de
-  geometrias diferentes para a mesma escolha do usuário, e a da caneta já vale para as duas.
 
 ## Fora de escopo (registrado para depois)
 
