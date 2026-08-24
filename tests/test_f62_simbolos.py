@@ -128,6 +128,25 @@ def test_o_arco_do_recorte_tem_a_proporcao_do_livro():
     assert y0 == 0, "o arco assenta na linha de base"
 
 
+def test_o_cruz_do_xeque_nao_e_pedido_a_fonte():
+    """
+    O alfabeto do modelo tem o `✝` e **nenhum arquivo pode contê-lo**.
+
+    São 2.901 amostras — a cruz cheia que estes livros imprimem no xeque —, e
+    mesmo assim a F68 pôs o `notacao.SINONIMOS_DE_SAIDA` nos três lugares em que
+    caractere de modelo vira texto de arquivo: ele sai `+` no livro, no PGN e na
+    camada do PDF. Pedir glifo para ele seria pedir desenho para o que ninguém
+    alcança, e o `ainda sem glifo` cobraria uma dívida paga para sempre.
+
+    Se um dia o sinônimo cair, este teste cai junto — e aí o glifo passa a ser
+    preciso de verdade.
+    """
+    from core import notacao
+
+    assert "✝" in notacao.SINONIMOS_DE_SAIDA
+    assert "✝" not in simbolos_do_modelo()
+
+
 def test_o_recorte_e_o_escolhido_quando_basta():
     """Entre duas fontes que cobrem o mesmo, ganha a que pesa 1,2% da outra."""
     escolha = exportar.fonte_dos_simbolos("1.e4 ♖xf3 ♕d5")

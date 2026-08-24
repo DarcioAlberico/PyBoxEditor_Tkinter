@@ -200,13 +200,28 @@ def _console_em_utf8():
 
 
 def simbolos_do_modelo(caminho: str = None) -> str:
-    """Os caracteres fora do ASCII que o modelo pode emitir."""
+    """
+    Os caracteres fora do ASCII que podem **chegar a um arquivo**.
+
+    Não é a mesma coisa que o alfabeto do modelo, e a diferença é o `✝`. Ele é
+    classe de treino — 2.901 amostras, a cruz cheia que estes livros imprimem no
+    xeque —, e mesmo assim **nenhum arquivo pode contê-lo**: a F68 pôs o
+    `notacao.SINONIMOS_DE_SAIDA` nos três lugares em que caractere de modelo
+    vira texto de arquivo (`livro`, `notacao`, `searchable_pdf`), e nos três ele
+    sai como `+`.
+
+    Sem este filtro o script pedia um glifo que ninguém pode alcançar, e o
+    `ainda sem glifo` da última linha cobrava para sempre uma dívida paga.
+    """
+    from core.notacao import SINONIMOS_DE_SAIDA
+
     caminho = caminho or os.path.join(RAIZ, "model_meta.json")
     with open(caminho, encoding="utf-8") as f:
         meta = json.load(f)
     alfabeto = meta["idx_to_char"]
     letras = alfabeto.values() if isinstance(alfabeto, dict) else alfabeto
-    return "".join(sorted({c for c in "".join(letras) + EXTRAS if ord(c) > 127}))
+    return "".join(sorted({c for c in "".join(letras) + EXTRAS
+                           if ord(c) > 127 and c not in SINONIMOS_DE_SAIDA}))
 
 
 def cobertura(caminho: str, chars: str) -> str:
