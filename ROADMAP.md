@@ -10677,7 +10677,7 @@ de quina viva, e não `None`. Devolver `None` mandaria o diagrama inteiro para o
 caneta e **perderia as coordenadas em glifo** — muito mais do que se pediu ao marcar uma
 caixinha. Hoje não há fonte assim no repositório, e o teste monta uma.
 
-## F101 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
+## F102 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
 
 Desde o treino de 21/08 a base andou e o modelo não: `training_data/` tinha **314 pastas
 para 292 classes**. Uma pasta que não é classe não é dado esperando — é dado que o modelo
