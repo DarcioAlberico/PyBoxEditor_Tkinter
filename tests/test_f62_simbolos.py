@@ -20,8 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 from core import exportar
-from gerar_fonte_de_simbolos import (EMPRESTADOS, ORIGEM, cobertura,
-                                     simbolos_do_modelo)
+from gerar_fonte_de_simbolos import (ARCO, DESENHADOS, EMPRESTADOS, ORIGEM,
+                                     cobertura, simbolos_do_modelo)
 
 
 def test_o_recorte_cobre_o_que_a_fonte_inteira_cobre():
@@ -76,6 +76,56 @@ def test_os_emprestados_estao_no_recorte():
     assert not faltando, (
         f"o recorte não desenha {' '.join(faltando)} — rode "
         f"`python gerar_fonte_de_simbolos.py`")
+
+
+def test_os_desenhados_estao_no_recorte():
+    """
+    A terceira maneira de o livro sair errado, e as outras duas não pegam esta.
+
+    O `⌓` não está na Noto nem vem de fonte nenhuma: o contorno dele é escrito
+    pelo próprio script. Tirar a chamada de `desenhar` do `main` deixaria os
+    dois testes acima verdes e o `$142` quadradinho na página.
+    """
+    if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
+        pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
+
+    pedidos = "".join(DESENHADOS)
+    tem = cobertura(exportar.SUBSET_DOS_SIMBOLOS, pedidos)
+    faltando = [c for c in pedidos if c not in tem]
+
+    assert not faltando, (
+        f"o recorte não desenha {' '.join(faltando)} — rode "
+        f"`python gerar_fonte_de_simbolos.py`")
+
+
+def test_o_arco_do_recorte_tem_a_proporcao_do_livro():
+    """
+    O motivo de o `⌓` ser desenhado em vez de emprestado, preso num número.
+
+    Ter glifo não basta: o `b` da SkakNew **tinha** glifo, e era uma meia-elipse
+    de 0,53 onde as 64 amostras de `training_data/sym_8979` medem 0,714. Um
+    empréstimo que voltasse a entrar aqui passaria nos testes de cobertura e
+    devolveria o arco errado à página — é este número que o impede.
+    """
+    if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
+        pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
+
+    from fontTools.pens.boundsPen import BoundsPen
+    from fontTools.ttLib import TTFont
+
+    fonte = TTFont(exportar.SUBSET_DOS_SIMBOLOS)
+    glifos = fonte.getGlyphSet()
+    nome = fonte.getBestCmap()[ord("⌓")]
+    caneta = BoundsPen(glifos)
+    glifos[nome].draw(caneta)
+    x0, y0, x1, y1 = caneta.bounds
+
+    proporcao = (y1 - y0) / (x1 - x0)
+    alvo = ARCO["altura"] / ARCO["largura"]
+    assert abs(proporcao - alvo) < 0.01, (
+        f"o arco está em {proporcao:.3f} de altura sobre largura, e o livro "
+        f"imprime {alvo:.3f}")
+    assert y0 == 0, "o arco assenta na linha de base"
 
 
 def test_o_recorte_e_o_escolhido_quando_basta():

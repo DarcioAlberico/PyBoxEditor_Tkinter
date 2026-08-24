@@ -115,16 +115,8 @@ FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
 #: custam o mesmo. O `⇗` (`$240`, diagonal) é o `G` da SkakNew e bate traço por
 #: traço com as 3 amostras de `sym_8663`.
 #:
-#: O `⌓` (`$142`, "melhor é") **não bate**, e a régua aqui é a proporção: as 64
-#: amostras de `sym_8979` têm altura sobre largura de **0,72** — um arco de
-#: laterais retas assentado numa base —, e o `b` da SkakNew é uma meia-elipse
-#: rasa, de **0,53**. Quem desenha o arco do livro é a `IS-TT-01` (o `e`, 0,79),
-#: **e ela não pode viajar dentro do arquivo**: `fsType = 1` no `OS/2`, que é o
-#: "restricted license embedding" da Chess Assistant, contra `fsType = 0` da
-#: SkakNew. O par fica sendo o `b`: é o mesmo símbolo, mais raso do que o livro
-#: imprime, e é o que se pode embutir. Desenhar o arco à mão — duas hastes e um
-#: meio-círculo, como a moldura da F97 — é o que daria a forma exata, e é outra
-#: mecânica: este script empresta glifo, não os inventa.
+#: O `⌓` (`$142`, "melhor é") **não bate em nenhuma fonte que se possa embutir**,
+#: e por isso ele saiu daqui para o `DESENHADOS`, adiante.
 EMPRESTADOS = {
     "⩲": "f",      # ligeira vantagem das brancas
     "⩱": "g",      # ligeira vantagem das pretas
@@ -142,8 +134,47 @@ EMPRESTADOS = {
     "∟": "v",      # "com" ($254) — haste à esquerda
     "⨼": "w",      # o mesmo ângulo com a haste à direita, e sem NAG
     "⇗": "G",      # diagonal ($240)
-    "⌓": "b",      # "melhor é" ($142) — mais raso que o do livro; ver acima
 }
+
+#: O `⌓` do `$142` ("melhor é"), medido nas 64 amostras de `training_data/sym_8979`
+#: e desenhado a partir dessas medidas, em unidades de em (as três fontes deste
+#: script são upem 1000, e é por isso que `emprestar` copia o `hmtx` sem escalar).
+#:
+#: **Nenhuma fonte que se possa embutir desenha este arco.** O livro imprime um
+#: arco de laterais retas assentado numa base; o `b` da SkakNew — que foi o par
+#: até aqui — é uma meia-elipse rasa. A única do disco que acerta a forma é a
+#: `IS-TT-01` (o `e`), e ela tem `fsType = 1` no `OS/2`: "restricted license
+#: embedding", da Chess Assistant. Contra `fsType = 0` da SkakNew e a OFL da
+#: Noto, ela não pode viajar dentro do EPUB — e um glifo copiado dela seria a
+#: fonte viajando do mesmo jeito, com outro nome.
+#:
+#: | | altura ÷ largura |
+#: |---|---:|
+#: | as 64 amostras (mediana) | **0,714** |
+#: | `IS-TT-01`, o `e` | 0,79 |
+#: | `SkakNew-Figurine`, o `b` | 0,53 |
+#:
+#: As outras duas medidas saem das mesmas amostras: o traço tem **0,103** da
+#: largura, e a reta das laterais sobe até **0,406** da altura — daí para cima é
+#: arco. As três proporções são o que o `tests/test_f62_simbolos.py` cobra, e não
+#: os números absolutos abaixo.
+#:
+#: **A largura e o avanço são os que o `b` já ocupava** (1034 e 1200), de
+#: propósito: o que estava errado era a altura, e mexer no avanço junto mudaria a
+#: entrelinha de quem já exportou um livro. A altura que sai da proporção — 738 —
+#: cai no meio da faixa dos outros símbolos emprestados (o `⊞` tem 755, o `∟`
+#: 734, o `⊥` 725), o que é a confirmação de que a régua é a mesma.
+ARCO = {
+    "x": 83,             # mesmo lado esquerdo do glifo que ele substitui
+    "largura": 1034,
+    "avanco": 1200,
+    "altura": 738,       # 0,714 x largura
+    "traco": 107,        # 0,103 x largura
+    "reta": 300,         # 0,406 x altura: daqui para cima é arco
+}
+
+#: Símbolo → o que desenha o contorno dele. Ver `desenhar`.
+DESENHADOS = {"⌓": ARCO}
 
 #: Emprestados que entram espelhados na horizontal.
 #:
@@ -271,6 +302,87 @@ def emprestar(destino: str, origem: str = FIGURINE,
     return novos
 
 
+#: Quanto a alça de uma Bézier cúbica anda para aproximar um quarto de elipse.
+#: O valor clássico, 4/3·(√2−1): erro máximo de 0,027% do raio.
+ALCA_DA_ELIPSE = 0.5522847498
+
+
+def _contorno_do_arco(caneta, medidas: dict, dentro: bool = False) -> None:
+    """
+    Um dos dois contornos do arco — o de fora, ou o buraco de dentro.
+
+    O de fora sai no sentido do CFF (anti-horário), que é o que o
+    `Cu2QuPen(reverse_direction=True)` de `desenhar` espera, e o de dentro no
+    contrário: é a diferença entre um arco e um retângulo arredondado maciço.
+    """
+    x0, largura, altura = medidas["x"], medidas["largura"], medidas["altura"]
+    traco, reta = medidas["traco"], medidas["reta"]
+    if dentro:
+        x0, largura = x0 + traco, largura - 2 * traco
+        base, topo = traco, altura - traco
+    else:
+        base, topo = 0, altura
+    meio = x0 + largura / 2.0
+    rx, ry = largura / 2.0, topo - reta
+    k = ALCA_DA_ELIPSE
+    direita, esquerda = x0 + largura, x0
+    if dentro:
+        caneta.moveTo((direita, base))
+        caneta.lineTo((esquerda, base))
+        caneta.lineTo((esquerda, reta))
+        caneta.curveTo((esquerda, reta + ry * k), (meio - rx * k, topo), (meio, topo))
+        caneta.curveTo((meio + rx * k, topo), (direita, reta + ry * k), (direita, reta))
+    else:
+        caneta.moveTo((esquerda, base))
+        caneta.lineTo((direita, base))
+        caneta.lineTo((direita, reta))
+        caneta.curveTo((direita, reta + ry * k), (meio + rx * k, topo), (meio, topo))
+        caneta.curveTo((meio - rx * k, topo), (esquerda, reta + ry * k), (esquerda, reta))
+    caneta.closePath()
+
+
+def desenhar(destino: str, pares: dict = None) -> list:
+    """
+    Escreve no recorte os glifos que este script desenha, em vez de emprestar.
+
+    **É a saída para o símbolo que nenhuma fonte distribuível desenha certo.**
+    Emprestar é sempre preferível — o glifo emprestado vem de uma fonte
+    desenhada por quem sabe, e mantém a família coerente. Este caminho existe
+    para o caso em que a única fonte que acerta a forma proíbe embutir, e é o do
+    `⌓` (ver `ARCO`): o que se copiaria dela não é uma medida, é o desenho.
+
+    O contorno é cúbico e passa pelo mesmo `Cu2QuPen` do `emprestar`, pela mesma
+    razão — o recorte é TrueType e só tem quadráticas — e com o mesmo
+    `reverse_direction`, porque ele é escrito na convenção do CFF.
+    """
+    from fontTools.pens.cu2quPen import Cu2QuPen
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+    from fontTools.ttLib import TTFont
+
+    pares = pares or DESENHADOS
+    alvo = TTFont(destino)
+
+    novos = []
+    for simbolo, medidas in pares.items():
+        nome = f"uni{ord(simbolo):04X}"
+        caneta = TTGlyphPen(alvo.getGlyphSet())
+        destino_da_caneta = Cu2QuPen(caneta, ERRO_DA_CONVERSAO,
+                                     reverse_direction=True)
+        _contorno_do_arco(destino_da_caneta, medidas, dentro=False)
+        _contorno_do_arco(destino_da_caneta, medidas, dentro=True)
+
+        if nome not in alvo.getGlyphOrder():
+            alvo.setGlyphOrder(alvo.getGlyphOrder() + [nome])
+        alvo["glyf"].glyphs[nome] = caneta.glyph()
+        alvo["hmtx"].metrics[nome] = (medidas["avanco"], medidas["x"])
+        for tabela in alvo["cmap"].tables:
+            tabela.cmap[ord(simbolo)] = nome
+        novos.append(simbolo)
+
+    alvo.save(destino)
+    return novos
+
+
 def main() -> int:
     _console_em_utf8()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
@@ -307,6 +419,8 @@ def main() -> int:
     emprestados = emprestar(args.destino)
     print(f"\nemprestados da {os.path.basename(FIGURINE)}: "
           f"{' '.join(emprestados)}")
+    desenhados = desenhar(args.destino)
+    print(f"desenhados aqui: {' '.join(desenhados)}")
 
     antes = os.path.getsize(args.origem) / 1024
     depois = os.path.getsize(args.destino) / 1024
@@ -316,7 +430,7 @@ def main() -> int:
     ainda_falta = [c for c in chars if c not in tem and ord(c) >= 0x2000]
     if ainda_falta:
         print(f"  ainda sem glifo: {' '.join(ainda_falta)}")
-    esperado = len(pedidos) + len(emprestados)
+    esperado = len(pedidos) + len(emprestados) + len(desenhados)
     return 0 if len(tem) >= esperado else 1
 
 

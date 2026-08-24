@@ -10734,16 +10734,42 @@ Quem desenha o arco do livro é a `IS-TT-01` — **e ela não pode viajar dentro
 `fsType = 0` da SkakNew. Não é zelo excessivo: é o mesmo motivo pelo qual as quatro famílias
 que desenham o `⩲` ficaram de fora na F62.
 
-Fica o `b`: **é o mesmo símbolo, mais raso do que o livro imprime, e é o que se pode
-embutir** — contra o que havia antes, que era quadradinho.
+### O arco passa a ser desenhado, e é o primeiro glifo que este projeto escreve
+
+O `b` chegou a entrar como par, e é raso demais: usá-lo seria trocar quadradinho por símbolo
+errado, que é a mesma família de defeito do `·` da SPEC §4.2 — só que mais discreta. Copiar o
+glifo da `IS-TT-01` resolveria a forma e não resolve a licença: **o que se copiaria dela não é
+uma medida, é o desenho**, e o `fsType` fala do desenho.
+
+Sobra desenhar. O arco tem três medidas, e as três saem das mesmas 64 amostras:
+
+| | medida | em unidades de em |
+|---|---:|---:|
+| altura ÷ largura | 0,714 | 738 de 1034 |
+| traço ÷ largura | 0,103 | 107 |
+| reta das laterais ÷ altura | 0,406 | 300 |
+
+**A largura e o avanço são os que o `b` já ocupava** (1034 e 1200), e isso é escolha: o que
+estava errado era a altura, e mexer no avanço junto mudaria a entrelinha de quem já exportou
+um livro. A altura que sai da proporção cai no meio da faixa dos outros emprestados — o `⊞`
+tem 755, o `∟` 734, o `⊥` 725 —, o que é a confirmação de que a régua é a mesma.
+
+O contorno é escrito em cúbicas e passa pelo mesmo `Cu2QuPen` do `emprestar`, pela mesma
+razão e com o mesmo `reverse_direction`: são dois contornos, o de fora anti-horário e o
+buraco horário, e é a diferença entre um arco e um retângulo arredondado maciço.
+
+**Emprestar continua sendo preferível**, e o `desenhar` não é a porta larga: o glifo
+emprestado vem de quem sabe desenhar fonte e mantém a família coerente. Este caminho é para o
+caso em que a única fonte que acerta a forma proíbe embutir — hoje, um símbolo.
 
 ### O que isto abre
 
 - **Três símbolos do alfabeto continuam sem glifo no recorte**: `– — ✝`. Os dois traços são
   pontuação que a fonte de texto do leitor desenha; o `✝` não é, e tem 2.901 amostras.
-- **O arco do `⌓` está mais raso do que o do livro**, e a forma exata custa outra mecânica:
-  desenhar o glifo à mão — duas hastes e um meio-círculo, como a moldura da F97 —, porque
-  este script empresta glifo e não os inventa.
+- **O `desenhar` abre o caminho para o `✝`**, que é o que sobra com amostra de sobra (2.901)
+  e sem glifo — e ele não é arco: é o `+` do xeque com a haste comprida, da F68.
+- **Nada mede o desenho contra a página**, só contra as proporções que saíram dela. Um
+  diagrama impresso lado a lado com o EPUB exportado é a prova que falta, e ela é visual.
 - **Vinte classes com menos de cinco amostras não têm como ser medidas.** A `importar_letras`
   da F94 existe para exatamente isto, e o `--faltantes` aceita a lista.
 - **O piso de 136/136 não é acurácia.** Enquanto essas classes não tiverem validação, o que
