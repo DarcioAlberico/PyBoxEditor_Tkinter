@@ -1,12 +1,18 @@
 """
-Como o diagrama sai no arquivo: a moldura e o tamanho (F97).
+Como o diagrama sai no arquivo: a fonte, a moldura e o tamanho (F97, F98).
 
-Duas perguntas, e uma caixa só. As outras escolhas da exportação saem em
+Três perguntas, e uma caixa só. As outras escolhas da exportação saem em
 `messagebox` encadeados, e é o que elas pedem — são sim-ou-não, e cada uma se
-explica sozinha. Estas duas não: uma tem três respostas, a outra é um número, e
-as duas mexem no **mesmo desenho**. Perguntadas em caixas separadas, quem
-escolhesse a moldura dupla não teria como ver que a escolheu para um diagrama de
-4,5 cm; aqui a amostra à esquerda muda enquanto se escolhe.
+explica sozinha. Estas não: uma é uma lista, outra tem três respostas, a
+terceira é um número, e as três mexem no **mesmo desenho**. Perguntadas em
+caixas separadas, quem escolhesse a moldura dupla não teria como ver que a
+escolheu para um diagrama de 4,5 cm na fonte errada.
+
+**A amostra é o diagrama de verdade, e não um desenho de mentira.** Ela sai do
+`render_diagrama.desenhar`, com a fonte e a moldura escolhidas — o mesmo código
+que vai escrever o livro. Foi um tabuleiro de brinquedo desenhado no `Canvas`
+por uma versão, e ele mentia justamente onde a escolha importa: as peças eram as
+mesmas nas duas fontes.
 
 **O tamanho é a casa, e não o tabuleiro.** A fonte de diagrama mapeia caractere
 → casa inteira, e a casa é o quadrado do em — então o corpo em pontos *é* o lado
@@ -21,12 +27,15 @@ quadrado quando os dois dizem o mesmo número — ver `PASSO_DO_CORPO_PT`, no
 que o usuário digite um número que seria mudado debaixo dele sem aviso.
 """
 
+import io
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional, Tuple
 
+from PIL import Image, ImageTk
+
+from core import render_diagrama
 from core.exportar import CORPO_PADRAO_PT, PASSO_DO_CORPO_PT
-from core.render_diagrama import MOLDURA_PADRAO
 
 #: (valor, rótulo, explicação) de cada feitio, na ordem em que aparecem.
 FEITIOS = (
@@ -43,34 +52,38 @@ FEITIOS = (
 CORPO_MINIMO = 6.0
 CORPO_MAXIMO = 48.0
 
-#: A amostra: lado do tabuleiro desenhado, em pixels de tela.
-LADO_DA_AMOSTRA = 144
-COR_CLARA = "#F0D9B5"
-COR_ESCURA = "#B58863"
-
-#: Quanto o desenho da amostra reserva em volta, para a moldura dupla caber.
-FOLGA_DA_AMOSTRA = 12
+#: A posição que a amostra desenha, e o lado dela em pixels de tela.
+#:
+#: **Não é a inicial**, e não é por variedade: numa posição de abertura as oito
+#: casas do meio ficam vazias e metade das peças some atrás da fileira de peões.
+#: Um final com peças espalhadas mostra rei, dama, torre, bispo, cavalo e peão
+#: das duas cores em casa clara e escura, que é o que se está escolhendo.
+FEN_DA_AMOSTRA = "3qkb2/5p2/2n5/1B2P3/3P1r2/2N5/5P2/2RQK3 w - - 0 1"
+LADO_DA_AMOSTRA = 184
 
 #: Pontos por centímetro. É a conta que transforma o corpo pedido na medida que
 #: se confere com uma régua sobre o papel.
 PT_POR_CM = 72.0 / 2.54
 
 
-class DialogoMoldura:
-    """Pergunta a moldura e o corpo. Devolve `(moldura, corpo_pt)` ou `None`."""
+class DialogoDoDiagrama:
+    """Pergunta fonte, moldura e corpo. Devolve a tripla, ou `None`."""
 
-    def __init__(self, parent, moldura: str = MOLDURA_PADRAO,
+    def __init__(self, parent, fonte: str = render_diagrama.FONTE_PADRAO,
+                 moldura: str = render_diagrama.MOLDURA_PADRAO,
                  corpo_pt: float = CORPO_PADRAO_PT):
         self.parent = parent
+        self.fonte_inicial = fonte
         self.moldura_inicial = moldura
         self.corpo_inicial = corpo_pt
-        self.resultado: Optional[Tuple[str, float]] = None
+        self.resultado: Optional[Tuple[str, str, float]] = None
+        self._foto = None      # o Tk descarta a imagem que ninguém segura
 
     # ------------------------------------------------------------------
     # Construir
     # ------------------------------------------------------------------
 
-    def mostrar(self) -> Optional[Tuple[str, float]]:
+    def mostrar(self) -> Optional[Tuple[str, str, float]]:
         self._construir()
         self.top.grab_set()
         self.top.focus_set()
@@ -79,7 +92,7 @@ class DialogoMoldura:
 
     def _construir(self):
         self.top = tk.Toplevel(self.parent)
-        self.top.title("Moldura e tamanho do diagrama")
+        self.top.title("Fonte, moldura e tamanho do diagrama")
         self.top.transient(self.parent)
         self.top.resizable(False, False)
         self.top.protocol("WM_DELETE_WINDOW", self._cancelar)
@@ -87,25 +100,41 @@ class DialogoMoldura:
         corpo = ttk.Frame(self.top, padding=12)
         corpo.pack(fill="both", expand=True)
 
-        self.amostra = tk.Canvas(
-            corpo, width=LADO_DA_AMOSTRA + 2 * FOLGA_DA_AMOSTRA,
-            height=LADO_DA_AMOSTRA + 2 * FOLGA_DA_AMOSTRA,
-            highlightthickness=0, background="white")
-        self.amostra.grid(row=0, column=0, rowspan=2, padx=(0, 14), sticky="n")
+        self.amostra = tk.Canvas(corpo, width=LADO_DA_AMOSTRA + 24,
+                                 height=LADO_DA_AMOSTRA + 24,
+                                 highlightthickness=0, background="white")
+        self.amostra.grid(row=0, column=0, rowspan=3, padx=(0, 14), sticky="n")
 
-        quadro = ttk.LabelFrame(corpo, text="moldura", padding=6)
+        quadro = ttk.LabelFrame(corpo, text="fonte do diagrama", padding=6)
         quadro.grid(row=0, column=1, sticky="ew")
+        disponiveis = render_diagrama.fontes()
+        inicial = (self.fonte_inicial if self.fonte_inicial in disponiveis
+                   else (disponiveis[0] if disponiveis else ""))
+        self.var_fonte = tk.StringVar(value=inicial)
+        self.combo_fonte = ttk.Combobox(quadro, values=disponiveis, width=26,
+                                        state="readonly",
+                                        textvariable=self.var_fonte)
+        self.combo_fonte.pack(anchor="w")
+        self.combo_fonte.bind("<<ComboboxSelected>>",
+                              lambda _e: self._desenhar_amostra())
+        ttk.Label(quadro, foreground="gray30", wraplength=240, justify="left",
+                  text="Vale para o diagrama redesenhado. O recorte do scan sai "
+                       "como está na página, em qualquer fonte."
+                  ).pack(anchor="w", pady=(4, 0))
+
+        feitio = ttk.LabelFrame(corpo, text="moldura", padding=6)
+        feitio.grid(row=1, column=1, sticky="ew", pady=(8, 0))
         self.var_moldura = tk.StringVar(value=self.moldura_inicial)
         for valor, rotulo, explicacao in FEITIOS:
-            ttk.Radiobutton(quadro, text=rotulo, value=valor,
+            ttk.Radiobutton(feitio, text=rotulo, value=valor,
                             variable=self.var_moldura,
                             command=self._desenhar_amostra).pack(anchor="w")
-            ttk.Label(quadro, text=explicacao, foreground="gray30",
+            ttk.Label(feitio, text=explicacao, foreground="gray30",
                       wraplength=240).pack(anchor="w", padx=(20, 0),
                                            pady=(0, 4))
 
         tamanho = ttk.LabelFrame(corpo, text="tamanho", padding=6)
-        tamanho.grid(row=1, column=1, sticky="ew", pady=(8, 0))
+        tamanho.grid(row=2, column=1, sticky="ew", pady=(8, 0))
         linha = ttk.Frame(tamanho)
         linha.pack(anchor="w")
         self.var_corpo = tk.StringVar(value=f"{self.corpo_inicial:g}")
@@ -119,15 +148,15 @@ class DialogoMoldura:
                                     wraplength=240, justify="left")
         self.lbl_medida.pack(anchor="w", pady=(4, 0))
 
-        ttk.Label(corpo, wraplength=380, foreground="gray30", justify="left",
+        ttk.Label(corpo, wraplength=430, foreground="gray30", justify="left",
                   text="A casa é o quadrado do tipo: o tabuleiro mede oito "
                        "vezes o corpo. Vale para o diagrama redesenhado e para "
                        "o recorte do scan, para os dois saírem do mesmo "
                        "tamanho no mesmo livro."
-                  ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(12, 0))
+                  ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 0))
 
         botoes = ttk.Frame(corpo)
-        botoes.grid(row=3, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        botoes.grid(row=4, column=0, columnspan=2, sticky="e", pady=(10, 0))
         self.btn_ok = ttk.Button(botoes, text="OK", command=self._confirmar)
         self.btn_ok.pack(side="right")
         ttk.Button(botoes, text="Cancelar",
@@ -136,6 +165,7 @@ class DialogoMoldura:
         self.top.bind("<Return>", lambda _e: self._confirmar())
         self.top.bind("<Escape>", lambda _e: self._cancelar())
         self._mudou_o_corpo()
+        self._desenhar_amostra()
 
     # ------------------------------------------------------------------
     # Reagir
@@ -171,42 +201,37 @@ class DialogoMoldura:
             text=f"tabuleiro de {lado_pt:g} pt — {lado_pt / PT_POR_CM:.1f} cm "
                  f"de lado".replace(".", ","))
         self.btn_ok.state(["!disabled"])
-        self._desenhar_amostra()
 
     def _desenhar_amostra(self):
         """
-        Um tabuleiro de brinquedo com a moldura escolhida.
+        O diagrama de verdade, na fonte e na moldura escolhidas.
 
         **A amostra não muda de tamanho com o corpo**, e é de propósito: ela
-        está aqui para mostrar a moldura, e um tabuleiro que encolhesse a cada
-        tecla no campo do corpo faria o olho perseguir a coisa errada. O tamanho
-        quem diz é a linha de texto embaixo do campo, em pontos e em
-        centímetros.
+        está aqui para mostrar as peças e o filete, e um tabuleiro que
+        encolhesse a cada tecla no campo do corpo faria o olho perseguir a coisa
+        errada. O tamanho quem diz é a linha de texto embaixo do campo, em
+        pontos e em centímetros.
+
+        Fonte que não carrega não derruba o diálogo: ela vira um recado no lugar
+        do desenho, e o usuário escolhe outra. É o mesmo critério do `livro`,
+        que cai para o recorte em vez de perder a exportação inteira.
         """
         self.amostra.delete("all")
-        casa = LADO_DA_AMOSTRA / 8.0
-        x0 = y0 = FOLGA_DA_AMOSTRA
-        for i in range(8):
-            for j in range(8):
-                cor = COR_CLARA if (i + j) % 2 == 0 else COR_ESCURA
-                self.amostra.create_rectangle(
-                    x0 + j * casa, y0 + i * casa,
-                    x0 + (j + 1) * casa, y0 + (i + 1) * casa,
-                    fill=cor, outline=cor)
-
-        moldura = self.var_moldura.get()
-        if moldura == "sem":
+        centro = (LADO_DA_AMOSTRA + 24) // 2
+        try:
+            png, largura, altura = render_diagrama.desenhar(
+                FEN_DA_AMOSTRA, fonte=self.var_fonte.get(),
+                lado_px=LADO_DA_AMOSTRA, moldura=self.var_moldura.get(),
+                tons=0)
+        except (render_diagrama.FonteDesconhecida,
+                render_diagrama.FonteIncompleta, ValueError) as erro:
+            self.amostra.create_text(centro, centro, width=LADO_DA_AMOSTRA,
+                                     justify="center", fill="#B71C1C",
+                                     text=f"não deu para desenhar:\n{erro}")
             return
-        # As mesmas proporções do PNG (`render_diagrama.MOLDURA_DUPLA`), na
-        # escala da amostra: o filete de fora é o grosso.
-        tracos = ([(0, 2)] if moldura == "simples"
-                  else [(0, 1), (3, 3)])
-        for recuo, espessura in tracos:
-            meio = recuo + espessura / 2.0
-            self.amostra.create_rectangle(
-                x0 - meio, y0 - meio,
-                x0 + LADO_DA_AMOSTRA + meio, y0 + LADO_DA_AMOSTRA + meio,
-                outline="black", width=espessura)
+        imagem = Image.open(io.BytesIO(png)).convert("L")
+        self._foto = ImageTk.PhotoImage(imagem)
+        self.amostra.create_image(centro, centro, image=self._foto)
 
     # ------------------------------------------------------------------
     # Fechar
@@ -214,9 +239,9 @@ class DialogoMoldura:
 
     def _confirmar(self):
         corpo = self._corpo_digitado()
-        if corpo is None:
+        if corpo is None or not self.var_fonte.get():
             return
-        self.resultado = (self.var_moldura.get(), corpo)
+        self.resultado = (self.var_fonte.get(), self.var_moldura.get(), corpo)
         self.top.destroy()
 
     def _cancelar(self):

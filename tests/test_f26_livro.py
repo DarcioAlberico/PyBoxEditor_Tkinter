@@ -433,9 +433,9 @@ def _pdf_de_uma_pagina(caminho, texto="Foreword"):
     doc.close()
 
 
-class _MolduraFixa:
+class _DiagramaFixo:
     """
-    Dublê do `ui.dialogo_moldura.DialogoMoldura` (F97).
+    Dublê do `ui.dialogo_do_diagrama.DialogoDoDiagrama` (F97, F98).
 
     **Sem ele a suíte trava, e trava calada.** Aquele diálogo não é um
     `messagebox` — é um `Toplevel` com `grab_set` e `wait_window`, e um `Tk`
@@ -443,8 +443,9 @@ class _MolduraFixa:
     o teste não falhou, ficou pendurado.
     """
 
-    #: O que o dublê responde. `None` imita o Cancelar, que desiste da ação.
-    resposta = ("simples", 16.0)
+    #: O que o dublê responde: `(fonte, moldura, corpo)`. `None` imita o
+    #: Cancelar, que desiste da ação.
+    resposta = ("SkakNew-Diagram", "simples", 16.0)
 
     def __init__(self, _parent, **_kw):
         pass
@@ -459,7 +460,8 @@ class _App:
 
     Os diálogos são a metade da ação que não dá para exercitar de outro jeito —
     é neles que estão a escolha do formato pela extensão, as perguntas de sim ou
-    não, e a caixa da moldura e do corpo (F97), que sai pelo `_MolduraFixa`.
+    não, e a caixa da fonte, da moldura e do corpo (F97, F98), que sai pelo
+    `_DiagramaFixo`.
 
     **As respostas vão por título, e não uma para todas.** Enquanto havia uma
     pergunta só, um booleano bastava; com três (desenhar, coordenadas, coletar)
@@ -476,10 +478,10 @@ class _App:
               "Guardar": False}
 
     def __init__(self, entrada, saida, coletar=False, respostas=None,
-                 moldura=("simples", 16.0)):
+                 diagrama=("SkakNew-Diagram", "simples", 16.0)):
         from tkinter import filedialog, messagebox
 
-        self.moldura = moldura
+        self.diagrama = diagrama
 
         self.originais = (filedialog.askopenfilename,
                           filedialog.asksaveasfilename,
@@ -511,8 +513,8 @@ class _App:
         # depender de um `.pth` que o `.gitignore` mantém fora.
         self.win.learning_service.load_predictor = lambda: True
         self.win.learning_service.predict_neural = lambda crop: ("a", 0.99)
-        duble = type("_Duble", (_MolduraFixa,), {"resposta": self.moldura})
-        self.win.DIALOGO_MOLDURA = duble
+        duble = type("_Duble", (_DiagramaFixo,), {"resposta": self.diagrama})
+        self.win.DIALOGO_DO_DIAGRAMA = duble
         return self
 
     def rodar(self, segundos=60.0):
@@ -628,13 +630,14 @@ def test_as_duas_perguntas_da_f58_chegam_a_extracao(monkeypatch):
             "'como no livro' parou no diálogo")
 
 
-def test_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):
+def test_a_fonte_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):
     """
     A escolha da F97 tem **dois destinos**, e é o que a torna fácil de perder
-    pela metade: a moldura vai para a extração, porque quem desenha o filete no
-    PNG é o renderizador; a moldura *e* o corpo vão para a escrita, porque no
-    modo de fonte quem os desenha é o formato. Um caminho ligado e o outro não
-    dá um livro em que o diagrama tem moldura e o tamanho continua o de antes.
+    pela metade: a fonte e a moldura vão para a extração, porque quem desenha o
+    tabuleiro e o filete no PNG é o renderizador; a moldura *e* o corpo vão para
+    a escrita, porque no modo de fonte quem os desenha é o formato. Um caminho
+    ligado e o outro não dá um livro em que o diagrama tem moldura e o tamanho
+    continua o de antes.
     """
     extraiu, escreveu = {}, {}
 
@@ -658,10 +661,12 @@ def test_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):
     _pdf_de_uma_pagina(entrada)
 
     with _App(entrada, os.path.join(tmp, "a.epub"),
-              moldura=("dupla", 20.0)) as app:
+              diagrama=("ChessMerida-Diagram", "dupla", 20.0)) as app:
         app.rodar()
         assert not app.erros, app.erros
         assert extraiu["moldura"] == "dupla", "a moldura parou no diálogo"
+        assert extraiu["fonte"] == "ChessMerida-Diagram", (
+            "a fonte escolhida parou no diálogo (F98)")
         assert escreveu["moldura"] == "dupla"
         assert escreveu["corpo_pt"] == 20.0, "o corpo parou no diálogo"
 
@@ -682,10 +687,25 @@ def test_cancelar_a_moldura_desiste_da_exportacao(monkeypatch):
     saida = os.path.join(tmp, "a.epub")
     _pdf_de_uma_pagina(entrada)
 
-    with _App(entrada, saida, moldura=None) as app:
+    with _App(entrada, saida, diagrama=None) as app:
         app.rodar_sem_esperar()
         assert not app.avisos and not app.erros
         assert not os.path.exists(saida)
+
+
+def test_o_dialogo_oferece_as_fontes_que_tem_mapa():
+    """
+    A lista do diálogo sai do `fontes_de_diagrama.json`, e não de uma lista
+    escrita na tela (F98): fonte nova no mapa aparece sozinha, e fonte sem mapa
+    não aparece — que é o que impede oferecer uma que o renderizador recusa.
+    """
+    from core import render_diagrama as rd
+
+    disponiveis = rd.fontes()
+    assert "SkakNew-Diagram" in disponiveis
+    assert "ChessMerida-Diagram" in disponiveis
+    for nome in disponiveis:
+        rd.carregar(nome)      # levanta se o arquivo não desenhar o mapa
 
 
 # ----------------------------------------------------------------------

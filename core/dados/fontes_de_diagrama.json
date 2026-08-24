@@ -39,6 +39,45 @@
       "sobreposicoes": "1 2 3 4 5 6 T U V W X Y",
       "nota_sobreposicoes": "Avanco zero: nao andam com a caneta, entao nao sao casa. Na folha de contato veem-se como as mesmas 12 pecas em casa cheia -- 1-6 sao as brancas sobre quadrado preto e T-Y as pretas sem quadrado; o 'z', que anda 1 em, e o quadrado preto vazio. E a familia de destaque da fonte. Nenhum uso ainda.",
       "sem_uso": "z"
+    },
+    "ChessMerida-Diagram": {
+      "arquivo": "fonts/ChessMerida-Diagram.ttf",
+      "sha256": "6d4461c7ecab4be16e4c31408a8a4c0289b6a0611a70db10731b0b3fbe14bec1",
+      "em": 2048,
+      "licenca": "Freeware, (c) 1998 Armando Hernandez Marroquin (Circulo Lasallista de Ajedrez). Redistribuicao MPL-2.0 em github.com/vasiliyaltunin/chess-merida-font, que autoriza modificar. Esta copia ganhou cmap Unicode do gerar_fonte_de_diagrama.py -- os 97 contornos sao byte a byte os de 1998, e so o cmap e a tabela de nomes mudaram.",
+      "origem": "mapa de teclado publicado com a fonte (fonts/LEEME__D.TXT, secao PIEZAS, e a tabela em fonts/Merida.jpg), conferido pela geometria dos glifos e pelas quatro provas do medir_fonte_diagrama.py",
+      "nota_do_cmap": "A MERIFONT.TTF original so tem cmap Mac Roman (1,0) e Symbol (3,0), com os caracteres em 0xF020-0xF0EF. Varridos os 65536 codepoints do plano basico, o fitz enxerga ZERO glifos nela e desenha um ponto no lugar de cada peca -- o modo de falha da SPEC 4.2. Nao usar a MERIFONT.TTF direto.",
+      "casas": {
+        " ": [null, "clara"],
+        "+": [null, "escura"],
+        "r": ["R", "clara"],
+        "R": ["R", "escura"],
+        "n": ["N", "clara"],
+        "N": ["N", "escura"],
+        "b": ["B", "clara"],
+        "B": ["B", "escura"],
+        "q": ["Q", "clara"],
+        "Q": ["Q", "escura"],
+        "k": ["K", "clara"],
+        "K": ["K", "escura"],
+        "p": ["P", "clara"],
+        "P": ["P", "escura"],
+        "t": ["r", "clara"],
+        "T": ["r", "escura"],
+        "m": ["n", "clara"],
+        "M": ["n", "escura"],
+        "v": ["b", "clara"],
+        "V": ["b", "escura"],
+        "w": ["q", "clara"],
+        "W": ["q", "escura"],
+        "l": ["k", "clara"],
+        "L": ["k", "escura"],
+        "o": ["p", "clara"],
+        "O": ["p", "escura"]
+      },
+      "molduras": "! \" # $ % ( ) / (dupla) e 1 2 3 4 5 7 8 9 (simples), mais a b c d e f (cantos arredondados)",
+      "nota_molduras": "A Merida sabe desenhar a moldura com glifo -- um tabuleiro de 10x10 caracteres em vez de 8x8 -- e tem tambem bordas COM coordenada, em 0xC0-0xCF (simples) e 0xE0-0xEF (dupla). Nenhum uso: a moldura da F97 e desenhada com caneta, o que a faz valer para qualquer fonte, inclusive a SkakNew, que nao tem glifo de borda nenhum. As bordas com coordenada sao o que resolveria o rotulo em fonte de texto do modo de fonte embutida -- fica anotado.",
+      "sem_uso": ". : x X ?"
     }
   }
 }

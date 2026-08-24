@@ -79,7 +79,10 @@ MOLDURA_NA_CSS = {
 
 #: A moldura do tabuleiro em texto, no DOCX: `(w:val, w:sz)` da borda da célula.
 #: O `w:sz` é em oitavos de ponto, e o `double` do Word já são dois filetes.
-MOLDURA_NO_DOCX = {"simples": ("single", 6), "dupla": ("double", 12)}
+#: `nil` é borda declarada como ausente, que não é o mesmo que borda omitida —
+#: omitida, o estilo da tabela ainda pode pôr uma.
+MOLDURA_NO_DOCX = {"sem": ("nil", 0), "simples": ("single", 6),
+                   "dupla": ("double", 12)}
 
 
 def corpo_valido(pt) -> float:
@@ -655,35 +658,67 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
             z.writestr(nome, dados)
 
 
-def _caixa_do_diagrama(doc, moldura: str):
+def _caixa_do_diagrama(doc, moldura: str, largura_pt: float):
     """
-    A célula onde o tabuleiro em texto vai morar, com a moldura pedida (F97).
+    A célula de largura fixa onde o tabuleiro em texto mora (F97, F98).
 
     **Uma tabela de uma célula, e não borda de parágrafo.** A borda de parágrafo
     do Word corre de margem a margem da coluna de texto: ela emolduraria a
-    página, não o diagrama, que é estreito e centrado. A tabela encolhe até o
-    conteúdo, centra-se, e a borda dela cai onde o filete do PNG cai.
+    página, não o diagrama, que é estreito. A tabela mede o tabuleiro, centra-se
+    na coluna, e a borda dela cai onde o filete do PNG cai.
 
-    A borda vai no `w:tcPr` da célula, e não no `w:tblPr` da tabela, porque a
-    ordem dos filhos do `tblPr` é fixa no esquema e o `python-docx` já escreve o
-    `tblLook` no fim dele — acrescentar depois dá um arquivo que o Word abre
-    reclamando. No `tcPr` a ordem que interessa é `tcW`, `tcBorders`, `tcMar`, e
-    é essa que sai daqui.
+    **E ela existe mesmo sem moldura, o que não é desperdício — é o alinhamento
+    (F98).** Antes as oito filas eram parágrafos centrados soltos, e isso só
+    funcionava porque a casa vazia da SkakNew-Diagram é o `0` e o `Z`. A casa
+    clara vazia da Chess Merida é o **espaço**, e o Word não conta espaço no fim
+    da linha para centrar: a fila `"+ + +o+ "` seria medida com sete casas e a
+    `" + WlV +"` com oito, e o tabuleiro sairia em escada, meia casa por fila.
+    Numa caixa da largura exata do tabuleiro, as filas saem alinhadas à esquerda
+    e o espaço deixa de ter voz no alinhamento.
+
+    A largura é escrita **três vezes** — `tblW`, `w:gridCol` e `tcW` —, com
+    `tblLayout` fixo. É o que tira o autoajuste do caminho: em autoajuste quem
+    decide a largura é o Word, na hora de abrir, e uma célula mais larga que o
+    tabuleiro poria a moldura longe dele.
+
+    A borda vai no `w:tcPr` e não no `w:tblPr` porque a ordem dos filhos do
+    `tblPr` é fixa no esquema e o `python-docx` já escreve o `tblLook` no fim
+    dele — acrescentar depois dá um arquivo que o Word abre reclamando. No
+    `tcPr` a ordem que interessa é `tcW`, `tcBorders`, `tcMar`, e é essa que sai
+    daqui.
 
     A margem da célula é zerada de propósito: o padrão do Word é 0,19 cm dos
     dois lados, e ela afastaria a moldura do tabuleiro de um jeito que o PNG não
     faz — o mesmo diagrama sairia com dois enquadramentos conforme o modo.
+
+    O `w:cantSplit` é de graça e resolve o que o `page-break-inside: avoid` do
+    EPUB resolve lá: tabuleiro partido entre duas páginas.
     """
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
+    from docx.shared import Pt
 
     val, sz = MOLDURA_NO_DOCX[moldura]
+    largura = Pt(largura_pt)
     tabela = doc.add_table(rows=1, cols=1)
     tabela.alignment = WD_TABLE_ALIGNMENT.CENTER
-    tabela.autofit = True
+    tabela.autofit = False
+    tabela.columns[0].width = largura
+    # O `python-docx` deixa o `tblW` em `auto w=0`, e com `tblLayout` fixo o
+    # Word ainda usaria a grade — mas "três vezes a mesma largura" só é verdade
+    # se esta também disser.
+    tblw = tabela._tbl.tblPr.find(qn("w:tblW"))
+    if tblw is not None:
+        tblw.set(qn("w:type"), "dxa")
+        tblw.set(qn("w:w"), str(int(largura.twips)))
+
+    linha = tabela.rows[0]
+    linha.height = None
+    linha._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
 
     celula = tabela.cell(0, 0)
+    celula.width = largura
     props = celula._tc.get_or_add_tcPr()
     bordas = OxmlElement("w:tcBorders")
     for lado in ("top", "left", "bottom", "right"):
@@ -796,20 +831,17 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         for bloco in pagina.blocos:
             if isinstance(bloco, Figura) and em_texto(bloco):
                 usadas[bloco.fonte] = None
-                # Sem moldura o tabuleiro fica solto no corpo do documento, como
-                # sempre esteve; com moldura ele passa a morar numa célula.
-                caixa = (_caixa_do_diagrama(doc, moldura)
-                         if moldura != "sem" else None)
+                caixa = _caixa_do_diagrama(doc, moldura, corpo_pt * 8)
                 for i_linha, linha in enumerate(bloco.linhas):
-                    if caixa is None:
-                        p = doc.add_paragraph()
-                    else:
-                        # A célula já nasce com um parágrafo vazio, e ele é o da
-                        # primeira fila: um `add_paragraph` aqui deixaria uma
-                        # linha em branco por cima do tabuleiro.
-                        p = (caixa.paragraphs[0] if i_linha == 0
-                             else caixa.add_paragraph())
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    # A célula já nasce com um parágrafo vazio, e ele é o da
+                    # primeira fila: um `add_paragraph` aqui deixaria uma linha
+                    # em branco por cima do tabuleiro.
+                    p = (caixa.paragraphs[0] if i_linha == 0
+                         else caixa.add_paragraph())
+                    # **À esquerda, e não centrado** (F98): a célula tem a
+                    # largura do tabuleiro, e centrar aqui devolveria a voz ao
+                    # espaço do fim da fila — ver `_caixa_do_diagrama`.
+                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     p.paragraph_format.space_before = Pt(0)
                     p.paragraph_format.space_after = Pt(0)
                     # Entrelinha **exata e igual ao corpo**, e não múltipla:
@@ -826,19 +858,18 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     # Sem o `hAnsi`, o Word desenha a fonte pedida só até o
                     # primeiro caractere que julgue não-ASCII.
                     familia_do_run(run, bloco.fonte)
-                if caixa is not None:
-                    # **Duas tabelas coladas no XML viram uma só quando o Word
-                    # abre o arquivo**, e a página de exercícios é exatamente
-                    # isso: dois diagramas seguidos, sem prosa entre eles, que
-                    # sairiam dentro da mesma moldura, um por cima do outro.
-                    # Um parágrafo entre as duas separa — e ele vai de 1 pt de
-                    # entrelinha exata, que é o que o Word aceita como separador
-                    # sem abrir vão visível. Serve de segunda coisa: documento
-                    # que termina em tabela é o outro caso em que ele reclama.
-                    vao = doc.add_paragraph()
-                    vao.paragraph_format.space_before = Pt(0)
-                    vao.paragraph_format.space_after = Pt(0)
-                    vao.paragraph_format.line_spacing = Pt(1)
+                # **Duas tabelas coladas no XML viram uma só quando o Word
+                # abre o arquivo**, e a página de exercícios é exatamente isso:
+                # dois diagramas seguidos, sem prosa entre eles, que sairiam
+                # dentro da mesma moldura, um por cima do outro. Um parágrafo
+                # entre as duas separa — e ele vai de 1 pt de entrelinha exata,
+                # que é o que o Word aceita como separador sem abrir vão
+                # visível. Serve de segunda coisa: documento que termina em
+                # tabela é o outro caso em que ele reclama.
+                vao = doc.add_paragraph()
+                vao.paragraph_format.space_before = Pt(0)
+                vao.paragraph_format.space_after = Pt(0)
+                vao.paragraph_format.line_spacing = Pt(1)
             elif isinstance(bloco, Figura):
                 pt = largura_em_pt(bloco, corpo_pt)
                 forma = doc.add_picture(

@@ -240,7 +240,11 @@ def test_a_css_do_epub_leva_a_moldura_e_o_corpo_escolhidos():
 def test_no_docx_a_moldura_e_uma_celula_em_volta_do_tabuleiro():
     """
     Tabela de uma célula, e não borda de parágrafo: esta emolduraria a coluna
-    de texto inteira, e o tabuleiro é estreito e centrado.
+    de texto inteira, e o tabuleiro é estreito.
+
+    **A caixa existe também sem moldura**, com as bordas declaradas `nil` — e
+    não é desperdício, é o alinhamento (F98): a casa clara vazia da Chess
+    Merida é o espaço, e o Word não conta espaço no fim da linha para centrar.
     """
     from docx import Document
 
@@ -254,8 +258,30 @@ def test_no_docx_a_moldura_e_uma_celula_em_volta_do_tabuleiro():
 
     caminho, xml = _docx(_paginas(_figura("sem")), diagramas="fonte",
                          moldura="sem")
-    assert "w:tcBorders" not in xml
-    assert not Document(caminho).tables
+    assert 'w:val="nil"' in xml, "sem moldura tem de ser borda declarada ausente"
+    assert "double" not in xml and 'w:val="single"' not in xml
+    assert len(Document(caminho).tables) == 1
+
+
+def test_a_caixa_do_docx_mede_o_tabuleiro_e_nao_a_coluna():
+    """
+    Largura fixa e escrita três vezes — `tblW`, `w:gridCol` e `tcW` —, porque
+    em autoajuste quem decide é o Word na hora de abrir, e uma célula mais
+    larga que o tabuleiro poria a moldura longe dele.
+
+    16 pt por casa dão 128 pt de tabuleiro, que são 2560 twips.
+    """
+    _caminho, xml = _docx(_paginas(_figura("simples")), diagramas="fonte",
+                          corpo_pt=16)
+    assert '<w:tblW w:type="dxa" w:w="2560"/>' in xml
+    assert '<w:gridCol w:w="2560"/>' in xml
+    assert '<w:tcW w:type="dxa" w:w="2560"/>' in xml
+    assert '<w:tblLayout w:type="fixed"/>' in xml
+    # Alinhado à esquerda dentro da caixa: centrar devolveria a voz ao espaço
+    # do fim da fila, que é a casa clara vazia da Chess Merida.
+    assert '<w:jc w:val="left"/>' in xml
+    # E o tabuleiro não se parte entre duas páginas.
+    assert "<w:cantSplit/>" in xml
 
 
 def test_dois_diagramas_seguidos_nao_caem_na_mesma_moldura():

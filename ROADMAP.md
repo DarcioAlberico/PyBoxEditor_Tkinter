@@ -10549,6 +10549,105 @@ recorte desatualizado, e reprovava antes de o script rodar.
 Reproduzir: `python gerar_fonte_de_simbolos.py --conferir` diz o que falta;
 `python gerar_fonte_de_simbolos.py` refaz o recorte.
 
+## F98 — A segunda fonte de diagrama, e as três suposições que ela derrubou — CONCLUÍDA
+
+Até aqui "a fonte" era uma só, e por isso várias suposições sobre ela nunca precisaram ser
+ditas. A Chess Merida — a fonte tradicional de diagrama, a das figuras que a maioria dos
+livros imprime — disse todas de uma vez, e as três falham **em silêncio**.
+
+### 1. O cmap: o `fitz` não enxergava um glifo sequer
+
+A `MERIFONT.TTF` é de 1998 e traz duas tabelas de cmap: uma Mac Roman (1,0) e uma **Symbol**
+(3,0), esta com os caracteres em `0xF020`–`0xF0EF` em vez de `0x20`–`0xEF`. Era o jeito de
+1998 de dizer "esta fonte não tem letras, tem desenhos", e o Word ainda o entende — o
+Wingdings funciona assim até hoje.
+
+Medido: `fitz.Font(fontfile="fonts/MERIFONT.TTF")` varrido pelos **65.536 codepoints** do
+plano básico encontra **zero** glifos, e `insert_text` desenha um `·` no lugar de cada peça
+sem levantar erro nenhum. É exatamente o modo de falha da §4.2 da SPEC, e a checagem de
+cobertura do `render_diagrama` — que existe desde a F58 justamente para isso — o pegaria; mas
+pegar não é resolver.
+
+Daí o `gerar_fonte_de_diagrama.py`, no molde do `gerar_fonte_de_simbolos.py` da F62: roda à
+mão, o produto é versionado, e o `fontTools` fica sendo dependência de desenvolvimento. Ele
+acrescenta as tabelas (3,1) e (0,3) construídas a partir da de símbolo, **tira** a (3,0) — se
+ela ficasse, o Word continuaria tratando a fonte como de símbolo e ignorando a nova — e
+renomeia a família. Os 97 contornos não são tocados, e é isso que o `--conferir` mede: se um
+dia o remendo mexer num desenho, a contagem de glifos acusa.
+
+A licença permite: a Chess Merida é freeware de Armando Hernández Marroquín (1998), e a
+redistribuição em `github.com/vasiliyaltunin/chess-merida-font` é MPL-2.0, que autoriza
+modificar.
+
+### 2. A família: a chave do mapa **é** o nome de dentro do arquivo
+
+Quem embute a fonte no DOCX escreve `<w:font w:name="…">` com a chave do mapa e pede a mesma
+chave no run. A `SkakNew-Diagram` se chama `SkakNew-Diagram` por dentro, então isso nunca foi
+uma regra — era uma coincidência. A Merida saiu do primeiro remendo como `Chess Merida
+Diagram`, e o Word não liga uma coisa na outra: o tabuleiro sairia na fonte do usuário, sem
+erro, e só se veria abrindo o arquivo.
+
+Hoje é regra, e há teste sobre **toda** fonte do mapa — não só sobre esta.
+
+### 3. A casa vazia: a da Merida é o espaço, e o Word não conta espaço para centrar
+
+| | casa clara vazia | casa escura vazia |
+|---|---|---|
+| SkakNew-Diagram | `0` | `Z` |
+| Chess Merida | **espaço** | `+` |
+
+As oito filas do modo de fonte eram parágrafos **centrados**, e isso só funcionava porque
+nenhuma fila da SkakNew começa ou termina em espaço. O Word ignora o espaço do fim da linha
+ao centrar: a fila `"+ + +o+ "` seria medida com sete casas e a `" + WlV +"` com oito, e o
+tabuleiro sairia em escada, meia casa por fila.
+
+O conserto é a caixa da F97 passar a existir **sempre** — com as bordas declaradas `nil`
+quando não há moldura —, com a largura escrita três vezes (`tblW`, `w:gridCol`, `tcW`) e
+`tblLayout` fixo, e as filas alinhadas à esquerda dentro dela. Numa célula da largura exata
+do tabuleiro o espaço deixa de ter voz no alinhamento. De brinde vem o `w:cantSplit`, que
+resolve no DOCX o que o `page-break-inside: avoid` resolve no EPUB.
+
+### O mapa, e como ele foi conferido
+
+Ele saiu do mapa de teclado publicado com a fonte (`fonts/LEEME__D.TXT`, seção PIEZAS) e da
+tabela em `fonts/Merida.jpg` — minúscula é casa clara, maiúscula é escura; brancas
+`p n b r q k`, pretas `o m v t w l`. As quatro provas do `medir_fonte_diagrama.py`, que já
+existiam desde a F58 e nunca tinham sido usadas numa fonte nova:
+
+| prova | Chess Merida |
+|---|---|
+| fechamento | 24 combinações e as duas casas vazias, sem sobra nem falta |
+| avanço | todo caractere do mapa anda 1 em (2048 unidades) |
+| tinta na quina | clara 0,000; escura 0,293 — as faixas não se tocam |
+| ida e volta (as redes da F7.4/F7.5) | **100,00%** de casa certa em 2.560 casas, 40 de 40 tabuleiros |
+
+A terceira merece nota: a casa escura da SkakNew é quase sólida, e a da Merida é hachura
+fina — 29% de tinta na quina. A prova mede o **vão** entre as duas faixas, e não um limiar
+fixo, e é por isso que ela passou numa fonte que não existia quando foi escrita.
+
+### A fonte fica escolhível
+
+A lista do diálogo sai do `fontes_de_diagrama.json`, e não de uma lista escrita na tela:
+fonte nova no mapa aparece sozinha, e fonte sem mapa não aparece — que é o que impede
+oferecer uma que o renderizador vai recusar.
+
+O diálogo da F97 virou `ui/dialogo_do_diagrama.py`, com três perguntas em vez de duas, e a
+amostra dele deixou de ser um tabuleiro de brinquedo desenhado no `Canvas`: agora ela sai do
+`render_diagrama.desenhar`, com a fonte e a moldura escolhidas, que é o mesmo código que vai
+escrever o livro. O desenho de mentira mentia justamente onde a escolha importa — as peças
+eram as mesmas nas duas fontes.
+
+### O que ficou de fora
+
+- **A moldura por glifo.** A Merida sabe desenhá-la: são oito caracteres de borda (`! " # $
+  % ( ) /` na versão dupla, `1 2 3 4 5 7 8 9` na simples), num tabuleiro de 10×10 caracteres
+  em vez de 8×8. Não se usa, e o motivo é que a moldura da F97 é desenhada com caneta — o que
+  a faz valer para **qualquer** fonte, inclusive a SkakNew, que não tem glifo de borda nenhum.
+- **As bordas com coordenada**, em `0xC0`–`0xCF` (simples) e `0xE0`–`0xEF` (dupla). Estas são
+  a coisa mais interessante que a Merida traz e que a SkakNew não tem: elas resolveriam o
+  rótulo em fonte de texto do modo de fonte embutida — o `<i>` dentro do `<span>` do EPUB, e
+  o diagrama com coordenadas que no DOCX ainda cai para imagem. Fica anotado no mapa.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

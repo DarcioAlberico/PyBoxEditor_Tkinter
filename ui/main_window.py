@@ -26,7 +26,7 @@ from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
 from ui.dialogo_diagrama import DialogoDiagrama
-from ui.dialogo_moldura import DialogoMoldura
+from ui.dialogo_do_diagrama import DialogoDoDiagrama
 from ui.dialogo_semelhantes import DialogoSemelhantes
 from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
@@ -1676,7 +1676,7 @@ class MainWindow(tk.Frame):
                     "para não ter teto.")
 
     #: Costura de teste, como a do `DIALOGO_DIAGRAMA`.
-    DIALOGO_MOLDURA = DialogoMoldura
+    DIALOGO_DO_DIAGRAMA = DialogoDoDiagrama
 
     def exportar_livro_action(self):
         """
@@ -1764,16 +1764,17 @@ class MainWindow(tk.Frame):
                 "é sem.",
                 default=messagebox.NO)
 
-        # A moldura e o corpo do diagrama (F97). **Uma caixa só para as duas**,
-        # ao contrário das de cima: uma tem três respostas e a outra é um
-        # número, e as duas mexem no mesmo desenho — quem escolhe a moldura
-        # dupla precisa ver que a está escolhendo para um diagrama de 4,5 cm.
+        # A fonte, a moldura e o corpo do diagrama (F97, F98). **Uma caixa só
+        # para as três**, ao contrário das de cima: uma é uma lista, outra tem
+        # três respostas, a terceira é um número, e as três mexem no mesmo
+        # desenho — quem escolhe a moldura dupla precisa ver que a está
+        # escolhendo para um diagrama de 4,5 cm na fonte que escolheu.
         # Cancelar aqui desiste da exportação, e não vira "faça como sempre":
         # quem abriu esta caixa veio decidir alguma coisa.
-        escolha = self.DIALOGO_MOLDURA(self.parent).mostrar()
+        escolha = self.DIALOGO_DO_DIAGRAMA(self.parent).mostrar()
         if escolha is None:
             return
-        moldura, corpo_pt = escolha
+        fonte_do_diagrama, moldura, corpo_pt = escolha
 
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
@@ -1811,6 +1812,7 @@ class MainWindow(tk.Frame):
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
                                     moldura=moldura,
+                                    fonte=fonte_do_diagrama,
                                     progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
             exportar.exportar(paginas, saida, formato=formato,
