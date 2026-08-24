@@ -1,12 +1,17 @@
 """
-Como o diagrama sai no arquivo: a fonte, a moldura e o tamanho (F97, F98).
+Como o diagrama sai no arquivo: a fonte, a moldura e o tamanho (F97, F98, F101).
 
-Três perguntas, e uma caixa só. As outras escolhas da exportação saem em
+Quatro perguntas, e uma caixa só. As outras escolhas da exportação saem em
 `messagebox` encadeados, e é o que elas pedem — são sim-ou-não, e cada uma se
-explica sozinha. Estas não: uma é uma lista, outra tem três respostas, a
-terceira é um número, e as três mexem no **mesmo desenho**. Perguntadas em
-caixas separadas, quem escolhesse a moldura dupla não teria como ver que a
-escolheu para um diagrama de 4,5 cm na fonte errada.
+explica sozinha. Estas não: uma é uma lista, outra tem três respostas, uma
+terceira é um número, e todas mexem no **mesmo desenho**. Perguntadas em caixas
+separadas, quem escolhesse a moldura dupla não teria como ver que a escolheu
+para um diagrama de 4,5 cm na fonte errada.
+
+**A quina é caixinha e não um quarto feitio de moldura** (F101). "Sem moldura
+arredondada" não quer dizer nada, e cinco radiobuttons fariam o usuário procurar
+a combinação em vez de escolhê-la. Por isso ela desliga junto com a moldura:
+sem filete não há quina.
 
 **A amostra é o diagrama de verdade, e não um desenho de mentira.** Ela sai do
 `render_diagrama.desenhar`, com a fonte e a moldura escolhidas — o mesmo código
@@ -67,23 +72,25 @@ PT_POR_CM = 72.0 / 2.54
 
 
 class DialogoDoDiagrama:
-    """Pergunta fonte, moldura e corpo. Devolve a tripla, ou `None`."""
+    """Pergunta fonte, moldura, quina e corpo. Devolve a quádrupla, ou `None`."""
 
     def __init__(self, parent, fonte: str = render_diagrama.FONTE_PADRAO,
                  moldura: str = render_diagrama.MOLDURA_PADRAO,
+                 cantos: str = render_diagrama.CANTO_PADRAO,
                  corpo_pt: float = CORPO_PADRAO_PT):
         self.parent = parent
         self.fonte_inicial = fonte
         self.moldura_inicial = moldura
+        self.cantos_iniciais = cantos
         self.corpo_inicial = corpo_pt
-        self.resultado: Optional[Tuple[str, str, float]] = None
+        self.resultado: Optional[Tuple[str, str, str, float]] = None
         self._foto = None      # o Tk descarta a imagem que ninguém segura
 
     # ------------------------------------------------------------------
     # Construir
     # ------------------------------------------------------------------
 
-    def mostrar(self) -> Optional[Tuple[str, str, float]]:
+    def mostrar(self) -> Optional[Tuple[str, str, str, float]]:
         self._construir()
         self.top.grab_set()
         self.top.focus_set()
@@ -128,10 +135,16 @@ class DialogoDoDiagrama:
         for valor, rotulo, explicacao in FEITIOS:
             ttk.Radiobutton(feitio, text=rotulo, value=valor,
                             variable=self.var_moldura,
-                            command=self._desenhar_amostra).pack(anchor="w")
+                            command=self._mudou_a_moldura).pack(anchor="w")
             ttk.Label(feitio, text=explicacao, foreground="gray30",
                       wraplength=240).pack(anchor="w", padx=(20, 0),
                                            pady=(0, 4))
+        self.var_cantos = tk.BooleanVar(
+            value=self.cantos_iniciais == "arredondado")
+        self.chk_cantos = ttk.Checkbutton(
+            feitio, text="cantos arredondados", variable=self.var_cantos,
+            command=self._desenhar_amostra)
+        self.chk_cantos.pack(anchor="w", pady=(2, 0))
 
         tamanho = ttk.LabelFrame(corpo, text="tamanho", padding=6)
         tamanho.grid(row=2, column=1, sticky="ew", pady=(8, 0))
@@ -165,7 +178,7 @@ class DialogoDoDiagrama:
         self.top.bind("<Return>", lambda _e: self._confirmar())
         self.top.bind("<Escape>", lambda _e: self._cancelar())
         self._mudou_o_corpo()
-        self._desenhar_amostra()
+        self._mudou_a_moldura()
 
     # ------------------------------------------------------------------
     # Reagir
@@ -202,6 +215,18 @@ class DialogoDoDiagrama:
                  f"de lado".replace(".", ","))
         self.btn_ok.state(["!disabled"])
 
+    def _mudou_a_moldura(self):
+        """Sem filete não há quina — a caixinha desliga junto com a moldura."""
+        sem = self.var_moldura.get() == "sem"
+        self.chk_cantos.state(["disabled"] if sem else ["!disabled"])
+        self._desenhar_amostra()
+
+    def _cantos(self) -> str:
+        """`"arredondado"` só quando há moldura para arredondar."""
+        if self.var_moldura.get() == "sem" or not self.var_cantos.get():
+            return "reto"
+        return "arredondado"
+
     def _desenhar_amostra(self):
         """
         O diagrama de verdade, na fonte e na moldura escolhidas.
@@ -222,7 +247,7 @@ class DialogoDoDiagrama:
             png, largura, altura = render_diagrama.desenhar(
                 FEN_DA_AMOSTRA, fonte=self.var_fonte.get(),
                 lado_px=LADO_DA_AMOSTRA, moldura=self.var_moldura.get(),
-                tons=0)
+                cantos=self._cantos(), tons=0)
         except (render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta, ValueError) as erro:
             self.amostra.create_text(centro, centro, width=LADO_DA_AMOSTRA,
@@ -241,7 +266,8 @@ class DialogoDoDiagrama:
         corpo = self._corpo_digitado()
         if corpo is None or not self.var_fonte.get():
             return
-        self.resultado = (self.var_fonte.get(), self.var_moldura.get(), corpo)
+        self.resultado = (self.var_fonte.get(), self.var_moldura.get(),
+                          self._cantos(), corpo)
         self.top.destroy()
 
     def _cancelar(self):

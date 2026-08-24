@@ -10610,13 +10610,74 @@ um defeito visto. Ficou fechado do mesmo jeito, junto com a duplicação da folh
 
 ### O que ficou de fora
 
-- **Os cantos arredondados** (`a s d f` na simples, `A S D F` na dupla) — os mesmos quatro
-  cantos com a quina redonda. Não há como oferecê-los sem uma quinta resposta na caixa da
-  F97, e a caixa já tem três.
+- ~~**Os cantos arredondados** (`a s d f` na simples, `A S D F` na dupla) — não há como
+  oferecê-los sem uma quinta resposta na caixa da F97~~ — **promovidos para a F101**, e a
+  quinta resposta não foi preciso: eles não são um quarto feitio de moldura, são um eixo à
+  parte, e um sim-ou-não basta.
 - **A moldura em glifo sem coordenada.** Faria a SkakNew e a Merida desenharem molduras de
   geometrias diferentes para a mesma escolha do usuário, e a da caneta já vale para as duas.
 
-## F100 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
+## F101 — A quina redonda, e a caixinha que teria funcionado em um caso só — CONCLUÍDA
+
+A F99 deixou os cantos arredondados de fora dizendo que não havia como oferecê-los sem uma
+quinta resposta na caixa. Havia: eles não são um quarto feitio de moldura, são um **eixo à
+parte** — três feitios e um sim-ou-não. "Sem moldura arredondada" não quer dizer nada, e
+cinco radiobuttons fariam o usuário procurar a combinação em vez de escolhê-la.
+
+### O que a Merida traz, e por que não bastaria
+
+`a s d f` acompanham a moldura simples e `A S D F` a dupla. Medido no contorno, o `a` tem
+**exatamente** a caixa do `1` e o `A` a do `!`: é o mesmo canto, com a curva no lugar do
+ângulo. E nenhum dos oito colide com o mapa de casas.
+
+Mas os glifos de moldura só entram num caminho: diagrama **com coordenada**, em fonte que os
+tenha. O caminho mais usado de todos — PNG sem coordenada, que é o padrão da exportação —
+desenha o filete com a caneta, e ali não há glifo nenhum. Uma caixinha que só funcionasse
+naquela combinação seria pior que caixinha nenhuma: o usuário marca, exporta, e nada muda.
+
+### Então a caneta também arredonda, com o raio da fonte
+
+| | raio |
+|---|---:|
+| canto simples da Merida (`a`) | 135 de 2048 unidades do em = **0,066 casa** |
+| canto duplo da Merida (`A`) | 409 de 2048 = **0,200 casa** |
+
+São esses os dois números que a caneta usa. Copiar o desenho da fonte é o que impede a
+escolha de significar duas coisas — o mesmo diagrama tem a mesma quina saindo da Merida ou
+da caneta, e a SkakNew, que não tem canto redondo nenhum, passa a ter um.
+
+Na moldura dupla os dois filetes são concêntricos, e o de dentro tem de curvar mais fechado
+que o de fora **exatamente pela distância que os separa**, ou os dois se cruzam na quina. O
+`radius` do PyMuPDF é fração do menor lado do retângulo, e cada filete tem o seu.
+
+E curvar a quina não mexe na medida do desenho: o filete continua ocupando a mesma margem, e
+um diagrama arredondado ao lado de um reto casa. Está em teste.
+
+### Onde ele chega, e onde não
+
+| | quem desenha |
+|---|---|
+| PNG, sem coordenada | a caneta, nas duas fontes |
+| PNG, com coordenada, Merida | os glifos `a s d f` / `A S D F` |
+| PNG, com coordenada, SkakNew | a caneta |
+| EPUB, modo de fonte, caixa | `border-radius` na CSS |
+| EPUB, modo de fonte, emoldurado em glifo | a fonte |
+| **DOCX, modo de fonte, caixa** | **ninguém: o Word não arredonda borda de célula** |
+| DOCX, modo de fonte, emoldurado em glifo | a fonte |
+
+A única casa vazia da tabela é a caixa do DOCX, e ela é do formato: `w:tcBorders` não tem
+raio. O `para_docx` **confere** o valor mesmo sem usá-lo — sem isso um `"redondo"` passaria
+calado num formato e doeria no outro, e o usuário veria dois arquivos diferentes do mesmo
+livro.
+
+### O caso que não pode cair para a caneta
+
+Uma fonte com borda em glifo e sem a versão redonda: a `moldura_em_glifo` devolve os cantos
+de quina viva, e não `None`. Devolver `None` mandaria o diagrama inteiro para o caminho da
+caneta e **perderia as coordenadas em glifo** — muito mais do que se pediu ao marcar uma
+caixinha. Hoje não há fonte assim no repositório, e o teste monta uma.
+
+## F101 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
 
 Desde o treino de 21/08 a base andou e o modelo não: `training_data/` tinha **314 pastas
 para 292 classes**. Uma pasta que não é classe não é dado esperando — é dado que o modelo
@@ -10762,14 +10823,35 @@ buraco horário, e é a diferença entre um arco e um retângulo arredondado mac
 emprestado vem de quem sabe desenhar fonte e mantém a família coerente. Este caminho é para o
 caso em que a única fonte que acerta a forma proíbe embutir — hoje, um símbolo.
 
+### O `✝` não precisava de glifo, e o script é que estava perguntando errado
+
+Ele era o último da lista, e é o que mais tem amostra: **2.901**, a cruz cheia que estes
+livros imprimem no xeque. Desenhá-lo seria trabalho perdido, e quem diz isso é a F68: o
+`notacao.SINONIMOS_DE_SAIDA` está nos **três** lugares em que caractere de modelo vira texto
+de arquivo — `livro`, `notacao` e `searchable_pdf` —, e nos três ele sai como `+`.
+
+Ou seja, **nenhum arquivo que este programa escreve pode conter um `✝`**. A conta de "quem
+falta desenhar" é que estava errada: o `simbolos_do_modelo` respondia com o alfabeto do
+modelo, e a pergunta certa é quais caracteres **chegam a um arquivo**. Com o filtro, o
+alfabeto pedido cai de 89 para 88 símbolos e a última linha do script passa a dizer
+
+    ainda sem glifo: – —
+
+que são travessão e meia-risca — pontuação que a fonte de texto do leitor desenha, e que o
+`fonte_dos_simbolos` nem chega a pedir: ele embrulha no `<span>` da fonte de recurso **só os
+caracteres que ela cobre**, e não a linha inteira.
+
+A dívida dos "cinco sem glifo" fecha em três frentes diferentes, e nenhuma delas é a que
+parecia: dois foram emprestados, um foi desenhado, e dois nunca existiram.
+
 ### O que isto abre
 
-- **Três símbolos do alfabeto continuam sem glifo no recorte**: `– — ✝`. Os dois traços são
-  pontuação que a fonte de texto do leitor desenha; o `✝` não é, e tem 2.901 amostras.
-- **O `desenhar` abre o caminho para o `✝`**, que é o que sobra com amostra de sobra (2.901)
-  e sem glifo — e ele não é arco: é o `+` do xeque com a haste comprida, da F68.
+- **Dois símbolos ficam sem glifo no recorte, e é o certo**: `– —`. A fonte de texto do
+  leitor os desenha, e o recorte só recebe o que ela não tem.
 - **Nada mede o desenho contra a página**, só contra as proporções que saíram dela. Um
   diagrama impresso lado a lado com o EPUB exportado é a prova que falta, e ela é visual.
+- **O `desenhar` tem um usuário só, e é assim que ele deve continuar.** O próximo símbolo
+  sem glifo que aparecer se resolve procurando fonte antes de pegar a caneta.
 - **Vinte classes com menos de cinco amostras não têm como ser medidas.** A `importar_letras`
   da F94 existe para exatamente isto, e o `--faltantes` aceita a lista.
 - **O piso de 136/136 não é acurácia.** Enquanto essas classes não tiverem validação, o que

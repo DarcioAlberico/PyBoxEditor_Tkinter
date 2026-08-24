@@ -86,7 +86,13 @@
           "base": "8",
           "canto_so": "9",
           "filas": "\u00c0\u00c1\u00c2\u00c3\u00c4\u00c5\u00c6\u00c7",
-          "colunas": "\u00c8\u00c9\u00ca\u00cb\u00cc\u00cd\u00ce\u00cf"
+          "colunas": "\u00c8\u00c9\u00ca\u00cb\u00cc\u00cd\u00ce\u00cf",
+          "cantos_arredondados": {
+            "canto_ne": "a",
+            "canto_no": "s",
+            "canto_se": "d",
+            "canto_so": "f"
+          }
         },
         "dupla": {
           "canto_ne": "!",
@@ -98,11 +104,17 @@
           "base": "(",
           "canto_so": ")",
           "filas": "\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u00e6\u00e7",
-          "colunas": "\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef"
+          "colunas": "\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef",
+          "cantos_arredondados": {
+            "canto_ne": "A",
+            "canto_no": "S",
+            "canto_se": "D",
+            "canto_so": "F"
+          }
         }
       },
       "nota_molduras": "Os cantos sao nomeados pelo canto DO TABULEIRO que eles fecham (canto_ne = o de cima a esquerda), e nao pelo lugar da tinta dentro da casa, que e o oposto: o glifo do canto de cima a esquerda tem a tinta embaixo a direita da propria casa, porque a casa dele fica acima e a esquerda do tabuleiro. 'filas' e indexada por fila 1..8 e 'colunas' por coluna a..h -- 0xC0 e a fila 1 e 0xC8 e a coluna a, conferido no desenho. Cada um destes glifos traz o filete E o rotulo: nao ha rotulo sem filete, e por isso 'sem moldura' com coordenada continua saindo pela caneta e pela fonte de texto.",
-      "sem_uso_cantos_arredondados": "a s d f (simples) e A S D F (dupla) -- os mesmos quatro cantos com a quina redonda. Nenhum uso, e nao ha como oferece-los sem uma quinta resposta na caixa da F97.",
+      "nota_cantos_arredondados": "Os mesmos quatro cantos com a quina redonda (F101). Minuscula acompanha a moldura simples e maiuscula a dupla -- medido no contorno, o 'a' tem exatamente a caixa do '1' e o 'A' a do '!'. Nao ha conflito com as pecas: 'a s d f A S D F' nao aparecem no mapa de casas.",
       "sem_uso": ". : x X ?"
     }
   }

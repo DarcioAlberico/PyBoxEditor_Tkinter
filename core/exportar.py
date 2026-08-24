@@ -23,7 +23,8 @@ from typing import List, Optional, Sequence, Tuple
 import fitz
 
 from core.livro import Figura, PaginaExtraida, Paragrafo, Tabela
-from core.render_diagrama import MOLDURA_PADRAO, normalizar_moldura
+from core.render_diagrama import (CANTO_PADRAO, MOLDURA_PADRAO,
+                                  normalizar_cantos, normalizar_moldura)
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -76,6 +77,16 @@ MOLDURA_NA_CSS = {
     "simples": "border: 0.06em solid #000; padding: 0.30em;",
     "dupla": "border: 0.16em double #000; padding: 0.24em;",
 }
+
+#: A quina redonda, na CSS do EPUB — acrescentada à moldura, e não no lugar
+#: dela (F101).
+#:
+#: Em `em`, como a moldura, para acompanhar o corpo escolhido. O número é maior
+#: que o raio do PNG de propósito: ali o filete encosta no tabuleiro, e aqui há
+#: o `padding` entre um e outro, então a mesma quina precisa de uma curva mais
+#: aberta para parecer a mesma.
+RAIO_NA_CSS = {"sem": "", "simples": " border-radius: 0.20em;",
+               "dupla": " border-radius: 0.40em;"}
 
 #: A moldura do tabuleiro em texto, no DOCX: `(w:val, w:sz)` da borda da célula.
 #: O `w:sz` é em oitavos de ponto, e o `double` do Word já são dois filetes.
@@ -453,7 +464,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
               identificador: str = "pyboxeditor",
               diagramas: str = "png", idioma: str = IDIOMA_PADRAO,
               corpo_pt: float = CORPO_PADRAO_PT,
-              moldura=MOLDURA_PADRAO) -> str:
+              moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO) -> str:
     """
     Escreve o EPUB. Devolve o caminho.
 
@@ -468,8 +479,8 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
 
     `corpo_pt` é o tamanho da **casa**, em pontos, e vale nos dois modos: no de
     fonte é o corpo da letra, no de imagem é o que dá a largura da figura (F97).
-    `moldura` só tem efeito no modo de fonte — no de imagem ela já veio
-    desenhada dentro do PNG.
+    `moldura` e `cantos` só têm efeito no modo de fonte — no de imagem eles já
+    vieram desenhados dentro do PNG.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
@@ -479,6 +490,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     # conferida nos dois, para um erro de digitação não passar batido no livro
     # em que ela não teria efeito.
     moldura = normalizar_moldura(moldura)
+    cantos = normalizar_cantos(cantos)
     corpo_pt = corpo_valido(corpo_pt)
 
     embutidas = fontes_usadas(paginas) if diagramas == "fonte" else {}
@@ -506,8 +518,10 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     css = CSS
     fontes_no_zip = dict(embutidas)
     if embutidas:
-        css += CSS_DO_DIAGRAMA % {"corpo": f"{corpo_pt:g}",
-                                  "moldura": MOLDURA_NA_CSS[moldura]}
+        css += CSS_DO_DIAGRAMA % {
+            "corpo": f"{corpo_pt:g}",
+            "moldura": MOLDURA_NA_CSS[moldura] + (
+                RAIO_NA_CSS[moldura] if cantos == "arredondado" else "")}
     for nome, origem in embutidas.items():
         css += CSS_DA_FONTE_DO_DIAGRAMA % {
             "familia": nome, "arquivo": os.path.basename(origem),
@@ -780,7 +794,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
               largura_figura_cm: float = 9.0,
               diagramas: str = "png",
               corpo_pt: float = CORPO_PADRAO_PT,
-              moldura=MOLDURA_PADRAO) -> str:
+              moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO) -> str:
     """
     Escreve o DOCX. Devolve o caminho.
 
@@ -800,11 +814,21 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     `moldura` (F97) só tem efeito nesse mesmo modo, pela `_caixa_do_diagrama`, e
     só quando o texto não traz a sua: no modo de imagem o filete já veio
     desenhado dentro do PNG, e no de fonte emoldurada ele está no próprio texto.
+
+    `cantos` (F101) é conferido e não usado aqui: o Word não arredonda borda de
+    célula. A quina redonda chega ao DOCX pelo PNG e pelo texto emoldurado, que
+    é onde quem a desenha é o renderizador ou a própria fonte.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
                          f"(use um de {MODOS_DE_DIAGRAMA})")
     moldura = normalizar_moldura(moldura)
+    # Conferido e não usado: **o Word não sabe arredondar borda de célula**, e a
+    # caixa da `_caixa_do_diagrama` é uma célula. Onde a quina redonda aparece
+    # no DOCX é no diagrama emoldurado em glifo, e ali quem a desenha é a fonte.
+    # Recusar o valor errado mesmo assim é o que evita um `"redondo"` passar em
+    # silêncio num formato e doer no outro.
+    normalizar_cantos(cantos)
     corpo_pt = corpo_valido(corpo_pt)
 
     import io as _io

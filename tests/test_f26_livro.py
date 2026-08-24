@@ -443,9 +443,9 @@ class _DiagramaFixo:
     o teste não falhou, ficou pendurado.
     """
 
-    #: O que o dublê responde: `(fonte, moldura, corpo)`. `None` imita o
-    #: Cancelar, que desiste da ação.
-    resposta = ("SkakNew-Diagram", "simples", 16.0)
+    #: O que o dublê responde: `(fonte, moldura, cantos, corpo)`. `None` imita
+    #: o Cancelar, que desiste da ação.
+    resposta = ("SkakNew-Diagram", "simples", "reto", 16.0)
 
     def __init__(self, _parent, **_kw):
         pass
@@ -478,7 +478,7 @@ class _App:
               "Guardar": False}
 
     def __init__(self, entrada, saida, coletar=False, respostas=None,
-                 diagrama=("SkakNew-Diagram", "simples", 16.0)):
+                 diagrama=("SkakNew-Diagram", "simples", "reto", 16.0)):
         from tkinter import filedialog, messagebox
 
         self.diagrama = diagrama
@@ -661,10 +661,13 @@ def test_a_fonte_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):
     _pdf_de_uma_pagina(entrada)
 
     with _App(entrada, os.path.join(tmp, "a.epub"),
-              diagrama=("ChessMerida-Diagram", "dupla", 20.0)) as app:
+              diagrama=("ChessMerida-Diagram", "dupla", "arredondado",
+                        20.0)) as app:
         app.rodar()
         assert not app.erros, app.erros
         assert extraiu["moldura"] == "dupla", "a moldura parou no diálogo"
+        assert extraiu["cantos"] == "arredondado", "a quina parou no diálogo"
+        assert escreveu["cantos"] == "arredondado"
         assert extraiu["fonte"] == "ChessMerida-Diagram", (
             "a fonte escolhida parou no diálogo (F98)")
         assert escreveu["moldura"] == "dupla"

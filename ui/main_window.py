@@ -1764,17 +1764,17 @@ class MainWindow(tk.Frame):
                 "é sem.",
                 default=messagebox.NO)
 
-        # A fonte, a moldura e o corpo do diagrama (F97, F98). **Uma caixa só
-        # para as três**, ao contrário das de cima: uma é uma lista, outra tem
-        # três respostas, a terceira é um número, e as três mexem no mesmo
-        # desenho — quem escolhe a moldura dupla precisa ver que a está
+        # A fonte, a moldura, a quina e o corpo do diagrama (F97, F98, F101).
+        # **Uma caixa só para as quatro**, ao contrário das de cima: uma é uma
+        # lista, outra tem três respostas, outra é um número, e todas mexem no
+        # mesmo desenho — quem escolhe a moldura dupla precisa ver que a está
         # escolhendo para um diagrama de 4,5 cm na fonte que escolheu.
         # Cancelar aqui desiste da exportação, e não vira "faça como sempre":
         # quem abriu esta caixa veio decidir alguma coisa.
         escolha = self.DIALOGO_DO_DIAGRAMA(self.parent).mostrar()
         if escolha is None:
             return
-        fonte_do_diagrama, moldura, corpo_pt = escolha
+        fonte_do_diagrama, moldura, cantos, corpo_pt = escolha
 
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
@@ -1811,14 +1811,15 @@ class MainWindow(tk.Frame):
                                     coletor=coletor,
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
-                                    moldura=moldura,
+                                    moldura=moldura, cantos=cantos,
                                     fonte=fonte_do_diagrama,
                                     progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
             exportar.exportar(paginas, saida, formato=formato,
                               titulo=os.path.splitext(os.path.basename(input_pdf))[0],
                               diagramas="fonte" if embutir else "png",
-                              corpo_pt=corpo_pt, moldura=moldura)
+                              corpo_pt=corpo_pt, moldura=moldura,
+                              cantos=cantos)
             if coletor is not None:
                 coletor.gravar_indice()
             return paginas, coletor

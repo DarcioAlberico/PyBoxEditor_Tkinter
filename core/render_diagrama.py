@@ -113,6 +113,22 @@ ESPESSURA_MOLDURA = 0.04
 #: leve encosta no tabuleiro. Invertida, a moldura parece uma sombra.
 MOLDURA_DUPLA = (0.045, 0.030, 0.020)
 
+#: A quina da moldura: viva ou redonda (F101).
+#:
+#: **É um eixo à parte da moldura, e não dois feitios a mais.** "Sem moldura
+#: arredondada" não quer dizer nada, e pôr cinco respostas onde há três e um
+#: sim-ou-não faria o usuário procurar a combinação em vez de escolhê-la.
+CANTOS = ("reto", "arredondado")
+CANTO_PADRAO = "reto"
+
+#: O raio da quina redonda, em casas, quando ela é desenhada com a caneta.
+#:
+#: Sai do desenho da Chess Merida, que é quem tem a quina redonda em glifo: a
+#: caixa do canto simples dela mede 135 das 2048 unidades do em, e a do duplo,
+#: 409. Copiar o número faz o mesmo diagrama ter a mesma quina saindo da fonte
+#: ou da caneta — que é o que impede a escolha de significar duas coisas.
+RAIO_DO_CANTO = {"simples": 0.066, "dupla": 0.200}
+
 #: Espaço do rótulo e corpo dele, em casas.
 GUTTER_ROTULO = 0.72
 CORPO_ROTULO = 0.46
@@ -167,9 +183,21 @@ class Fonte:
             raise FonteIncompleta(
                 f"{self.nome} não tem casa {cor} para {simbolo!r}") from None
 
-    def moldura_em_glifo(self, moldura: str) -> Optional[Dict[str, str]]:
-        """Os caracteres desta moldura, ou `None` se a fonte não os tem."""
-        return self.molduras.get(moldura)
+    def moldura_em_glifo(self, moldura: str,
+                         cantos: str = CANTO_PADRAO) -> Optional[Dict[str, str]]:
+        """
+        Os caracteres desta moldura, ou `None` se a fonte não os tem.
+
+        `cantos="arredondado"` troca os quatro cantos pelos de quina redonda —
+        **quando a fonte os traz**. Não trazendo, devolve os de quina viva em
+        vez de devolver `None`: a alternativa seria mandar o diagrama inteiro
+        para o caminho da caneta e perder as coordenadas em glifo, que é muito
+        mais do que o usuário pediu ao marcar uma caixinha.
+        """
+        pecas = self.molduras.get(moldura)
+        if pecas is None or cantos != "arredondado":
+            return pecas
+        return dict(pecas, **pecas.get("cantos_arredondados", {}))
 
 
 _cache: Dict[str, Fonte] = {}
@@ -220,7 +248,9 @@ def carregar(nome: str = FONTE_PADRAO) -> Fonte:
     # daria um diagrama com a coluna dos rótulos em branco — plausível à
     # distância, que é a definição do modo de falha da §4.2.
     exigidos = set(casas) | {c for pecas in molduras.values()
-                             for valor in pecas.values() for c in valor}
+                             for valor in pecas.values()
+                             for c in (valor.values() if isinstance(valor, dict)
+                                       else valor)}
     faltando = sem_glifo(caminho, sorted(exigidos))
     if faltando:
         raise FonteIncompleta(
@@ -324,8 +354,16 @@ def rotulos(orientacao: str) -> Tuple[List[str], List[str]]:
 SANGRIA_DA_GRADE = 0.07
 
 
+def normalizar_cantos(valor) -> str:
+    """`"reto"` ou `"arredondado"`, e nada mais — erro de digitação dói aqui."""
+    if valor in CANTOS:
+        return valor
+    raise ValueError(f"cantos inválidos: {valor!r} (use um de {CANTOS})")
+
+
 def grade(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
-          moldura: str = MOLDURA_PADRAO) -> Optional[List[str]]:
+          moldura: str = MOLDURA_PADRAO,
+          cantos: str = CANTO_PADRAO) -> Optional[List[str]]:
     """
     As dez linhas de dez caracteres que desenham o tabuleiro **emoldurado e
     rotulado** — ou `None` se esta fonte não sabe (F99).
@@ -353,7 +391,7 @@ def grade(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
     """
     fonte = fonte or carregar()
     moldura = normalizar_moldura(moldura)
-    pecas = fonte.moldura_em_glifo(moldura)
+    pecas = fonte.moldura_em_glifo(moldura, normalizar_cantos(cantos))
     if pecas is None:
         return None
 
@@ -421,6 +459,7 @@ def lado_efetivo(lado_px: int) -> int:
 
 def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
              coordenadas: bool = False, moldura=MOLDURA_PADRAO,
+             cantos: str = CANTO_PADRAO,
              orientacao: str = "branca", tons: int = TONS
              ) -> Tuple[bytes, int, int]:
     """
@@ -446,15 +485,16 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
     """
     f = carregar(fonte)
     moldura = normalizar_moldura(moldura)
+    cantos = normalizar_cantos(cantos)
     lado = lado_efetivo(lado_px)
     casa = lado / 8.0
 
-    em_grade = grade(fen, f, orientacao, moldura) if coordenadas else None
+    em_grade = grade(fen, f, orientacao, moldura, cantos) if coordenadas else None
     if em_grade is not None:
         imagem = _pintar_grade(em_grade, f, casa)
     else:
         imagem = _pintar_com_caneta(linhas(fen, f, orientacao), f, casa, lado,
-                                    moldura, coordenadas, orientacao)
+                                    moldura, cantos, coordenadas, orientacao)
 
     if tons and tons < 256:
         imagem = imagem.quantize(colors=tons)
@@ -500,7 +540,7 @@ def _pintar_grade(em_grade: Sequence[str], fonte: Fonte, casa: float) -> Image.I
 
 
 def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,
-                       moldura: str, coordenadas: bool,
+                       moldura: str, cantos: str, coordenadas: bool,
                        orientacao: str) -> Image.Image:
     """
     O tabuleiro com o filete desenhado e o rótulo em fonte de texto.
@@ -508,6 +548,12 @@ def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,
     É o desenho de sempre, e o único que a SkakNew-Diagram sabe fazer: ela tem
     46 codepoints e nenhum deles é `a`–`h`, `7` ou `8` — as letras que sobrariam
     para rótulo desenham casa.
+
+    **A quina redonda é desenhada aqui também, e não só na fonte** (F101). Sem
+    isso a caixinha dos cantos não faria nada no caminho mais usado de todos —
+    o PNG sem coordenada, que é o padrão da exportação —, e uma opção que só
+    funciona em certa combinação é pior que opção nenhuma. O raio é o mesmo que
+    a Chess Merida desenha nos glifos dela, em casas.
     """
     # O filete mora fora do tabuleiro, e a margem da página é o que ele ocupa.
     tracos, margem = filetes(moldura, casa)
@@ -526,11 +572,20 @@ def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,
             pagina.insert_text((x0, y0 + (i + 1) * casa), linha, fontsize=casa,
                                fontname="diag", fontfile=f.arquivo)
 
+        # Concêntricos: o filete de dentro tem de curvar mais fechado que o de
+        # fora, exatamente pela distância que os separa, ou os dois se cruzam na
+        # quina. `radius` do PyMuPDF é fração do menor lado do retângulo.
+        recuo_externo = max((recuo for recuo, _e in tracos), default=0.0)
+        raio_externo = casa * RAIO_DO_CANTO.get(moldura, 0.0)
         for recuo, espessura in tracos:
-            pagina.draw_rect(
-                fitz.Rect(x0 - recuo, y0 - recuo,
-                          x0 + lado + recuo, y0 + lado + recuo),
-                width=espessura, color=(0, 0, 0))
+            quadro = fitz.Rect(x0 - recuo, y0 - recuo,
+                               x0 + lado + recuo, y0 + lado + recuo)
+            raio = raio_externo - (recuo_externo - recuo)
+            if cantos == "arredondado" and raio > 0:
+                pagina.draw_rect(quadro, width=espessura, color=(0, 0, 0),
+                                 radius=min(0.5, raio / quadro.width))
+            else:
+                pagina.draw_rect(quadro, width=espessura, color=(0, 0, 0))
 
         if coordenadas:
             corpo = casa * CORPO_ROTULO

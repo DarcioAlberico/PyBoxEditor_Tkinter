@@ -913,7 +913,8 @@ def _quer_coordenadas(escolha, d: Diagrama) -> bool:
 def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                         dpi_figura: int, modo: str, coordenadas, fonte: str,
                         lado: int,
-                        moldura=render_diagrama.MOLDURA_PADRAO) -> Figura:
+                        moldura=render_diagrama.MOLDURA_PADRAO,
+                        cantos: str = render_diagrama.CANTO_PADRAO) -> Figura:
     """
     Um tabuleiro da página vira figura: desenhado, se merecer; recortado, se não.
 
@@ -944,7 +945,8 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                 fen = leitura.fen()
                 png, larg, alt = render_diagrama.desenhar(
                     fen, fonte=fonte, lado_px=lado, coordenadas=quer,
-                    moldura=moldura, orientacao=leitura.orientacao)
+                    moldura=moldura, cantos=cantos,
+                    orientacao=leitura.orientacao)
                 # As linhas de texto seguem o mesmo critério do desenho (F99):
                 # havendo glifo de borda com rótulo, elas saem emolduradas; não
                 # havendo, saem as oito de sempre. Decidir aqui, e não na hora
@@ -952,7 +954,8 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                 # que a figura é.
                 objeto = render_diagrama.carregar(fonte)
                 em_grade = (render_diagrama.grade(
-                    fen, objeto, leitura.orientacao, moldura) if quer else None)
+                    fen, objeto, leitura.orientacao, moldura, cantos)
+                    if quer else None)
                 return Figura(png, larg, alt, fen=fen, origem="render",
                               linhas=(em_grade or render_diagrama.linhas(
                                   fen, objeto, leitura.orientacao)),
@@ -987,7 +990,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    diagramas: str = "render", coordenadas=False,
                    fonte: str = render_diagrama.FONTE_PADRAO,
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
-                   moldura=render_diagrama.MOLDURA_PADRAO
+                   moldura=render_diagrama.MOLDURA_PADRAO,
+                   cantos: str = render_diagrama.CANTO_PADRAO
                    ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
@@ -1089,7 +1093,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
                                         fonte=fonte, lado=lado_do_diagrama,
-                                        moldura=moldura)
+                                        moldura=moldura, cantos=cantos)
         # A legenda de baixo entra **depois** da figura, que é onde ela está
         # impressa (F95). Não é `titulo=True`: título embaixo da figura viraria
         # um `<h2>` no meio do texto seguinte, e o que ela é, é legenda.
@@ -1196,6 +1200,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             fonte: str = render_diagrama.FONTE_PADRAO,
             lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
             moldura=render_diagrama.MOLDURA_PADRAO,
+            cantos: str = render_diagrama.CANTO_PADRAO,
             progress_callback=None) -> List[PaginaExtraida]:
     """Lê o PDF inteiro (ou as páginas pedidas) como imagem."""
     import os
@@ -1215,7 +1220,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         diagramas=diagramas,
                                         coordenadas=coordenadas, fonte=fonte,
                                         lado_do_diagrama=lado_do_diagrama,
-                                        moldura=moldura))
+                                        moldura=moldura, cantos=cantos))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         return saida
