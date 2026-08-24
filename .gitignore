@@ -17,6 +17,11 @@ training_data/
 training_data_2/
 training_data_2_organizado/
 
+# O empacotamento da base, que é como ela viaja para fora do git: 241 MB de
+# um arquivo só. A pasta acima já está ignorada, mas o `.7z` dela não estava —
+# e um `git add -A` o levaria inteiro para dentro do repositório.
+training_data.7z
+
 # Modelos treinados — binários grandes, distribuir por release
 *.pth
 *.onnx

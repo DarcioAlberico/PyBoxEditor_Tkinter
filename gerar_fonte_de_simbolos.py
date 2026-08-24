@@ -2,7 +2,7 @@
 Recorta da fonte de símbolos só os glifos que o modelo sabe ler (F62).
 
 A `NotoSansSymbols2` tem 641 KB e ~2.600 codepoints; o alfabeto do modelo tem
-**71 símbolos fora do ASCII**, e ela desenha 19 deles. Embutir a fonte inteira
+**89 símbolos fora do ASCII**, e ela desenha 24 deles. Embutir a fonte inteira
 num EPUB de xadrez é levar o bloco de dominós, o de I Ching e o de alquimia
 para desenhar seis figurinas — medido, o EPUB de três páginas passou de 19 KB
 para 327 KB só por causa dela.
@@ -18,7 +18,7 @@ dependência de desenvolvimento, como o `pytest`.
 **A família é renomeada, e não é capricho.** Subset é modificação, e a OFL pede
 que a versão modificada não se passe pela original — além do mais, uma família
 com o nome da Noto instalada na máquina de quem abre o arquivo entraria em
-conflito com esta, que tem 27 glifos.
+conflito com esta, que tem 39 glifos.
 
 Quando o alfabeto do modelo crescer, este script tem de rodar de novo. Quem
 avisa é o `tests/test_f62_simbolos.py`, que compara a cobertura do subset com o
@@ -96,6 +96,20 @@ FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
 #:
 #: O `±` fica de fora porque é U+00B1: abaixo do `PISO_DO_SIMBOLO`, e portanto
 #: desenhado pela fonte de texto do leitor, que o tem.
+#:
+#: **Os sete posicionais entraram com as 314 classes.** São os `$32`, `$239`,
+#: `$241`, `$243`, `$245` e `$254` do `core/nags.py` — coluna, centro, flanco da
+#: dama, final, "com" e vantagem de desenvolvimento —, mais o `⨼`, que não tem
+#: NAG. Todos os sete estão fora da Noto (o `--conferir` os lista em "fora do
+#: alcance dela"), e a SkakNew-Figurine desenha os sete.
+#:
+#: O par que obriga a olhar o recorte é o `∟`/`⨼`: **são o mesmo ângulo reto
+#: virado**, e a fonte tem os dois lado a lado, no `v` e no `w`. Casar pelo
+#: nome do codepoint não resolve — o U+2A3C chama-se "interior product" e o
+#: U+221F "right angle", e nenhum dos dois nomes diz de que lado fica a haste.
+#: Quem diz é o livro: as 13 amostras de `sym_10812` têm a haste à direita
+#: (`w`) e a de `sym_8735` à esquerda (`v`). Trocar os dois sairia sem erro
+#: nenhum no caminho, e com o símbolo espelhado na página.
 EMPRESTADOS = {
     "⩲": "f",      # ligeira vantagem das brancas
     "⩱": "g",      # ligeira vantagem das pretas
@@ -105,6 +119,13 @@ EMPRESTADOS = {
     "→": "A",      # com ataque
     "⇄": "V",      # com contra-jogo
     "⨀": "D",      # zugzwang
+    "⟳": "t",      # vantagem de desenvolvimento ($32)
+    "⇔": "H",      # coluna ($239)
+    "⊞": "I",      # centro ($241)
+    "⟪": "M",      # flanco da dama ($243)
+    "⊥": "L",      # final ($245)
+    "∟": "v",      # "com" ($254) — haste à esquerda
+    "⨼": "w",      # o mesmo ângulo com a haste à direita, e sem NAG
 }
 
 #: Emprestados que entram espelhados na horizontal.
