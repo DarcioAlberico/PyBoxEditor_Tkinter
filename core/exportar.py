@@ -23,6 +23,7 @@ from typing import List, Optional, Sequence, Tuple
 import fitz
 
 from core.livro import Figura, PaginaExtraida, Paragrafo, Tabela
+from core.render_diagrama import MOLDURA_PADRAO, normalizar_moldura
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,6 +39,77 @@ table { border-collapse: collapse; margin: 1.2em auto; width: 100%; }
 td { border: 1px solid #666; padding: 0.3em 0.45em; vertical-align: top; }
 td p { text-indent: 0; text-align: left; margin: 0; }
 """
+
+#: O corpo do diagrama, em pontos **por casa** (F97).
+#:
+#: **A casa é o quadrado do em da fonte**, então o corpo é a casa e o tabuleiro
+#: mede oito vezes isso: 16 pt dão 128 pt de lado, que são 4,5 cm — o diagrama
+#: de coluna dos livros de xadrez. Era 9 cm fixos, que é o diagrama de página
+#: inteira, e num livro de finais isso empurrava a prosa para a página seguinte.
+#:
+#: Vale para os dois modos e para os dois formatos, e é isso que o torna útil:
+#: no modo de fonte ele é o corpo da letra, e no modo de imagem é o que dá a
+#: largura da figura, pela `Figura.casas_de_largura`. Um livro em que o porteiro
+#: mandou metade dos diagramas para o recorte sai com os dois do mesmo tamanho.
+CORPO_PADRAO_PT = 16.0
+
+#: O corpo é arredondado a este passo, em pontos.
+#:
+#: **Não é preciosismo: é o que mantém o tabuleiro quadrado no DOCX** — que é
+#: exatamente o que se pede dele. O Word escreve o corpo em meios-pontos
+#: (`w:sz`) e a entrelinha em twips (`w:line`), e o tabuleiro em texto só fecha
+#: quando os dois dizem o **mesmo** número: entrelinha maior que o corpo abre
+#: uma faixa branca entre as filas, e menor sobrepõe as casas. Um corpo de
+#: 16,3 pt sairia como 16,5 no `w:sz` e 16,3 no `w:line`, e essa diferença de
+#: 0,2 pt por fila é meio milímetro de vão no fim do tabuleiro. No passo de meio
+#: ponto os dois campos são exatos, e a conta fecha.
+PASSO_DO_CORPO_PT = 0.5
+
+#: A moldura do tabuleiro **em texto**, na CSS do EPUB.
+#:
+#: Em `em`, e não em pontos, para acompanhar o corpo escolhido. O `double` do
+#: CSS só se parte em dois filetes acima de uns 3 px, e é por isso que o dobro
+#: aqui é mais que o dobro: abaixo disso o navegador desenha um traço grosso e
+#: só. O `padding` afasta a moldura do tabuleiro como o vão do PNG afasta.
+MOLDURA_NA_CSS = {
+    "sem": "",
+    "simples": "border: 0.06em solid #000; padding: 0.30em;",
+    "dupla": "border: 0.16em double #000; padding: 0.24em;",
+}
+
+#: A moldura do tabuleiro em texto, no DOCX: `(w:val, w:sz)` da borda da célula.
+#: O `w:sz` é em oitavos de ponto, e o `double` do Word já são dois filetes.
+MOLDURA_NO_DOCX = {"simples": ("single", 6), "dupla": ("double", 12)}
+
+
+def corpo_valido(pt) -> float:
+    """
+    O corpo em pontos, conferido e arredondado ao `PASSO_DO_CORPO_PT`.
+
+    Recusa o que não é número e o que não é positivo, em vez de deixar passar:
+    um corpo zero escreveria um livro inteiro de tabuleiros invisíveis, e o
+    arquivo abriria sem reclamar de nada.
+    """
+    try:
+        valor = float(pt)
+    except (TypeError, ValueError):
+        raise ValueError(f"corpo inválido: {pt!r} (use um número de pontos)") from None
+    if not valor > 0:
+        raise ValueError(f"corpo inválido: {pt!r} (tem de ser maior que zero)")
+    return round(valor / PASSO_DO_CORPO_PT) * PASSO_DO_CORPO_PT or PASSO_DO_CORPO_PT
+
+
+def largura_em_pt(figura: Figura, corpo_pt: float) -> Optional[float]:
+    """
+    A largura desta figura na página, em pontos — ou `None` se não dá para saber.
+
+    `None` é a página que virou imagem inteira: ali não há tabuleiro por dentro,
+    e o corpo por casa não diz nada sobre o tamanho dela.
+    """
+    if not figura.casas_de_largura:
+        return None
+    return round(figura.casas_de_largura * corpo_pt, 2)
+
 
 #: Os dois jeitos de pôr o diagrama no arquivo (F59).
 #:
@@ -67,13 +139,22 @@ MODOS_DE_DIAGRAMA = ("png", "fonte")
 #: as duas linhas têm larguras que diferem por um arredondamento, e centrar cada
 #: uma reparte essa diferença pela metade. Encaixotar tudo num bloco que encolhe
 #: até o conteúdo e centrar **o bloco** faz as duas começarem no mesmo x.
+#:
+#: **O `!important` da entrelinha é o único do arquivo, e ele é o pedido.** Um
+#: tabuleiro de fonte só é quadrado se a linha medir exatamente o corpo — a casa
+#: é o quadrado do em —, e vários leitores impõem entrelinha de leitura ao livro
+#: inteiro por preferência do usuário. No corpo do texto isso é bem-vindo; nas
+#: oito linhas do tabuleiro abre uma faixa branca entre as filas e o diagrama
+#: deixa de fechar. Só estas oito linhas se defendem, e o resto do livro
+#: continua obedecendo ao leitor.
 CSS_DO_DIAGRAMA = """\
 @font-face { font-family: "%(familia)s"; font-weight: normal; font-style: normal;
   src: url("fonts/%(arquivo)s"); }
-div.diagrama { display: table; margin: 1.2em auto; page-break-inside: avoid; }
-div.diagrama p { font-family: "%(familia)s", monospace; font-size: 2.1em;
-  line-height: 1; letter-spacing: 0; margin: 0; padding: 0; text-indent: 0;
-  text-align: left; white-space: pre; }
+div.diagrama { display: table; margin: 1.2em auto; page-break-inside: avoid;
+  %(moldura)s }
+div.diagrama p { font-family: "%(familia)s", monospace; font-size: %(corpo)spt;
+  line-height: 1 !important; letter-spacing: 0; margin: 0; padding: 0;
+  text-indent: 0; text-align: left; white-space: pre; }
 div.diagrama span.rot { display: inline-block; width: 0.92em; text-align: right;
   padding-right: 0.12em; }
 div.diagrama span.col { display: inline-block; width: 1em; text-align: center; }
@@ -184,7 +265,8 @@ def _diagrama_em_texto(figura: Figura) -> str:
 
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                      diagramas: str = "png", simbolos: str = "",
-                     idioma: str = IDIOMA_PADRAO) -> str:
+                     idioma: str = IDIOMA_PADRAO,
+                     corpo_pt: float = CORPO_PADRAO_PT) -> str:
     corpo, i = [], 0
     primeiro = True
     for bloco in pagina.blocos:
@@ -206,7 +288,13 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             if diagramas == "fonte" and em_fonte(bloco):
                 corpo.append(_diagrama_em_texto(bloco))
             else:
-                corpo.append(f'<figure><img src="{imagens[i]}" '
+                # A largura vai no próprio `img`, e não na CSS: o corpo por casa
+                # é do livro, mas quantas casas a figura tem é de cada figura
+                # (F97). O `max-width` da folha continua de rede para a tela
+                # estreita.
+                pt = largura_em_pt(bloco, corpo_pt)
+                estilo = f' style="width:{pt:g}pt"' if pt else ""
+                corpo.append(f'<figure><img src="{imagens[i]}"{estilo} '
                              f'alt="{html.escape(_alternativo(bloco))}"/></figure>')
             i += 1
             primeiro = True
@@ -326,7 +414,9 @@ def fontes_usadas(paginas: Sequence[PaginaExtraida]) -> dict:
 def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
               titulo: str = "Livro", autor: str = "",
               identificador: str = "pyboxeditor",
-              diagramas: str = "png", idioma: str = IDIOMA_PADRAO) -> str:
+              diagramas: str = "png", idioma: str = IDIOMA_PADRAO,
+              corpo_pt: float = CORPO_PADRAO_PT,
+              moldura=MOLDURA_PADRAO) -> str:
     """
     Escreve o EPUB. Devolve o caminho.
 
@@ -338,10 +428,21 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     embutida — o que a licença da SkakNew-Diagram (LPPL 1.2+) permite. Quem não
     tem texto para sair, sai como imagem do mesmo jeito: o recorte do scan não
     vira letra.
+
+    `corpo_pt` é o tamanho da **casa**, em pontos, e vale nos dois modos: no de
+    fonte é o corpo da letra, no de imagem é o que dá a largura da figura (F97).
+    `moldura` só tem efeito no modo de fonte — no de imagem ela já veio
+    desenhada dentro do PNG.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
                          f"(use um de {MODOS_DE_DIAGRAMA})")
+    # A moldura do modo de imagem já veio desenhada no PNG (é o `livro` que a
+    # pede ao renderizador); aqui ela só tem trabalho no modo de fonte. Mas é
+    # conferida nos dois, para um erro de digitação não passar batido no livro
+    # em que ela não teria efeito.
+    moldura = normalizar_moldura(moldura)
+    corpo_pt = corpo_valido(corpo_pt)
 
     embutidas = fontes_usadas(paginas) if diagramas == "fonte" else {}
 
@@ -369,7 +470,9 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     fontes_no_zip = dict(embutidas)
     for nome, origem in embutidas.items():
         css += CSS_DO_DIAGRAMA % {"familia": nome,
-                                  "arquivo": os.path.basename(origem)}
+                                  "arquivo": os.path.basename(origem),
+                                  "corpo": f"{corpo_pt:g}",
+                                  "moldura": MOLDURA_NA_CSS[moldura]}
     if recurso:
         fontes_no_zip[recurso[0]] = recurso[1]
         css += CSS_DOS_SIMBOLOS % {"familia": recurso[0],
@@ -384,7 +487,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         capitulos.append(nome)
         arquivos.append((f"OEBPS/{nome}",
                          _xhtml_da_pagina(pagina, imagens, diagramas, simbolos,
-                                          idioma).encode("utf-8")))
+                                          idioma, corpo_pt).encode("utf-8")))
 
     itens = [f'<item id="c{i}" href="{n}" media-type="application/xhtml+xml"/>'
              for i, n in enumerate(capitulos)]
@@ -552,26 +655,84 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
             z.writestr(nome, dados)
 
 
+def _caixa_do_diagrama(doc, moldura: str):
+    """
+    A célula onde o tabuleiro em texto vai morar, com a moldura pedida (F97).
+
+    **Uma tabela de uma célula, e não borda de parágrafo.** A borda de parágrafo
+    do Word corre de margem a margem da coluna de texto: ela emolduraria a
+    página, não o diagrama, que é estreito e centrado. A tabela encolhe até o
+    conteúdo, centra-se, e a borda dela cai onde o filete do PNG cai.
+
+    A borda vai no `w:tcPr` da célula, e não no `w:tblPr` da tabela, porque a
+    ordem dos filhos do `tblPr` é fixa no esquema e o `python-docx` já escreve o
+    `tblLook` no fim dele — acrescentar depois dá um arquivo que o Word abre
+    reclamando. No `tcPr` a ordem que interessa é `tcW`, `tcBorders`, `tcMar`, e
+    é essa que sai daqui.
+
+    A margem da célula é zerada de propósito: o padrão do Word é 0,19 cm dos
+    dois lados, e ela afastaria a moldura do tabuleiro de um jeito que o PNG não
+    faz — o mesmo diagrama sairia com dois enquadramentos conforme o modo.
+    """
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    val, sz = MOLDURA_NO_DOCX[moldura]
+    tabela = doc.add_table(rows=1, cols=1)
+    tabela.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tabela.autofit = True
+
+    celula = tabela.cell(0, 0)
+    props = celula._tc.get_or_add_tcPr()
+    bordas = OxmlElement("w:tcBorders")
+    for lado in ("top", "left", "bottom", "right"):
+        b = OxmlElement(f"w:{lado}")
+        b.set(qn("w:val"), val)
+        b.set(qn("w:sz"), str(sz))
+        b.set(qn("w:space"), "0")
+        b.set(qn("w:color"), "000000")
+        bordas.append(b)
+    props.append(bordas)
+    margens = OxmlElement("w:tcMar")
+    for lado in ("top", "left", "bottom", "right"):
+        m = OxmlElement(f"w:{lado}")
+        m.set(qn("w:w"), "0")
+        m.set(qn("w:type"), "dxa")
+        margens.append(m)
+    props.append(margens)
+    return celula
+
+
 def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
               titulo: str = "Livro", autor: str = "",
               largura_figura_cm: float = 9.0,
-              diagramas: str = "png") -> str:
+              diagramas: str = "png",
+              corpo_pt: float = CORPO_PADRAO_PT,
+              moldura=MOLDURA_PADRAO) -> str:
     """
     Escreve o DOCX. Devolve o caminho.
 
-    A figura entra com largura fixa em centímetros, e não no tamanho em pixels:
-    o recorte sai a 300 dpi e teria 700 px de largura, que o Word põe como 700
-    pontos e estoura a página.
+    A figura entra com largura medida, e não no tamanho em pixels: o recorte sai
+    a 300 dpi e teria 700 px de largura, que o Word põe como 700 pontos e
+    estoura a página. Quem manda na medida é o `corpo_pt` — o tamanho da casa —,
+    pela `Figura.casas_de_largura`; o `largura_figura_cm` ficou para a figura
+    que não tem tabuleiro por dentro, que é a página inteira virada imagem.
 
     Em `diagramas="fonte"` o tabuleiro sai como oito parágrafos de texto na
     fonte de xadrez, que vai embutida. **Diagrama com coordenadas continua
     saindo em imagem** mesmo nesse modo: a fonte não tem `a`–`h` nem `7` e `8`,
     e alinhar rótulo de outra fonte sobre as casas exigiria uma tabela de 81
     células por diagrama — no EPUB isso são três linhas de CSS, aqui não.
+
+    `moldura` (F97) só tem efeito nesse mesmo modo, pela `_caixa_do_diagrama`:
+    no modo de imagem o filete já veio desenhado dentro do PNG.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
                          f"(use um de {MODOS_DE_DIAGRAMA})")
+    moldura = normalizar_moldura(moldura)
+    corpo_pt = corpo_valido(corpo_pt)
 
     import io as _io
     from docx import Document
@@ -622,9 +783,11 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     if autor:
         doc.core_properties.author = autor
 
-    # A casa é o quadrado do em: para o tabuleiro medir a mesma largura da
-    # figura, o corpo da fonte é um oitavo dela. 9 cm dão 31,9 pt por casa.
-    corpo = Pt(round(largura_figura_cm / 8 * 28.3465 * 2) / 2)
+    # A casa é o quadrado do em, então o corpo da fonte **é** a casa: o que o
+    # usuário pediu em pontos entra aqui sem conta nenhuma (F97). Era derivado
+    # de uma largura em centímetros, e o arredondamento dessa conta é justamente
+    # o que abria vão entre as filas.
+    corpo = Pt(corpo_pt)
 
     usadas = {}
     for i, pagina in enumerate(paginas):
@@ -633,24 +796,54 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         for bloco in pagina.blocos:
             if isinstance(bloco, Figura) and em_texto(bloco):
                 usadas[bloco.fonte] = None
-                for linha in bloco.linhas:
-                    p = doc.add_paragraph()
+                # Sem moldura o tabuleiro fica solto no corpo do documento, como
+                # sempre esteve; com moldura ele passa a morar numa célula.
+                caixa = (_caixa_do_diagrama(doc, moldura)
+                         if moldura != "sem" else None)
+                for i_linha, linha in enumerate(bloco.linhas):
+                    if caixa is None:
+                        p = doc.add_paragraph()
+                    else:
+                        # A célula já nasce com um parágrafo vazio, e ele é o da
+                        # primeira fila: um `add_paragraph` aqui deixaria uma
+                        # linha em branco por cima do tabuleiro.
+                        p = (caixa.paragraphs[0] if i_linha == 0
+                             else caixa.add_paragraph())
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     p.paragraph_format.space_before = Pt(0)
                     p.paragraph_format.space_after = Pt(0)
-                    # Entrelinha **exata**, e não múltipla: no automático o Word
-                    # acrescenta o vão da fonte e abre uma faixa branca entre as
-                    # filas, que é o mesmo defeito que o `line-height: 1` do
-                    # EPUB evita.
+                    # Entrelinha **exata e igual ao corpo**, e não múltipla:
+                    # no automático o Word acrescenta o vão da fonte e abre uma
+                    # faixa branca entre as filas, que é o mesmo defeito que o
+                    # `line-height: 1` do EPUB evita. É o mesmo `corpo` do run
+                    # de propósito — e é por isso que ele foi arredondado ao
+                    # meio ponto na entrada (ver `PASSO_DO_CORPO_PT`): a casa é
+                    # o quadrado do em, e o tabuleiro só fecha quadrado quando a
+                    # linha mede exatamente uma casa.
                     p.paragraph_format.line_spacing = corpo
                     run = p.add_run(linha)
                     run.font.size = corpo
                     # Sem o `hAnsi`, o Word desenha a fonte pedida só até o
                     # primeiro caractere que julgue não-ASCII.
                     familia_do_run(run, bloco.fonte)
+                if caixa is not None:
+                    # **Duas tabelas coladas no XML viram uma só quando o Word
+                    # abre o arquivo**, e a página de exercícios é exatamente
+                    # isso: dois diagramas seguidos, sem prosa entre eles, que
+                    # sairiam dentro da mesma moldura, um por cima do outro.
+                    # Um parágrafo entre as duas separa — e ele vai de 1 pt de
+                    # entrelinha exata, que é o que o Word aceita como separador
+                    # sem abrir vão visível. Serve de segunda coisa: documento
+                    # que termina em tabela é o outro caso em que ele reclama.
+                    vao = doc.add_paragraph()
+                    vao.paragraph_format.space_before = Pt(0)
+                    vao.paragraph_format.space_after = Pt(0)
+                    vao.paragraph_format.line_spacing = Pt(1)
             elif isinstance(bloco, Figura):
-                forma = doc.add_picture(_io.BytesIO(bloco.png),
-                                        width=Cm(largura_figura_cm))
+                pt = largura_em_pt(bloco, corpo_pt)
+                forma = doc.add_picture(
+                    _io.BytesIO(bloco.png),
+                    width=Pt(pt) if pt else Cm(largura_figura_cm))
                 # O texto alternativo do OOXML mora no `docPr` da forma, e o
                 # `python-docx` não o expõe — daí descer ao XML. Vale o desvio
                 # pelo mesmo motivo do EPUB: é o FEN que o leitor de tela lê e

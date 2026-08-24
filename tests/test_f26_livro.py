@@ -433,13 +433,33 @@ def _pdf_de_uma_pagina(caminho, texto="Foreword"):
     doc.close()
 
 
+class _MolduraFixa:
+    """
+    Dublê do `ui.dialogo_moldura.DialogoMoldura` (F97).
+
+    **Sem ele a suíte trava, e trava calada.** Aquele diálogo não é um
+    `messagebox` — é um `Toplevel` com `grab_set` e `wait_window`, e um `Tk`
+    sem ninguém para clicar espera para sempre. Foi assim que ele entrou aqui:
+    o teste não falhou, ficou pendurado.
+    """
+
+    #: O que o dublê responde. `None` imita o Cancelar, que desiste da ação.
+    resposta = ("simples", 16.0)
+
+    def __init__(self, _parent, **_kw):
+        pass
+
+    def mostrar(self):
+        return self.resposta
+
+
 class _App:
     """
     MainWindow com os diálogos capturados e o modelo neural fora do caminho.
 
     Os diálogos são a metade da ação que não dá para exercitar de outro jeito —
-    é neles que estão a escolha do formato pela extensão e as três perguntas de
-    sim ou não.
+    é neles que estão a escolha do formato pela extensão, as perguntas de sim ou
+    não, e a caixa da moldura e do corpo (F97), que sai pelo `_MolduraFixa`.
 
     **As respostas vão por título, e não uma para todas.** Enquanto havia uma
     pergunta só, um booleano bastava; com três (desenhar, coordenadas, coletar)
@@ -455,8 +475,11 @@ class _App:
     PADRAO = {"Redesenhar": True, "Seguir": False, "Coordenadas": False,
               "Guardar": False}
 
-    def __init__(self, entrada, saida, coletar=False, respostas=None):
+    def __init__(self, entrada, saida, coletar=False, respostas=None,
+                 moldura=("simples", 16.0)):
         from tkinter import filedialog, messagebox
+
+        self.moldura = moldura
 
         self.originais = (filedialog.askopenfilename,
                           filedialog.asksaveasfilename,
@@ -488,6 +511,8 @@ class _App:
         # depender de um `.pth` que o `.gitignore` mantém fora.
         self.win.learning_service.load_predictor = lambda: True
         self.win.learning_service.predict_neural = lambda crop: ("a", 0.99)
+        duble = type("_Duble", (_MolduraFixa,), {"resposta": self.moldura})
+        self.win.DIALOGO_MOLDURA = duble
         return self
 
     def rodar(self, segundos=60.0):
@@ -601,6 +626,66 @@ def test_as_duas_perguntas_da_f58_chegam_a_extracao(monkeypatch):
         assert not app.erros, app.erros
         assert recebido["coordenadas"] == livro.COMO_NO_LIVRO, (
             "'como no livro' parou no diálogo")
+
+
+def test_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):
+    """
+    A escolha da F97 tem **dois destinos**, e é o que a torna fácil de perder
+    pela metade: a moldura vai para a extração, porque quem desenha o filete no
+    PNG é o renderizador; a moldura *e* o corpo vão para a escrita, porque no
+    modo de fonte quem os desenha é o formato. Um caminho ligado e o outro não
+    dá um livro em que o diagrama tem moldura e o tamanho continua o de antes.
+    """
+    extraiu, escreveu = {}, {}
+
+    def falsa_extrair(input_pdf, classificar, **kw):
+        extraiu.clear()
+        extraiu.update(kw)
+        return []
+
+    def falso_exportar(paginas, caminho, **kw):
+        escreveu.clear()
+        escreveu.update(kw)
+        with open(caminho, "wb") as f:
+            f.write(b"")
+        return caminho
+
+    monkeypatch.setattr(livro, "extrair", falsa_extrair)
+    monkeypatch.setattr(exportar, "exportar", falso_exportar)
+
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    _pdf_de_uma_pagina(entrada)
+
+    with _App(entrada, os.path.join(tmp, "a.epub"),
+              moldura=("dupla", 20.0)) as app:
+        app.rodar()
+        assert not app.erros, app.erros
+        assert extraiu["moldura"] == "dupla", "a moldura parou no diálogo"
+        assert escreveu["moldura"] == "dupla"
+        assert escreveu["corpo_pt"] == 20.0, "o corpo parou no diálogo"
+
+
+def test_cancelar_a_moldura_desiste_da_exportacao(monkeypatch):
+    """
+    Fechar aquela caixa não é "faça como sempre": quem a abriu veio decidir
+    alguma coisa, e um livro de 264 páginas escrito com o padrão porque alguém
+    apertou Escape é o pior desfecho possível.
+    """
+    def nao_devia_rodar(*_a, **_kw):
+        raise AssertionError("a extração rodou depois do Cancelar")
+
+    monkeypatch.setattr(livro, "extrair", nao_devia_rodar)
+
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    saida = os.path.join(tmp, "a.epub")
+    _pdf_de_uma_pagina(entrada)
+
+    with _App(entrada, saida, moldura=None) as app:
+        app.rodar_sem_esperar()
+        assert not app.avisos and not app.erros
+        assert not os.path.exists(saida)
 
 
 # ----------------------------------------------------------------------

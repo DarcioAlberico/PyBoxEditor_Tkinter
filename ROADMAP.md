@@ -10337,6 +10337,218 @@ a caixa com uma transcrição do laço original. Nenhum precisa de material.
 Reproduzir: `python medir_rotulos.py`, `python medir_rotulos.py --por-contorno` e
 `python medir_rotulos.py --por-contorno --piso-xadrez 12.0`.
 
+## F97 — A moldura, o corpo em pontos, e o vão entre as filas — CONCLUÍDA
+
+A queixa veio da primeira conversão inteira de um livro (Aagaard, *A Matter of Endgame
+Technique*): o arquivo sai bom, mas o diagrama sai **do tamanho que o exportador achou**, e
+sem escolha de moldura. Duas coisas que quem monta o livro decide, e que o programa decidia
+por ele — uma delas escondida numa constante em centímetros.
+
+### O tamanho: a casa é o quadrado do tipo
+
+A fonte de diagrama mapeia caractere → casa inteira, e a casa é o quadrado do em. Então o
+corpo em pontos **é** o lado da casa, e o tabuleiro mede oito vezes isso — que é o número
+com que o tipógrafo de livro de xadrez trabalha. O DOCX derivava esse corpo de uma largura
+fixa de 9 cm:
+
+| escolha | corpo por casa | lado do tabuleiro |
+|---|---:|---:|
+| `largura_figura_cm = 9.0` (antes) | 31,9 pt | 9,0 cm |
+| `corpo_pt = 16` (agora, padrão) | 16,0 pt | 4,5 cm |
+
+9 cm é diagrama de página inteira. Num livro de finais, com dois ou três diagramas por
+página, ele empurrava a prosa para a página seguinte — e não havia como dizer outro número
+sem editar o código.
+
+**O corpo vale nos dois modos e nos dois formatos, e é isso que o torna útil.** No modo de
+fonte ele é o corpo da letra; no de imagem, é o que dá a largura da figura. A ponte é a
+`Figura.casas_de_largura`, que cada figura traz consigo: o desenho com moldura simples tem
+8,08 casas de largura, o recorte justo tem 8, e o cabeçalho reamostrado tem o que a regra de
+três disser. Multiplicado pelo corpo, sai a medida na página — e **o diagrama que o porteiro
+desenhou e o que ele mandou para o recorte saem do mesmo tamanho no mesmo livro**, que é a
+mesma disciplina da F58 aplicada ao tamanho em vez de ao rótulo.
+
+### O vão entre as filas, que é o defeito que se vê antes de qualquer outro
+
+Pedido junto, e é o que sustenta o resto: o tabuleiro só é quadrado se a linha medir
+exatamente uma casa. O DOCX já escrevia `w:lineRule="exact"` desde a F59 — o que faltava era
+garantir que o número da entrelinha e o do corpo fossem o **mesmo**:
+
+| campo | unidade | 16 pt |
+|---|---|---:|
+| `w:sz` (corpo) | meios-pontos | 32 |
+| `w:line` (entrelinha) | twips | 320 |
+
+Um corpo de 16,3 pt sairia como 16,5 no primeiro e 16,3 no segundo: 0,2 pt de vão por fila,
+oito filas, meio milímetro de fenda no pé do tabuleiro. Daí o `PASSO_DO_CORPO_PT = 0.5` —
+o corpo é arredondado ao meio ponto na entrada, e os dois campos passam a ser exatos.
+
+No EPUB o mesmo problema tem outra causa: vários leitores impõem entrelinha de leitura ao
+livro inteiro, por preferência do usuário. A folha ganhou o **único `!important` do
+arquivo**, e ele vale só para as oito linhas do tabuleiro (`div.diagrama p`). No corpo do
+texto a preferência do leitor continua mandando.
+
+### A moldura: três feitios, e o filete mora fora do tabuleiro
+
+`sem`, `simples` e `dupla`. A `desenhar` tinha um booleano, e a moldura era um retângulo só;
+agora a geometria sai da `filetes()`, que devolve `[(recuo do caminho, espessura)]` e a
+margem total. Medido no mesmo diagrama, a 352 px de tabuleiro:
+
+| moldura | lado do PNG | arquivo |
+|---|---:|---:|
+| `sem` | 352 px | 5.386 B |
+| `simples` | 356 px | 5.915 B |
+| `dupla` | 361 px | 6.131 B |
+
+O tabuleiro é o mesmo nos três, e é o requisito: o filete que invadisse a casa deslocaria a
+grade de quem relê o desenho — a suíte, o porteiro, o `diagrama.ler` — que divide a imagem
+em 8×8 **iguais**.
+
+No modo de imagem a moldura já vem desenhada dentro do PNG. No modo de fonte ela é do
+formato: `border: … double` na CSS do EPUB, e no DOCX **uma tabela de uma célula**. Não é
+borda de parágrafo, e a razão é geométrica: a borda de parágrafo do Word corre de margem a
+margem da coluna de texto — ela emolduraria a página, não o diagrama, que é estreito e
+centrado. A borda vai no `w:tcPr` e não no `w:tblPr` porque a ordem dos filhos do `tblPr` é
+fixa no esquema e o `python-docx` já escreve o `tblLook` no fim dele; acrescentar depois dá
+um arquivo que o Word abre reclamando.
+
+**A tabela trouxe um defeito junto, e ele estava a um passo de sair no arquivo**: duas
+`<w:tbl>` coladas no XML o Word abre como **uma** tabela de duas filas. Numa página de
+exercícios — dois diagramas seguidos, sem prosa entre eles — os dois cairiam dentro da
+mesma moldura, um por cima do outro. Um parágrafo de 1 pt de entrelinha exata entre as
+caixas separa, e resolve de quebra o outro caso em que o Word reclama, que é o documento
+terminar em tabela.
+
+### A pergunta: uma caixa, e não duas
+
+As outras escolhas da exportação saem em `messagebox` encadeados, e é o que elas pedem — são
+sim-ou-não e cada uma se explica sozinha. Estas duas não: uma tem três respostas, a outra é
+um número, e **as duas mexem no mesmo desenho**. O `ui/dialogo_moldura.py` põe as duas na
+mesma caixa, com uma amostra do tabuleiro que muda enquanto se escolhe a moldura e a medida
+em centímetros ao lado do corpo em pontos — 16 pt não parece um tamanho até virar 4,5 cm.
+
+### O que ficou de fora
+
+- **PDF.** O pedido já o previa ("e futuramente pdf"), e não há exportador de PDF: o
+  `corpo_pt` e a `moldura` atravessam `livro.extrair` e `exportar.exportar` como opções do
+  documento, não do formato, e o dia em que ele existir não precisa de nova pergunta.
+- **Moldura por glifo de fonte.** A Chess Merida traz caracteres de moldura, e a
+  SkakNew-Diagram não — medido no `cmap`: 46 codepoints, e nenhum deles é filete. A moldura
+  daqui é desenhada (PNG) ou é do formato (CSS, `w:tcBorders`), e por isso vale para
+  qualquer fonte de diagrama, inclusive as que ainda não estão no repositório.
+
+## F98 — Vinte e duas classes esperavam o treino, e sete delas não tinham desenho — CONCLUÍDA
+
+Desde o treino de 21/08 a base andou e o modelo não: `training_data/` tinha **314 pastas
+para 292 classes**. Uma pasta que não é classe não é dado esperando — é dado que o modelo
+**não pode acertar nunca**, porque a saída correspondente não existe na rede. E como o
+`CharDataset` transforma toda pasta não vazia em classe, o remédio é só um: treinar de novo.
+
+### O que chegou, e por que nenhuma delas é rótulo errado
+
+São 136 amostras em 22 pastas — e o treino inteiro cresceu 7.056, ou seja **as outras 6.920
+foram para classes que já existiam**. As 22:
+
+| grupo | classes | amostras |
+|---|---|---:|
+| pontuação | `•` | 90 |
+| ângulo reto | `⨼`, `∟` | 14 |
+| posicionais do Informator | `⟪`, `⟳`, `⇔`, `⊞`, `⊥`, `○` | 6 |
+| peões (`$249`–`$251`) | `⯺`, `⯻`, `⯼` | 3 |
+| acentuadas de nome próprio | `Ä`, `È`, `Ë`, `Ö`, `è`, `ö` | 14 |
+| ligaduras de prosa | `da`, `ky`, `ru`, `tt` | 9 |
+
+**Vinte delas têm de 1 a 5 amostras, e é por isso que a folha de contato veio antes do
+treino**: uma classe nova com rótulo errado não falha alto — ela ensina o símbolo errado e
+some dentro de 99,7% de acurácia, que é o defeito da F1.4. Duas mereciam a suspeita:
+
+- `⯺ ⯻ ⯼` parecem "oo", "0-0" e um "8" deitado, ou seja parecem **roque mal recortado**.
+  Não são: são os `$249`–`$251` da tabela de `core/nags.py` — peões ligados, isolados e
+  dobrados —, e o desenho de cada um bate com o da SkakNew-Figurine.
+- `⨼` (13 amostras) e `∟` (1) são **o mesmo ângulo reto virado**. Não é duplicata, e o que
+  decide não é o nome do codepoint: o U+2A3C chama-se "interior product" e o U+221F "right
+  angle", e nenhum dos dois diz de que lado fica a haste. O livro diz — à direita no `⨼`, à
+  esquerda no `∟` —, e a fonte tem os dois separados, no `w` e no `v`.
+
+### O treino, e a comparação que não é comparação
+
+112 minutos de CPU, 608.407 amostras, melhor epoch 17 de 20 (antes, 20 de 20 — a perda de
+validação parou de cair três epochs antes do fim):
+
+| | 292 classes | 314 classes |
+|---|---:|---:|
+| amostras | 601.351 | 608.407 |
+| desbalanceamento | — | 63.055:1 |
+| validação, acurácia | **99,81%** | 99,73% |
+| validação, recall macro | 98,20% (241 classes) | **98,25%** (244) |
+| validação, classes zeradas | 1 | 1 |
+| teste, acurácia | 99,75% | 99,75% |
+| teste, recall macro | 98,73% | **99,09%** |
+| temperatura da calibração | 2,5209 | 1,9054 |
+
+**Os dois primeiros números não se comparam, e é honesto dizer isso em vez de comemorar o
+macro.** Cada treino sorteia o próprio split a partir da própria base; o conjunto de
+validação de agora tem 22 classes que o de antes não tinha e 6.920 amostras a mais nas
+antigas. Os 0,08 ponto de acurácia que caíram e os 0,05 que o macro subiu estão dentro do que
+o próprio relatório avisa: 59 das 244 classes avaliadas têm menos de 5 amostras de
+validação, e **uma amostra que muda de lado mexe 0,41 ponto no macro**.
+
+O número que menos se mexe é o do teste — 99,75% nos dois —, e é o único que nenhuma decisão
+do treino usou.
+
+### As três que a validação alcança, e as dezenove que ela não alcança
+
+Classes com menos de 5 amostras vão inteiras para o treino, por desenho: **70 classes ficaram
+sem validação nenhuma** (eram 51), e 19 das 22 novas estão nesse grupo. Das três que sobram:
+
+| classe | validação |
+|---|---:|
+| `•` | 14/14 |
+| `⨼` | 2/2 |
+| `Ö` | 1/1 |
+
+Para as outras dezenove não há medida, e não adianta inventar uma. O que dá para afirmar é o
+**piso**: o modelo devolve o rótulo certo em **136 de 136** dos recortes das 22 pastas —
+quase todos vistos no treino, então isto não diz nada sobre generalizar. Diz que nenhuma das
+22 saiu morta, que era o risco real de uma classe de uma amostra só competindo com 313
+outras.
+
+### O recorte da fonte, e os sete que não tinham desenho
+
+O alfabeto passou de 71 para **89 símbolos fora do ASCII**, e a `NotoSansSymbols2` desenha 24
+deles — os `⯺ ⯻ ⯼`, o `•` e o `○` entre eles. Os outros sete novos — `⟪ ⟳ ⨼ ⇔ ∟ ⊞ ⊥` — ela
+não desenha, e sem desenho o símbolo que o modelo acabou de aprender sai **quadradinho no
+EPUB**, sem erro no caminho.
+
+A SkakNew-Figurine desenha os sete. Os pares foram decididos como manda a F62 — contra os
+recortes do livro, e não contra outra fonte —, e é o `∟`/`⨼` que mostra por quê: casados pelo
+nome, os dois sairiam espelhados na página e nada acusaria.
+
+| | antes | depois |
+|---|---:|---:|
+| glifos no recorte | 27 | **39** |
+| tamanho | 7,0 KB | 8,8 KB |
+| fração da Noto inteira | 1,1% | **1,4%** |
+
+No caminho do PDF os sete não faltam: medidas as candidatas de `chess_pdf_processor`, a
+`Segoe UI Symbol` deste sistema desenha os sete, e `nags.sem_glifo()` continua desligando só
+o `⯾` do `$255`.
+
+### O que isto abre
+
+- **Cinco símbolos do alfabeto continuam sem glifo no recorte**: `– — ⇗ ⌓ ✝`. É defeito
+  antigo, e não desta fase — mas dois deles a SkakNew-Figurine desenha (`⇗` no `G`, `⌓` no
+  `b`), e o `✝` tem 2.901 amostras — mais do que qualquer um dos sete desta fase.
+- **Vinte classes com menos de cinco amostras não têm como ser medidas.** A `importar_letras`
+  da F94 existe para exatamente isto, e o `--faltantes` aceita a lista.
+- **O piso de 136/136 não é acurácia.** Enquanto essas classes não tiverem validação, o que
+  se sabe delas é que existem.
+
+Cobertura: os 9 testes de `tests/test_f62_simbolos.py` — o primeiro deles é quem cobra o
+recorte desatualizado, e reprovava antes de o script rodar.
+Reproduzir: `python gerar_fonte_de_simbolos.py --conferir` diz o que falta;
+`python gerar_fonte_de_simbolos.py` refaz o recorte.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

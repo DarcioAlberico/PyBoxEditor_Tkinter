@@ -156,6 +156,18 @@ class Figura:
     #: as `linhas` já vêm giradas, e quem escreve o rótulo em texto tem de girar
     #: junto, ou o `a1` do desenho ficaria rotulado `h8`.
     orientacao: str = "branca"
+    #: A largura desta figura **medida em casas do tabuleiro** (F97).
+    #:
+    #: É o que faz o corpo em pontos valer também para a imagem. Quem escreve o
+    #: arquivo sabe quantos pontos o usuário quer por casa; o que ele não sabe é
+    #: quanto da imagem é tabuleiro — um desenho com moldura e coordenadas tem
+    #: quase nove casas de largura, e um recorte justo tem oito. Multiplicar
+    #: este número pelo corpo dá a largura da figura na página, e é assim que o
+    #: diagrama desenhado e o recortado saem do **mesmo tamanho** no mesmo livro.
+    #:
+    #: `None` é a figura que não tem tabuleiro por dentro — a página inteira que
+    #: virou imagem —, e essa continua saindo pela largura fixa de antes.
+    casas_de_largura: Optional[float] = None
 
 
 @dataclass
@@ -890,7 +902,8 @@ def _quer_coordenadas(escolha, d: Diagrama) -> bool:
 
 def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                         dpi_figura: int, modo: str, coordenadas, fonte: str,
-                        lado: int) -> Figura:
+                        lado: int,
+                        moldura=render_diagrama.MOLDURA_PADRAO) -> Figura:
     """
     Um tabuleiro da página vira figura: desenhado, se merecer; recortado, se não.
 
@@ -921,13 +934,16 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                 fen = leitura.fen()
                 png, larg, alt = render_diagrama.desenhar(
                     fen, fonte=fonte, lado_px=lado, coordenadas=quer,
-                    orientacao=leitura.orientacao)
+                    moldura=moldura, orientacao=leitura.orientacao)
                 return Figura(png, larg, alt, fen=fen, origem="render",
                               linhas=render_diagrama.linhas(
                                   fen, render_diagrama.carregar(fonte),
                                   leitura.orientacao),
                               fonte=fonte, coordenadas=quer,
-                              orientacao=leitura.orientacao)
+                              orientacao=leitura.orientacao,
+                              casas_de_largura=(
+                                  larg * 8.0
+                                  / render_diagrama.lado_efetivo(lado)))
         except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta) as erro:
             # Falta de modelo ou de fonte não pode derrubar a exportação de um
@@ -937,8 +953,13 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
 
     rect = d.exclusao if quer else d.tabuleiro
     png, larg, alt = _png_do_recorte(img, rect, dpi, dpi_figura)
+    # O recorte também sabe medir-se em casas: o tabuleiro dele está na página,
+    # e é o `d.tabuleiro`. Sem isto o desenho sairia no corpo pedido e o recorte
+    # da página ao lado sairia noutro tamanho — no mesmo livro, na mesma página.
+    na_pagina = max(1, d.tabuleiro[2] - d.tabuleiro[0])
     return Figura(png, larg, alt, origem="recorte", aviso=aviso,
-                  coordenadas=quer)
+                  coordenadas=quer,
+                  casas_de_largura=8.0 * (rect[2] - rect[0]) / na_pagina)
 
 
 def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
@@ -947,7 +968,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    coletor: Optional[Callable] = None,
                    diagramas: str = "render", coordenadas=False,
                    fonte: str = render_diagrama.FONTE_PADRAO,
-                   lado_do_diagrama: int = render_diagrama.LADO_PADRAO
+                   lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
+                   moldura=render_diagrama.MOLDURA_PADRAO
                    ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
@@ -1048,7 +1070,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         """
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
-                                        fonte=fonte, lado=lado_do_diagrama)
+                                        fonte=fonte, lado=lado_do_diagrama,
+                                        moldura=moldura)
         # A legenda de baixo entra **depois** da figura, que é onde ela está
         # impressa (F95). Não é `titulo=True`: título embaixo da figura viraria
         # um `<h2>` no meio do texto seguinte, e o que ela é, é legenda.
@@ -1071,7 +1094,15 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         alvo = int(round((d.faixa[2] - d.faixa[0]) * principal.largura / na_pagina))
         png, larg, alt = _png_do_recorte(img, d.faixa, dpi, dpi_figura,
                                          largura_px=alvo)
-        return [Figura(png, larg, alt, origem="faixa"), principal] + depois
+        # A escala da faixa é a do tabuleiro, e a medida em casas vai junto: a
+        # faixa foi reamostrada para a largura da figura, então basta a regra de
+        # três (F97). Sem isto o cabeçalho sairia na largura de antes e o
+        # tabuleiro no corpo pedido — e o cabeçalho ficaria maior que o diagrama
+        # que ele encabeça.
+        em_casas = (principal.casas_de_largura * larg / max(1, principal.largura)
+                    if principal.casas_de_largura else None)
+        return [Figura(png, larg, alt, origem="faixa",
+                       casas_de_largura=em_casas), principal] + depois
 
     # Intercalar texto e figura, coluna a coluna e por posição vertical.
     metricas = _metricas_por_coluna(medidas)
@@ -1146,6 +1177,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             diagramas: str = "render", coordenadas=False,
             fonte: str = render_diagrama.FONTE_PADRAO,
             lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
+            moldura=render_diagrama.MOLDURA_PADRAO,
             progress_callback=None) -> List[PaginaExtraida]:
     """Lê o PDF inteiro (ou as páginas pedidas) como imagem."""
     import os
@@ -1164,7 +1196,8 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         dpi_figura=dpi_figura, coletor=coletor,
                                         diagramas=diagramas,
                                         coordenadas=coordenadas, fonte=fonte,
-                                        lado_do_diagrama=lado_do_diagrama))
+                                        lado_do_diagrama=lado_do_diagrama,
+                                        moldura=moldura))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         return saida

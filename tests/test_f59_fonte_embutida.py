@@ -92,8 +92,10 @@ def test_o_epub_declara_a_fonte_no_manifesto_e_na_css():
     assert 'media-type="font/otf"' in opf
     assert 'href="fonts/SkakNew-Diagram.otf"' in opf
     assert "@font-face" in css and 'font-family: "SkakNew-Diagram"' in css
-    # Sem estes dois a fila descola da fila e o tabuleiro vira uma escada.
-    assert "line-height: 1;" in css and "letter-spacing: 0;" in css
+    # Sem estes dois a fila descola da fila e o tabuleiro vira uma escada. O
+    # `!important` entrou na F97: vários leitores impõem a entrelinha de leitura
+    # ao livro inteiro, e nas oito linhas do tabuleiro isso é a mesma escada.
+    assert "line-height: 1 !important;" in css and "letter-spacing: 0;" in css
 
 
 def test_o_apple_books_so_respeita_a_fonte_se_lhe_pedirem():
@@ -258,7 +260,12 @@ def test_o_docx_com_fonte_embutida_continua_sendo_um_docx():
                                  os.path.join(tmp, "livro.docx"),
                                  diagramas="fonte")
     doc = Document(caminho)
+    # Desde a F97 o tabuleiro com moldura mora numa célula de tabela — a borda
+    # de parágrafo do Word emolduraria a coluna de texto, não o diagrama. O
+    # teste continua sendo o mesmo: as oito filas voltaram como parágrafo.
     linhas = [p.text for p in doc.paragraphs]
+    linhas += [p.text for t in doc.tables for f in t.rows for c in f.cells
+               for p in c.paragraphs]
     for linha in rd.linhas(FEN):
         assert linha in linhas, "o tabuleiro não voltou como parágrafo"
     assert "Prosa antes." in linhas

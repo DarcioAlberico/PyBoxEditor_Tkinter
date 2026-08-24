@@ -93,9 +93,25 @@ LADO_PADRAO = 528
 #: desenho de linha, e 256 tons pagam por gradiente que não existe.
 TONS = 4
 
-#: Espessura da moldura, em casas. O tabuleiro da fonte não traz moldura — a
-#: `skak` desenha o filete por fora, no LaTeX, e aqui é o mesmo.
+#: Os três feitios de moldura (F97).
+#:
+#: **É escolha de quem exporta, e por isso são três e não dois.** O tabuleiro da
+#: fonte não traz moldura nenhuma — a `skak` desenha o filete por fora, no
+#: LaTeX, e aqui é o mesmo —, então o que se decide aqui é o que se desenha em
+#: volta: nada, um filete, ou o par de filetes concêntricos com que os livros de
+#: xadrez emolduram o diagrama.
+MOLDURAS = ("sem", "simples", "dupla")
+MOLDURA_PADRAO = "simples"
+
+#: Espessura do filete simples, em casas.
 ESPESSURA_MOLDURA = 0.04
+
+#: A moldura dupla, de fora para dentro: filete grosso, vão, filete fino — em
+#: casas, como a de cima.
+#:
+#: **A ordem importa e é a do livro impresso**: o traço pesado fica por fora e o
+#: leve encosta no tabuleiro. Invertida, a moldura parece uma sombra.
+MOLDURA_DUPLA = (0.045, 0.030, 0.020)
 
 #: Espaço do rótulo e corpo dele, em casas.
 GUTTER_ROTULO = 0.72
@@ -273,8 +289,58 @@ def rotulos(orientacao: str) -> Tuple[List[str], List[str]]:
     return colunas, filas
 
 
+def normalizar_moldura(valor) -> str:
+    """
+    O nome da moldura, aceitando os booleanos de antes da F97.
+
+    `True` e `False` continuam valendo porque foi assim que a `desenhar` nasceu
+    e é assim que a suíte ainda a chama; **qualquer outra coisa levanta erro**,
+    e não vira verdadeiro em silêncio. É a mesma disciplina que o `livro` aplica
+    ao `coordenadas` desde a F95: um `"Dupla"` com maiúscula sairia como moldura
+    simples no livro inteiro sem nada denunciar.
+    """
+    if valor is True:
+        return "simples"
+    if valor is False:
+        return "sem"
+    if valor in MOLDURAS:
+        return valor
+    raise ValueError(f"moldura inválida: {valor!r} (use um de {MOLDURAS})")
+
+
+def filetes(moldura: str, casa: float) -> Tuple[List[Tuple[float, float]], float]:
+    """
+    `([(recuo do caminho, espessura)], margem total)` dos filetes, em pixels.
+
+    O `recuo` é medido do lado do tabuleiro **para fora**, e é o centro do
+    traço: um filete de espessura `e` cujo caminho passa a `e/2` do tabuleiro
+    ocupa exatamente a faixa de `0` a `e` fora dele, sem invadir uma casa. É por
+    isso que a margem da página é a soma, e não a metade dela.
+    """
+    if moldura == "sem":
+        return [], 0.0
+    if moldura == "simples":
+        e = casa * ESPESSURA_MOLDURA
+        return [(e / 2.0, e)], e
+    externo, vao, interno = (casa * f for f in MOLDURA_DUPLA)
+    return ([(interno / 2.0, interno),
+             (interno + vao + externo / 2.0, externo)],
+            interno + vao + externo)
+
+
+def lado_efetivo(lado_px: int) -> int:
+    """
+    O lado que o desenho vai mesmo ter: múltiplo de 8, e nunca zero.
+
+    Pública desde a F97 porque quem escreve o arquivo precisa dela para saber
+    **quantas casas de largura a figura tem** — é o que converte o corpo em
+    pontos, que é escolha do usuário, na largura da imagem no DOCX e no EPUB.
+    """
+    return max(8, int(round(lado_px / 8.0)) * 8)
+
+
 def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
-             coordenadas: bool = False, moldura: bool = True,
+             coordenadas: bool = False, moldura=MOLDURA_PADRAO,
              orientacao: str = "branca", tons: int = TONS
              ) -> Tuple[bytes, int, int]:
     """
@@ -287,17 +353,20 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
     O lado é arredondado para múltiplo de 8, e não é preciosismo: quem relê o
     desenho — a suíte, o porteiro, o `diagrama.ler` — divide a imagem em 8×8
     **iguais**, e um pixel de resto desloca toda casa da última fila.
+
+    `moldura` é `"sem"`, `"simples"` ou `"dupla"` desde a F97, e continua
+    aceitando os booleanos de antes (ver `normalizar_moldura`).
     """
     f = carregar(fonte)
     texto = linhas(fen, f, orientacao)
 
-    lado = max(8, int(round(lado_px / 8.0)) * 8)
+    lado = lado_efetivo(lado_px)
     casa = lado / 8.0
-    espessura = casa * ESPESSURA_MOLDURA if moldura else 0.0
+    # O filete mora fora do tabuleiro, e a margem da página é o que ele ocupa.
+    tracos, margem = filetes(normalizar_moldura(moldura), casa)
 
     gutter_esq = casa * GUTTER_ROTULO if coordenadas else 0.0
     gutter_baixo = casa * GUTTER_ROTULO if coordenadas else 0.0
-    margem = espessura  # o filete mora fora do tabuleiro, e precisa caber
 
     largura = gutter_esq + lado + 2 * margem
     altura = lado + gutter_baixo + 2 * margem
@@ -310,10 +379,10 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
             pagina.insert_text((x0, y0 + (i + 1) * casa), linha, fontsize=casa,
                                fontname="diag", fontfile=f.arquivo)
 
-        if moldura:
-            meio = espessura / 2.0
+        for recuo, espessura in tracos:
             pagina.draw_rect(
-                fitz.Rect(x0 - meio, y0 - meio, x0 + lado + meio, y0 + lado + meio),
+                fitz.Rect(x0 - recuo, y0 - recuo,
+                          x0 + lado + recuo, y0 + lado + recuo),
                 width=espessura, color=(0, 0, 0))
 
         if coordenadas:
@@ -322,14 +391,14 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
             for i, rotulo in enumerate(filas):
                 largura_texto = fitz.get_text_length(rotulo, FONTE_DO_ROTULO, corpo)
                 pagina.insert_text(
-                    (x0 - espessura - casa * 0.28 - largura_texto,
+                    (x0 - margem - casa * 0.28 - largura_texto,
                      y0 + i * casa + casa / 2 + corpo * 0.35),
                     rotulo, fontsize=corpo, fontname=FONTE_DO_ROTULO)
             for j, rotulo in enumerate(colunas):
                 largura_texto = fitz.get_text_length(rotulo, FONTE_DO_ROTULO, corpo)
                 pagina.insert_text(
                     (x0 + j * casa + (casa - largura_texto) / 2,
-                     y0 + lado + espessura + casa * 0.28 + corpo * 0.7),
+                     y0 + lado + margem + casa * 0.28 + corpo * 0.7),
                     rotulo, fontsize=corpo, fontname=FONTE_DO_ROTULO)
 
         pix = pagina.get_pixmap(colorspace=fitz.csGRAY, alpha=False)

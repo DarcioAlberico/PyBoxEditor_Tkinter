@@ -26,6 +26,7 @@ from core.services.task_service import BackgroundTask
 
 from ui.canvas_view import CanvasView
 from ui.dialogo_diagrama import DialogoDiagrama
+from ui.dialogo_moldura import DialogoMoldura
 from ui.dialogo_semelhantes import DialogoSemelhantes
 from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
@@ -1674,6 +1675,9 @@ class MainWindow(tk.Frame):
                     f"{erro}\n\nDigite um número, ou deixe o campo em branco "
                     "para não ter teto.")
 
+    #: Costura de teste, como a do `DIALOGO_DIAGRAMA`.
+    DIALOGO_MOLDURA = DialogoMoldura
+
     def exportar_livro_action(self):
         """
         Lê o PDF **como imagem** e escreve um EPUB ou DOCX.
@@ -1760,6 +1764,17 @@ class MainWindow(tk.Frame):
                 "é sem.",
                 default=messagebox.NO)
 
+        # A moldura e o corpo do diagrama (F97). **Uma caixa só para as duas**,
+        # ao contrário das de cima: uma tem três respostas e a outra é um
+        # número, e as duas mexem no mesmo desenho — quem escolhe a moldura
+        # dupla precisa ver que a está escolhendo para um diagrama de 4,5 cm.
+        # Cancelar aqui desiste da exportação, e não vira "faça como sempre":
+        # quem abriu esta caixa veio decidir alguma coisa.
+        escolha = self.DIALOGO_MOLDURA(self.parent).mostrar()
+        if escolha is None:
+            return
+        moldura, corpo_pt = escolha
+
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
         # PNG pequenos e poupa caçá-los na tela um a um.
@@ -1795,11 +1810,13 @@ class MainWindow(tk.Frame):
                                     coletor=coletor,
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
+                                    moldura=moldura,
                                     progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
             exportar.exportar(paginas, saida, formato=formato,
                               titulo=os.path.splitext(os.path.basename(input_pdf))[0],
-                              diagramas="fonte" if embutir else "png")
+                              diagramas="fonte" if embutir else "png",
+                              corpo_pt=corpo_pt, moldura=moldura)
             if coletor is not None:
                 coletor.gravar_indice()
             return paginas, coletor
