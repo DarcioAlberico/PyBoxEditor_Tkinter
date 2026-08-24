@@ -78,7 +78,7 @@ def test_o_epub_em_fonte_troca_a_imagem_por_texto():
     assert "OEBPS/fonts/SkakNew-Diagram.otf" in nomes
     assert not [n for n in nomes if n.endswith(".png")], (
         "o diagrama saiu como texto, mas o PNG dele foi para o zip assim mesmo")
-    assert '<div class="diagrama"' in pagina
+    assert '<div class="diagrama caixa fonte-SkakNew-Diagram"' in pagina
     for linha in rd.linhas(FEN):
         assert f"<p>{linha}</p>" in pagina
     assert "<img" not in pagina
@@ -121,7 +121,7 @@ def test_o_recorte_continua_saindo_como_imagem():
         pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
 
     assert [n for n in nomes if n.endswith(".png")], "o recorte perdeu a imagem"
-    assert '<div class="diagrama"' in pagina and "<img" in pagina
+    assert '<div class="diagrama caixa fonte-SkakNew-Diagram"' in pagina and "<img" in pagina
 
 
 def test_o_modo_padrao_nao_embute_fonte_nenhuma():

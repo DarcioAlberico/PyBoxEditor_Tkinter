@@ -18,7 +18,7 @@ dependência de desenvolvimento, como o `pytest`.
 **A família é renomeada, e não é capricho.** Subset é modificação, e a OFL pede
 que a versão modificada não se passe pela original — além do mais, uma família
 com o nome da Noto instalada na máquina de quem abre o arquivo entraria em
-conflito com esta, que tem 39 glifos.
+conflito com esta, que tem 41 glifos.
 
 Quando o alfabeto do modelo crescer, este script tem de rodar de novo. Quem
 avisa é o `tests/test_f62_simbolos.py`, que compara a cobertura do subset com o
@@ -110,6 +110,21 @@ FIGURINE = os.path.join(RAIZ, "fonts", "SkakNew-Figurine.otf")
 #: Quem diz é o livro: as 13 amostras de `sym_10812` têm a haste à direita
 #: (`w`) e a de `sym_8735` à esquerda (`v`). Trocar os dois sairia sem erro
 #: nenhum no caminho, e com o símbolo espelhado na página.
+#:
+#: **O `⇗` e o `⌓` fecham a lista dos que a Noto não alcança**, e os dois não
+#: custam o mesmo. O `⇗` (`$240`, diagonal) é o `G` da SkakNew e bate traço por
+#: traço com as 3 amostras de `sym_8663`.
+#:
+#: O `⌓` (`$142`, "melhor é") **não bate**, e a régua aqui é a proporção: as 64
+#: amostras de `sym_8979` têm altura sobre largura de **0,72** — um arco de
+#: laterais retas assentado numa base —, e o `b` da SkakNew é uma meia-elipse
+#: rasa, de **0,53**. Quem desenha o arco do livro é a `IS-TT-01` (o `e`, 0,79),
+#: **e ela não pode viajar dentro do arquivo**: `fsType = 1` no `OS/2`, que é o
+#: "restricted license embedding" da Chess Assistant, contra `fsType = 0` da
+#: SkakNew. O par fica sendo o `b`: é o mesmo símbolo, mais raso do que o livro
+#: imprime, e é o que se pode embutir. Desenhar o arco à mão — duas hastes e um
+#: meio-círculo, como a moldura da F97 — é o que daria a forma exata, e é outra
+#: mecânica: este script empresta glifo, não os inventa.
 EMPRESTADOS = {
     "⩲": "f",      # ligeira vantagem das brancas
     "⩱": "g",      # ligeira vantagem das pretas
@@ -126,6 +141,8 @@ EMPRESTADOS = {
     "⊥": "L",      # final ($245)
     "∟": "v",      # "com" ($254) — haste à esquerda
     "⨼": "w",      # o mesmo ângulo com a haste à direita, e sem NAG
+    "⇗": "G",      # diagonal ($240)
+    "⌓": "b",      # "melhor é" ($142) — mais raso que o do livro; ver acima
 }
 
 #: Emprestados que entram espelhados na horizontal.

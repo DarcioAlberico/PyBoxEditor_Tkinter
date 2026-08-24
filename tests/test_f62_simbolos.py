@@ -43,7 +43,7 @@ def test_o_recorte_cobre_o_que_a_fonte_inteira_cobre():
 
 
 def test_o_recorte_e_muito_menor_que_a_fonte_inteira():
-    """A razão de ele existir. 641 KB para desenhar trinta e nove glifos."""
+    """A razão de ele existir. 641 KB para desenhar quarenta e um glifos."""
     if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
         pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
 
@@ -106,7 +106,7 @@ def test_a_familia_do_recorte_nao_se_passa_pela_original():
     Subset é modificação, e a OFL pede que a modificada não use o nome da
     original. Há um motivo prático junto: uma família com o nome da Noto
     instalada na máquina de quem abre o arquivo brigaria com esta, que tem
-    trinta e nove glifos.
+    quarenta e um glifos.
     """
     if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
         pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")

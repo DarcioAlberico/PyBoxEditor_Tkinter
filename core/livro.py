@@ -168,6 +168,16 @@ class Figura:
     #: `None` é a figura que não tem tabuleiro por dentro — a página inteira que
     #: virou imagem —, e essa continua saindo pela largura fixa de antes.
     casas_de_largura: Optional[float] = None
+    #: As `linhas` já trazem a moldura e as coordenadas, em glifo da própria
+    #: fonte de xadrez (F99) — são dez de dez, e não oito de oito.
+    #:
+    #: **É o que faz o diagrama com coordenada caber no modo de fonte.** Sem
+    #: isto o rótulo tem de sair em fonte de texto, e aí o EPUB precisa de um
+    #: `<i>` dentro de um `<span>` para alinhá-lo com a casa, e o DOCX precisa
+    #: desistir e mandar a figura como imagem. Quem tem os glifos escreve as dez
+    #: linhas e acabou — e quem escreve o arquivo não põe moldura por fora,
+    #: porque ela já está dentro do texto.
+    linhas_emolduradas: bool = False
 
 
 @dataclass
@@ -935,10 +945,18 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                 png, larg, alt = render_diagrama.desenhar(
                     fen, fonte=fonte, lado_px=lado, coordenadas=quer,
                     moldura=moldura, orientacao=leitura.orientacao)
+                # As linhas de texto seguem o mesmo critério do desenho (F99):
+                # havendo glifo de borda com rótulo, elas saem emolduradas; não
+                # havendo, saem as oito de sempre. Decidir aqui, e não na hora
+                # de escrever, é o que faz o EPUB e o DOCX concordarem sobre o
+                # que a figura é.
+                objeto = render_diagrama.carregar(fonte)
+                em_grade = (render_diagrama.grade(
+                    fen, objeto, leitura.orientacao, moldura) if quer else None)
                 return Figura(png, larg, alt, fen=fen, origem="render",
-                              linhas=render_diagrama.linhas(
-                                  fen, render_diagrama.carregar(fonte),
-                                  leitura.orientacao),
+                              linhas=(em_grade or render_diagrama.linhas(
+                                  fen, objeto, leitura.orientacao)),
+                              linhas_emolduradas=em_grade is not None,
                               fonte=fonte, coordenadas=quer,
                               orientacao=leitura.orientacao,
                               casas_de_largura=(

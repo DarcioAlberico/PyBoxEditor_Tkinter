@@ -61,7 +61,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import fitz
-from PIL import Image
+from PIL import Image, ImageChops
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -142,6 +142,18 @@ class Fonte:
     #: caractere → (símbolo FEN ou None, "clara"|"escura")
     casas: Dict[str, Tuple[Optional[str], str]] = field(default_factory=dict)
     licenca: str = ""
+    #: `{"simples"|"dupla": {peça da moldura: caractere}}`, quando a fonte
+    #: desenha a moldura com glifo (F99).
+    #:
+    #: **Nem toda fonte de diagrama tem isto, e é o que a torna interessante.**
+    #: A SkakNew-Diagram não tem glifo de borda nenhum — a `skak` desenha o
+    #: filete por fora, no LaTeX. A Chess Merida tem os oito pedaços da moldura
+    #: *e* mais dezesseis que trazem o filete com o rótulo da fila ou da coluna
+    #: desenhado ao lado. São esses dezesseis que permitem escrever um diagrama
+    #: com coordenada **inteiro em texto**, sem uma segunda fonte para os
+    #: rótulos — que é o que o EPUB fazia com um `<i>` dentro de um `<span>`, e
+    #: o que o DOCX não conseguia fazer de jeito nenhum.
+    molduras: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     @property
     def por_casa(self) -> Dict[Tuple[Optional[str], str], str]:
@@ -154,6 +166,10 @@ class Fonte:
         except KeyError:
             raise FonteIncompleta(
                 f"{self.nome} não tem casa {cor} para {simbolo!r}") from None
+
+    def moldura_em_glifo(self, moldura: str) -> Optional[Dict[str, str]]:
+        """Os caracteres desta moldura, ou `None` se a fonte não os tem."""
+        return self.molduras.get(moldura)
 
 
 _cache: Dict[str, Fonte] = {}
@@ -193,10 +209,19 @@ def carregar(nome: str = FONTE_PADRAO) -> Fonte:
         raise FonteIncompleta(f"arquivo da fonte não encontrado: {caminho}")
 
     casas = {ch: (par[0], par[1]) for ch, par in bruto["casas"].items()}
+    molduras = {m: dict(pecas) for m, pecas in bruto.get("molduras", {}).items()
+                if m in MOLDURAS}
     fonte = Fonte(nome=nome, arquivo=caminho, em=int(bruto.get("em", 1000)),
-                  casas=casas, licenca=bruto.get("licenca", ""))
+                  casas=casas, licenca=bruto.get("licenca", ""),
+                  molduras=molduras)
 
-    faltando = sem_glifo(caminho, casas)
+    # A moldura em glifo entra na **mesma** conferência das casas, e não numa
+    # mais frouxa: um mapa que prometesse `0xC0` numa fonte que não o desenha
+    # daria um diagrama com a coluna dos rótulos em branco — plausível à
+    # distância, que é a definição do modo de falha da §4.2.
+    exigidos = set(casas) | {c for pecas in molduras.values()
+                             for valor in pecas.values() for c in valor}
+    faltando = sem_glifo(caminho, sorted(exigidos))
     if faltando:
         raise FonteIncompleta(
             f"{nome} não desenha {''.join(faltando)!r} — o mapa não vale para "
@@ -289,6 +314,61 @@ def rotulos(orientacao: str) -> Tuple[List[str], List[str]]:
     return colunas, filas
 
 
+#: Quanto de branco fica em volta do desenho em grade, em casas.
+#:
+#: A grade tem 10 casas de lado, mas a tinta não chega às bordas dela: o filete
+#: de cima mora no pé da casa de cima, e o rótulo da fila ocupa pouco mais da
+#: metade da casa da esquerda. Sem recortar, o diagrama sairia com quase uma
+#: casa de branco em cima e à direita e nada embaixo — o desenho ficaria torto
+#: dentro da própria figura. Recorta-se pela tinta, e esta é a folga que sobra.
+SANGRIA_DA_GRADE = 0.07
+
+
+def grade(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
+          moldura: str = MOLDURA_PADRAO) -> Optional[List[str]]:
+    """
+    As dez linhas de dez caracteres que desenham o tabuleiro **emoldurado e
+    rotulado** — ou `None` se esta fonte não sabe (F99).
+
+    O quadro é o do livro impresso:
+
+        canto  topo  topo … topo  canto
+        fila8  ┃ as oito casas ┃  direita
+        …
+        fila1  ┃ as oito casas ┃  direita
+        canto  col.a … col.h    canto
+
+    **O rótulo vem junto do filete, e não é escolha desta função**: na Chess
+    Merida o glifo `0xC0` *é* a borda esquerda com um `1` desenhado ao lado.
+    Daí a consequência que atravessa o resto do projeto: não há como pedir
+    coordenada sem moldura por este caminho, e `moldura="sem"` devolve `None`.
+
+    **Devolver `None` é a resposta certa, e não uma falha.** A SkakNew-Diagram
+    não tem glifo de borda nenhum, e o desenho dela continua saindo com o filete
+    da caneta e o rótulo em fonte de texto, que é o que sempre fez.
+
+    A orientação sai dos mesmos `rotulos` que o resto usa, e por isso o
+    diagrama impresso do lado das pretas ganha `h` na primeira coluna e `1` na
+    primeira fila, sem que este código precise saber disso.
+    """
+    fonte = fonte or carregar()
+    moldura = normalizar_moldura(moldura)
+    pecas = fonte.moldura_em_glifo(moldura)
+    if pecas is None:
+        return None
+
+    corpo = linhas(fen, fonte, orientacao)
+    colunas, filas = rotulos(orientacao)
+
+    saida = [pecas["canto_ne"] + pecas["topo"] * 8 + pecas["canto_no"]]
+    for rotulo, linha in zip(filas, corpo):
+        saida.append(pecas["filas"][int(rotulo) - 1] + linha + pecas["direita"])
+    saida.append(pecas["canto_se"]
+                 + "".join(pecas["colunas"][ord(c) - ord("a")] for c in colunas)
+                 + pecas["canto_so"])
+    return saida
+
+
 def normalizar_moldura(valor) -> str:
     """
     O nome da moldura, aceitando os booleanos de antes da F97.
@@ -356,14 +436,81 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
 
     `moldura` é `"sem"`, `"simples"` ou `"dupla"` desde a F97, e continua
     aceitando os booleanos de antes (ver `normalizar_moldura`).
+
+    **Há dois desenhos aqui, e quem escolhe entre eles é a fonte** (F99). Pedida
+    coordenada a uma fonte que tenha os glifos de borda com rótulo, o diagrama
+    inteiro sai da fonte — moldura e `a`–`h` e `8`–`1` —, e o tamanho da figura
+    passa a ser o do recorte na tinta. Pedida a uma que não tenha, sai como
+    sempre saiu: filete de caneta e rótulo em fonte de texto. Sem coordenada os
+    dois caminhos são o mesmo, e é o de sempre.
     """
     f = carregar(fonte)
-    texto = linhas(fen, f, orientacao)
-
+    moldura = normalizar_moldura(moldura)
     lado = lado_efetivo(lado_px)
     casa = lado / 8.0
+
+    em_grade = grade(fen, f, orientacao, moldura) if coordenadas else None
+    if em_grade is not None:
+        imagem = _pintar_grade(em_grade, f, casa)
+    else:
+        imagem = _pintar_com_caneta(linhas(fen, f, orientacao), f, casa, lado,
+                                    moldura, coordenadas, orientacao)
+
+    if tons and tons < 256:
+        imagem = imagem.quantize(colors=tons)
+    buffer = io.BytesIO()
+    imagem.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue(), imagem.width, imagem.height
+
+
+def _pintar_grade(em_grade: Sequence[str], fonte: Fonte, casa: float) -> Image.Image:
+    """
+    As dez linhas da `grade`, pintadas e recortadas na tinta (F99).
+
+    **Dez casas de lado, e nenhum cálculo de moldura.** O filete e o rótulo já
+    estão dentro dos glifos, na posição em que o desenhista da fonte os pôs; o
+    que este código faz é encostar as dez linhas uma na outra, como faz com as
+    oito do tabuleiro nu.
+
+    O recorte é o que impede o desenho de sair torto dentro da figura — ver
+    `SANGRIA_DA_GRADE`. E ele é determinístico apesar de medir a tinta: a
+    moldura fecha o desenho dos quatro lados, e as oito filas e as oito colunas
+    saem em todo diagrama, então a caixa da tinta é sempre a mesma para uma dada
+    fonte, moldura e escala — não depende de onde estão as peças.
+    """
+    lado_da_grade = casa * 10
+    doc = fitz.open()
+    pagina = doc.new_page(width=lado_da_grade, height=lado_da_grade)
+    try:
+        for i, linha in enumerate(em_grade):
+            pagina.insert_text((0, (i + 1) * casa), linha, fontsize=casa,
+                               fontname="diag", fontfile=fonte.arquivo)
+        pix = pagina.get_pixmap(colorspace=fitz.csGRAY, alpha=False)
+        imagem = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+    finally:
+        doc.close()
+
+    tinta = ImageChops.invert(imagem).getbbox()
+    if tinta is None:
+        return imagem
+    folga = max(1, int(round(casa * SANGRIA_DA_GRADE)))
+    return imagem.crop((max(0, tinta[0] - folga), max(0, tinta[1] - folga),
+                        min(imagem.width, tinta[2] + folga),
+                        min(imagem.height, tinta[3] + folga)))
+
+
+def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,
+                       moldura: str, coordenadas: bool,
+                       orientacao: str) -> Image.Image:
+    """
+    O tabuleiro com o filete desenhado e o rótulo em fonte de texto.
+
+    É o desenho de sempre, e o único que a SkakNew-Diagram sabe fazer: ela tem
+    46 codepoints e nenhum deles é `a`–`h`, `7` ou `8` — as letras que sobrariam
+    para rótulo desenham casa.
+    """
     # O filete mora fora do tabuleiro, e a margem da página é o que ele ocupa.
-    tracos, margem = filetes(normalizar_moldura(moldura), casa)
+    tracos, margem = filetes(moldura, casa)
 
     gutter_esq = casa * GUTTER_ROTULO if coordenadas else 0.0
     gutter_baixo = casa * GUTTER_ROTULO if coordenadas else 0.0
@@ -402,15 +549,9 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
                     rotulo, fontsize=corpo, fontname=FONTE_DO_ROTULO)
 
         pix = pagina.get_pixmap(colorspace=fitz.csGRAY, alpha=False)
-        imagem = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+        return Image.frombytes("L", (pix.width, pix.height), pix.samples)
     finally:
         doc.close()
-
-    if tons and tons < 256:
-        imagem = imagem.quantize(colors=tons)
-    buffer = io.BytesIO()
-    imagem.save(buffer, format="PNG", optimize=True)
-    return buffer.getvalue(), pix.width, pix.height
 
 
 #: Nome interno antigo, mantido para quem já importava.

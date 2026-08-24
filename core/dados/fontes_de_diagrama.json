@@ -75,8 +75,34 @@
         "o": ["p", "clara"],
         "O": ["p", "escura"]
       },
-      "molduras": "! \" # $ % ( ) / (dupla) e 1 2 3 4 5 7 8 9 (simples), mais a b c d e f (cantos arredondados)",
-      "nota_molduras": "A Merida sabe desenhar a moldura com glifo -- um tabuleiro de 10x10 caracteres em vez de 8x8 -- e tem tambem bordas COM coordenada, em 0xC0-0xCF (simples) e 0xE0-0xEF (dupla). Nenhum uso: a moldura da F97 e desenhada com caneta, o que a faz valer para qualquer fonte, inclusive a SkakNew, que nao tem glifo de borda nenhum. As bordas com coordenada sao o que resolveria o rotulo em fonte de texto do modo de fonte embutida -- fica anotado.",
+      "molduras": {
+        "simples": {
+          "canto_ne": "1",
+          "topo": "2",
+          "canto_no": "3",
+          "esquerda": "4",
+          "direita": "5",
+          "canto_se": "7",
+          "base": "8",
+          "canto_so": "9",
+          "filas": "\u00c0\u00c1\u00c2\u00c3\u00c4\u00c5\u00c6\u00c7",
+          "colunas": "\u00c8\u00c9\u00ca\u00cb\u00cc\u00cd\u00ce\u00cf"
+        },
+        "dupla": {
+          "canto_ne": "!",
+          "topo": "\"",
+          "canto_no": "#",
+          "esquerda": "$",
+          "direita": "%",
+          "canto_se": "/",
+          "base": "(",
+          "canto_so": ")",
+          "filas": "\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u00e6\u00e7",
+          "colunas": "\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef"
+        }
+      },
+      "nota_molduras": "Os cantos sao nomeados pelo canto DO TABULEIRO que eles fecham (canto_ne = o de cima a esquerda), e nao pelo lugar da tinta dentro da casa, que e o oposto: o glifo do canto de cima a esquerda tem a tinta embaixo a direita da propria casa, porque a casa dele fica acima e a esquerda do tabuleiro. 'filas' e indexada por fila 1..8 e 'colunas' por coluna a..h -- 0xC0 e a fila 1 e 0xC8 e a coluna a, conferido no desenho. Cada um destes glifos traz o filete E o rotulo: nao ha rotulo sem filete, e por isso 'sem moldura' com coordenada continua saindo pela caneta e pela fonte de texto.",
+      "sem_uso_cantos_arredondados": "a s d f (simples) e A S D F (dupla) -- os mesmos quatro cantos com a quina redonda. Nenhum uso, e nao ha como oferece-los sem uma quinta resposta na caixa da F97.",
       "sem_uso": ". : x X ?"
     }
   }

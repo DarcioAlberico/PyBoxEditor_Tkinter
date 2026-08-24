@@ -150,12 +150,16 @@ MODOS_DE_DIAGRAMA = ("png", "fonte")
 #: oito linhas do tabuleiro abre uma faixa branca entre as filas e o diagrama
 #: deixa de fechar. Só estas oito linhas se defendem, e o resto do livro
 #: continua obedecendo ao leitor.
+#:
+#: **A moldura mora numa classe à parte porque nem todo diagrama a quer por
+#: fora** (F99). O que sai com coordenada numa fonte que tem glifo de borda já
+#: traz o filete dentro do próprio texto, e uma borda de CSS por cima seria a
+#: segunda moldura. A folha é do livro inteiro e a decisão é de cada figura, e é
+#: por isso que ela é uma classe e não uma regra em `div.diagrama`.
 CSS_DO_DIAGRAMA = """\
-@font-face { font-family: "%(familia)s"; font-weight: normal; font-style: normal;
-  src: url("fonts/%(arquivo)s"); }
-div.diagrama { display: table; margin: 1.2em auto; page-break-inside: avoid;
-  %(moldura)s }
-div.diagrama p { font-family: "%(familia)s", monospace; font-size: %(corpo)spt;
+div.diagrama { display: table; margin: 1.2em auto; page-break-inside: avoid; }
+div.diagrama.caixa { %(moldura)s }
+div.diagrama p { font-family: monospace; font-size: %(corpo)spt;
   line-height: 1 !important; letter-spacing: 0; margin: 0; padding: 0;
   text-indent: 0; text-align: left; white-space: pre; }
 div.diagrama span.rot { display: inline-block; width: 0.92em; text-align: right;
@@ -164,6 +168,27 @@ div.diagrama span.col { display: inline-block; width: 1em; text-align: center; }
 div.diagrama i { font-family: serif; font-style: normal; font-size: 0.4em;
   vertical-align: 0.35em; }
 """
+
+#: A fonte de xadrez, e a regra que a liga aos diagramas **dela** (F99).
+#:
+#: **Sai uma vez por fonte, e por isso a família não pode morar na regra geral.**
+#: Enquanto havia uma fonte só, `div.diagrama p { font-family: … }` repetida
+#: dizia sempre a mesma coisa. Com duas, a segunda cópia venceria a primeira em
+#: cascata e o livro inteiro sairia na última fonte declarada — inclusive os
+#: diagramas desenhados com a outra. A regra é escolhida pela classe da figura,
+#: que é a única coisa que sabe de que fonte cada diagrama saiu.
+CSS_DA_FONTE_DO_DIAGRAMA = """\
+@font-face { font-family: "%(familia)s"; font-weight: normal; font-style: normal;
+  src: url("fonts/%(arquivo)s"); }
+div.diagrama.%(classe)s p { font-family: "%(familia)s", monospace; }
+"""
+
+
+def classe_da_fonte(nome: str) -> str:
+    """O nome da fonte como classe de CSS — o que não serve vira `-`."""
+    seguro = "".join(c if (c.isascii() and (c.isalnum() or c in "-_")) else "-"
+                     for c in nome)
+    return f"fonte-{seguro}"
 
 #: Extensão → tipo de mídia da fonte, como o EPUB 3 os nomeia.
 TIPOS_DE_FONTE = {".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff"}
@@ -243,6 +268,16 @@ def _diagrama_em_texto(figura: Figura) -> str:
     """
     from core import render_diagrama
 
+    titulo_do_alt = html.escape(_alternativo(figura))
+    familia = classe_da_fonte(figura.fonte or "")
+    if figura.linhas_emolduradas:
+        # Dez linhas de dez caracteres, e nada em volta: o filete e o `a`–`h`
+        # são glifos da mesma fonte (F99). É o caso simples, e o que o resto
+        # desta função existe para contornar quando a fonte não o permite.
+        miolo = "\n".join(f"<p>{linha}</p>" for linha in figura.linhas or [])
+        return (f'<div class="diagrama {familia}" title="{titulo_do_alt}" '
+                f'aria-label="{titulo_do_alt}" role="img">\n{miolo}\n</div>')
+
     # Os rótulos saem do mesmo lugar que os do PNG, e não de uma lista escrita
     # aqui: o diagrama impresso do lado das pretas tem as `linhas` giradas
     # (F95), e um `a`–`h` fixo rotularia `h8` como `a1` sem nada denunciar.
@@ -260,9 +295,8 @@ def _diagrama_em_texto(figura: Figura) -> str:
         colunas = "".join(f'<span class="col"><i>{c}</i></span>' for c in letras)
         linhas.append(f'<p class="colunas"><span class="rot"></span>'
                       f'{colunas}</p>')
-    titulo = html.escape(_alternativo(figura))
-    return (f'<div class="diagrama" title="{titulo}" '
-            f'aria-label="{titulo}" role="img">\n' + "\n".join(linhas)
+    return (f'<div class="diagrama caixa {familia}" title="{titulo_do_alt}" '
+            f'aria-label="{titulo_do_alt}" role="img">\n' + "\n".join(linhas)
             + "\n</div>")
 
 
@@ -471,11 +505,13 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
 
     css = CSS
     fontes_no_zip = dict(embutidas)
-    for nome, origem in embutidas.items():
-        css += CSS_DO_DIAGRAMA % {"familia": nome,
-                                  "arquivo": os.path.basename(origem),
-                                  "corpo": f"{corpo_pt:g}",
+    if embutidas:
+        css += CSS_DO_DIAGRAMA % {"corpo": f"{corpo_pt:g}",
                                   "moldura": MOLDURA_NA_CSS[moldura]}
+    for nome, origem in embutidas.items():
+        css += CSS_DA_FONTE_DO_DIAGRAMA % {
+            "familia": nome, "arquivo": os.path.basename(origem),
+            "classe": classe_da_fonte(nome)}
     if recurso:
         fontes_no_zip[recurso[0]] = recurso[1]
         css += CSS_DOS_SIMBOLOS % {"familia": recurso[0],
@@ -754,14 +790,16 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     pela `Figura.casas_de_largura`; o `largura_figura_cm` ficou para a figura
     que não tem tabuleiro por dentro, que é a página inteira virada imagem.
 
-    Em `diagramas="fonte"` o tabuleiro sai como oito parágrafos de texto na
-    fonte de xadrez, que vai embutida. **Diagrama com coordenadas continua
-    saindo em imagem** mesmo nesse modo: a fonte não tem `a`–`h` nem `7` e `8`,
-    e alinhar rótulo de outra fonte sobre as casas exigiria uma tabela de 81
-    células por diagrama — no EPUB isso são três linhas de CSS, aqui não.
+    Em `diagramas="fonte"` o tabuleiro sai como parágrafos de texto na fonte de
+    xadrez, que vai embutida — oito, ou dez quando as linhas já trazem a moldura
+    e as coordenadas em glifo (F99). **Diagrama com coordenadas numa fonte que
+    não tem esses glifos continua saindo em imagem** mesmo nesse modo: alinhar
+    rótulo de outra fonte sobre as casas exigiria uma tabela de 81 células por
+    diagrama — no EPUB isso são três linhas de CSS, aqui não.
 
-    `moldura` (F97) só tem efeito nesse mesmo modo, pela `_caixa_do_diagrama`:
-    no modo de imagem o filete já veio desenhado dentro do PNG.
+    `moldura` (F97) só tem efeito nesse mesmo modo, pela `_caixa_do_diagrama`, e
+    só quando o texto não traz a sua: no modo de imagem o filete já veio
+    desenhado dentro do PNG, e no de fonte emoldurada ele está no próprio texto.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
@@ -776,7 +814,19 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     from docx.shared import Cm, Pt
 
     def em_texto(bloco: Figura) -> bool:
-        return diagramas == "fonte" and em_fonte(bloco) and not bloco.coordenadas
+        """
+        Esta figura sai como texto?
+
+        **Diagrama com coordenada saía sempre em imagem, e desde a F99 não
+        mais** — quando a fonte tem os glifos de borda com rótulo, as dez linhas
+        já trazem o `a`–`h` e o `8`–`1` desenhados, e não há o que alinhar. Com
+        a SkakNew-Diagram continua caindo para imagem: a fonte tem 46 codepoints
+        e nenhum deles é `a`–`h`, `7` ou `8`, e pôr rótulo de outra fonte sobre
+        as casas exigiria uma tabela de 81 células por diagrama.
+        """
+        if not (diagramas == "fonte" and em_fonte(bloco)):
+            return False
+        return bloco.linhas_emolduradas or not bloco.coordenadas
 
     def familia_do_run(run, familia: str) -> None:
         """O `w:rFonts` tem quatro atributos, e o `font.name` só escreve um."""
@@ -831,7 +881,13 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         for bloco in pagina.blocos:
             if isinstance(bloco, Figura) and em_texto(bloco):
                 usadas[bloco.fonte] = None
-                caixa = _caixa_do_diagrama(doc, moldura, corpo_pt * 8)
+                # A largura é a das linhas, e não oito fixo: as emolduradas
+                # têm dez caracteres. E a moldura da caixa sai quando o texto
+                # já traz a sua — senão o diagrama ganharia duas (F99).
+                colunas = max(len(linha) for linha in bloco.linhas)
+                caixa = _caixa_do_diagrama(
+                    doc, "sem" if bloco.linhas_emolduradas else moldura,
+                    corpo_pt * colunas)
                 for i_linha, linha in enumerate(bloco.linhas):
                     # A célula já nasce com um parágrafo vazio, e ele é o da
                     # primeira fila: um `add_paragraph` aqui deixaria uma linha
