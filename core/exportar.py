@@ -311,6 +311,60 @@ def _diagrama_em_texto(figura: Figura) -> str:
             + "\n</div>")
 
 
+def trechos(texto: str, negrito: Sequence[Tuple[int, int]]
+            ) -> List[Tuple[str, bool]]:
+    """
+    O texto partido nos trechos em negrito e nos de fora deles (F105).
+
+    Os dois formatos precisam do mesmo corte e o fazem de jeitos diferentes — o
+    EPUB embrulha em `<strong>`, o DOCX abre outro `run` —, então o corte mora
+    num lugar só. Trecho vazio não sai: uma marca que comece no primeiro
+    caractere não deve produzir um `<strong>` precedido de nada.
+    """
+    saida, fim_anterior = [], 0
+    for inicio, fim in negrito:
+        inicio, fim = max(inicio, fim_anterior), min(fim, len(texto))
+        if fim <= inicio:
+            continue
+        if inicio > fim_anterior:
+            saida.append((texto[fim_anterior:inicio], False))
+        saida.append((texto[inicio:fim], True))
+        fim_anterior = fim
+    if fim_anterior < len(texto):
+        saida.append((texto[fim_anterior:], False))
+    return saida
+
+
+def _por_familia(texto: str, simbolos: str) -> List[Tuple[str, bool]]:
+    """
+    O texto partido nas corridas de símbolo e nas de letra comum.
+
+    É o corte que o DOCX precisa e o EPUB não: lá a folha de estilo escolhe a
+    fonte por `unicode-range`, aqui a família é atributo do run.
+    """
+    if not texto:
+        return []
+    if not simbolos:
+        return [(texto, False)]
+    saida, pedaco, e_simbolo = [], "", texto[0] in simbolos
+    for ch in texto:
+        if (ch in simbolos) != e_simbolo:
+            saida.append((pedaco, e_simbolo))
+            pedaco, e_simbolo = "", ch in simbolos
+        pedaco += ch
+    saida.append((pedaco, e_simbolo))
+    return saida
+
+
+def _marcado(paragrafo: Paragrafo, simbolos: str) -> str:
+    """O parágrafo em XHTML, com o negrito da página e a fonte dos símbolos."""
+    def escapado(trecho: str) -> str:
+        return _com_simbolos(trecho, simbolos) if simbolos else html.escape(trecho)
+
+    return "".join(f"<strong>{escapado(t)}</strong>" if forte else escapado(t)
+                   for t, forte in trechos(paragrafo.texto, paragrafo.negrito))
+
+
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                      diagramas: str = "png", simbolos: str = "",
                      idioma: str = IDIOMA_PADRAO,
@@ -347,8 +401,7 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             i += 1
             primeiro = True
         else:
-            texto = (_com_simbolos(bloco.texto, simbolos) if simbolos
-                     else html.escape(bloco.texto))
+            texto = _marcado(bloco, simbolos)
             if bloco.titulo:
                 # O `titulo` existe na `Paragrafo` desde a F2.6 e os dois
                 # exportadores o ignoravam: todo cabeçalho saía como parágrafo
@@ -862,29 +915,27 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     recurso = fonte_dos_simbolos("".join(p.texto for p in paginas))
     simbolos = recurso[2] if recurso else ""
 
-    def escrever_paragrafo(texto: str):
+    def escrever_paragrafo(texto: str, negrito: Sequence[Tuple[int, int]] = ()):
         """
-        Um parágrafo, com os símbolos em runs de outra fonte.
+        Um parágrafo, com os símbolos em runs de outra fonte e o negrito da
+        página (F105).
 
         **No DOCX não há `unicode-range`**: a fonte é atributo do run, então o
         texto tem de ser partido onde a família muda. Partir por corridos e não
-        por caractere mantém o XML legível e o arquivo menor.
+        por caractere mantém o XML legível e o arquivo menor. O peso é atributo
+        do run pelo mesmo motivo, e os dois cortes se somam: um trecho em
+        negrito com uma figurina no meio sai em três runs.
         """
         p = doc.add_paragraph()
-        if not simbolos:
-            p.add_run(texto)
-            return p
-        pedaco, e_simbolo = "", False
-        for ch in texto + "\0":
-            atual = ch in simbolos
-            if ch != "\0" and atual == e_simbolo:
-                pedaco += ch
-                continue
-            if pedaco:
+        for trecho, forte in trechos(texto, negrito):
+            for pedaco, e_simbolo in _por_familia(trecho, simbolos):
                 run = p.add_run(pedaco)
+                # `None` e não `False`: o `False` escreve `<w:b w:val="0"/>` em
+                # todo run do livro, e o que se quer dizer é "este run não fala
+                # de peso" — que é o que o estilo do parágrafo já diz.
+                run.bold = True if forte else None
                 if e_simbolo:
                     familia_do_run(run, recurso[0])
-            pedaco, e_simbolo = ch, atual
         return p
 
     doc = Document()
@@ -975,7 +1026,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     for celula, texto in zip(fila.cells, textos):
                         celula.text = texto
             else:
-                p = escrever_paragrafo(bloco.texto)
+                p = escrever_paragrafo(bloco.texto, bloco.negrito)
                 if bloco.titulo:
                     p.style = doc.styles["Heading 2"]
 

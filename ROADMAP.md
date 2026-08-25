@@ -10961,6 +10961,132 @@ linhas juntas, a coluna da esquerda inteira vira um bloco só e o "1 de 3" não 
 sobre onde a figura caiu. Passou a contar caracteres, que é o que a propriedade sempre quis
 dizer.
 
+## F105 — O negrito do impresso chega ao arquivo — CONCLUÍDA
+
+Todo livro que este projeto exportou saiu com um peso só. Nestes livros isso não é
+detalhe de acabamento: **a notação principal é negrito e a análise secundária não é**,
+e é assim que o leitor sabe qual linha é a do jogo. Sem o peso, `1.♖e1?` no meio da
+prosa é indistinguível da variante que a comenta.
+
+### A medida, e as duas normalizações
+
+O que separa negrito de redondo é a espessura do traço. Ela sai da transformada de
+distância — em cada pixel de tinta, o quanto falta para a borda —, e a conta é
+`2 × média − 1`, que num traço de largura *w* vale exatamente `w/2`.
+
+**O `− 1` não é ajuste fino.** A transformada soma meio pixel em cada borda, e esse meio
+pixel pesa muito num glifo pequeno e pouco num grande: sem ele a nota de rodapé mede mais
+espessa que a prosa em negrito da mesma página. Vale 0,9 ponto de acerto ponta a ponta
+(98,5% contra 97,6%), e mais que dobra a folga do limiar — a razão da família mais
+apertada sobe de 1,13 para 1,22.
+
+Espessura em pixels não diz nada sozinha, e por isso ela é normalizada duas vezes:
+
+    espessura   largura do traço ÷ altura da tinta do glifo — tira o corpo
+    relativo    ÷ a espessura **daquele mesmo caractere** no resto do livro —
+                tira o desenho
+
+A segunda é o miolo da fase, e **só existe porque este projeto lê o caractere antes de
+medi-lo**. Um `.` é grosso e um `l` é fino em qualquer peso; comparar os dois nunca disse
+nada. Comparar `l` com `l` diz tudo.
+
+### O gabarito: um livro, e só um
+
+Dos oito PDF desta pasta, o Dvoretsky é o único cuja camada de texto **nomeia as fontes**
+(`TimesNewRomanPS-BoldMT` × `TimesNewRomanPSMT`). Nos outros a camada veio do OCR de
+fábrica, que reembutiu tudo com nomes gerados (`Fd350139`), e ali não há como saber qual
+era o peso. 40 páginas sorteadas, 9.338 palavras, 12,8% delas em negrito.
+
+| referência de cada caractere | acerta | falso |
+|---|---:|---:|
+| mediana da página | 63,1% | 0,04% |
+| quantil da página | 92,0% | 0,06% |
+| mediana do livro | 94,8% | 0,16% |
+| **quantil do livro** | **97,1%** | **0,22%** |
+
+**Quantil e não mediana**, e o motivo é do gênero: a mediana supõe que a maior parte das
+aparições daquele caractere está no peso redondo, e num livro de xadrez a notação é
+negrito — a mediana de `4` neste livro *é* o peso negrito, e nenhum `4` negrito passaria
+da régua. O p25 pega o redondo mesmo quando ele é minoria e não estraga o caso comum.
+
+**Do livro e não da página**, e isso custou uma segunda passada: `extrair_pagina` marca
+com a página que acabou de ler, `extrair` remarca no fim com o livro inteiro. A marcação
+é idempotente e a segunda é a que vale.
+
+### A decisão é por palavra
+
+Glifo a glifo a mesma régua acerta 83,8% com 1,35% de falso, e o que ela perde é a
+pontuação — 31,3% dos sinais, contra 95,4% das letras e 99,7% dos dígitos. Um `.` tem meia
+dúzia de pixels de altura, e meio pixel de erro nele é 10% de espessura.
+
+| glifos medidos na palavra | palavras | acerta | falso |
+|---|---:|---:|---:|
+| 1 | 1.261 | 29,2% | 11,48% |
+| 2 | 1.081 | 87,7% | 1,67% |
+| 3 ou mais | 6.996 | **99,7%** | **0,02%** |
+
+A palavra de um glifo não decide nada, e passou a não decidir. O que sobra de fora dela
+são o travessão de `Nimzovitch — Tarrasch` e o `!` do lance — que *são* negrito no
+impresso — e a fileira `a b c d e f g h` do diagrama, que não é. **A pontuação curta herda
+dos vizinhos; a alfanumérica não herda**, e a assimetria é o artigo: herdar em toda
+palavra curta vale 0,6 ponto neste livro e poria o `a` em negrito toda vez que o texto
+dissesse "played 1.e4 a strong move".
+
+### O limiar, que este livro não escolhe
+
+Varrido nas 9.338 palavras, o alarme falso é o mesmo 0,22% de 1,02 a 1,20 — as palavras
+redondas simplesmente não ocupam essa faixa. Quem escolhe são as duas populações e o
+desenho das fontes:
+
+| | |
+|---|---|
+| palavra redonda, percentil 99 | **1,006** |
+| palavra negrito, percentil 1 | **1,167** |
+| razão negrito ÷ redondo desenhada pelas fontes | **1,22 a 1,91** |
+
+A segunda linha da tabela sai de desenhar o alfabeto nas dez famílias que o Windows traz,
+nos dois pesos e em três corpos (`medir_negrito.py --fontes`). A mais apertada de todas é
+a Constantia a 30 px — que é a nota de rodapé — com 1,22. **1,15 fica acima de 99 em cada
+100 palavras redondas e abaixo da mais apertada das famílias.**
+
+### O que ela não sabe, e nenhum limiar conserta
+
+Os 0,22% que sobram têm nome: são o `B?` e o `W?` que o Dvoretsky imprime **em Arial** no
+meio de uma página em Times — 12 das 18 palavras que a régua erra no livro. Ela mede peso,
+e uma segunda família de traço mais gordo passa por negrito. Distinguir os dois exige
+reconhecer a fonte, que é outra pergunta e outra fase.
+
+### Ponta a ponta
+
+Cada linha do gabarito virou um parágrafo com as espessuras medidas, e o `negrito.marcar`
+de produção rodou nelas — a régua inteira, herança incluída:
+
+| palavras | acerta | falso |
+|---|---:|---:|
+| 9.338 | **98,5%** | **0,22%** |
+
+E no caminho de verdade, com a segmentação e o modelo desta casa em vez das caixas do PDF,
+as páginas 101 e 102 do Dvoretsky saem com a notação principal marcada, `Tragicomedies` e
+`Nimzovitch — Tarrasch` inteiros num trecho só, e a fileira de coordenadas de fora.
+Conferido contra a camada de texto do livro: onde a régua **não** marcou o `1.♖h1` da
+prosa, o PDF também diz que ali não há negrito.
+
+### Onde o peso passa a viajar
+
+`Paragrafo` ganhou dois campos. `negrito` são as fatias `(início, fim)` do texto — fatias,
+e não texto marcado, para quem lê o parágrafo pelo léxico, pelo PGN ou pela escolha da
+fonte dos símbolos continuar lendo o que estava escrito. E `pesos` é a espessura de cada
+caractere, em `array('f')`: são 2,3 milhões de caracteres num livro de 900 páginas, 9 MB
+como vetor de 4 bytes contra ~60 MB numa lista de `float`.
+
+No EPUB o trecho sai em `<strong>`; no DOCX, em `run` com `bold`. Os dois cortes se somam
+ao da fonte dos símbolos, que já existia: `1.♔g4` em negrito sai em três `run`, e os três
+em negrito. **Título não recebe marca** — ele já é `<h2>` e `Heading 2`, e os dois
+desenham negrito sozinhos.
+
+Cobertura: `tests/test_f105_negrito.py`, 25 testes. Instrumento: `medir_negrito.py`, que
+refaz todas as tabelas acima.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

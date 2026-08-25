@@ -35,6 +35,7 @@ o lugar da figura.
 """
 
 import io
+from array import array
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
@@ -43,7 +44,7 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import diagrama, notacao, render_diagrama, vertical
+from core import diagrama, negrito, notacao, render_diagrama, vertical
 from core.box_model import BoxEntry
 from core.leitura_de_linha import quebrar_em_linhas
 from core.services.box_service import BoxService
@@ -147,6 +148,20 @@ PASSO_POR_ALTURA = 2.4
 class Paragrafo:
     texto: str
     titulo: bool = False
+    #: Os trechos `(início, fim)` do `texto` que estão impressos em negrito
+    #: (F105). Fatias do próprio `texto`, e não texto marcado: quem lê o
+    #: parágrafo para escolher a fonte dos símbolos, para o léxico ou para o
+    #: PGN continua lendo o que estava escrito, sem marcação nenhuma no meio.
+    negrito: List[Tuple[int, int]] = field(default_factory=list)
+    #: A espessura do traço de cada caractere do `texto`, em alturas do glifo —
+    #: `nan` no que não deu para medir, e no espaço entre palavras.
+    #:
+    #: É a matéria-prima do `negrito`, e não o resultado: quem decide é
+    #: `negrito.marcar`, e ele precisa do livro inteiro para saber qual é o peso
+    #: redondo de cada caractere. Fica guardado depois da decisão porque é o que
+    #: permite remarcar — o `extrair_pagina` marca com uma página por
+    #: referência, e o `extrair` remarca com todas.
+    pesos: Optional[array] = None
 
 
 @dataclass
@@ -545,18 +560,25 @@ def _celulas_de_ornamento(respingos: Sequence[BoxEntry], escala: float) -> set:
 def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
                     classificar: Callable, conf_minima: float,
                     coletor: Optional[Callable] = None,
-                    pagina: int = 0) -> Tuple[str, int]:
+                    pagina: int = 0) -> Tuple[str, int, List[Optional[float]]]:
     """
-    (texto, quantos caíram por confiança).
+    (texto, quantos caíram por confiança, espessura de cada caractere).
 
     O `coletor` recebe todo caractere classificado, com a confiança junto. É
     aqui que ele entra porque é aqui que os dois dados existem juntos, e a
     função não sabe nem precisa saber o que ele faz com eles — nem sequer se
     ele vai guardar aquele.
+
+    **A espessura sai daqui pelo mesmo motivo** (F105): é aqui que o recorte do
+    glifo e o caractere que ele virou existem juntos, e a régua do negrito
+    precisa dos dois — a espessura de um `.` só quer dizer alguma coisa
+    comparada com a de outros `.`. A lista sai alinhada ao `texto`, caractere a
+    caractere, com `None` no espaço entre palavras e no que não deu para medir.
     """
     larguras = [b.x2 - b.x1 for b in linha]
     largura = float(np.median(larguras)) or 1.0
     partes, fracos = [], 0
+    pesos: List[Optional[float]] = []
     for i, b in enumerate(linha):
         recorte = vertical.recorte_de_pe(img, b)
         char, conf = classificar(recorte) if recorte.size else ("", 0.0)
@@ -570,12 +592,24 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
             char, fracos = "", fracos + 1
         if i and b.x1 - linha[i - 1].x2 > largura * VAO_DE_ESPACO:
             partes.append(" ")
+            pesos.append(None)
         # **Depois do coletor, e antes do texto.** A base de treino guarda o
         # recorte sob a classe que o modelo emitiu — é ela que ensina o modelo —,
         # e o livro recebe o que a classe significa: o `✝` do xeque sai `+`, e
         # uma busca por `Nxe4+` passa a achar a página. Ver `notacao`.
-        partes.append(notacao.normalizar_saida(char or ""))
-    return "".join(partes).strip(), fracos
+        saida = notacao.normalizar_saida(char or "")
+        partes.append(saida)
+        # Um por caractere **do que saiu**, e não do que entrou: um sinônimo de
+        # saída pode ter mais de um caractere, e o caractere derrubado por
+        # confiança não tem nenhum. É o que mantém a lista alinhada ao texto.
+        espessura = negrito.espessura(recorte) if saida else None
+        pesos.extend([espessura] * len(saida))
+    texto = "".join(partes)
+    # O `strip` do texto tem de acontecer nos dois, ou o alinhamento se perde
+    # logo na primeira linha que comece com espaço.
+    inicio = len(texto) - len(texto.lstrip())
+    fim = len(texto.rstrip())
+    return texto[inicio:fim], fracos, pesos[inicio:fim]
 
 
 #: Quanto da faixa uma régua de tabela precisa atravessar para ser régua (F72).
@@ -729,8 +763,10 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
             # intercaladas. Célula se lê linha a linha, sempre.
             for sub in quebrar_em_linhas(
                     BoxService._agrupar_em_linhas(dentro)):
-                texto, n = _texto_da_linha(img, sub, classificar, conf_minima,
-                                           coletor, numero)
+                # A célula não leva peso: a tabela sai como `Tabela`, e nem o
+                # EPUB nem o DOCX marcam negrito dentro de célula (F105).
+                texto, n, _pesos = _texto_da_linha(img, sub, classificar,
+                                                   conf_minima, coletor, numero)
                 fracos += n
                 if texto:
                     partes.append(texto)
@@ -753,6 +789,10 @@ class Linha:
     #: Em qual das faixas de `detectar_colunas` esta linha está. Zero na página
     #: de coluna única, que é o caso em que tudo isto some.
     coluna: int = 0
+    #: A espessura do traço de cada caractere do `texto` (F105), como sai do
+    #: `_texto_da_linha`. `None` é a linha que veio de outro lugar que não a
+    #: página — as dos testes, e as que se montam à mão.
+    pesos: Optional[List[Optional[float]]] = None
 
 
 def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
@@ -803,6 +843,24 @@ def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
             for coluna, (margem, altura, passo) in metricas.items()}
 
 
+def _paragrafo_de(linhas: Sequence[Linha]) -> Paragrafo:
+    """
+    As linhas de um parágrafo, juntas — texto e espessuras no mesmo passo.
+
+    **O vetor de espessuras tem de ficar alinhado ao texto** (F105), e o espaço
+    que junta duas linhas conta como caractere: sem o `nan` dele, a primeira
+    quebra de linha do parágrafo deslocaria toda a medida do resto em um.
+    """
+    texto = " ".join(l.texto for l in linhas)
+    pesos: List[Optional[float]] = []
+    for i, l in enumerate(linhas):
+        if i:
+            pesos.append(None)
+        pesos.extend(l.pesos if l.pesos is not None
+                     else [None] * len(l.texto))
+    return Paragrafo(texto, pesos=negrito.vetor(pesos))
+
+
 def _agrupar_em_paragrafos(linhas: Sequence[Linha],
                            metricas: Optional[dict] = None) -> List[Paragrafo]:
     """
@@ -829,7 +887,7 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
         metricas = _metricas_por_coluna(linhas)
 
     paragrafos: List[Paragrafo] = []
-    atual: List[str] = []
+    atual: List[Linha] = []
     anterior: Optional[Linha] = None
     for linha in linhas:
         altura_solta = linha.altura or 1
@@ -843,12 +901,12 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
                   and linha.topo - anterior.topo
                   > passo * (1 + SALTO_DE_PARAGRAFO))
         if atual and (recuou or saltou or trocou):
-            paragrafos.append(Paragrafo(" ".join(atual)))
+            paragrafos.append(_paragrafo_de(atual))
             atual = []
-        atual.append(linha.texto)
+        atual.append(linha)
         anterior = linha
     if atual:
-        paragrafos.append(Paragrafo(" ".join(atual)))
+        paragrafos.append(_paragrafo_de(atual))
     return paragrafos
 
 
@@ -931,8 +989,8 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
         return None
     partes = []
     for linha in quebrar_em_linhas(d.caixas_da_faixa):
-        texto, fracos = _texto_da_linha(img, linha, classificar, conf_minima,
-                                        coletor, numero)
+        texto, fracos, _pesos = _texto_da_linha(img, linha, classificar,
+                                                conf_minima, coletor, numero)
         if fracos or not texto:
             return None
         partes.append(texto)
@@ -1115,8 +1173,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
 
     medidas: List[Linha] = []
     for linha in quebrar_em_linhas(boxes):
-        texto, n = _texto_da_linha(img, linha, classificar, conf_minima,
-                                   coletor, numero)
+        texto, n, pesos = _texto_da_linha(img, linha, classificar, conf_minima,
+                                          coletor, numero)
         fracos += n
         if texto:
             medidas.append(Linha(
@@ -1125,7 +1183,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 altura=int(np.median([b.y2 - b.y1 for b in linha])),
                 texto=texto,
                 coluna=_coluna_de((min(b.x1 for b in linha)
-                                   + max(b.x2 for b in linha)) / 2, colunas)))
+                                   + max(b.x2 for b in linha)) / 2, colunas),
+                pesos=pesos))
 
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
@@ -1249,6 +1308,9 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     resultado.diagramas_desenhados = sum(
         1 for b in resultado.blocos
         if isinstance(b, Figura) and b.origem == "render")
+    # O negrito, com esta página por referência (F105). Quem lê o livro inteiro
+    # remarca no fim, e acerta 6,5 pontos a mais — ver `negrito.marcar`.
+    negrito.marcar([resultado])
     return resultado
 
 
@@ -1283,6 +1345,12 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         moldura=moldura, cantos=cantos))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
+        # **Remarcado com o livro inteiro por referência** (F105). Cada página
+        # já saiu marcada contra si mesma, que é o melhor que dá para fazer
+        # quando só há uma; com todas, o peso redondo de cada caractere é
+        # estimado sobre muito mais texto, e a marcação passa de 90,2% para
+        # 96,7% de acerto. A marcação é idempotente — esta é a que vale.
+        negrito.marcar(saida)
         return saida
     finally:
         doc.close()
