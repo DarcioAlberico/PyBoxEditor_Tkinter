@@ -222,5 +222,23 @@ def test_o_que_nao_tem_candidato_nao_vira_confusao():
     assert categorias["sem candidato"] == 4
 
 
+def test_o_idioma_errado_e_recusado_em_vez_de_medido(capsys):
+    """
+    **Contra o livro do idioma errado o método não falha, ele produz.** Sem a
+    guarda, um livro em português contra o léxico inglês sai com uma matriz
+    inteira, com números convincentes, medindo a diferença entre dois idiomas.
+    """
+    lx = _lexico("the", "two", "pawn")
+    v = mcl.Vizinhanca(lx.palavras)
+    fora = {f"palavra{i}": 3 for i in range(20)}
+    saida = mcl.relatar(2, fora, *mcl.medir(fora, {}, lx, v))
+    assert saida == 1, "mediu um livro que o dicionário não cobre"
+    assert "idioma" in capsys.readouterr().out
+
+    # E o livro do idioma certo passa: 3% a 5% fora do dicionário, medido.
+    assert mcl.relatar(1000, {"rwo": 5}, *mcl.medir(
+        {"rwo": 5}, {"two": 90}, lx, v)) == 0
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

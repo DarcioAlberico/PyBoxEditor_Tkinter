@@ -32,6 +32,10 @@ Fica registrado para quem pensar nela de novo.
 diz por quê**: a versão elegante, que perguntava ao `parece_lance`, escondia
 erros de leitura no balde dos lances.
 
+**E o idioma do léxico é conferido antes de tudo** (ver `IDIOMA_ERRADO`): contra
+o livro do idioma errado este método não falha — ele **produz**, uma matriz
+inteira medindo a diferença entre dois idiomas.
+
 Medido no Aagaard (898 páginas, 130.194 palavras de prosa): 1,01% saem erradas, e
 o achado não é a taxa. É que o erro se concentra em **par de letras**, e não em
 glifo:
@@ -70,6 +74,16 @@ MINIMO = 3
 #: dicionário, e não leitura errada: `increment` está na lista e `increments`
 #: não. São 5,5% do que fica de fora no Aagaard.
 SUFIXOS = ("s", "es", "ed", "d", "ing", "ly", "er", "est", "'s", "ness")
+
+#: Acima desta fração fora do dicionário, o léxico não é do idioma do livro.
+#:
+#: **A guarda existe porque o método não falha, ele produz.** Medido um livro em
+#: português contra o léxico inglês, quase toda palavra fica "fora do
+#: dicionário" e o script escreve uma matriz de confusão inteira, com números
+#: convincentes, medindo a diferença entre dois idiomas. Nos livros em inglês a
+#: fração fica entre 3% e 5%; num em português passa de 60%. O corte em 25% está
+#: longe dos dois.
+IDIOMA_ERRADO = 0.25
 
 
 def _console_em_utf8():
@@ -369,7 +383,16 @@ def relatar(conhecidas, fora, categorias, confusao, atribuidas, indecisas,
 
     print(f"palavras de prosa (>= {MINIMO} letras, fora da notação): {prosa:,}")
     print(f"  no dicionário {conhecidas:,}   fora dele {total_fora:,} "
-          f"em {len(fora):,} formas\n")
+          f"em {len(fora):,} formas "
+          f"({total_fora / max(1, prosa) * 100:.1f}%)\n")
+
+    if prosa and total_fora / prosa > IDIOMA_ERRADO:
+        print(f"** {total_fora / prosa * 100:.0f}% das palavras estão fora do "
+              f"dicionário: ele não é do idioma deste livro.")
+        print("   Sem léxico do idioma certo não há o que medir. A matriz "
+              "sairia — e mediria a\n   diferença entre dois idiomas, com "
+              "números convincentes. Use --lista.")
+        return 1
 
     print(f"=== o que são as {total_fora:,} de fora ===")
     for chave, n in categorias.most_common():
