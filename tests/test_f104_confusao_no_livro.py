@@ -109,13 +109,18 @@ def test_o_pedaco_de_palavra_nao_vira_confusao_de_caractere():
     matriz daria `nada → d` com o peso de 140 leituras, apontando um defeito que
     não existe.
     """
-    prior = {"endgame": 500, "game": 40, "exchange": 60}
+    prior = {"endgame": 500, "game": 40, "exchange": 60, "first": 68}
     assert mcl.e_pedaco_de_palavra("dgame", prior) == "endgame"
     # Uma letra só é leitura errada, e é o que se quer medir.
     assert not mcl.e_pedaco_de_palavra("exchang", prior)
-    # Só entre as palavras que o livro usa; e nada com menos de quatro letras.
+    # Só entre as palavras que o livro usa.
     assert not mcl.e_pedaco_de_palavra("dgame", {"game": 40})
-    assert not mcl.e_pedaco_de_palavra("ame", prior)
+    # **Vale a partir de três letras**: `rst` é `first` sem a ligadura `fi`, e
+    # com quatro de mínimo ele escapava para a matriz como `u → r` — 53 leituras
+    # de uma troca que não existe, porque `ust` está no dicionário e fica a uma
+    # edição enquanto `first` fica a duas.
+    assert mcl.e_pedaco_de_palavra("rst", prior) == "first"
+    assert not mcl.e_pedaco_de_palavra("st", prior)
 
 
 def test_a_flexao_que_falta_no_dicionario_nao_e_erro_de_leitura():
@@ -173,8 +178,26 @@ def test_a_distancia_manda_mais_que_o_prior():
     lx = _lexico("quiche", "quickly")
     v = mcl.Vizinhanca(lx.palavras)
     _cat, _conf, atribuidas, _ind = mcl.medir(
-        {"quicHy": 3}, {"quickly": 900, "quiche": 1}, lx, v)
+        {"quicHy": 3}, {"quickly": 900, "quiche": 9}, lx, v)
     assert atribuidas == [(3, "quicHy", "quiche")]
+
+
+def test_o_prior_de_uma_aparicao_nao_e_evidencia():
+    """
+    Sem piso, `hrst` — que é `first` sem a ligadura `fi` — foi atribuído a
+    `horst`, palavra que o livro usa **uma** vez, e a matriz ganhou oito
+    leituras de `f → h` que não existem.
+    """
+    lx = _lexico("horst", "hoist", "first")
+    v = mcl.Vizinhanca(lx.palavras)
+    categorias, confusao, atribuidas, _ind = mcl.medir(
+        {"hrst": 8}, {"horst": mcl.PRIOR_MINIMO - 1}, lx, v)
+    assert not atribuidas and not confusao
+    assert categorias["sem prior para decidir"] == 8
+
+    _cat, _conf, atribuidas, _ind = mcl.medir(
+        {"hrst": 8}, {"horst": mcl.PRIOR_MINIMO}, lx, v)
+    assert atribuidas == [(8, "hrst", "horst")]
 
 
 def test_sem_prior_nenhum_a_forma_fica_indecisa_em_vez_de_chutada():

@@ -19,7 +19,7 @@ tem de sair do texto medido.
 
 **O que o método não vê, e está no relatório.** Erro que produz outra palavra
 real é invisível ao dicionário — é limite do método, não do instrumento. E a
-palavra que este livro nunca acertou fica com prior zero e não se decide: no
+palavra que este livro quase nunca acertou fica sem prior e não se decide: no
 Aagaard são 222 ocorrências, entre elas `quickiy`, cujas 88 leituras saíram todas
 erradas. O relatório imprime as duas fatias em vez de escondê-las no total.
 
@@ -84,6 +84,14 @@ SUFIXOS = ("s", "es", "ed", "d", "ing", "ly", "er", "est", "'s", "ness")
 #: fração fica entre 3% e 5%; num em português passa de 60%. O corte em 25% está
 #: longe dos dois.
 IDIOMA_ERRADO = 0.25
+
+#: Quantas vezes o candidato precisa aparecer no livro para o prior valer.
+#:
+#: **Uma aparição num livro de novecentas páginas não é evidência.** Sem piso, o
+#: `hrst` — que é `first` com a ligadura `fi` perdida — foi atribuído a `horst`,
+#: que o livro usa **uma** vez, e a matriz ganhou oito leituras de `f → h` que
+#: não existem. Com piso ele vai para a fatia indecisa, que é onde deve estar.
+PRIOR_MINIMO = 3
 
 
 def _console_em_utf8():
@@ -210,8 +218,14 @@ def e_pedaco_de_palavra(nucleo: str, prior) -> str:
     `e` final, e aquilo é uma leitura errada de um caractere, que é justamente o
     que se quer medir. Só se procura entre as palavras que este livro usa — sem
     isso, todo pedaço acha alguma palavra do dicionário que o contenha.
+
+    **E vale a partir de três letras**, que é o mínimo de palavra aqui. O `rst`
+    do Attacking Manual é `first` sem a ligadura `fi`, e com quatro de mínimo
+    ele escapava para a matriz como `u → r` — 53 leituras de uma troca que não
+    existe, porque `ust` está no dicionário e fica a **uma** edição enquanto
+    `first` fica a duas.
     """
-    if len(nucleo) < 4:
+    if len(nucleo) < MINIMO:
         return ""
     for palavra, vezes in prior.items():
         if not vezes or len(palavra) - len(nucleo) < 2:
@@ -292,7 +306,7 @@ def medir(fora, prior, lx, vizinhanca):
         perto = achados[0][0]
         empatados = [p for d, p in achados if d == perto]
         alvo = max(empatados, key=lambda p: prior.get(p, 0))
-        if prior.get(alvo, 0) == 0:
+        if prior.get(alvo, 0) < PRIOR_MINIMO:
             # Nenhum dos candidatos aparece neste livro. Não há como decidir, e
             # chutar seria pôr ruído na matriz — ver o cabeçalho.
             if partido:
