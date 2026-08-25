@@ -1809,6 +1809,7 @@ class MainWindow(tk.Frame):
 
             paginas = livro.extrair(input_pdf, self.learning_service.ler_texto,
                                     coletor=coletor,
+                                    lex=self.lexico_da_sessao(),
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
                                     moldura=moldura, cantos=cantos,

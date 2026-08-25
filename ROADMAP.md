@@ -11612,6 +11612,138 @@ duas coisas: a régua do espaço (que é conversão, não reconhecimento) e a gr
 (que é semente para depois). **O reconhecimento do `s` contra o `S` está como estava**, e
 sai daqui com um caminho medido e um pré-requisito nomeado, não com um conserto.
 
+## F108 — O dicionário era cego a caixa, e por isso ninguém via o `biShop` — CONCLUÍDA
+
+Nasceu de uma pergunta: quanto o dicionário está ajudando no problema de maiúscula e
+minúscula que a F107 mediu como 84% dos erros de leitura? A resposta era **zero**, por três
+motivos independentes, cada um suficiente sozinho.
+
+### 1. A consulta baixa os dois lados
+
+```python
+def conhece(self, palavra: str) -> bool:
+    b = palavra.lower()
+    return b in self.palavras or b in self.do_usuario
+```
+
+Contra o léxico real de 310.465 palavras, `conhece('biShop')`, `conhece('preSSure')` e
+`conhece('tHe')` são **todos verdadeiros**. Para o dicionário um erro de caixa não é erro.
+O `sinalizar` — que é o produto principal da F9.1 — decide por `if lex.conhece(nuc):
+continue`, então `biShop` atravessava sem acender nada.
+
+### 2. O caminho do livro não carregava o léxico
+
+`core/livro.py` e `core/exportar.py` não importavam `lexico`. Os únicos chamadores em
+produção estavam na UI: `carregar`, `aprender_da_pagina` e `suspeitas_da_pagina`. **O DOCX e
+o EPUB saíam sem nenhuma ajuda de dicionário**, nem para caixa nem para nada.
+
+### 3. O reparo da F66 existe e não estava ligado
+
+`lexico.reparar` tem dois chamadores: `medir_reparo.py` e os testes. Nenhum em produção — e
+o mesmo vale para `juntar_hifenizadas` e `partir_colada`. Ele é de **colagem**, não de
+caixa: o `_casa` compara o candidato com o lido letra a letra fora da máscara, então um `S`
+no meio faz a comparação falhar em vez de disparar o conserto.
+
+### O que passava
+
+| livro | núcleos de 3+ letras | caixa estranha | e o dicionário aceita |
+|---|---:|---:|---:|
+| Seirawan (pt) | 44.322 | 13.051 (29,4%) | 4.316 |
+| Yusupov (en) | 20.250 | 763 (3,8%) | 441 |
+
+E contaminava a régua: `medir_confusao_no_livro` usa o mesmo `conhece`, então **a tabela dos
+seis livros da F104 não enxerga erro de caixa**. Foi por isso que ela reportou 2 casos de
+`s`→`S` no Yusupov enquanto o DOCX tem `S/s` = 0,20, três vezes o normal do inglês.
+
+### A regra não é de dicionário, é tipográfica
+
+Três padrões são legítimos em qualquer língua de alfabeto latino — `bishop`, `Bishop`,
+`BISHOP` — e `biShop` não é nenhum deles. Isso vale igual no livro em português, onde a
+lista de palavras deste projeto não vale.
+
+**A correção não escolhe entre candidatas**: para `biShop` não há duas saídas, há uma. Isso
+a põe na família do veto da F106 e não na do desempate da F19 — ela recusa o impossível.
+E ela **preserva o comprimento**, que não é estética: as fatias de negrito da F105 e o vetor
+de espessuras são índices sobre o mesmo texto.
+
+**O que abre parte nova é não ser letra**, e enumerar separadores foi o erro da primeira
+versão. Ela partia só em hífen e apóstrofo, e a medição cobrou: `Hulak,K` e `Spassky,B` são
+nome com inicial, `abandonou.Excelente` é ponto sem espaço, `mau—Bispo` usa travessão — que
+não está em `HIFENS`. Nos quatro a maiúscula abre parte, e acusá-los custava palavra certa.
+
+### O portão funciona por causa da cegueira, não apesar dela
+
+`conhece('biShop')` é verdadeiro e `conhece('tbitBl')` é falso: baixar os dois lados separa
+exatamente prosa de lixo de segmentação. É o único uso em que essa cegueira ajuda.
+
+Medido nas caixas que **uma pessoa confirmou** — e apertar o gabarito foi necessário no meio
+do caminho: o `.box` mistura `manual` com `neural`, e contra os dois juntos `defeSa` saía ao
+mesmo tempo como conserto numa página e como estrago noutra, porque o palpite do modelo
+tinha sido gravado como verdade. Só as de mão, 1.687 palavras:
+
+| | conserta | estraga |
+|---|---:|---:|
+| regra sozinha | 36 de 51 (71%) | 6 |
+| regra + portão | **18 de 51** (35%) | **1** |
+
+O portão é o que entrou. Sem ele a regra também acende 29% das palavras de um livro em
+português, que é a "tela inteira acesa" que o próprio `Lexico.sinaliza` documenta como modo
+de morte de alarme.
+
+**O preço é o idioma.** No livro em português o portão corta os consertos pela metade (29
+para 15), porque `defesa` e `branco` não estão na lista inglesa. É o mesmo teto que barra
+aquele livro na F104, e quem o levanta é uma lista de português.
+
+### O `I` se acusa e não se baixa
+
+A correção supõe que a letra certa é a **minúscula da maiúscula que se leu**: `S` no lugar
+de `s`, `O` de `o`, `C` de `c`. Para o `I` isso é falso — ele entra no lugar do **`l`**, e
+`I`.lower() é `i`.
+
+Medido, das palavras que a regra acusava e não consertava, **todas** eram desta família:
+
+    melhor lido meIhor        principal lido principaI
+    exemplo lido exempIo      planos lido pIanos
+
+Corrigi-las trocava `pIanos` por `pianos` — que é palavra, e portanto um erro que ninguém
+mais vê. Trocar um erro visível por um invisível é pior que não mexer. Nenhum conserto da
+medição envolve `I`, então excluí-lo da correção não custou nada.
+
+**Acusar continua valendo, e é onde essa família paga.** `conhece('pIanos')` é verdadeiro,
+então sem esta regra ela é invisível para o projeto inteiro — e é exatamente o "erro que
+produz outra palavra real, que dicionário nenhum vê" que a F104 registra como limite do
+método. O padrão de caixa é sinal **ortogonal** ao dicionário.
+
+### Onde entrou
+
+Na linha, dentro do `livro.extrair_pagina`, e não no parágrafo: ali `pesos` ainda está ao
+lado do texto e a correção preserva o comprimento, então as fatias de negrito continuam
+apontando para o mesmo caractere. **É a primeira vez que o dicionário entra no caminho do
+livro.** Palavra partida na quebra de linha fica de fora — o núcleo de cada metade não é
+palavra, e o portão não abre.
+
+`lex=None` é o padrão em `extrair` e `extrair_pagina`, então quem já chamava continua
+recebendo o de antes; a UI passa o léxico da sessão, que já inclui o `.lexico.txt` do livro.
+
+E no `sinalizar`, a palavra conhecida com caixa estranha passa a acender com motivo próprio
+— `caixa-estranha` contra `fora-do-dicionario`. Os dois não se revisam igual: um pede que se
+leia a palavra, o outro já diz que letra olhar.
+
+No Yusupov exportado isso são **441 palavras corrigidas** — `alSo`(31), `pointS`(23),
+`poSition`(19), `biShop`(15), `haS`(14).
+
+### Cobertura
+
+`tests/test_f108_caixa.py`, 30 testes. Instrumento: `medir_caixa.py`, que refaz as tabelas
+acima e mede a regra contra as caixas confirmadas à mão.
+
+### O que esta fase não alcança
+
+Ela conserta o **sintoma** onde o dicionário alcança, e não o reconhecimento: a rede
+continua lendo `S` no lugar de `s` com 0,898 de confiança, e o que a F107 nomeou continua
+de pé. Palavra fora do dicionário, palavra do idioma errado e palavra partida na quebra de
+linha ficam todas como estavam.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

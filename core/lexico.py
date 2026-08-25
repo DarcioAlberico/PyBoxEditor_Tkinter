@@ -385,6 +385,161 @@ def boxes_do_nucleo(simbolos: Sequence[Tuple[str, int]]) -> Tuple[str, List[int]
     return nuc, indices
 
 
+#: Motivo de suspeita da F108 — o padrão de caixa não é um dos legítimos.
+MOTIVO_CAIXA = "caixa-estranha"
+
+#: Parte de menos letras que isto não tem padrão de caixa que se leia.
+#:
+#: `Kh` de `Kh1`, `NN`, a inicial de `Hulak, K` — em duas letras não sobra
+#: evidência, e é justamente onde a caixa mais engana. Com três, `biShop` e
+#: `daS` já se separam de `Bishop` e `das` sem ambiguidade.
+PARTE_MINIMA_DE_CAIXA = 3
+
+
+def _partes_de_caixa(nuc: str) -> List[str]:
+    """
+    O núcleo partido em **todo** caractere que não é letra.
+
+    Enumerar separadores foi o erro da primeira versão, que partia só em hífen e
+    apóstrofo: `Hulak,K` e `Spassky,B` são nome com inicial, `abandonou.Excelente`
+    é ponto sem espaço, e `mau—Bispo` usa travessão, que não está em `HIFENS`.
+    Nos três a maiúscula é de começo de parte, e a regra a lia como interna. O
+    que abre parte nova é não ser letra.
+    """
+    saida, atual = [], []
+    for c in nuc:
+        if c.isalpha():
+            atual.append(c)
+        else:
+            if atual:
+                saida.append("".join(atual))
+            atual = []
+    if atual:
+        saida.append("".join(atual))
+    return saida
+
+
+def caixa_estranha(nuc: str) -> bool:
+    """
+    O padrão de caixa desta palavra não é nenhum dos três legítimos? (F108)
+
+    `bishop`, `Bishop` e `BISHOP` passam; `biShop`, `daS` e `pIanos` não. **É
+    regra tipográfica, e não de dicionário** — nenhuma língua de alfabeto latino
+    põe maiúscula no meio de uma palavra, e é por isso que ela vale igual para o
+    livro em português, onde a lista de palavras deste projeto não vale.
+
+    Ela existe porque `conhece` **não pode** ver esses casos: ele baixa os dois
+    lados, então `conhece('biShop')` é verdadeiro. O erro de caixa não é erro
+    para o dicionário, e sem esta regra ele não é erro para ninguém.
+
+    **E ela alcança o que dicionário nenhum alcança**: `planos` lido `pIanos`
+    baixa para `pianos`, que é palavra — é o "erro que produz outra palavra
+    real" que o `medir_confusao_no_livro` registra como limite do método. O
+    padrão de caixa é sinal ortogonal ao dicionário, e pega parte dessa fatia.
+
+    O que ela acusa por engano é a família `McDonald`/`MacKay`, que põe maiúscula
+    interna de propósito. Nenhuma apareceu no material medido, e o portão do
+    dicionário é quem responderia por ela — por isso não há exceção escrita aqui:
+    exceção sem caso medido é a régua da F24 ao contrário.
+    """
+    for p in _partes_de_caixa(nuc):
+        if len(p) < PARTE_MINIMA_DE_CAIXA or p.islower() or p.isupper():
+            continue
+        if p[0].isupper() and p[1:].islower():
+            continue
+        return True
+    return False
+
+
+#: Maiúsculas que a regra **acusa mas não baixa**, e o motivo é aritmético.
+#:
+#: A correção supõe que a letra certa é a minúscula da maiúscula que se leu:
+#: `S` foi lido no lugar de `s`, `O` de `o`, `C` de `c`. Para o `I` isso é
+#: falso — ele é lido no lugar do **`l`**, e `I`.lower() é `i`, não `l`.
+#:
+#: Medido (`medir_caixa.py`): das palavras que a regra acusa e não conserta,
+#: **todas** são desta família — `melhor` lido `meIhor` viraria `meihor`,
+#: `planos` lido `pIanos` viraria `pianos`. E `pianos` é palavra, o que é pior
+#: que o erro cru: troca um erro que se vê por um que não se vê. Nenhum conserto
+#: da medição envolve `I`, então excluí-lo não custa nada nesta amostra.
+#:
+#: **Acusar continua valendo**, e é onde esta família paga: `conhece('pIanos')`
+#: é verdadeiro, então sem a regra ela é invisível para todo o projeto. Ver
+#: `caixa_estranha`.
+CAIXA_SO_ACUSADA = frozenset("IÍÌÎÏ")
+
+
+def pode_baixar(nuc: str) -> bool:
+    """Dá para corrigir esta palavra, ou ela só se acusa? Ver `CAIXA_SO_ACUSADA`."""
+    for p in _partes_de_caixa(nuc):
+        if len(p) < PARTE_MINIMA_DE_CAIXA or p.islower() or p.isupper():
+            continue
+        if any(c in CAIXA_SO_ACUSADA for c in p[1:] if c.isupper()):
+            return False
+    return True
+
+
+def com_a_caixa_arrumada(nuc: str) -> str:
+    """
+    A maiúscula interna baixada, parte por parte. Onde a regra fala, só há esta.
+
+    **Não escolhe entre candidatas**, e é o que a põe na família do veto da
+    F106 em vez da do desempate da F19: não há duas saídas para `biShop`, há uma
+    só. A inicial de cada parte fica como está — ela é a única posição cuja caixa
+    o papel decide sozinho, e é o mesmo argumento de `_com_a_inicial_do_lido`.
+
+    **Preserva o comprimento**, e isso não é acidente: as fatias de negrito da
+    F105 e o vetor de espessuras são índices sobre este mesmo texto, e uma
+    correção que encurtasse a palavra os desalinharia em silêncio.
+    """
+    saida, i = [], 0
+    for c in nuc:
+        if not c.isalpha():
+            saida.append(c)
+            i = 0
+            continue
+        saida.append(c if i == 0 else c.lower())
+        i += 1
+    return "".join(saida)
+
+
+def arrumar_caixa(texto: str, lex: Lexico) -> str:
+    """
+    O texto com a caixa interna arrumada nas palavras que o dicionário conhece.
+
+    **O portão é `conhece`, e ele funciona por causa da cegueira dele**, não
+    apesar dela: `conhece('biShop')` é verdadeiro e `conhece('tbitBl')` é falso,
+    então baixar os dois lados separa exatamente prosa de lixo de segmentação.
+    É o único uso em que essa cegueira ajuda.
+
+    Medido (`medir_caixa.py`) nas palavras cujas caixas uma pessoa confirmou:
+    das 51 que erram **só** por caixa, o portão deixa arrumar 18 e derruba 1
+    palavra certa em 1.687. Sem ele são 36 arrumadas e 6 derrubadas — e a
+    escolha é o portão, porque sem ele a regra também acende 29% das palavras
+    de um livro em português, que é a "tela inteira acesa" que `sinaliza`
+    documenta como modo de morte de alarme.
+
+    **O preço é o idioma.** No livro em português o portão corta os consertos
+    pela metade (29 para 15), porque `defesa` e `branco` não estão na lista
+    inglesa. É o mesmo teto que já barra aquele livro no
+    `medir_confusao_no_livro`, e quem o levanta é uma lista de português — o
+    `.lexico.txt` do usuário serve.
+
+    O texto sai **do mesmo comprimento**. Ver `com_a_caixa_arrumada`.
+    """
+    if lex.vazio:
+        return texto
+    saida = []
+    for pedaco in texto.split(" "):
+        nuc, ini = nucleo(pedaco)
+        if (len(nuc) >= PARTE_MINIMA_DE_CAIXA and lex.conhece(nuc)
+                and caixa_estranha(nuc) and pode_baixar(nuc)):
+            pedaco = (pedaco[:ini] + com_a_caixa_arrumada(nuc)
+                      + pedaco[ini + len(nuc):])
+        saida.append(pedaco)
+    return " ".join(saida)
+
+
 def sinalizar(palavras: Iterable[Sequence[Tuple[str, int]]],
               lex: Lexico) -> List[Suspeita]:
     """
@@ -413,6 +568,14 @@ def sinalizar(palavras: Iterable[Sequence[Tuple[str, int]]],
         if len(nuc) < MIN_PARTE:
             continue
         if lex.conhece(nuc):
+            # **Conhecida não quer dizer certa** (F108). `conhece` baixa os dois
+            # lados, então `biShop` e `pIanos` entram aqui como boas e saíam sem
+            # acender nada. O motivo vai separado porque as duas suspeitas não
+            # se revisam igual: "fora do dicionário" pede que se leia a palavra,
+            # "caixa estranha" já diz qual letra olhar.
+            if caixa_estranha(nuc):
+                fora.append(Suspeita(palavra=nuc, indices=indices,
+                                     motivo=MOTIVO_CAIXA))
             continue
         fora.append(Suspeita(palavra=nuc, indices=indices))
     return fora

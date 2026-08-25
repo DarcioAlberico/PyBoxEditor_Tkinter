@@ -44,7 +44,8 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import diagrama, negrito, notacao, render_diagrama, vertical
+from core import (diagrama, lexico, negrito, notacao, render_diagrama,
+                  vertical)
 from core.box_model import BoxEntry
 from core.leitura_de_linha import quebrar_em_linhas
 from core.services.box_service import BoxService
@@ -1116,7 +1117,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    fonte: str = render_diagrama.FONTE_PADRAO,
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
                    moldura=render_diagrama.MOLDURA_PADRAO,
-                   cantos: str = render_diagrama.CANTO_PADRAO
+                   cantos: str = render_diagrama.CANTO_PADRAO,
+                   lex: Optional["lexico.Lexico"] = None
                    ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
@@ -1183,6 +1185,18 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         texto, n, pesos = _texto_da_linha(img, linha, classificar, conf_minima,
                                           coletor, numero)
         fracos += n
+        # **A primeira vez que o dicionário entra no caminho do livro** (F108).
+        # Até aqui ele só existia na revisão da UI, e o arquivo exportado saía
+        # sem nenhuma ajuda dele — o `biShop` que a rede lia confiante ia direto
+        # para o DOCX, e nem `conhece` o via, porque ele baixa os dois lados.
+        #
+        # Na linha e não no parágrafo, porque aqui `pesos` ainda está ao lado do
+        # texto e a correção preserva o comprimento: as fatias de negrito da
+        # F105 continuam apontando para o mesmo caractere. Palavra partida na
+        # quebra de linha fica de fora — o núcleo de cada metade não é palavra, o
+        # portão não abre, e a correção não acontece.
+        if texto and lex is not None:
+            texto = lexico.arrumar_caixa(texto, lex)
         if texto:
             medidas.append(Linha(
                 topo=min(b.y1 for b in linha),
@@ -1330,6 +1344,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
             moldura=render_diagrama.MOLDURA_PADRAO,
             cantos: str = render_diagrama.CANTO_PADRAO,
+            lex: Optional["lexico.Lexico"] = None,
             progress_callback=None) -> List[PaginaExtraida]:
     """Lê o PDF inteiro (ou as páginas pedidas) como imagem."""
     import os
@@ -1349,7 +1364,8 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         diagramas=diagramas,
                                         coordenadas=coordenadas, fonte=fonte,
                                         lado_do_diagrama=lado_do_diagrama,
-                                        moldura=moldura, cantos=cantos))
+                                        moldura=moldura, cantos=cantos,
+                                        lex=lex))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         # **Remarcado com o livro inteiro por referência** (F105). Cada página
