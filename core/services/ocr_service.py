@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from PIL import Image
 
+from core import proporcao
 from core.box_model import SEM_MARGEM
 
 
@@ -281,6 +282,7 @@ class OCRService:
         easyocr_languages: Tuple[str, ...] = ("en",),
         easyocr_gpu: bool = False,
         contexto: Optional[np.ndarray] = None,
+        altura_de_referencia: Optional[float] = None,
     ) -> Tuple[str, str, float]:
         """
         Executa a cadeia de fallback:
@@ -300,7 +302,8 @@ class OCRService:
             neural_threshold=neural_threshold,
             learner_threshold=learner_threshold,
             easyocr_languages=easyocr_languages, easyocr_gpu=easyocr_gpu,
-            contexto=contexto).como_tupla()
+            contexto=contexto,
+            altura_de_referencia=altura_de_referencia).como_tupla()
 
     def fallback_chain_detalhado(
         self,
@@ -314,6 +317,7 @@ class OCRService:
         easyocr_languages: Tuple[str, ...] = ("en",),
         easyocr_gpu: bool = False,
         contexto: Optional[np.ndarray] = None,
+        altura_de_referencia: Optional[float] = None,
     ) -> Leitura:
         """
         A mesma cadeia, devolvendo também a **margem** do k-NN (F44).
@@ -322,22 +326,57 @@ class OCRService:
         devolve as duas escalas — chamar `predict` e `margem_de_confianca` em
         seguida dobraria o custo da ação, e é o custo que a F7.2 existe para
         conter. Quando quem responde não é o k-NN, a margem sai `SEM_MARGEM`.
+
+        `altura_de_referencia` é a mediana da altura dos boxes da página, e serve
+        ao veto geométrico da F106 — sem ela, o veto roda só pela proporção. Quem
+        tem a página à mão a tira de `proporcao.altura_de_referencia`.
         """
+        # Os dois elos que classificam esticam o recorte para 32×32 sem
+        # preservar proporção, então nenhum dos dois enxerga se a barra de tinta
+        # está em pé ou deitada (F106). O recorte é o do box, então os lados dele
+        # são exatamente o que o esticão apagou.
+        largura, altura = proporcao.lados(crop_np)
+
         # 1. Neural
         if predictor is not None and getattr(predictor, "loaded", False):
             char, conf = predictor.predict(crop_np)
+            if not proporcao.cabe(char, largura, altura, altura_de_referencia):
+                # Segunda passada pela rede, e só aqui: medido, o veto pega 2
+                # leituras em 10.641 numa página normal. O caminho de sempre não
+                # paga nada por isto existir.
+                escolhida = proporcao.escolher(
+                    predictor.predict_topk(crop_np, k=proporcao.CANDIDATAS),
+                    largura, altura, altura_de_referencia)
+                if escolhida is not None:
+                    char, conf = escolhida
             if conf > neural_threshold:
                 return Leitura(char, "neural", conf)
 
         # 2. Learner
         if learner is not None:
             char, conf, margem = learner.predict_e_margem(crop_np)
+            if not proporcao.cabe(char, largura, altura, altura_de_referencia):
+                escolhida = proporcao.escolher(
+                    learner.candidatas(crop_np, n=proporcao.CANDIDATAS),
+                    largura, altura, altura_de_referencia)
+                if escolhida is not None:
+                    # A margem media o vencedor que o veto derrubou, e não este.
+                    # `SEM_MARGEM` é o que ela quer dizer agora; ela não decide
+                    # nada desde a F47, então isto não desarruma fila nenhuma.
+                    char, conf = escolhida
+                    margem = SEM_MARGEM
             if conf > learner_threshold:
                 return Leitura(char, "learner", conf, margem)
 
         # 3. EasyOCR (último elo: aceita o que vier, com a confiança real).
         # A rede e o k-NN querem o recorte justo, em que foram treinados; só
         # este elo se beneficia da faixa da linha (ver `easyocr_ocr_conf`).
+        #
+        # **Sem veto geométrico aqui**, e não por esquecimento: este elo devolve
+        # um caractere e nenhuma candidata, então não há entre o que escolher.
+        # Vetar sem substituta seria apagar a leitura, que é pior que a leitura
+        # improvável — o elo existe justamente para o box que os outros dois não
+        # souberam ler.
         if reader is None:
             reader = self._init_easyocr(easyocr_languages, easyocr_gpu)
 

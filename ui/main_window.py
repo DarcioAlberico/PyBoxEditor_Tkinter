@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from core import (coleta, exportar, formato_box, leitura_de_linha, lexico,
-                  livro, nags, vertical)
+                  livro, nags, proporcao, vertical)
 from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
                                       substitute_chess_glyphs)
 from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
@@ -1807,7 +1807,7 @@ class MainWindow(tk.Frame):
                 h.raise_if_cancelled()
                 h.progress(atual, total, f"página {atual}/{total}")
 
-            paginas = livro.extrair(input_pdf, self.learning_service.predict_neural,
+            paginas = livro.extrair(input_pdf, self.learning_service.ler_texto,
                                     coletor=coletor,
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
@@ -1934,7 +1934,7 @@ class MainWindow(tk.Frame):
                 h.raise_if_cancelled()
                 h.progress(atual, total, f"página {atual}/{total}")
 
-            livro.extrair(input_pdf, self.learning_service.predict_neural,
+            livro.extrair(input_pdf, self.learning_service.ler_texto,
                           coletor=coletor, progress_callback=progresso)
             coletor.gravar_indice()
             return coletor
@@ -2407,6 +2407,9 @@ class MainWindow(tk.Frame):
         def preparar(h, pagina, faixas, margens):
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
+            # O denominador do veto geométrico (F106), tirado da página inteira
+            # uma vez só — é o que separa o ponto do quadrado.
+            referencia = proporcao.altura_de_referencia(self.boxes)
 
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
@@ -2417,6 +2420,7 @@ class MainWindow(tk.Frame):
                     justo, learner=learner, contexto=contexto,
                     neural_threshold=LEARNER_THRESHOLD_HIBRIDO,
                     learner_threshold=LEARNER_THRESHOLD_HIBRIDO,
+                    altura_de_referencia=referencia,
                 )
                 if leitura.fonte not in ("learner", "easyocr"):
                     return ("", 0.0, "vazio")
@@ -2449,6 +2453,7 @@ class MainWindow(tk.Frame):
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
             predictor = self.learning_service._predictor
+            referencia = proporcao.altura_de_referencia(self.boxes)
 
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
@@ -2457,6 +2462,7 @@ class MainWindow(tk.Frame):
                     contexto=contexto,
                     neural_threshold=NEURAL_THRESHOLD,
                     learner_threshold=LEARNER_THRESHOLD_NEURAL,
+                    altura_de_referencia=referencia,
                 )
                 margens[id(b)] = leitura.margem
                 return (leitura.char, leitura.confianca, leitura.fonte)

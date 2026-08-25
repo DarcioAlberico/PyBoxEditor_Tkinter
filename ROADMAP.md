@@ -11087,6 +11087,155 @@ desenham negrito sozinhos.
 Cobertura: `tests/test_f105_negrito.py`, 25 testes. Instrumento: `medir_negrito.py`, que
 refaz todas as tabelas acima.
 
+## F106 — O `I` grosso e o ponto saíam como travessão, e a rede não tinha como saber — CONCLUÍDA
+
+Duas queixas, o mesmo defeito: "o I maiúsculo parece que quando é mais grosso é reconhecido
+como —" e, no ponto, "às vezes é reconhecido como — e algumas vezes como I". A segunda é que
+mostra o que estava acontecendo — um ponto não se parece com um travessão em nada.
+
+### O que os dois classificadores recebem
+
+`NeuralPredictor._probabilidades` e `CharacterLearner._quadrados_ate` fazem a mesma coisa com
+o recorte antes de olhar para ele:
+
+```python
+img = cv2.resize(img_gray, (32, 32))
+```
+
+Sem preservar proporção. Uma barra de tinta em pé de 5×20 e uma deitada de 20×5 não chegam
+*parecidas* ao classificador: chegam **iguais byte a byte** (`np.array_equal` verdadeiro). A
+proporção e o tamanho do glifo são descartados antes de qualquer elo ver alguma coisa, e os
+dois elos da cadeia são cegos a eles pelo mesmo motivo.
+
+Enquanto o glifo tem branco por dentro isso não custa nada — o desenho sobrevive ao esticão.
+O que quebra é o recorte que é **só tinta**: ponto, `I` de haste grossa, travessão, `|`,
+quadrado. Todos viram o mesmo quadrado preto de 32×32, e a resposta a ele é sempre a mesma:
+
+    '■' 0,3823   '—' 0,2758   'l' 0,1015   '-' 0,0543   '–' 0,0452   'I' 0,0397   '.' 0,0230
+
+Um ponto de 2×2 e um de 8×8 devolvem `0.3822762072086334` os dois, **até o último dígito** —
+é literalmente a mesma entrada. Não é a rede hesitando entre as classes: é ela lendo a
+frequência de treino delas, que é o único sinal que sobrou. Das 1.111 amostras de `—` da
+base, 338 já são o quadrado maciço; das 790 de `I`, 12. Foi isso que ela aprendeu a
+responder, e é por isso que o mesmo ponto sai ora `—`, ora `I`.
+
+### Por que "mais grosso"
+
+O que salva o `I` são os vãos brancos entre as serifas, e tinta pesada os fecha. Medido no
+`I` de *Introduction* do Aagaard (p. 11), engrossando o traço:
+
+| tinta | leitura |
+|---:|---|
+| 0,55 (como está na página) | `I` 0,966 |
+| 0,69 | `I` 0,882 |
+| 0,79 | `1` 0,480 |
+| 0,80 | `]` 0,525 |
+
+Um `I` sem serifa já nasce maciço: em Arial negrito de 28 px o recorte é 100% tinta, e sai
+`■` 0,29 e `—` 0,17 sem engrossar nada.
+
+### A regra: veto, e não voto
+
+`core/proporcao.py` guarda, por classe, a faixa de larg/alt em que ela existe, e a cadeia
+consulta essa tabela antes de aceitar a leitura. **A geometria nunca escolhe o caractere —
+ela recusa o impossível**, e quem escolhe entre as que sobram continua sendo o elo que leu,
+pela ordem dele. Um travessão num recorte três vezes mais alto que largo não é uma leitura
+duvidosa; é uma que não pode estar certa.
+
+Isso é o contrário do canal que a **F19** mediu e descartou. Lá o desempate opinava onde o
+classificador tinha sinal e discordava dele — e, com âncora forte, esse conjunto é quase todo
+erro do desempate (0 acertos em 72). Aqui a regra só fala onde a entrada **provadamente não
+carrega** a distinção: ela não sabe mais que a rede sobre o glifo, sabe do recorte o que a
+rede não recebeu.
+
+Pelo mesmo motivo a `fonte` da leitura não muda. A geometria não lê nada; ela veta uma
+resposta e o mesmo elo dá a seguinte. Trocar a fonte para "geometria" avisaria o roteamento e
+a fila de revisão de um classificador novo, e não apareceu nenhum.
+
+### De onde vêm os números do envelope
+
+Larg/alt por classe, nos `.box` rotulados:
+
+| classe | n | mín | p10 | mediana | p90 | máx |
+|---|---:|---:|---:|---:|---:|---:|
+| `l` | 213 | 0,25 | 0,28 | 0,30 | 0,33 | 0,44 |
+| `1` | 343 | 0,28 | 0,30 | 0,41 | 0,48 | 0,61 |
+| `I` | 26 | 0,26 | 0,37 | 0,40 | 0,52 | 1,50 |
+| `.` | 665 | 0,71 | 1,00 | 1,00 | 1,25 | 1,50 |
+| `-` | 53 | 1,03 | 2,00 | 3,67 | 6,50 | 8,67 |
+
+Os dois extremos que encostam são recortes de 30×20 e 34×33 rotulados `I` e `-` numa página
+que tem seis `■` de 33×33 ao lado: são o quadrado, e não a letra nem o traço. Fora deles, `.`
+não passa de 1,50 e `-` não desce de 1,67 — **o corte em 1,6 separa os 665 pontos dos 53
+traços sem erro nenhum**, e o teto de 0,8 das barras em pé é folga sobre o maior `1` medido.
+
+O `.` e o `■` são o par que a proporção não fecha: os dois são quadrados, e o que os separa é
+o tamanho. Contra a mediana da altura dos boxes da página — o mesmo denominador que
+`preprocess.denoise` usa, e pela mesma razão —, `.` vai de 0,15 a 0,50 e `■` de 1,22 a 1,55.
+O corte em 0,7 fica no meio do vão. **Sem essa referência o teste de tamanho não roda**, e
+quem lê recorte a recorte sem a página à mão fica só com a proporção.
+
+### Medido — `medir_proporcao.py`, nas 11 páginas rotuladas (10.641 caracteres)
+
+Na página como ela é, a regra muda **2 leituras em 10.641**:
+
+| | |
+|---|---:|
+| certo → errado | **0** |
+| errado → certo | 1 &nbsp;&nbsp; `.` lido `—` → `.` |
+| errado → errado | 1 &nbsp;&nbsp; `I` lido `-` → `l` |
+
+Os dois casos da queixa estavam no material rotulado, e a regra não encosta em mais nada.
+
+Com a tinta engrossada — `cv2.erode` de 1 a 4, que é o que uma digitalização pesada faz —, na
+mesma página. "Família" são os 1.306 caracteres rotulados com uma classe do envelope:
+
+| engrossa | tinta | todos: antes → depois | família: antes → depois | mexidas | quebrou |
+|---:|---:|---|---|---:|---:|
+| 0 | 0,48 | 93,98% → 93,99% | 97,55% → 97,63% | 2 | **0** |
+| 1 | 0,60 | 91,15% → 93,08% | 80,55% → **96,32%** | 213 | **0** |
+| 2 | 0,69 | 85,03% → 87,70% | 60,41% → 80,09% | 321 | **0** |
+| 3 | 0,76 | 73,87% → 77,30% | 55,74% → 75,50% | 638 | **0** |
+| 4 | 0,81 | 54,68% → 57,19% | 56,81% → 76,57% | 1247 | **0** |
+
+Em nenhum dos cinco níveis, e em nenhum dos 53.205 recortes medidos, a regra transformou uma
+leitura certa em errada. Não é sorte: ela só dispara sobre resposta que o envelope diz ser
+impossível, e leitura certa cabe no envelope por construção — o risco todo está em o envelope
+estar apertado demais, e é por isso que ele é medido e folgado, e não escolhido.
+
+Com o k-NN atrás da rede (`--elo cadeia`, 191.915 referências) a tabela é a mesma: as duas
+leituras da página normal e as 213 do primeiro nível, `quebrou` zero. O veto do segundo elo
+não acrescenta troca nenhuma nesta amostra — o recorte em que a rede falha o limiar costuma
+ser estranho para o k-NN também, e desce para o EasyOCR de qualquer jeito.
+
+### O que a regra não alcança
+
+Ela escolhe a **família**, não o membro. Num recorte maciço, `I`, `l`, `1` e `|` são o mesmo
+desenho e nada no recorte os separa; a regra derruba o travessão e deixa os quatro para quem
+já os ordenava. `lntroduction` continua errado — mas é erro de caixa, e `—ntroduction` era
+erro de família.
+
+O último elo da cadeia fica de fora, e não por esquecimento: o EasyOCR devolve um caractere e
+nenhuma candidata, então ali não há entre o que escolher. Vetar sem substituta seria apagar a
+leitura, que é pior que a leitura improvável — o elo existe justamente para o box que os
+outros dois não souberam ler.
+
+E a rede crua continua respondendo onde a pergunta não é "que caractere é este": o árbitro da
+segmentação (F1.5b), que compara confiança entre cortes, e a peça do diagrama (F7.4), que é
+desenho de xadrez e não letra. O envelope fala de tipografia, e ali não há tipografia sobre o
+que falar.
+
+### O conserto de verdade continua pendente
+
+O certo é a proporção **entrar na rede**, treinada junto — recorte em caixa com a proporção
+preservada, ou a razão como entrada ao lado do 32×32 —, e não pendurada depois. É a mesma
+conclusão que a F14 tirou da altura relativa, e pelo mesmo motivo.
+
+Medido no modelo de hoje, só trocar o esticão pela caixa **não** resolve sem retreinar: a
+barra deitada melhora (`-` 0,654), mas a barra em pé passa a sair `T` 0,963, porque a caixa é
+fora da distribuição em que ele treinou. E o `.` continuaria irresolúvel sem escala relativa
+à linha. Fica para a próxima rodada de treino; até lá, o veto é a guarda.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

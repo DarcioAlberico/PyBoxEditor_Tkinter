@@ -513,6 +513,11 @@ class _App:
         # depender de um `.pth` que o `.gitignore` mantém fora.
         self.win.learning_service.load_predictor = lambda: True
         self.win.learning_service.predict_neural = lambda crop: ("a", 0.99)
+        # `ler_texto` (F106) é `predict_neural` mais o veto geométrico, e o veto
+        # pede as candidatas quando a leitura não cabe no recorte. Sem modelo de
+        # verdade não há candidatas: lista vazia é "não tenho substituta", e a
+        # leitura fica como o dublê a deu.
+        self.win.learning_service.candidatas = lambda crop, k=3: []
         duble = type("_Duble", (_DiagramaFixo,), {"resposta": self.diagrama})
         self.win.DIALOGO_DO_DIAGRAMA = duble
         return self

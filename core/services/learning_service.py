@@ -6,7 +6,7 @@ import glob
 from typing import List, Tuple, Optional, Callable
 from PIL import Image
 
-from core import vertical
+from core import proporcao, vertical
 from core.box_model import BoxEntry
 from core.learner import CharacterLearner, char_to_folder
 from core.neural_trainer import NeuralTrainer, NeuralPredictor
@@ -142,6 +142,37 @@ class LearningService:
         if not self.load_predictor():
             return "?", 0.0
         return self._predictor.predict(crop_np)
+
+    def ler_texto(self, crop_np: np.ndarray,
+                  referencia: Optional[float] = None) -> Tuple[str, float]:
+        """
+        `predict_neural` com o veto geométrico da F106 — para quem lê **texto**.
+
+        Mesmo contrato `(recorte) -> (char, confiança)`, então entra no lugar do
+        outro sem nenhuma outra mudança; a proporção que o veto usa é a do
+        próprio recorte, e não precisa ser passada de fora.
+
+        **Não é o classificador de tudo, e a separação é o assunto.** A rede crua
+        continua respondendo onde a pergunta não é "que caractere é este":
+        o árbitro da segmentação (F1.5b), que compara confiança entre cortes; e a
+        peça do diagrama (F7.4), que é desenho de xadrez e não letra. O envelope
+        fala de tipografia, e ali não há tipografia sobre o que falar.
+
+        Sem `referencia` — a mediana da altura dos boxes da página —, o veto roda
+        só pela proporção, e o par `.`/`■` fica como estava. Quem lê um PDF
+        inteiro caractere a caractere não tem a página à mão nesse contrato.
+        """
+        char, conf = self.predict_neural(crop_np)
+        largura, altura = proporcao.lados(crop_np)
+        if proporcao.cabe(char, largura, altura, referencia):
+            return char, conf
+
+        # Segunda passada pela rede, e só aqui: medido, o veto pega 2 leituras
+        # em 10.641 numa página normal. O caminho de sempre não paga nada.
+        escolhida = proporcao.escolher(
+            self.candidatas(crop_np, k=proporcao.CANDIDATAS),
+            largura, altura, referencia)
+        return escolhida if escolhida is not None else (char, conf)
 
     def probabilidade_de(self, crop_np: np.ndarray, char: str) -> float:
         """Quanto a rede dá a **esta** classe neste recorte (F69). 0,0 sem modelo."""
