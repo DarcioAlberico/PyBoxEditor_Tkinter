@@ -10961,6 +10961,83 @@ linhas juntas, a coluna da esquerda inteira vira um bloco só e o "1 de 3" não 
 sobre onde a figura caiu. Passou a contar caracteres, que é o que a propriedade sempre quis
 dizer.
 
+## F104 — A confusão de caracteres de um livro inteiro, sem gabarito — CONCLUÍDA (instrumento)
+
+O `medir_confusao.py` da F13 compara com `.box` feito à mão, e por isso mede dezenas de
+páginas. A pergunta que a F103 deixou aberta — de onde vêm os `trom`, `rwo` e `dif+terent`
+que a prosa agora mostra em parágrafos de verdade — é sobre novecentas.
+
+A verdade passa a ser o dicionário de 310.465 palavras da F9, e a suposição é o contrato 1
+da SPEC §5.8: palavra de prosa fora dele foi lida errado. `medir_confusao_no_livro.py` lê um
+DOCX já escrito (segundos, sem modelo) ou o PDF (minutos, com o modelo e cache).
+
+### O prior, que é a parte que não dá para pular
+
+Achado o núcleo fora do dicionário, qual palavra era ele? Distância de edição sozinha não
+decide: para `quicHy` ela escolhe `quiche` com a mesma facilidade com que escolhe `quickly`.
+Quem desempata é a frequência **no próprio livro** — e o prior tem de sair dali porque o
+léxico deste projeto é alfabético e não traz frequência nenhuma, nem ele nem os quatro
+arquivos da `Lista de Palavras`.
+
+### Três erros do instrumento, achados medindo o instrumento
+
+**A peneira da notação parecia elegante e estava errada.** `parece_lance(nucleo + algarismo)`
+lê `hxg5` e recusa `two1` — mas aceita `endgame1`, `fine1` e `ed1`, e **20.277 palavras reais
+do dicionário passariam por lance**. No livro ela escondeu `dgame` (140 ocorrências, que é
+`endgame`), `Khowing`, `beeause` e `exampIe` no balde dos lances. Trocada por um padrão
+escrito à mão — coluna, o `x`, coluna —, e o balde caiu de 1.061 para 759.
+
+**O alinhamento tem de ser na caixa original.** `BIack` contra `Black` é `l → I` com `I`
+maiúsculo; em minúsculo vira `l → i`, que é outra troca e manda procurar outro defeito.
+
+**Pedaço de palavra perdido não é confusão de caractere.** `dgame` é `endgame` sem duas
+letras e `ustrative` é `illustrative` sem três — segmentação, não glifo trocado. Na matriz
+dariam `nada → d` com peso de 140 leituras. O corte é de duas letras: `Exchang` é `Exchange`
+sem o `e` final, e *aquilo* é a leitura errada de um caractere que se quer medir.
+
+### O que o método não vê, e o relatório diz
+
+| | |
+|---|---|
+| erro que produz **outra palavra real** | invisível ao dicionário — limite do método |
+| palavra que o livro nunca acertou | prior zero, não se decide: 222 ocorrências |
+| espaço perdido, pedaço perdido, sem candidato | 1.412 ocorrências, fora da matriz |
+
+Uma rodada de realimentação — deixar o que a matriz já confirma explicar o duvidoso —
+recupera 15% a mais e **erra**: resolve `quicHy` como `quiche`, porque `e→y` já é troca
+confirmada e `kl→H` não. Foi medida e recusada; fica registrada para quem pensar nela de novo.
+
+### O que o Aagaard mostrou
+
+**1,01% das palavras de prosa saem erradas** (1.318 de 130.194), teto de 2,0% se tudo o que
+sobrou também for erro. E o achado não é a taxa: **o erro se concentra em par de letras, e
+não em glifo.**
+
+| troca | % dos erros | em quantas palavras | onde |
+|---|---:|---:|---|
+| `t → r` | **23,5%** | **6** | `two`(247), `between`(49), `twice`, `Botvinnik` — todas com `tw`/`tv` |
+| `l → nada` | 7,2% | 18 | `Although`, `Allowing`, `Already` — o `ll` depois de `A` |
+| `l → I` | 3,9% | 34 | espalhado |
+| `f → nada` | 3,6% | 12 | `Stockfish`, `defensive` |
+| `c → e` | 3,3% | 23 | espalhado |
+| `y → u` | 2,7% | 4 | `strategy`(29) — o `gy` final |
+| `z → nada` | 2,4% | **2** | `zugzwang` |
+| `n → h` | 1,1% | 3 | `Knowing`, `Knights`, `Knight` — o `Kn` |
+
+A coluna do meio é a que decide o que fazer. Uma troca em seis palavras não é um glifo que o
+modelo não sabe: é um **par** que a segmentação não separa. Espalhados de verdade só há dois,
+o `l → I` e o `c → e`.
+
+E o custo por palavra é desigual: `stockfish` sai certa em 5% das vezes, `two` em 22%,
+`between` em 26% — contra `black` em 98% e `from` em 98%.
+
+### O que isto abre
+
+Um alvo de segmentação, e não de classe: `tw`, `ll` depois de maiúscula, `gy`, `Kn`, `zz`.
+Nenhum deles é caractere que falte ao alfabeto do modelo — são pares colados que o
+`findContours` entrega como um recorte só, ou parte no lugar errado. Fica para uma fase de
+medição própria, com os recortes na mão.
+
 ## F105 — O negrito do impresso chega ao arquivo — CONCLUÍDA
 
 Todo livro que este projeto exportou saiu com um peso só. Nestes livros isso não é
