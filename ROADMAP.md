@@ -10862,6 +10862,105 @@ recorte desatualizado, e reprovava antes de o script rodar.
 Reproduzir: `python gerar_fonte_de_simbolos.py --conferir` diz o que falta;
 `python gerar_fonte_de_simbolos.py` refaz o recorte.
 
+## F103 — Todo livro que este projeto exportou saiu com um parágrafo por linha — CONCLUÍDA
+
+Achado ao conferir a conversão do Aagaard com a Merida: 41.877 parágrafos no DOCX, mediana de
+**35 caracteres**, e nenhum passando de 120. Numa página de prosa corrida, cada linha
+impressa era um parágrafo:
+
+    [ 98] Learning anything involves a lot of repetition and looking at it trom dif+terent angles. Most will
+    [ 93] know the principle of rwo weaknesses. But seeing a new example explaining it will only expand
+    [ 95] your understanding othe theme. In chess nothing is absolute. We have a lot o ideas and concepts
+
+Aquilo é um parágrafo só.
+
+### Qual das três regras, medida nas 898 páginas
+
+40.828 transições entre linhas, das quais **40.623 abrem parágrafo (99,5%)**. Sobram 205
+continuações no livro inteiro.
+
+| regra | disparou | em quantas páginas |
+|---|---:|---:|
+| **`saltou`** | **39.679×** | **898 de 898 (100%)** |
+| `recuou` | 9.715× | 876 de 898 (98%) |
+| `trocou` | 880× | 847 de 898 (94%) |
+
+Sozinha: só `saltou` responde por 74,0% das quebras, `saltou`+`recuou` por outros 23,8%, só
+`trocou` por 2,1% e só `recuou` por 0,2%. O `saltou` participa de 97,8% delas.
+
+### Por que: o denominador nunca foi o certo
+
+```python
+saltou = linha.topo - anterior.topo > altura * (1 + SALTO_DE_PARAGRAFO)
+```
+
+`Linha.altura` é a **mediana da altura dos glifos daquela linha**. Numa fonte de texto isso é
+a altura de x — sem ascendente nem descendente — e o passo entre linhas mede quase o triplo:
+
+| salto ÷ altura de glifo, no Aagaard | |
+|---|---:|
+| p10 | 1,86 |
+| **mediana** | **2,62** |
+| p90 | 5,65 |
+| limite | **1,6** |
+
+O décimo percentil já passa do limite. **99,3% dos passos normais eram lidos como vão de
+parágrafo.**
+
+### E não era aquele livro
+
+| livro | mediana | acima do limite |
+|---|---:|---:|
+| Aagaard · Endgame Technique | 2,60 | 99,2% |
+| Aagaard · Attacking Manual I | 2,74 | 99,8% |
+| Dvoretsky · Endgame Manual | 2,41 | 100,0% |
+| Nunn · Secrets of Rook Endings | 1,92 | 96,3% |
+| Darcy Lima · A Estratégia | 1,91 | 92,3% |
+| Yusupov · Chess Evolution 1 | 2,33 | 86,1% |
+
+A regra nunca funcionou como pretendida, em nenhum livro. Todo EPUB e DOCX que este projeto
+escreveu, desde a F2.6, saiu com um parágrafo por linha impressa.
+
+### O conserto: passo de linha, e não altura de glifo
+
+O `_metricas_por_coluna` passa a medir também o **passo mediano de cada coluna**, dos vãos
+entre topos **ordenados** — a mediana é robusta ao vão grande que um diagrama abre no meio da
+coluna, mas não ao vão negativo que a ordem de leitura produz na virada. E as duas regras que
+mediam em glifos passam a medir em passos.
+
+O `recuou` muda de unidade junto, e não por simetria: `0,8 × altura de glifo` são 16 px de
+limite, menos que um espaço entre palavras. Em passos são 41, que é a ordem de grandeza de um
+recuo impresso. Sem isso ele viraria o novo dominante — simulado no livro inteiro, os
+parágrafos parariam em 2 linhas em vez de 3.
+
+| cenário, simulado nas 39.948 transições | quebras | linhas por parágrafo |
+|---|---:|---:|
+| antes | 99,5% | 1,0 |
+| salto pelo passo, recuo como estava | 36,3% | 2,0 |
+| **salto e recuo pelo passo** | **23,3%** | **3,0** (média 4,3) |
+| salto pelo passo, recuo desligado | 21,3% | 4,0 |
+
+**A regra nova é subconjunto estrito da antiga**: nas 39.948 transições ela concorda em 8.515
+quebras, deixa de fazer 31.164 e **não inventa nenhuma**. Ela não passa a quebrar onde a
+antiga não quebrava — só para de quebrar onde não havia motivo.
+
+### Conferido no livro, e não só no sintético
+
+Dez páginas espalhadas pelo Aagaard, com a extração de verdade, contra o cache da regra
+antiga: **521 parágrafos viram 141**. A página 11 sai com 9 em vez de 38, e os dois parágrafos
+de prosa dela voltam a ter 685 e 1.222 caracteres.
+
+E a conferência que vale mais que a contagem: juntando todo o texto das duas versões e
+normalizando o espaço em branco, **as duas são idênticas**. A fase reagrupa, e não reescreve.
+
+### O teste da F61 que mudou de instrumento
+
+`test_o_diagrama_do_alto_da_direita_nao_vem_antes_da_esquerda` contava **parágrafos** antes da
+figura para provar a ordem. Isso media a ordem enquanto cada linha era um parágrafo; com as
+linhas juntas, a coluna da esquerda inteira vira um bloco só e o "1 de 3" não diz mais nada
+sobre onde a figura caiu. Passou a contar caracteres, que é o que a propriedade sempre quis
+dizer.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

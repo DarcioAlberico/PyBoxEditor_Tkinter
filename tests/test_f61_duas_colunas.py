@@ -314,12 +314,18 @@ def test_o_diagrama_do_alto_da_direita_nao_vem_antes_da_esquerda():
     assert any(tipo == "figura" for tipo, _ in blocos), (
         f"o tabuleiro não virou figura, e sem ele não há o que medir: {blocos}")
 
+    # **Medido em caracteres, e não em parágrafos** (F103). Contar parágrafos
+    # media a ordem enquanto cada linha era um parágrafo; desde que as linhas
+    # se juntam, a coluna da esquerda inteira pode sair como um bloco só, e o
+    # "1 de 3" que isto passaria a ver não diz nada sobre onde a figura caiu.
+    # A página põe 14 linhas na esquerda e 7 na direita: a maior parte do texto
+    # tem de estar antes da figura.
     primeira = next(i for i, (tipo, _) in enumerate(blocos) if tipo == "figura")
-    antes = sum(1 for tipo, _ in blocos[:primeira] if tipo == "texto")
-    total = sum(1 for tipo, _ in blocos if tipo == "texto")
+    antes = sum(len(t) for tipo, t in blocos[:primeira] if tipo == "texto")
+    total = sum(len(t) for tipo, t in blocos if tipo == "texto")
     assert antes > total / 2, (
         f"a figura do topo da direita veio no meio da esquerda: "
-        f"{antes} de {total} parágrafos antes dela")
+        f"{antes} de {total} caracteres antes dela")
 
 
 # ----------------------------------------------------------------------

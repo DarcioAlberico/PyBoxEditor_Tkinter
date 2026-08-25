@@ -113,8 +113,34 @@ VAO_DE_ESPACO = diagrama.VAO_DE_ESPACO
 
 #: Recuo que abre parágrafo, e salto vertical que abre parágrafo, ambos em
 #: alturas de linha.
+#: O recuo que abre parágrafo, em **passos de linha** (F103).
 RECUO_DE_PARAGRAFO = 0.8
+
+#: O vão que abre parágrafo, em **passos de linha** além do passo (F103).
+#:
+#: **A unidade era a altura de glifo, e por isso a regra nunca funcionou.** A
+#: `Linha.altura` é a mediana da altura dos glifos daquela linha, e numa fonte
+#: de texto isso é a altura de x — sem ascendente nem descendente. O passo entre
+#: linhas mede quase o triplo disso, então todo passo normal já parecia vão de
+#: parágrafo. Medido em 40.828 transições do Aagaard, o salto sobre a altura de
+#: glifo tem **mediana 2,62** e décimo percentil 1,86, contra o limite de 1,6:
+#: 99,3% das linhas abriam parágrafo, e o livro exportado saía com um parágrafo
+#: por linha impressa.
+#:
+#: Não era defeito daquele livro. Medido em seis, a mediana vai de 1,91 a 2,74,
+#: e a fração acima do limite de 86% a 100%. Sobre o passo da coluna a mediana é
+#: **1,00 nos seis**, que é o que se espera de uma medida normalizada por si
+#: mesma, e a regra vira subconjunto estrito da de antes: no Aagaard inteiro ela
+#: concorda em 8.515 quebras, deixa de fazer 31.164 e não inventa nenhuma.
 SALTO_DE_PARAGRAFO = 0.6
+
+#: Quantas alturas de glifo mede um passo de linha, quando não há passo medido.
+#:
+#: Só serve à coluna de uma linha só, que não tem vão nenhum para medir — e
+#: onde, por definição, não há segunda linha para abrir parágrafo. É a mediana
+#: das medianas dos seis livros (1,91 a 2,74), e está aqui para o cálculo nunca
+#: dividir por zero, não para decidir coisa alguma.
+PASSO_POR_ALTURA = 2.4
 
 
 @dataclass
@@ -731,7 +757,7 @@ class Linha:
 
 def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
     """
-    {coluna: (margem esquerda, altura de linha)}, medidas na página inteira.
+    {coluna: (margem esquerda, altura de glifo, passo de linha)}, da página.
 
     **A margem é por coluna, e sem isso a de duas colunas sai despedaçada**
     (F61). A mediana das esquerdas de uma página de duas colunas não é margem
@@ -739,17 +765,42 @@ def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
     num dos dois. Com ela, ou a coluna da direita inteira parece recuada — cada
     linha vira um parágrafo — ou a da esquerda perde todos os recuos que tem.
 
+    **O passo é por coluna pelo mesmo motivo, e é ele que decide** (F103). O vão
+    entre uma linha e a seguinte só quer dizer alguma coisa comparado com o vão
+    normal daquela coluna; comparado com a altura dos glifos, não quer dizer
+    nada — ver `SALTO_DE_PARAGRAFO`.
+
     **E é da página, não do trecho.** Estas medidas são medianas, e a mediana
     de cinco linhas entre dois diagramas não diz onde fica a margem da coluna.
+
+    O passo sai dos vãos entre linhas **ordenadas pelo topo**, e não pela ordem
+    da lista: a mediana é robusta ao vão grande que um diagrama no meio da
+    coluna abre, mas não a um vão negativo, que é o que a ordem de leitura
+    produz na virada de coluna.
     """
-    metricas = {}
-    for coluna in {l.coluna for l in linhas}:
-        desta = [l for l in linhas if l.coluna == coluna]
+    por_coluna = {}
+    for l in linhas:
+        por_coluna.setdefault(l.coluna, []).append(l)
+
+    metricas, vaos_da_pagina = {}, []
+    for coluna, desta in por_coluna.items():
         esquerdas = sorted(l.esquerda for l in desta)
         alturas = sorted(l.altura for l in desta)
+        topos = sorted(l.topo for l in desta)
+        vaos = sorted(b - a for a, b in zip(topos, topos[1:]) if b > a)
+        vaos_da_pagina.extend(vaos)
         metricas[coluna] = (esquerdas[len(esquerdas) // 2],
-                            alturas[len(alturas) // 2] or 1)
-    return metricas
+                            alturas[len(alturas) // 2] or 1,
+                            vaos[len(vaos) // 2] if vaos else 0)
+
+    # A coluna de uma linha só não tem vão para medir. Cai para o passo da
+    # página, e na falta dele para a altura de glifo — onde, de todo modo, não
+    # há segunda linha para abrir parágrafo.
+    da_pagina = (vaos_da_pagina[len(vaos_da_pagina) // 2]
+                 if vaos_da_pagina else 0)
+    return {coluna: (margem, altura,
+                     passo or da_pagina or max(1, int(altura * PASSO_POR_ALTURA)))
+            for coluna, (margem, altura, passo) in metricas.items()}
 
 
 def _agrupar_em_paragrafos(linhas: Sequence[Linha],
@@ -763,6 +814,12 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
     e nenhuma das duas vê o fim da coluna — lá o salto vertical é **negativo**,
     porque a leitura volta ao topo da página.
 
+    **As duas primeiras medem em passos de linha, e não em alturas de glifo**
+    (F103). Era altura de glifo, e com isso o salto abria parágrafo em 99,3% das
+    linhas de um livro de 898 páginas — cada linha impressa virava um parágrafo,
+    em todos os livros que este projeto já exportou. O porquê está no
+    `SALTO_DE_PARAGRAFO`.
+
     `metricas` vem do `_metricas_por_coluna` da página inteira; sem ela, sai
     destas linhas mesmo, que é o que serve a quem chama com a página toda.
     """
@@ -775,13 +832,16 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
     atual: List[str] = []
     anterior: Optional[Linha] = None
     for linha in linhas:
-        margem, altura = metricas.get(linha.coluna,
-                                      (linha.esquerda, linha.altura or 1))
+        altura_solta = linha.altura or 1
+        margem, _altura, passo = metricas.get(
+            linha.coluna,
+            (linha.esquerda, altura_solta,
+             max(1, int(altura_solta * PASSO_POR_ALTURA))))
         trocou = anterior is not None and linha.coluna != anterior.coluna
-        recuou = linha.esquerda > margem + altura * RECUO_DE_PARAGRAFO
+        recuou = linha.esquerda > margem + passo * RECUO_DE_PARAGRAFO
         saltou = (anterior is not None and not trocou
                   and linha.topo - anterior.topo
-                  > altura * (1 + SALTO_DE_PARAGRAFO))
+                  > passo * (1 + SALTO_DE_PARAGRAFO))
         if atual and (recuou or saltou or trocou):
             paragrafos.append(Paragrafo(" ".join(atual)))
             atual = []
