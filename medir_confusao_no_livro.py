@@ -36,18 +36,26 @@ erros de leitura no balde dos lances.
 o livro do idioma errado este método não falha — ele **produz**, uma matriz
 inteira medindo a diferença entre dois idiomas.
 
-Medido no Aagaard (898 páginas, 130.194 palavras de prosa): 1,01% saem erradas, e
-o achado não é a taxa. É que o erro se concentra em **par de letras**, e não em
-glifo:
+Medido em seis livros, 5.207 páginas e 558 mil palavras de prosa:
 
-    t → r    23,5% de tudo, em SEIS palavras: two, between, twice, Botvinnik
-    l → nada  7,2%, quase tudo `ll` depois de `A`: Although, Allowing, Already
-    y → u     2,7%, em quatro palavras, quase tudo o `gy` de strategy
-    z → nada  2,4%, numa palavra: zugzwang
-    n → h     1,1%, no `Kn` de Knowing, Knights, Knight
+    livro                          pág    prosa   fora    taxa
+    Nunn  Secrets of Rook Endings  354   55.928   2,4%   0,38%
+    Aagaard  Attacking Manual I    263   68.915   2,8%   0,65%
+    Aagaard  Endgame Technique     898  130.194   3,0%   0,82%
+    Yusupov  Chess Evolution 1     264   17.564   6,5%   1,33%
+    Yusupov  Complete             2612  210.483   8,7%   3,27%
+    Dvoretsky  Endgame Manual      816   75.323  21,7%   3,93%
+    Darcy Lima  A Estrategia       319   57.181  55,8%   recusado: português
 
-Espalhados de verdade — defeito de glifo, e não de contexto — só há dois: o
-`l → I` (34 palavras) e o `c → e` (23).
+**Dez vezes de diferença entre o melhor e o pior livro**, e a coluna que prevê é
+a de "fora": ela é do livro, não do modelo. Acima de uns 10% o instrumento entra
+no próprio limite — o prior sai das palavras que o livro **acertou**, e num livro
+muito mal lido ele fica cego para as que sempre erra.
+
+O que os seis têm em comum é **caractere que some**: `o`, `l` e `i` desaparecem
+nos seis, e o `s` vira `S` nos seis. O resto é de cada livro, e costuma ser par
+de letras e não glifo: o `tw` do Aagaard (`two`, `between`), o `Wh` que vira
+`WTh` em três, o `Diagram` que vira `Diagrram` no Yusupov.
 """
 
 import argparse

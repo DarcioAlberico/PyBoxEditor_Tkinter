@@ -11031,12 +11031,64 @@ o `l → I` e o `c → e`.
 E o custo por palavra é desigual: `stockfish` sai certa em 5% das vezes, `two` em 22%,
 `between` em 26% — contra `black` em 98% e `from` em 98%.
 
+### Os seis livros
+
+| livro | pág | prosa | fora do dicionário | taxa de erro |
+|---|---:|---:|---:|---:|
+| Nunn · Secrets of Rook Endings | 354 | 55.928 | 2,4% | **0,38%** |
+| Aagaard · Attacking Manual I | 263 | 68.915 | 2,8% | 0,65% |
+| Aagaard · Endgame Technique | 898 | 130.194 | 3,0% | 0,82% |
+| Yusupov · Chess Evolution 1 | 264 | 17.564 | 6,5% | 1,33% |
+| Yusupov · Complete | 2612 | 210.483 | 8,7% | 3,27% |
+| Dvoretsky · Endgame Manual | 816 | 75.323 | 21,7% | **3,93%** |
+| Darcy Lima · A Estratégia | 319 | 57.181 | 55,8% | recusado: português |
+
+**Dez vezes entre o melhor e o pior**, e o que varia é o livro, não o modelo. A coluna que
+prevê é a de "fora do dicionário": ela se mede antes de qualquer atribuição e diz de saída se
+vale a pena continuar.
+
+**Acima de uns 10% o instrumento encosta no próprio limite**, e o Dvoretsky mostra como. O
+prior sai das palavras que o livro **acertou**; num livro em que `move` quase nunca sai certo,
+o prior não conhece `move`, e `mVe` — 476 ocorrências — vai parar em `ave`. A direção do
+achado continua boa (o `o` some), mas o alvo de cada atribuição, não. O relatório imprime a
+fração de fora justamente para isso.
+
+### O que os seis têm em comum, e o que é de cada um
+
+Em comum, **caractere que some**: `o`, `l` e `i` desaparecem nos seis livros, e o `s` vira `S`
+nos seis. É o único padrão que atravessa o corpus.
+
+O resto é de cada livro, e quase sempre é **par de letras**, não glifo:
+
+| livro | o que domina |
+|---|---|
+| Aagaard · Endgame Technique | `t → r` em 28% dos erros, cinco formas, todas com `tw`/`tv` |
+| Aagaard · Attacking Manual I | `White` → `WThite` (74×) e `for` → `fow` (46×) |
+| Yusupov · Chess Evolution 1 | `Diagram` → `Diagrram` (79×) — metade dos erros do livro |
+| Yusupov · Complete | `o` some em **274 formas** — aqui é espalhado de verdade |
+| Dvoretsky · Endgame Manual | `o` some (`imprtant`, `nthing`, `wrng`) e `s` vira `S` (`lSeS`) |
+| Nunn · Secrets of Rook Endings | nada domina: 17% nas três maiores, o menor do corpus |
+
+**E o maior contribuinte de quase todo livro é elemento repetido de página** — o cabeçalho
+`Attacking Manual - Volume 1`, a legenda `Diagram 9-5`, o rodapé `Chapter 3`. Eles entram na
+prosa e multiplicam um erro só por centenas de páginas: no Yusupov Chess Evolution as três
+formas mais frequentes são metade dos erros do livro.
+
 ### O que isto abre
 
-Um alvo de segmentação, e não de classe: `tw`, `ll` depois de maiúscula, `gy`, `Kn`, `zz`.
-Nenhum deles é caractere que falte ao alfabeto do modelo — são pares colados que o
-`findContours` entrega como um recorte só, ou parte no lugar errado. Fica para uma fase de
-medição própria, com os recortes na mão.
+Três alvos, e nenhum deles é classe que falte ao alfabeto:
+
+- **Segmentação de par**: `tw`, `Wh`, `ll` depois de maiúscula, `gy`, `Kn`, `zz`. São pares
+  colados que o `findContours` entrega como um recorte só, ou parte no lugar errado.
+- **O `o` que some**, que é o único defeito com peso nos seis livros — e no Yusupov Complete
+  está em 274 formas diferentes, o que o separa dos pares.
+- **Cabeçalho e rodapé fora da prosa.** Não é erro de leitura: é elemento de página que a
+  extração não distingue do texto, e ele domina a contagem de três dos seis livros.
+
+E uma coisa que já existe e não está ligada: `lexico.juntar_hifenizadas`, da F9.1, tem teste e
+**nenhum caminho de produção a chama**. Medido, ela é quase toda do Nunn — 1.364 tokens
+terminados em hífen contra ~50 nos outros livros —, e ali juntaria 490 palavras. Nos demais
+não muda nada.
 
 ## F105 — O negrito do impresso chega ao arquivo — CONCLUÍDA
 
