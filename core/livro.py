@@ -105,8 +105,12 @@ CELULA_DE_ORNAMENTO = 2.0
 #: busca, num livro exportado ele é uma letra errada no meio da palavra.
 CONF_MINIMA = 0.5
 
-#: Vão entre dois caracteres que vira espaço, em larguras medianas de caractere
-#: **da linha** — não da página, que mistura corpo 9 com corpo 12.
+#: Vão entre dois caracteres que vira espaço.
+#:
+#: **A régua deixou de ser um número na F107** e passou a ser
+#: `diagrama.limiar_de_espaco`, que mede contra o vão típico da linha em vez de
+#: contra a largura de tinta. Este reexporte fica de pé para quem já o
+#: importava; a constante que ele traz é a régua velha, e não a de produção.
 #:
 #: O número mora em `diagrama` desde a F95, porque o título do diagrama usa a
 #: mesma régua e aquele módulo não pode importar este. Uma definição só.
@@ -575,8 +579,11 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     comparada com a de outros `.`. A lista sai alinhada ao `texto`, caractere a
     caractere, com `None` no espaço entre palavras e no que não deu para medir.
     """
-    larguras = [b.x2 - b.x1 for b in linha]
-    largura = float(np.median(larguras)) or 1.0
+    # A régua do espaço é do `diagrama` e é uma só (F107) — ver
+    # `limiar_de_espaco`. Ela mede o vão contra o **vão típico desta linha**, e
+    # não contra a largura de tinta: largura de tinta muda com o alfabeto sem
+    # que o espacejamento mude junto, e era isso que partia `2011` em `20 1 1`.
+    limiar = diagrama.limiar_de_espaco(linha)
     partes, fracos = [], 0
     pesos: List[Optional[float]] = []
     for i, b in enumerate(linha):
@@ -590,7 +597,7 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
             coletor(recorte, char, conf, pagina)
         if char and conf < conf_minima:
             char, fracos = "", fracos + 1
-        if i and b.x1 - linha[i - 1].x2 > largura * VAO_DE_ESPACO:
+        if i and b.x1 - linha[i - 1].x2 > limiar:
             partes.append(" ")
             pesos.append(None)
         # **Depois do coletor, e antes do texto.** A base de treino guarda o

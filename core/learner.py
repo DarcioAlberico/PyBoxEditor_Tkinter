@@ -419,6 +419,23 @@ class CharacterLearner:
         else:
              img_gray = crop_np
 
+        # **O disco fica com o recorte como ele é; a matriz, com os 32x32**
+        # (F107). O `resize` pertence à leitura, e ela já o faz — em
+        # `_ler_do_disco`, em `_quadrados_ate`, no `neural_trainer` e no
+        # `dataset_check`. Feito aqui, na gravação, ele era o único ponto do
+        # projeto em que a proporção e o tamanho do glifo se **perdiam**: a
+        # quarentena da coleta guarda no tamanho recortado de propósito (ver
+        # `coleta._gravar`) e esta linha desfazia isso no último passo.
+        #
+        # O que se perdia é o que separa `s` de `S`, `o` de `O` e de `0`, `c`
+        # de `C`: o mesmo desenho em dois tamanhos. Medido na F107, essa
+        # família é 84% dos erros de leitura de um livro real, e a rede erra
+        # **confiante** — 0,898 de mediana no `s` —, então nem o piso de
+        # confiança nem a fila de revisão a pegam.
+        #
+        # Isto não conserta nada sozinho, e é de propósito: as 608 mil
+        # amostras que já estão em 32x32 não voltam. O que muda é que a base
+        # para de crescer inaproveitável enquanto a entrada nova não existe.
         img_resized = cv2.resize(img_gray, (LADO, LADO))
 
         # **O nome de origem passa quando há um**, e é a mesma lição que o
@@ -445,7 +462,11 @@ class CharacterLearner:
         # a pasta 'lower_ä' da base ficou vazia: as amostras eram descartadas em
         # silêncio. Os nomes gerados por char_to_folder são só-ASCII justamente
         # por isso, mas conferir aqui evita perder amostra sem ninguém saber.
-        if not cv2.imwrite(path, img_resized):
+        # Contíguo porque o recorte é uma **fatia** da página (`recorte_de_pe`
+        # devolve `img[y1:y2, x1:x2]`), e o `cv2.imwrite` recusa layout que não
+        # seja contíguo. Enquanto o que se gravava era o `resize`, isso não
+        # aparecia: o `resize` já devolve array novo.
+        if not cv2.imwrite(path, np.ascontiguousarray(img_gray)):
             raise IOError(f"Não foi possível gravar a amostra em {path}")
 
         linha = img_resized.reshape(1, -1).astype(np.float32)

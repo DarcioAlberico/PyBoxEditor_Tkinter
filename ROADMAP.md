@@ -11379,6 +11379,239 @@ barra deitada melhora (`-` 0,654), mas a barra em pé passa a sair `T` 0,963, po
 fora da distribuição em que ele treinou. E o `.` continuaria irresolúvel sem escala relativa
 à linha. Fica para a próxima rodada de treino; até lá, o veto é a guarda.
 
+## F107 — O tamanho do glifo se perdia na gravação, e a régua do espaço media contra a coisa errada — CONCLUÍDA
+
+Uma revisão do reconhecimento e da conversão, pedida porque o resultado exportado estava
+ruim. O que ela achou não foram dois defeitos independentes: são **duas réguas medindo
+contra a referência errada**, e a segunda é a que dá para consertar hoje.
+
+### O que a queixa era, medido
+
+Três páginas do Seirawan rotuladas à mão, 3.255 caracteres, pelo caminho de produção
+(`ler_texto`, com o mesmo `vertical.recorte_de_pe` que o livro usa):
+
+| | |
+|---|---:|
+| acerto | **96,25%** |
+| `s` lido `S` | 40 |
+| `o` lido `0` | 38 |
+| `o` lido `O` | 8 |
+| `I`→`l`, `O`→`0`, `c`→`C`, `l`→`1`, `x`→`X`, `z`→`Z`, `í`→`Í`, `S`→`s` | 15 |
+| todo o resto somado | 21 |
+
+**101 dos 122 erros — 83% — são a família de caixa**, e `a`, `e`, `r`, `t`, `n`, `m`, `u`,
+`p` e `d` saem a 100%. Por classe, `s` fica em 46,7% e `o` em 52,6%.
+
+No livro inteiro isso aparece como razão de caixa: no DOCX exportado do Seirawan `S/s` é
+**3,09** — em português o esperado é perto de 0,04 —, e `(O+0)/o` é **0,48** contra ~0,03.
+São ~16 mil `s` maiúsculos que não existem. No Yusupov em inglês o mesmo defeito é mais
+brando (`S/s` = 0,20), e é o mesmo defeito.
+
+### Por que nenhuma guarda pega
+
+A confiança mediana nos recortes de `s` é **0,898**, e as três candidatas são `S/s/Š`. A
+rede não hesita: ela responde errado com confiança alta, então o piso de `CONF_MINIMA`
+não dispara, a fila de revisão não enfileira e a coloração não colore. **Erro confiante
+passa por baixo de toda a instrumentação que o projeto construiu.**
+
+E onde ela hesita, o caractere é **apagado**: no `o` a confiança mediana é 0,672 e 11%
+ficam abaixo do piso — a probabilidade se reparte entre `o`, `0` e `O` e nenhuma alcança
+0,5. É o `Cmbinatin invlving bihp` que o comentário do `livro.CONF_MINIMA` já descrevia, e
+é o `'o' → (nada)` 19× que o `medir_confusao_no_livro` acusa no Yusupov.
+
+### A causa está no recorte, e dá para vê-la
+
+Os 40 `s` que erram e os 35 que acertam têm **o mesmo tamanho** — 27×17 contra 27×18 px — e
+são indistinguíveis a olho numa folha de contato. A única diferença mensurável é tinta:
+0,48 nos que erram, 0,56 nos que acertam. `s` e `S` são o mesmo desenho; o que os separa é
+o tamanho, e o `cv2.resize(img, (32, 32))` o descarta antes de qualquer elo ver. Não é
+novidade — é o que a F14 nomeou, a F19 mediu e a F106 repetiu no fecho. O que é novo é o
+tamanho da conta.
+
+**O k-NN não é a saída, e conferi antes de recomendar.** Ele tira 100% nesses mesmos
+recortes, mas 98,1% deles estão byte a byte na base dele — distância zero ao vizinho. É
+memória, não generalização, e rotear por esse número seria comprar o número.
+
+### O `learn` era o único lugar do projeto onde o tamanho se perdia
+
+`CharacterLearner.learn` fazia `cv2.resize(img_gray, (LADO, LADO))` e gravava **isso** no
+disco. Todo o resto do projeto já redimensiona na leitura — `_ler_do_disco`,
+`_quadrados_ate`, o `neural_trainer` e o `dataset_check` têm todos o `if img.shape !=
+(32, 32)`. E o funil da coleta guarda no tamanho recortado **de propósito**: o
+`coleta._gravar` traz o comentário "gravado no tamanho em que foi recortado, e não no da
+rede: quem revisa precisa enxergar o glifo, e o `learn` redimensiona de novo na hora de
+promover". Ele redimensionava, e gravava o redimensionado — desfazendo no último passo o
+que o funil inteiro tinha preservado.
+
+Agora o disco fica com o recorte como ele é e a matriz do k-NN continua em 32×32. A
+correção é de uma linha, mais um `np.ascontiguousarray`: enquanto o que se gravava era o
+`resize`, o array era novo; passando o recorte direto, ele é a **fatia** `img[y1:y2,
+x1:x2]` que o `recorte_de_pe` devolve, e o `cv2.imwrite` recusa layout não-contíguo.
+
+**Isto não conserta nada sozinho, e é de propósito.** As 608 mil amostras que já estão em
+32×32 não voltam — nelas o tamanho não é recuperável, foi descartado na gravação. O que
+muda é que a base para de crescer inaproveitável.
+
+### A régua do espaço media tinta contra tinta
+
+O outro defeito da queixa: `2011` saía `20 1 1`, `147` saía `1 47`, `1.♕xf7!!` saía
+`1 .♕xf7!!`. São **1.965 números partidos** no DOCX do Yusupov e 995 no do Seirawan.
+
+A régua era `vão > 0,35 × largura mediana de tinta da linha`. Ela compara tinta com tinta,
+e a largura de tinta **muda com o alfabeto sem que o espacejamento mude junto**: algarismo
+vem com espacejamento tabular, e a caixa de tinta do `1` é um terço do avanço dele,
+enquanto a mediana da linha é ditada pelas minúsculas da prosa. Medido nos `.box`
+rotulados, o vão mediano entre dois algarismos vizinhos é **0,45** — já acima do limiar,
+antes de qualquer espaço existir.
+
+A referência certa é o **vão típico da própria linha**, porque a pergunta é "este vão é
+maior que os que esta linha usa entre letras da mesma palavra?", e o vão típico *é* o
+espacejamento: ele acompanha o alfabeto por construção.
+
+### O gabarito, e de onde ele sai
+
+`medir_vao.py`, em duas obras com camada de texto. **O rótulo sai da camada e é por
+palavra, não por caractere**: o `rawdict` do PyMuPDF devolve a caixa de *avanço* de cada
+glifo, que dá vão zero dentro da palavra e seria inútil como régua de geometria. O que a
+camada tem de bom é dizer onde a palavra começa e acaba. Então a página é segmentada por
+esta casa, cada caixa nossa é atribuída à palavra que a contém, e dois vizinhos na mesma
+palavra são um `junto`. A geometria é sempre a nossa, o rótulo é sempre o do livro, e não
+há alinhamento caractere a caractere para dar errado.
+
+54.558 pares, 40 páginas:
+
+| régua | Yusupov: a mais / a menos | Aagaard: a mais / a menos | soma dos erros |
+|---|---:|---:|---:|
+| `0,35 × largura` | 5,5% / 7,9% | 1,4% / 2,6% | 910 + 629 |
+| `2,0 × vão típico`, piso `0,45 × largura` | **1,2%** / 10,9% | **0,3%** / 4,0% | **471 + 402** |
+
+**Espaço a mais cai 4,5× e 5,1×; espaço a menos sobe.** As duas contas ficam separadas de
+propósito porque não custam o mesmo: espaço a mais parte a palavra e o dicionário a perde
+inteira, junto com o léxico e o PGN, que leem por palavra.
+
+**Só reajustar a constante velha já ganharia parte disso** — `0,50 × largura` mede 545 +
+439 —, e vale registrar em vez de esconder. A referência nova compra os outros 11%, e
+compra sobretudo na coluna que importa: 222 espaços a mais contra 149.
+
+### Os dois números não são quina, são planalto
+
+| fator \ piso | 0,30 | 0,35 | 0,40 | 0,45 | 0,50 |
+|---|---:|---:|---:|---:|---:|
+| 2,0 | 989 | 923 | 890 | **873** | 910 |
+| 2,25 | 999 | 933 | 900 | 883 | 912 |
+| 2,5 | 927 | 910 | 887 | 887 | 930 |
+| 3,0 | 1166 | 1164 | 1162 | 1162 | 1179 |
+
+Soma dos dois livros. Os quatro melhores ficam a menos de 3% um do outro — é isso que faz
+o par escolhido não precisar de reajuste a cada obra nova. O melhor **do Yusupov sozinho**
+é (2,5; 0,45); o par que entrou é o melhor **dos dois**, e a diferença entre eles é 11 erros
+em 54 mil pares.
+
+### O piso, e onde a parte relativa não vale
+
+O piso existe porque a referência relativa não existe em toda linha: numa linha de uma
+palavra só o vão típico é o vão entre letras, e sem piso qualquer folga viraria separação —
+o defeito seria simétrico ao que a régua velha tem com algarismo.
+
+E a parte relativa **só roda com 3 vãos ou mais**, que é o limite em que ela foi medida
+(o `medir_vao` pula linha com menos de 4 caixas). O motivo é anterior ao da medição: a
+mediana só estima o vão de dentro da palavra enquanto a maioria dos vãos for de dentro —
+medidos, 19,4% dos pares são separação. Numa faixa de duas marcas com um espaço no meio, o
+único vão **é** o espaço, a mediana passa a ser ele, e o espaço sumiria. É o cabeçalho
+curto de diagrama, que é onde um buraco custa o número do exercício.
+
+### Ponta a ponta, na página
+
+Página 11 do Yusupov, a mesma lida com as duas réguas:
+
+| consertou | quebrou |
+|---|---|
+| `1 972` → `1972` | `of the` → `ofthe` |
+| `1 .♕xf7!!` → `1.♕xf7!!` | `of his` → `ofhis` |
+| `5. f7` → `5.f7` | |
+| `fi nds` → `finds` | |
+
+E na 17 do Seirawan: `Londres 1 982` → `Londres 1982`, `1 4 ..Be6` → `14..Be6`,
+`15.Txe8 + ,` → `15.Txe8+,`.
+
+O custo é real e tem nome: palavra curta terminada em `f` tem folga de direita, e o vão de
+tinta depois dela é pequeno. Cinco consertos contra dois estragos nesta página, e a
+medição de 54 mil pares diz que a proporção se mantém.
+
+### A entrada de tamanho paga? Medida — e a resposta é "não decide"
+
+A F14 pediu "altura relativa junto do recorte" e a F19 mediu o remédio errado: pendurar a
+geometria **depois**, como desempate sobre as candidatas. As duas fecharam com a mesma
+frase pendente — a altura tem de entrar **na** rede, treinada junto. `medir_tamanho.py`
+mede isso, sobre os 29.822 caracteres em que o tamanho ainda é recuperável (os `.box`
+rotulados, que guardam `x1 y1 x2 y2`).
+
+**A divisão deixa um livro inteiro de fora**, e chegar a ela custou uma medição descartada.
+Com páginas sorteadas, o sorteio quase sempre põe páginas do mesmo livro dos dois lados: a
+rede é testada em tipografia que já viu, a família de caixa sai a 96,2% no braço de
+produção e não sobra folga para nada melhorar. O erro que esta fase persegue é o do **livro
+novo**, e é ele que o turno por obra encena. Seis turnos, 15 épocas:
+
+| entrada | tudo | família de caixa | resto |
+|---|---:|---:|---:|
+| 32×32 esticado (produção) | 92,01% | 92,52% ±2,86% | 91,55% |
+| 32×32 esticado + tamanho | 91,59% | 91,01% ±4,89% | 91,70% |
+| 32×32 **encaixado** (proporção) + tamanho | **94,31%** | 92,77% ±5,02% | **94,38%** |
+| 32×32 esticado + tamanho, cru | 93,26% | 92,90% ±4,13% | 93,04% |
+
+**Na família de caixa nenhum braço se separa da dispersão** — o melhor soma +0,25 ponto com
+desvio de 5 pontos entre turnos, e o placar de trocas diz o mesmo: o encaixado conserta 334
+e quebra 286.
+
+### Mas o sinal está sendo usado, e dá para ver onde
+
+| classe | n | esticado | +tamanho | encaixado |
+|---|---:|---:|---:|---:|
+| `S` | 50 | 50,0% | **74,0%** | 58,0% |
+| `W` | 48 | 33,3% | **83,3%** | 54,2% |
+| `0` | 179 | 34,1% | 54,7% | **59,2%** |
+| `O` | 36 | 69,4% | 75,0% | 63,9% |
+| `c` | 872 | **97,2%** | 87,0% | 83,4% |
+| `w` | 279 | **91,4%** | 90,0% | 69,9% |
+
+Os escalares movem exatamente as maiúsculas, que é o que a F19 previu pela tabela de d'.
+O que come o ganho é o outro lado do par: a minúscula piora, e como ela é 20× mais
+frequente, a média da família não se mexe. O modelo passa a **confiar demais** na entrada
+nova — não é que ela não carregue nada.
+
+**Por que este material não pode decidir**: no teste inteiro dos seis turnos há 50 `S`, 48
+`W`, 36 `O` e 52 `C`. Uma dúzia de amostras que muda de lado move essas linhas inteiras, e
+é daí que vem o desvio de 5 pontos. O que falta não é ideia, é **maiúscula rotulada** — e é
+por isso que a gravação com tamanho é pré-requisito desta resposta, e não consequência
+dela. As duas metades desta fase estão nessa ordem de propósito.
+
+### O achado que não estava na pergunta
+
+Preservar a proporção na imagem — o recorte encaixado em 32×32 com papel em volta, em vez
+de esticado — paga **+2,8 pontos no "resto"**, fora da família de caixa, onde ninguém a
+tinha procurado. Ali não há maiúscula escassa e o ganho sai da dispersão. É o oposto do que
+a F106 mediu ao trocar o esticão pela caixa **sem** retreinar (a barra em pé passava a sair
+`T` 0,963, porque a caixa era fora da distribuição do modelo de então); treinada nela desde
+o começo, a caixa ganha.
+
+**Não entrou em produção nesta fase**, e a razão é o tamanho do compromisso: mudar a entrada
+obriga a retreinar o modelo de 608 mil amostras e a mexer nos quatro lugares que
+redimensionam na leitura, e o número acima sai de um modelo pequeno treinado em 22 mil.
+Fica como fase própria, com a medição já feita e o instrumento já escrito — e é a única das
+três pontas que **não** depende de rerrotular nada.
+
+### Cobertura
+
+`tests/test_f107_tamanho.py`, 14 testes. Instrumentos: `medir_vao.py`, que refaz as tabelas
+da régua do espaço, e `medir_tamanho.py`, que refaz as da entrada de tamanho.
+
+### O que esta fase não alcança
+
+A família de caixa continua sendo 84% dos erros de leitura, e as três pontas mexeram em
+duas coisas: a régua do espaço (que é conversão, não reconhecimento) e a gravação da base
+(que é semente para depois). **O reconhecimento do `s` contra o `S` está como estava**, e
+sai daqui com um caminho medido e um pré-requisito nomeado, não com um conserto.
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

@@ -640,11 +640,105 @@ MARCA_MINIMA, MARCA_MAXIMA = 0.30, 1.8
 
 #: Vão entre dois caracteres que vira espaço, em larguras medianas de caractere.
 #:
+#: **Saiu de produção na F107** — quem decide agora é `limiar_de_espaco`, logo
+#: abaixo. Fica de pé porque `medir_vao.py` a usa como linha de base: sem ela o
+#: instrumento não consegue mais medir a régua que substituiu.
+#:
 #: **Mora aqui e é usado pelo `livro`**, e não o contrário, porque `livro`
 #: importa este módulo e este não importa aquele. Duas definições do mesmo
 #: número é a família de defeito da F5.2: o dia em que uma muda, a mesma linha
 #: sai espaçada de um jeito no título e de outro no parágrafo.
 VAO_DE_ESPACO = 0.35
+
+#: Quantas vezes o **vão típico da linha** o vão precisa ser para virar espaço,
+#: e o piso disso em larguras medianas de tinta (F107).
+#:
+#: `VAO_DE_ESPACO` acima é a régua velha, e ela media contra a coisa errada:
+#: comparava vão com **largura de tinta**, e a largura de tinta muda com o
+#: alfabeto sem que o espacejamento mude junto. Algarismo é o caso que quebra —
+#: ele vem com espacejamento tabular, e a caixa de tinta do `1` é um terço do
+#: avanço dele, enquanto a mediana da linha é ditada pelas minúsculas da prosa.
+#: Medido: o vão mediano entre dois algarismos vizinhos é 0,45, **já acima do
+#: limiar de 0,35 antes de qualquer espaço existir**. É por isso que `2011` saía
+#: `20 1 1`, e eram 1.965 números partidos no Yusupov exportado.
+#:
+#: O vão típico da linha responde à pergunta certa — "este vão é maior que os
+#: que esta linha usa entre letras da mesma palavra?" — porque ele *é* o
+#: espacejamento, e acompanha o alfabeto por construção.
+#:
+#: **O piso é o que impede a régua de inventar espaço na linha que não tem
+#: nenhum.** Uma linha de uma palavra só, ou de lances colados, tem vão típico
+#: pequeno, e sem piso qualquer folga de um pixel viraria separação — o defeito
+#: seria simétrico ao que a régua velha tem com algarismo, e não adiantaria
+#: trocar um pelo outro.
+#:
+#: Medidos em duas obras com camada de texto, 54.558 pares de caixas vizinhas
+#: (`medir_vao.py`), onde a camada diz se os dois vizinhos são da mesma palavra:
+#:
+#:     régua                    Yusupov          Aagaard
+#:                          a mais  a menos   a mais  a menos
+#:     0,35 x largura        5,5%     7,9%     1,4%     2,6%
+#:     2,0 x vão, piso 0,45  1,2%    10,9%     0,3%     4,0%
+#:
+#: Em contagem bruta, espaço a mais cai de 675 para 149 e de 426 para 84 —
+#: **4,5x e 5,1x**. Espaço a menos sobe, de 235 para 322 e de 203 para 318.
+#:
+#: **Espaço a mais cai; espaço a menos sobe.** As duas contas ficam
+#: separadas de propósito, porque não custam o mesmo: espaço a mais parte a
+#: palavra e o dicionário a perde inteira, junto com a régua do léxico e a do
+#: PGN que leem por palavra. Espaço a menos cola duas que continuam legíveis.
+#:
+#: A superfície é **plana** em volta: (2,0, 0,45), (2,25, 0,45), (2,5, 0,40) e
+#: (2,5, 0,45) ficam a menos de 3% um do outro na soma dos dois livros. O par
+#: escolhido é o melhor conjunto, e não uma quina — é o que faz não valer a pena
+#: reajustá-lo por causa de um livro novo.
+FATOR_DO_VAO = 2.0
+PISO_DO_VAO = 0.45
+
+
+#: Vãos de menos para a mediana deles querer dizer alguma coisa.
+#:
+#: **É o limite em que a medição vale**, e não um número de gosto. O
+#: `medir_vao.py` pulou toda linha com menos de 4 caixas, então os 54.558 pares
+#: que escolheram `FATOR_DO_VAO` e `PISO_DO_VAO` são todos de linha com 3 vãos
+#: ou mais — aplicar a parte relativa abaixo disso seria usá-la fora do que foi
+#: medido.
+#:
+#: E há um motivo antes desse: a mediana só estima o vão *dentro* da palavra
+#: enquanto a maioria dos vãos for de dentro. Numa linha de prosa isso sobra
+#: (medidos, 19,4% dos pares são separação). Numa faixa de duas marcas com um
+#: espaço no meio, o único vão **é** o espaço — a mediana passa a ser ele, `2,0
+#: x` ele nunca é alcançado, e o espaço sumiria. É o caso do cabeçalho curto de
+#: diagrama, que é justamente onde um buraco custa o número do exercício.
+#:
+#: Abaixo do mínimo quem responde é o piso sozinho, que é a régua velha com a
+#: constante corrigida.
+VAOS_PARA_A_MEDIANA = 3
+
+
+def limiar_de_espaco(emfila) -> float:
+    """
+    Acima deste vão, em pixels, os dois vizinhos estão em palavras diferentes.
+
+    `emfila` são as caixas da linha **já ordenadas por x**, que é como os dois
+    chamadores as têm. Uma definição só para os dois pelo mesmo motivo que a
+    constante mora aqui e não no `livro`: o título do diagrama usa a mesma régua
+    da prosa, e o dia em que houver duas a mesma linha sai espaçada de um jeito
+    no título e de outro no parágrafo.
+
+    Mediana de vão zero ou negativa é linha de glifos colados: ali a referência
+    relativa não existe, e quem responde é o piso. Ver `FATOR_DO_VAO`. Com menos
+    de `VAOS_PARA_A_MEDIANA` vãos, também — e ali é por não haver distribuição
+    sobre a qual falar, não por ela ser estreita.
+    """
+    if len(emfila) < 2:
+        return float("inf")
+    largura = float(np.median([b.width for b in emfila])) or 1.0
+    piso = largura * PISO_DO_VAO
+    vaos = [b.x1 - a.x2 for a, b in zip(emfila, emfila[1:])]
+    if len(vaos) < VAOS_PARA_A_MEDIANA:
+        return piso
+    return max(max(float(np.median(vaos)), 0.0) * FATOR_DO_VAO, piso)
 
 
 def _cinza(imagem) -> np.ndarray:
@@ -974,13 +1068,13 @@ def _texto_das_marcas(imagem, marcas: Sequence[BoxEntry],
     if classificar is None or not marcas:
         return ""
     emfila = sorted(marcas, key=lambda m: m.x1)
-    largura = float(np.median([m.width for m in emfila])) or 1.0
+    limiar = limiar_de_espaco(emfila)
     partes = []
     for i, m in enumerate(emfila):
         char = _ler_marca(imagem, m, classificar)
         if not char:
             return ""
-        if i and m.x1 - emfila[i - 1].x2 > largura * VAO_DE_ESPACO:
+        if i and m.x1 - emfila[i - 1].x2 > limiar:
             partes.append(" ")
         partes.append(notacao.normalizar_saida(char))
     return "".join(partes).strip()
