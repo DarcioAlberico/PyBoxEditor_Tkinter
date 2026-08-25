@@ -11280,10 +11280,24 @@ leitura certa em errada. Não é sorte: ela só dispara sobre resposta que o env
 impossível, e leitura certa cabe no envelope por construção — o risco todo está em o envelope
 estar apertado demais, e é por isso que ele é medido e folgado, e não escolhido.
 
-Com o k-NN atrás da rede (`--elo cadeia`, 191.915 referências) a tabela é a mesma: as duas
-leituras da página normal e as 213 do primeiro nível, `quebrou` zero. O veto do segundo elo
-não acrescenta troca nenhuma nesta amostra — o recorte em que a rede falha o limiar costuma
-ser estranho para o k-NN também, e desce para o EasyOCR de qualquer jeito.
+Com o k-NN atrás da rede (`--elo cadeia`, 191.915 referências) a coluna de mexidas é a mesma
+nos cinco níveis — 2, 213, 321, 638, 1247 —, e `quebrou` continua zero. O segundo elo não
+acrescenta troca nenhuma nesta amostra, e a coluna `ao easyocr` diz por quê:
+
+| engrossa | 0 | 1 | 2 | 3 | 4 |
+|---|---:|---:|---:|---:|---:|
+| desceram ao EasyOCR | 32 | 866 | 1.568 | 2.928 | 5.529 |
+
+A confiança do k-NN é distância L2 absoluta, e ela **rebaixa o traço grosso por engordar** —
+é a ressalva que `margem_de_confianca` já registrava. Com a tinta engrossada o recorte se
+afasta de toda a base, o limiar de 0,9 não é alcançado por quase ninguém, e quem a rede não
+resolveu passa direto pelo k-NN. Na página como ela é, em que 32 descem, o elo responde e a
+cadeia mede 94,04% contra os 93,98% da rede sozinha.
+
+Esses recortes entram nas duas colunas de acerto com a leitura da rede, igual dos dois lados
+— eles não mudam com o veto, e é por isso que podem ser contados. Mas a partir do nível 2 são
+muitos, e a **acurácia** dessas linhas deixa de ser a que produção entregaria: lá o EasyOCR
+leria metade da página. O que a tabela mede ali é o veto, não a cadeia.
 
 ### O que a regra não alcança
 
