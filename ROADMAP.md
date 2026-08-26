@@ -12254,6 +12254,110 @@ o pipeline de hoje **nas mesmas páginas**. Nada além disso decide esta fase.
 
 ---
 
+## F114 — O motor de linha já estava instalado, e o projeto o chamava letra por letra — CONCLUÍDA (instrumento)
+
+A SPEC §7.1 comparava seis motores de linha por licença, runtime e entrada de treino, e
+**nenhuma linha daquela tabela tinha número medido nestes livros**. O único que este projeto
+já havia medido era o EasyOCR (F17: 72,9% para 89,5%), e foi com esse número sozinho que a
+F18 decidiu a trava. Comparar candidatos exige rodá-los na mesma faixa, contra a mesma
+verdade, no mesmo processo — e não havia instrumento que fizesse isso.
+
+### O achado, e por que ele não é defeito
+
+`tesseract --version` responde **5.5.0.20241111, com 161 idiomas**, neste ambiente. O
+Tesseract 5 é LSTM: um reconhecedor de **linha**. E o `core/services/ocr_service.py` o invoca
+com `config = "--psm 10"` — *"treat the image as a single character"*.
+
+**Registrar isso como defeito seria erro, e quase foi.** Os dois chamadores são de caractere
+— `auto_fill_characters` em `ui/main_window.py:2243` e a ação de box selecionado em `:3000`
+—, e para eles o `psm 10` é o modo certo. O achado é outro: **a capacidade de linha nunca foi
+exercida**. Exercê-la custa uma string trocada num script de medição, nenhuma dependência e
+nenhum download. Se tivesse ido para a tabela de defeitos da SPEC §8, alguém trocaria para
+`psm 7` em produção e quebraria a leitura por caractere.
+
+### A tabela
+
+Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, com a segmentação
+de produção (árbitro da F1.5b) e o `ler_pagina` de produção:
+
+| motor | acerto/box, âncora própria | acerto/box, âncora vazia | CER | linha exata | ms/linha |
+|---|---:|---:|---:|---:|---:|
+| EasyOCR `english_g2` | **89,54%** | 65,33% | 12,26% | 25,7% | 34,8 |
+| Tesseract `--psm 7` | 88,38% | **70,71%** | **10,56%** | **32,1%** | 138,2 |
+| Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
+| *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
+
+**Ninguém passa, e a margem não é de fração**: 8 pontos no melhor arranjo, 27 no pior. A
+trava da F18 fica onde está, e a conclusão da §7.1 deixa de ser previsão.
+
+### A âncora, que quase fez a tabela mentir
+
+O `ler_pagina` distribui a string da linha alinhando-a contra a **âncora** — uma leitura com
+um item por box. A primeira versão deste instrumento usou âncora **vazia** e apresentou o
+resultado como comparável ao 89,5% da F17. Não é: a F17 ancorou na leitura por caractere, e
+diz isso na letra — *"A leitura por caractere é a âncora, e resolve"*. A diferença é de
+quinze pontos, e teria entrado aqui como se fosse a mesma medida.
+
+A âncora virou argumento, e a tabela ganhou as duas colunas, porque **a ordem entre os dois
+primeiros depende dela**:
+
+- com âncora própria a coluna compara dois *compostos* — linha do Tesseract mais `psm 10` do
+  Tesseract contra linha do EasyOCR mais caractere do EasyOCR —, e o EasyOCR ganha por 1,2;
+- com âncora vazia os dois correm sem muleta, e o `--psm 7` ganha por **5,4 pontos**.
+
+Trocar de âncora vale **24,2 pontos ao EasyOCR contra 17,7 ao Tesseract**, o que diz onde
+está a força de cada um: a do EasyOCR é o modo por caractere, não a leitura de linha. **O CER
+e a linha exata não dependem de âncora**, e neles o `--psm 7` ganha limpo. Como leitor de
+linha, ele é o melhor dos três.
+
+### O instrumento se validou sozinho
+
+O EasyOCR com âncora própria deu **89,54%** contra os **89,5%** que a F17 registrou. Quatro
+centésimos, refazendo com um comando uma medida de meses atrás. É a lacuna que o
+`medir_cadeia.py` declara no cabeçalho — *"refazer qualquer uma delas hoje é reescrever o
+instrumento antes de medir"* — fechada para a F17.
+
+### Dois defeitos dos motores, que a tabela não mostra
+
+**O `--psm 13` inventa texto.** O modo "raw line" não faz análise de layout e despeja
+caractere depois do fim: `Foreword5` sai `Forewordi—(its—'"s—s—s—sSS`. Em linha curta é
+ruinoso, e é a espécie de falha que a SPEC §7.2 recusa por princípio. O `--psm 7` não a tem,
+e é por isso que ele, e não o 13, é o candidato.
+
+**Os três destroem notação, pelo mesmo motivo.** As figurinas estão fora do alfabeto dos
+três: `12...Ra6;12...Ra7` sai `12_Ea6;12_Eal` no EasyOCR, `Nge518.Nxe5` sai `DgeS18.AxeS` no
+Tesseract. É o que o filtro do `em_bloco` existia para pegar e que a F36 mediu não pagar.
+**Nenhum motor de linha geral resolve a trilha de lance** — ela tem gramática e legalidade,
+que é o caminho da F1.7 e não este.
+
+### O que isto diz à F113
+
+A F113 fecha com *"converter as páginas para transcrição de linha, afinar um motor de linha,
+e medir contra o pipeline de hoje nas mesmas páginas"*. **Esta fase dá o piso desse número
+sem afinar nada**, e o piso é 8 pontos abaixo da cadeia. Não decide a F113 — motor afinado
+nas fontes destes livros é outra coisa que motor pronto —, mas diz de quanto o afinamento
+precisa: **9 pontos de CER a fechar**, e não um ajuste fino.
+
+### O que continua sem número
+
+O `rapidocr`, o `doctr`, o PaddleOCR, o Calamari e o Kraken. Nenhum está instalado neste
+ambiente, e os adaptadores do `rapidocr` e do `doctr` em `medir_linha.py` foram **escritos da
+documentação e não executados** — o cabeçalho do arquivo diz isso, e o motor que não carrega
+aparece com a exceção ao lado em vez de derrubar a corrida.
+
+### Onde está
+
+`medir_linha.py`, e a tabela na SPEC §7.1 sob "E agora a tabela tem número". Ele reaproveita
+a `Pagina` do `medir_cadeia.py` e o `ler_pagina` de produção — a população de boxes é a mesma
+das outras tabelas —, e a distância de edição sai do `notacao._alinhar`, que já é a DP que o
+`distribuir` usa desde a F17.
+
+**Sem cobertura de teste, como os outros `medir_*.py`**: o `pytest.ini` restringe a coleta a
+`tests/`, e instrumento de medição não entra lá. O que o protege de mentir é a validação
+acima — se a linha do EasyOCR sair de 89,5%, o instrumento mudou.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
