@@ -628,7 +628,9 @@ No espírito do projeto: nenhuma destas decisões precisa ser tomada por convic�
    rotuladas. É barato e o resultado é imediato.
 5. **O reconhecedor de linha, num teste de uma página.** Converter as páginas `.box` para
    transcrição de linha, afinar um motor de linha, medir contra o pipeline de hoje **nas
-   mesmas páginas**. Só esse número decide o Caminho C.
+   mesmas páginas**. Só esse número decide o Caminho C. **E o primeiro ponto sai antes de
+   afinar nada:** o Tesseract 5.5.0 já está instalado, é LSTM de linha, e o projeto só o
+   chama em `--psm 10`; rodar `--psm 7` nas mesmas faixas custa uma string — ver §7.1.
 6. **Itálico: existe sinal?** Antes de projetar detecção, medir se o recorte carrega
    inclinação separável. A F105 fez exatamente isso para o negrito, e o método serve.
 7. **O negrito está disparando demais?** `medir_negrito.py` já existe. A pergunta nova é a
@@ -661,12 +663,16 @@ Levantado em 25 e 26 de agosto de 2026, com cada fonte aberta e conferida contra
 primária. O que não se sustentou está marcado como tal — inclusive coisas que a primeira
 passada deu por certas.
 
-### 7.1 O motor de linha: Calamari, e não Kraken
+### 7.1 O motor de linha: Calamari, e não Kraken nem PaddleOCR
 
-| motor | licença | Windows | entrada de treino |
-|---|---|---|---|
-| **Calamari** 2.3.1 (12/11/2024) | GPL-3.0 | **sim** — o PyPI declara "OS Independent" | imagem de linha + `.gt.txt` |
-| Kraken | Apache-2.0 | **não** | imagem de linha + `.gt.txt` |
+| motor | licença | Windows | runtime novo | entrada de treino |
+|---|---|---|---|---|
+| **Calamari** 2.3.1 (12/11/2024) | GPL-3.0 | **sim** — o PyPI declara "OS Independent" | **TensorFlow** — `tensorflow>=2.4.0` no `requires_dist` | imagem de linha + `.gt.txt` |
+| Kraken | Apache-2.0 | **não** | torch, via `lightning` | imagem de linha + `.gt.txt` |
+| PaddleOCR 3.7.0 (11/06/2026) | Apache-2.0 | **sim** — "OS Independent" no PyPI, e há wheel `cp313` do `paddlepaddle` para `win_amd64` | **paddlepaddle**, 104,8 MB | recorte + `rec_gt.txt`, mas o treino sai para o **PaddleX** |
+| **docTR** 1.1.0 (21/08/2026) | Apache-2.0 | sim — `requires_python` é `>=3.11,<4` | **nenhum** — `torch` e `torchvision`, que já estão em produção | `images/` + `labels.json`, treino no próprio pacote |
+| **RapidOCR** 3.9.2 (21/07/2026) | Apache-2.0 (modelos: copyright da Baidu) | sim — `>=3.8,<4` | **à escolha** — `onnxruntime` (MIT), ou o torch que já existe | **não treina**: é inferência dos modelos do PP-OCR |
+| **Tesseract** 5.5.0 | Apache-2.0 | **sim, e já instalado neste ambiente** | nenhum — binário externo que o `pytesseract` já exige | imagem de linha + `.gt.txt`, via `tesstrain` |
 
 **O Kraken está fora, e não por qualidade.** O README oficial diz na letra: *"Kraken can be
 run on Linux or Mac OS X (both x64 and ARM)"* — Windows não aparece em lugar nenhum, e
@@ -678,6 +684,89 @@ Três detalhes que mudam quem for escrever o script: os modos de `--resize` são
 ALTO nem PageXML; e a regra das "800 linhas para afinar" vale para *"printed script with a
 small grapheme inventory such as Arabic or Hebrew"*, não para um alfabeto de 314 classes —
 a própria página avisa que *"There is no hard rule for the amount of training data"*.
+
+**O PaddleOCR entra por coerência com o §7.2, e a primeira passada o deixou de fora.** A
+seção seguinte usa o artigo do PP-OCRv6 como a prova de que OCR especializado ganha de VLM,
+com o `PP-OCRv6_medium` no topo da tabela — e esta tabela, treze linhas acima, comparava
+dois candidatos sem ele. **O modelo daquela tabela é instalável.** O `paddleocr` 3.7.0 subiu
+ao PyPI em **11/06/2026**, a mesma data de submissão do artigo, e a descrição do pacote
+anuncia o PP-OCRv6 na letra: *"+4.6% detection and +5.1% recognition accuracy over
+PP-OCRv5"*. Nos dois primeiros critérios desta tabela ele passa — o PyPI declara `Apache
+License 2.0` e `Operating System :: OS Independent`, e o `paddlepaddle` 3.3.1 (26/03/2026)
+tem wheel `cp313-cp313-win_amd64`, conferido por instalação simulada no Python 3.13.2 deste
+ambiente.
+
+**O que o desempata contra é a terceira coluna, que é a que decide.** O Calamari e o Kraken
+pedem o par imagem-de-linha + `.gt.txt`, que é o que este projeto sabe produzir dos seus
+`.box`. O PaddleOCR 3.x **não treina no PaddleOCR**: o afinamento sai para o **PaddleX**, com
+um `MSTextRecDataset`, um `.yaml` de configuração por modelo, pesos baixados de URL sob
+`.../paddlex/official_pretrained_model/` e um passo de validação que não é opcional — *"only
+data that passes the validation can be used for model training"*. O formato do rótulo em si
+é próximo, e o `rec_gt.txt` do PPOCRLabel *"can be directly used for PPOCR recognition model
+training"*; o que muda é a cadeia de ferramentas em volta. Some-se o custo de arquivo: a
+wheel do `paddlepaddle` são **104,8 MB**, e ela é um **segundo runtime de aprendizado
+profundo ao lado do torch**, num `requirements.txt` cuja história é de podar dependência que
+nenhum módulo importa.
+
+E o **§7.6 pende para o mesmo lado**: a votação por confiança de Reul et al. é a melhor razão
+ganho por trabalho desta seção, e o Calamari a traz pronta em dois comandos.
+
+**A conclusão não muda; a ordem de medir, sim.** O PaddleOCR é o mais forte **sem treino
+nenhum**, e é isso que o torna o primeiro instrumento e não o último: antes de afinar motor
+algum, vale rodar o PP-OCRv6 pronto contra o `easyocr_linha` (89,5%, F17) nas mesmas faixas
+das onze páginas rotuladas. A barra é conhecida e é dura — a rede responde **98,9% dos
+boxes** e a cadeia acerta 97,6%, e a trava da F18 existe justamente porque a linha a 89,5%
+por cima da rede **regride 7,3 pontos**. Um motor de linha pronto que dê 93% ou 95% é melhor
+que o EasyOCR e **ainda assim não move a trava**. Só um motor afinado nas fontes dos livros
+passa de 97,6% — e aí a decisão volta a ser a da terceira coluna, que é o Caminho C inteiro
+e não uma troca de dependência.
+
+**O docTR e o RapidOCR entram pela coluna nova, e a coluna nova cobra do Calamari também.**
+Ela não existia nesta tabela, é o que derrubou o PaddleOCR — e, medida, o `requires_dist` do
+Calamari traz `tensorflow>=2.4.0`: um **terceiro** runtime de aprendizado profundo, ao lado
+do torch. A escolha da primeira linha continua de pé pelo treino e pelo §7.6, mas não pelo
+custo de arquivo, que era como o argumento vinha sendo lido. Dois candidatos não cobram nada:
+
+- **docTR 1.1.0** (Mindee), publicado em **21/08/2026**, cinco dias antes deste levantamento.
+  As dependências declaradas são `torch`, `torchvision`, `opencv-python`, `Pillow`, `numpy`,
+  `scipy`, `shapely`, `pyclipper` e `huggingface-hub` — **as quatro primeiras já estão em
+  produção aqui** —, e o `requires_python` é `>=3.11,<4`, que o 3.13 deste ambiente atende. O
+  treino é do próprio pacote, com `images/` + `labels.json` em UTF-8. E ele traz uma peça que
+  nenhum outro candidato tem: `--font "custom-font-1.ttf,custom-font-2.ttf"`, que sintetiza
+  linha de treino a partir de fonte instalada — que é o que o `gerar_fonte_de_diagrama.py` e
+  o `importar_letras.py` já fazem à mão. **Com a ressalva do próprio README**: as fontes só
+  valem com o `WordGenerator`, que *"will not augment or change images from the dataset if it
+  is passed as argument"*, então sintético e recorte real não entram na mesma corrida sem
+  trabalho.
+- **RapidOCR 3.9.2** são **os modelos do PP-OCR sem o paddlepaddle**. O README declara a
+  origem — otimizar a engenharia do PaddleOCR — e credita o `PaddleOCR2Pytorch` pelos modelos
+  convertidos; a instalação é `pip install rapidocr onnxruntime`, e o repositório lista
+  `onnxruntime`, `openvino`, `pytorch`, `tensorrt` e `mnn` como motores intercambiáveis. Ele
+  **não treina**: o afinamento continua no PaddleOCR/PaddleX, com o custo do parágrafo
+  acima. Serve para responder barato quanto o PP-OCR pronto dá nas faixas destes livros, sem
+  os 104,8 MB. **Armadilha de nome:** o pacote antigo `rapidocr-onnxruntime` (1.4.4,
+  17/01/2025) declara `requires_python <3.13` e **não instala neste ambiente**; o pacote vivo
+  é `rapidocr`.
+
+**E o motor de linha mais barato de testar já está instalado — o projeto o chama num modo
+só.** Neste ambiente, `tesseract --version` responde **5.5.0.20241111, com 161 idiomas**. O
+Tesseract 5 é LSTM, isto é, um reconhecedor de **linha**; e o `core/services/ocr_service.py`
+o invoca com `config = "--psm 10"`, que é *"treat the image as a single character"*.
+
+**Isto não é defeito, e registrá-lo como defeito seria erro.** Os dois chamadores são de
+caractere — `auto_fill_characters` em `ui/main_window.py:2243` e a ação de box selecionado em
+`:3000` —, e para eles o `psm 10` é o modo certo. O achado é outro: **a capacidade de linha
+nunca foi exercida.** Trocar para `--psm 7` num script de medição custa uma string, nenhuma
+dependência e nenhum download, e responde a pergunta desta seção inteira — "um motor de linha
+externo passa da cadeia de hoje?" — antes de instalar qualquer um dos cinco. É o piso, e um
+piso medido vale mais que cinco tetos anunciados.
+
+**E amarra com o §7.3, que é o que o torna mais que um atalho.** O permuter só roda quando o
+Tesseract lê **palavra**; no `psm 10` ele nunca rodou aqui. A §7.3 propõe reconstruir o
+mecanismo do permuter dentro deste projeto, com o `predict_topk`, o léxico da F108 e a regra
+de caixa. Medir o `psm 7` diz, de graça, quanto o permuter **original** entrega nas fontes
+destes livros — que é o limite superior daquela proposta, e o número que decide se vale
+escrevê-la.
 
 ### 7.2 Modelo de visão-linguagem: não, e o número é claro
 
