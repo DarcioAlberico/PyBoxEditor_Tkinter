@@ -779,12 +779,15 @@ Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, por
 | Tesseract `--psm 7` | 88,38% | **70,71%** | 10,56% | 32,1% | 138,2 |
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
 | RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
+| docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
-O `doctr`, o PaddleOCR, o Calamari e o Kraken **continuam sem número**: nenhum está
-instalado neste ambiente. As três primeiras linhas são o que se mediu sem instalar nada, e é
-por isso que elas existem; a quarta custou `pip install rapidocr onnxruntime` — oito pacotes,
-nenhum deles substituindo `numpy`, `torch` ou `opencv`.
+O PaddleOCR, o Calamari e o Kraken **continuam sem número**: nenhum está instalado neste
+ambiente. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
+existem. A quarta custou `pip install rapidocr onnxruntime` — oito pacotes — e a quinta,
+`pip install python-doctr` — dezesseis. **Nenhuma das duas instalações tocou em `numpy`,
+`torch`, `torchvision`, `opencv` ou `pillow`**, o que a coluna "runtime novo" previa e agora
+está verificado.
 
 **O instrumento se validou sozinho.** O EasyOCR com âncora própria deu 89,54%, e a F17
 registrou **89,5%** — quatro centésimos de diferença, refazendo com um comando uma medida de
@@ -824,6 +827,28 @@ diferentes.
 âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a omissão,
 que é exatamente o mecanismo da F17. Ele é o candidato mais forte da tabela para o papel de
 **segunda opinião sobre a linha**, e o mais fraco para ler sozinho.
+
+**O docTR é o último em tudo, e a causa é de tamanho — não de qualidade.** O
+`crnn_vgg16_bn` declara `input_shape (3, 32, 128)`: **128 pixels de largura**. Ele é um
+reconhecedor de **palavra**, e uma faixa de linha destes livros passa de mil pixels — entra
+esmagada em oito vezes. O CTC responde ao esmagamento repetindo trecho, que é o que os erros
+mostram:
+
+    esperado  11.Kg2Nbd712.Re1Ng413.Re2
+    lido      11.dg20bd7_12.He109413.He129413.He2
+
+`13.He1` sai duas vezes, e em outra linha `27.` sai duplicado. **É texto que não está na
+imagem**, que é a espécie de falha que o §7.2 recusa — aqui por acidente de escala, e não por
+prior de linguagem.
+
+**E isso qualifica a lição da F17, que não é universal.** A F17 aprendeu a **pular o
+detector**, porque o CRAFT do EasyOCR não achava texto num recorte já cortado. Mas aquela
+lição vale para reconhecedor de **linha**: o `english_g2` e o PP-OCR são treinados em linha, e
+recebem a faixa inteira sem problema. Para um reconhecedor de **palavra** como o do docTR, o
+detector é justamente quem parte a linha em pedaços do tamanho que o modelo espera, e pulá-lo
+é o erro. **O 46,31% desta tabela é o piso do docTR, não o veredito sobre ele** — quem quiser
+o número justo roda o `ocr_predictor` inteiro sobre a faixa, e é trabalho que esta fase não
+fez.
 
 **Uma linha rotulada parece estar errada, e vale conferir.** Entre as três piores do
 RapidOCR:

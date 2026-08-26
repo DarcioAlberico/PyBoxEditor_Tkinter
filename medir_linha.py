@@ -15,8 +15,7 @@ trava com esse número sozinho. Comparar os candidatos exige rodá-los na mesma
 faixa, contra a mesma verdade, no mesmo processo — que é o que faltava.
 
 A tabela medida está na §7.1, sob "E agora a tabela tem número", e saiu daqui.
-Quatro motores entraram nela; o `doctr` continua sem número porque não está
-instalado. **O EasyOCR com âncora própria deu 89,54% contra os 89,5%
+Os cinco motores deste arquivo entraram nela. **O EasyOCR com âncora própria deu 89,54% contra os 89,5%
 da F17** — é a validação deste instrumento, e é o motivo de a âncora ser um
 argumento e não uma escolha enterrada no código.
 
@@ -72,17 +71,21 @@ passa da rede?". Plugar o vencedor na cadeia é `medir_cadeia.py`, trocando o
 `ler_faixa=cadeia.ocr.easyocr_linha_conf` do `rodar` — e a tabela que sai de lá
 é a da F18, com a trava varrida.
 
-## Aviso sobre dois adaptadores
+## O que cada motor recebe, e o que o docTR não recebe
 
-O `easyocr`, o `tesseract7` e o `tesseract13` chamam biblioteca que este projeto
-já usa, e o caminho deles é o de produção. O `rapidocr` foi escrito a partir da
-documentação e **rodou de primeira** — `use_det=False` aceito, `txts` e `scores`
-onde a documentação prometia, e o `PP-OCRv6_rec_small.onnx` baixado sozinho.
+Os cinco rodaram. O `rapidocr` e o `doctr` foram escritos a partir da
+documentação, com o pacote ausente, e passaram de primeira — nenhum precisou de
+conserto. Um motor que não carrega aparece como indisponível com a exceção ao
+lado, em vez de derrubar a corrida.
 
-O `doctr` continua **escrito da documentação e não executado**: não está
-instalado aqui. Se a API tiver mudado, o motor aparece como indisponível com a
-exceção ao lado, em vez de derrubar a corrida; o conserto é no adaptador, e os
-outros motores continuam dando número.
+**O docTR está em desvantagem estrutural aqui, e o número dele é um piso.** O
+`crnn_vgg16_bn` declara `input_shape (3, 32, 128)` — 128 pixels de largura. Ele
+reconhece **palavra**, e a faixa de linha destes livros passa de mil pixels: entra
+esmagada em oito vezes, e o CTC responde repetindo trecho. A lição da F17 de
+pular o detector vale para reconhecedor de linha, que é o que o `english_g2` e o
+PP-OCR são; para um de palavra, o detector é quem parte a linha no tamanho que o
+modelo espera. O número justo dele sairia do `ocr_predictor` inteiro sobre a
+faixa, e este arquivo não faz isso.
 """
 
 import argparse

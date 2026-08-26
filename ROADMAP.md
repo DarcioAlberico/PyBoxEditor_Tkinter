@@ -12286,6 +12286,7 @@ de produção (árbitro da F1.5b) e o `ler_pagina` de produção:
 | Tesseract `--psm 7` | 88,38% | **70,71%** | 10,56% | 32,1% | 138,2 |
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
 | RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
+| docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
 **Ninguém passa, e a margem não é de fração**: 8 pontos no melhor arranjo, 27 no pior. A
@@ -12342,6 +12343,26 @@ omissão; o acerto por box cobra o resto da linha.
 Com uma âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a
 omissão, e é exatamente o mecanismo da F17.
 
+### O docTR é o último em tudo, e a causa é de tamanho
+
+O `crnn_vgg16_bn` declara `input_shape (3, 32, 128)` — **128 pixels de largura**. Ele é um
+reconhecedor de **palavra**, e uma faixa de linha destes livros passa de mil pixels: entra
+esmagada em oito vezes. O CTC responde repetindo trecho.
+
+    esperado  11.Kg2Nbd712.Re1Ng413.Re2
+    lido      11.dg20bd7_12.He109413.He129413.He2
+
+`13.He1` sai duas vezes; noutra linha o `27.` sai duplicado. É **texto que não está na
+imagem** — a falha que a SPEC §7.2 recusa, aqui por acidente de escala e não por prior de
+linguagem.
+
+**E isso qualifica a lição da F17, que não é universal.** A F17 aprendeu a pular o detector,
+porque o CRAFT do EasyOCR não achava texto num recorte já cortado. Aquela lição vale para
+reconhecedor de **linha** — o `english_g2` e o PP-OCR recebem a faixa inteira sem problema.
+Para um reconhecedor de **palavra**, o detector é quem parte a linha em pedaços do tamanho
+que o modelo espera, e pulá-lo é o erro. **O 46,31% é o piso do docTR, não o veredito sobre
+ele**: o número justo sai do `ocr_predictor` inteiro sobre a faixa, e esta fase não o rodou.
+
 ### Uma linha do gabarito parece errada
 
 Entre as três piores do RapidOCR:
@@ -12377,14 +12398,18 @@ fino.
 
 ### O que continua sem número
 
-O `doctr`, o PaddleOCR, o Calamari e o Kraken. Nenhum está instalado neste ambiente, e o
-adaptador do `doctr` em `medir_linha.py` foi **escrito da documentação e não executado** — o
-cabeçalho do arquivo diz isso, e o motor que não carrega aparece com a exceção ao lado em vez
-de derrubar a corrida.
+O PaddleOCR, o Calamari e o Kraken. Nenhum está instalado neste ambiente.
 
-O do `rapidocr` estava na mesma condição e **passou**: escrito da documentação, rodou de
-primeira, com `use_det=False` e os atributos `txts`/`scores` como a documentação prometia.
-Vale um ponto para o método de escrever o adaptador antes de instalar o pacote.
+**Os dois adaptadores escritos às cegas passaram**, e isso vale como nota de método. O
+`rapidocr` e o `doctr` foram escritos só da documentação, com o pacote ausente, e nenhum dos
+dois precisou de conserto: `use_det=False` aceito e `txts`/`scores` onde a documentação
+prometia num; `[(texto, confiança)]` do `recognition_predictor` no outro. Dá para preparar o
+instrumento antes de decidir se a dependência entra.
+
+**E as duas instalações foram limpas.** `pip install rapidocr onnxruntime` trouxe oito
+pacotes e `pip install python-doctr`, dezesseis; nenhuma tocou em `numpy`, `torch`,
+`torchvision`, `opencv` ou `pillow`. O dry-run antes do docTR existiu porque ele declara
+`torch<3.0.0,>=2.0.0`, e um rebaixamento de torch levaria o EasyOCR e a rede junto.
 
 ### Onde está
 
