@@ -11744,6 +11744,516 @@ continua lendo `S` no lugar de `s` com 0,898 de confiança, e o que a F107 nomeo
 de pé. Palavra fora do dicionário, palavra do idioma errado e palavra partida na quebra de
 linha ficam todas como estavam.
 
+## F109 — Uma palavra de prosa em cinco sai com defeito, e a maioria não é do modelo — A FAZER
+
+Uma revisão da conversão para DOCX e EPUB, pedida porque o arquivo exportado continuava
+ruim depois da F107 e da F108. A spec inteira está em
+[`docs/SPEC-CONVERSAO.md`](docs/SPEC-CONVERSAO.md); esta fase e as quatro seguintes são o
+que ela origina.
+
+Esta é a fase dos consertos que **não dependem de decisão arquitetural nenhuma**. Cada um
+tem número medido, cada um cabe em pouco código, e nenhum deles espera pelas outras.
+
+### A queixa, medida no arquivo que o projeto produziu
+
+`PDF/Artur Yusupov - Chess Evolution 1 …_teste-1.docx`, exportado em 2026-08-25 15:32 —
+três horas e meia antes de a F108 entrar. 20.625 palavras de prosa, tirada a notação:
+
+| família | palavras | % |
+|---|---:|---:|
+| o `i` partido em haste e pingo (`Wh1.te`, `exercz.ses`) | 419 | 2,03% |
+| caixa homográfica, que a F108 conserta (`alSo`, `biShop`) | 490 | 2,38% |
+| palavra colada (`WThite`, `hDiagram`, `FundamentalSBy`) | 952 | 4,62% |
+| dígito espúrio dentro da palavra (`y0u`, `g0t`) | 1.651 | 8,00% |
+| resto fora do dicionário (`Diagrram`, `thechapter`) | 667 | 3,23% |
+| **com defeito** | **4.179** | **20,26%** |
+
+A F104 mediu 1,33% neste mesmo livro. Não é contradição: aquela régua usava
+`Lexico.conhece`, que baixa os dois lados e por isso **não enxerga erro de caixa** — foi o
+que a F108 diagnosticou.
+
+### Depois da F108 a queixa de caixa deixa de ser de caixa
+
+Refeita a conta sobre o mesmo arquivo, `arrumar_caixa` conserta **517 das 1.061** palavras
+com padrão de caixa ilegítimo — 48,7%, melhor do que a própria F108 estimou. Classificando
+uma a uma as 544 que sobram:
+
+| o que é | palavras |
+|---|---:|
+| letra colada na frente (`hDiagram`, `eDiagram`) | 108 |
+| prefixo de duas ou três letras colado (`WThite`, `PKeres`) | 99 |
+| letra colada atrás (`TroitzkyA`, `KamskyG`) | 84 |
+| sufixo colado (`FundamentalSBy`, `YusupovAll`) | 29 |
+| **caixa de verdade que a F108 recusou** | **1** |
+| não classificado | 223 |
+
+**Sobra uma.** As outras 320 são glifo colado, e a maiúscula no meio da palavra é só a
+assinatura visível de um espaço que não foi posto. Quem for atrás de caixa a partir daqui
+vai procurar no lugar errado — e essa é a razão de esta fase existir antes das outras.
+
+### Os seis consertos
+
+**1. A máscara de alfabeto por livro.** O modelo tem 314 classes e todas competem em todo
+recorte de todo livro. No Yusupov, que é em inglês, saem **17 letras acentuadas distintas
+em 1.112 ocorrências** — `Š` 185×, `É` 404×, `ê` 409×, e ainda `ã`, `õ` e `ç`. Nenhuma é
+legítima. O conserto entra em `learning_service.candidatas`, no mesmo formato do veto da
+F106 — filtra as candidatas e escolhe entre as que sobram —, e o custo de execução é um
+teste de pertinência. **É o conserto mais barato desta fase e o de maior efeito imediato.**
+
+**2. Os três reparos que existem e o livro não recebe.** `core/lexico.py` tem uma caixa de
+ferramentas inteira, construída ao longo da F9 e da F66:
+
+| função | onde | quem a chama |
+|---|---|---|
+| `arrumar_caixa` | `lexico.py:506` | **`livro.py:1199`** — a F108 ligou, ontem |
+| `partir_colada` | `lexico.py:318` | só `medir_lexico.py` |
+| `juntar_hifenizadas` | `lexico.py:269` | só `medir_lexico.py` |
+| `reparar` / `reparos_da_pagina` | `lexico.py:815` | só a UI |
+
+**O caminho do livro chama exatamente uma das quatro.** As outras três têm teste, têm
+medição própria e não têm consumidor em produção. `partir_colada` foi medida em 7 de 7
+junções reais e tem três condições que a blindam contra falso positivo; ela acerta em cheio
+a família C — **304 palavras do DOCX partem em duas palavras do dicionário**, `thechapter`
+21 vezes —, e precisa das lacunas entre caracteres, que o caminho do livro tem porque tem
+os boxes. `juntar_hifenizadas` junta 490 palavras no Nunn (medido na F104).
+
+Não é acidente isolado: é o que a F108 já registrou ("o caminho do livro não carregava o
+léxico", "o reparo da F66 existe e não estava ligado"), e ela ligou uma. **O caminho que
+escreve o arquivo é o último a ser ligado a qualquer coisa, e é o único que o usuário
+vê.** Fica como regra: função nova sem chamada no `livro.py` não está pronta.
+
+**3. A fila de coordenada fora da prosa.** 146 parágrafos do DOCX são só a fila `a`–`h` do
+tabuleiro — `a b c d e f g h` 28×, e partida: `f g h` 24×, `a b c d e` 23×. É daqui que
+saem os `hDiagram` e `eDiagram`: a letra de coluna cola na legenda da figura. A faixa do
+diagrama já é território conhecido (`livro.MARGEM_DIAGRAMA`).
+
+**4. A razão de caixa como instrumento.** Ela mede sem gabarito, num livro inteiro, em
+segundos. No Yusupov: `S/s` = 0,203, `W/w` = 0,311, `(O+0)/o` = 0,194 — e o **`J/j` =
+1,452**, que é novo e não estava na lista da F107. É a irmã da coluna "fora do dicionário"
+da F104: barata, calculável antes de tudo, e preditiva. Vira `medir_caixa.py --livro` e
+vira critério de aceitação.
+
+**5. Cabeçalho e rodapé fora da prosa.** A F104 já mediu que é o maior contribuinte de três
+dos seis livros. O sinal é forte e barato: o mesmo texto, na mesma posição, em centenas de
+páginas.
+
+**6. A régua, antes de tudo — e ela mede errado pelo mesmo motivo que a F108 achou.** A
+cegueira a caixa de `Lexico.conhece` não ficou só no caminho do livro: entrou nos
+instrumentos. `medir_confusao_no_livro.py:274-276` faz `if lx.conhece(nucleo): conhecidas
++= 1`, e no DOCX do Yusupov isso absolve **441 ocorrências em 215 formas** de erro de caixa
+(`alSo` 31×, `pointS` 23×, `biShop` 15×). A taxa publicada é 234/17.692 = **1,32%**; com o
+balde de caixa é 675/17.692 = **3,82%** — fator **2,89**.
+
+E há um segundo mecanismo, pior: a mesma linha faz `prior[nucleo.lower()] += 1`, então o
+`alSo` mal lido **vota a favor de si mesmo** no prior que depois atribui os erros.
+
+`medir_troca.py:104` tem o mesmo defeito e pior — ele compara com `.lower()` dos dois lados
+e o `total += 1` acontece na **linha 103, antes**, então erro de caixa entra no denominador
+**como acerto**. Foi essa régua que escolheu o tamanho da lista de palavras na F9.1. A
+contraprova de que é assimetria e não convenção está em `medir_lexico.py:97-98`, que faz a
+mesma comparação **sem** `.lower()`.
+
+**Consequência: a tabela dos seis livros e o "dez vezes de diferença" não estão errados —
+estão não testados.** Esta fase não pode publicar número novo antes de a régua ganhar o
+terceiro balde, e a tabela precisa de duas colunas novas, não de um número corrigido.
+
+E existe um erro de caixa que nenhum instrumento do projeto vê: **a inicial trocada**.
+`Also` por `also` é padrão legítimo — `caixa_estranha` não acende, `conhece` não acende, a
+razão `S/s` mal se move. Quem o enxerga é a taxa de Titlecase por letra, contra um livro
+nativo: `S` dá **21,5%** no DOCX do Yusupov contra **3,7%** no EPUB nativo do Kasparov,
+enquanto `T` dá 16,3% contra 18,8% — alto nos dois, e portanto inocente. Excesso estimado:
+**~85 ocorrências**, contra as 234 que a régua reporta como o total de erros do livro.
+
+### O que esta fase não alcança
+
+**A família A inteira** (419 palavras) e **a família D inteira** (1.651) — o `i` partido e
+o dígito dentro da palavra. Da família C ela alcança a parte que `partir_colada` pega, e o
+número medido é 304 de 952.
+
+Somadas, ficam de fora **2.718 palavras, 13,2% da prosa**. Elas são de segmentação e de
+reconhecimento, e estão na F110, na F112 e na F113. Esta fase mexe no que está solto.
+
+---
+
+## F110 — O livro já trazia o texto, e o projeto o leu da imagem — A FAZER
+
+`core/livro.py:1124`, na docstring de `extrair_pagina`, na letra: *"Uma página do PDF vira
+parágrafos e figuras, **lendo só a imagem**."*
+
+### O que isso custa, medido nos oito livros
+
+Página com mais de 200 caracteres de camada de texto:
+
+| livro | páginas | com camada | % |
+|---|---:|---:|---:|
+| Dvoretsky · Endgame Manual | 816 | 815 | **99,9%** |
+| Nunn · Secrets of Rook Endings | 354 | 352 | 99,4% |
+| Darcy Lima · A Estratégia | 319 | 317 | 99,4% |
+| Aagaard · Attacking Manual I | 263 | 236 | 89,7% |
+| Yusupov · Chess Evolution 1 | 264 | 214 | 81,1% |
+| Yusupov · Complete | 2.612 | 1.992 | 76,3% |
+| Seirawan · Xadrez Vitorioso | 230 | **0** | 0% |
+| Razuvaev · Akiba Rubinstein | 604 | **0** | 0% |
+
+**3.926 das 5.462 páginas — 72% — já trazem o texto, e o projeto reconhece todas elas a
+partir do pixel.** O pior livro da tabela da F104, o Dvoretsky com 3,93%, tem camada em 815
+das 816 páginas.
+
+### E a camada é boa — a mesma prosa, pelos dois caminhos
+
+Filtro idêntico dos dois lados: linha com pelo menos 25 caracteres e pelo menos 90% de
+latim básico, que é o que separa prosa de tabuleiro.
+
+| caminho | linhas de prosa | palavras | fora do dicionário |
+|---|---:|---:|---:|
+| camada de texto do PDF (`fitz`) | **2.711** | 16.306 | **3,13%** |
+| OCR → o DOCX exportado | 313 | 5.234 | **7,49%** |
+
+São 2,4× a taxa de erro. E o outro número é pior: o OCR produz **313 linhas que parecem
+prosa contra 2.711**, com o mesmo filtro — oito em cada nove linhas saem tão danificadas
+que nem chegam a ser julgadas.
+
+> **camada:** `Artur's systematic and professional approach to analysing games was the decisive factor`
+>
+> **DOCX:** `Diagrram 2-5 We can see the difference between the bishops; the kni ht 8 id t t f th hit`
+
+### As duas peças já existem e não se falam
+
+`core/chess_pdf_processor.py` percorre `page.get_text("dict")`, distingue span de prosa de
+span de diagrama (`is_diagram_span`, `is_block_a_diagram`) e mapeia a codificação própria
+das fontes de xadrez para Unicode; `core/mapa_glifos.py` guarda esses mapas; a §4.2 da SPEC
+descreve tudo. Só que esse caminho existe para **escrever outro PDF**, e o caminho do livro
+nunca o chama.
+
+O que falta é uma função que devolva `PaginaExtraida` em vez de escrever PDF. O
+intermediário não muda, e por isso `exportar.py` não muda.
+
+### A escolha é por página, e o de hoje fica de reserva
+
+Página sem camada, ou com camada que a régua recuse, cai no OCR de sempre. O Seirawan e o
+Razuvaev — 834 páginas, e as únicas digitalizações de verdade do corpus — continuam
+inteiramente no caminho de hoje.
+
+### O que se perde, e tem de ser dito em voz alta
+
+**A procedência por caractere.** Quem lê do texto não tem box, não tem confiança, não
+alimenta a coleta e não enfileira na revisão. A página lida do texto **sai do circuito de
+treino**, e o relatório precisa dizer quantas páginas vieram de cada caminho — senão a base
+de treino encolhe em silêncio e ninguém liga uma coisa à outra.
+
+### O que esta fase não alcança
+
+Os 28% de páginas sem camada, que são o Seirawan e o Razuvaev inteiros. Ali só a F112
+ajuda.
+
+---
+
+## F111 — O arquivo abre no Word e não é um livro — A FAZER
+
+Isto não é reconhecimento. É o arquivo julgado como arquivo, e é o único defeito que o
+usuário vê **mesmo quando o OCR acerta**.
+
+### Não há capítulo
+
+O DOCX tem 390 parágrafos com estilo `Heading 2`, e **todos são legenda de diagrama** —
+`Diagram 1-3`, `Ex. 1-6`. O painel de navegação do Word mostra 390 legendas e nenhum
+capítulo. `Paragrafo.titulo` existe desde a F2.6, quem o marca hoje é a faixa do diagrama,
+e nada detecta título de seção na página.
+
+O EPUB é pior, e há um exportado para conferir — o `Kasparov - The Dynamic Benko Gambit
+(2012).epub` da raiz:
+
+| | |
+|---|---:|
+| XHTML no arquivo, um por página do PDF | 322 |
+| entradas no `nav.xhtml` | **322**, e todas dizem "Página N" |
+| títulos, todos `h2`, todos legenda de diagrama | 122 |
+| `dc:creator` | **ausente** |
+| `dc:identifier` | **`pyboxeditor`** |
+
+O Yusupov Complete, de 2.612 páginas, sai com um sumário de 2.612 entradas de número de
+página.
+
+**E nada disso é erro que um validador acuse — medido, e não suposto.** Rodado o
+`epubcheck` 5.3.0 (instalado nesta máquina, Java 25):
+
+| arquivo | válido | mensagens |
+|---|---|---:|
+| Kasparov · Benko Gambit, modo de imagem, 322 páginas | **sim** | **0** |
+| diagrama em modo de fonte, SkakNew-Diagram | **sim** | **0** |
+| diagrama em modo de fonte, ChessMerida-Diagram | **sim** | **0** |
+
+Controle negativo, para o zero valer alguma coisa: tirado o `dc:language` de uma cópia, ele
+acusa `RSC-005`; posto um `&` solto num XHTML, acusa `RSC-016` como fatal. A ferramenta
+funciona — o arquivo é que está conforme.
+
+**Um arquivo pode estar conforme e não ser um livro.** Nenhum defeito desta fase é
+alcançável por validador de esquema: são de **editoração**, e quem os pega é o Ace da DAISY
+ou uma pessoa abrindo o arquivo.
+
+E o `dc:identifier` é defeito de conformidade, não de gosto: ele é o `unique-identifier` da
+publicação e está literal em **todo** livro que este projeto exporta. Dois livros saem com a
+mesma identidade, e o leitor que os catalogue por ela trata os dois como um só.
+
+### O itálico é perdido inteiro
+
+**0 runs em itálico e 0 `smallCaps` em 36.442 runs.** Onde o PDF declara o estilo — o
+Dvoretsky e o Darcy Lima são os dois cujas fontes não são subconjuntos anônimos —, o
+itálico é 1,6% a 4,0% dos caracteres e o negrito 9,6% a 11,3%. Num livro de xadrez o
+itálico marca variação, comentário e nome de abertura; o versalete marca nome de jogador.
+
+O negrito chega ao arquivo desde a F105 — 12.436 runs, 17,5% dos caracteres. O itálico não
+tem sequer campo onde morar: `Paragrafo` tem `negrito` e `pesos`, e nada mais. **A F105 é o
+molde**: ela mediu se o sinal existia antes de projetar a detecção, e o mesmo método serve
+para a inclinação.
+
+### O que mais se perde
+
+Nenhuma aspa curva no arquivo — 0 contra 17 aspas retas. `dcterms:modified` fixo em
+`2026-01-01T00:00:00Z`.
+
+### O que já está certo, e não se mexe
+
+O EPUB é EPUB 3 com `nav` declarado, `dc:language` do **livro** e não do programa, `alt`
+das figuras com o FEN da posição, fonte de símbolos embutida só quando o texto precisa, e
+`ibooks:specified-fonts` para o Apple Books não trocar a fonte do tabuleiro. O DOCX embute
+fonte com a ofuscação do ECMA-376 §15.2.13, casa corpo e entrelinha em meio ponto para o
+tabuleiro fechar quadrado, e põe o FEN no `descr` do `docPr`.
+
+**A mecânica dos dois formatos é competente.** O que falta é estrutura de livro e atributo
+do impresso — não OOXML nem OPF.
+
+### Os defeitos de arquivo, todos reproduzidos
+
+| defeito | onde | conserto |
+|---|---|---|
+| `<dc:creator>python-docx</dc:creator>`, `dcterms:created` em **2013-12-23**, e o `thumbnail.jpeg` **byte a byte** igual ao do `default.docx` da biblioteca | `ui/main_window.py:1819-1823` é o único chamador e não passa `autor` | passar autor e datas |
+| as oito linhas do diagrama entram no XHTML **sem escape** — **latente**: as duas fontes de hoje (`0ABJNOPQRSZabklnoprs` e ` +BKOPRTVWblmnopqrtv`) só emitem caractere seguro; dispara no dia em que uma terceira mapear `<`, `>` ou `&` | `exportar.py:288` e `:300` | `html.escape`, como as outras seis saídas do módulo já fazem |
+| figurina em célula de tabela sai **sem a fonte** no DOCX: o run vem sem `w:rPr` e o Word desenha `♖` na Calibri | `exportar.py:1025-1027` — `celula.text` | o caminho gêmeo do EPUB acerta e tem teste (`test_f72_tabela_no_epub.py:233-244`) |
+| diagrama em modo de fonte **sem texto alternativo nenhum** — 501 tabelas no livro medido | `exportar.py:957-1003` | `w:tblCaption` e `w:tblDescription` |
+| **nenhum FEN chega ao `descr`**: os 151 do caminho de imagem são duas cordas só, `Cabeçalho do diagrama` (120×) e `Diagrama` (31×) | `exportar.py:251-262` devolve o FEN; ele chega vazio | achar por que `figura.fen` vem vazio |
+| `lang` ausente no `<html>` e no `nav.xhtml` — a regra `html-has-lang` do axe **não aceita `xml:lang`**, e mapeia para WCAG 3.1.1 nível A | `exportar.py:421-423` e `:632-635` | duas linhas |
+| `dc:identifier` literal `pyboxeditor` em **todo** livro exportado | `exportar.py:517` | uma URN por livro |
+| `dcterms:modified` fixo em `2026-01-01T00:00:00Z` | `exportar.py:627` | `SOURCE_DATE_EPOCH`, caindo para a data corrente |
+| `<h2>` **sem `id`**, e nenhum `<h1>` no livro inteiro — pular de nada para `h2` é violação de hierarquia | `exportar.py:412` | âncora, e promover capítulo a `h1` |
+| hífen de fim de linha chega ao arquivo — **49 medidos** (`be- cause`, `oppo- nent`) | `livro.py:862` | `juntar_hifenizadas`, que a F109 liga |
+| o DOCX sai no template nu: Carta, Calibri 11, `<w:ind>` = 0 em 8.499 parágrafos, sem justificação — e o EPUB do mesmo livro sai justificado com recuo de 1,2 em | `exportar.py:941` é um `Document()` nu | um desenho de página só para os dois formatos |
+| `para_docx` **não tem parâmetro de idioma**, e `<w:lang>` aparece 0 vez | `exportar.py:845-850` | passar o idioma que o EPUB já recebe |
+
+### A acessibilidade deixou de ser opcional na Europa em 28/06/2025
+
+EPUB Accessibility 1.1, Recomendação W3C de 17/10/2024, §2.2, na letra: *"All EPUB
+publications MUST include Schema.org accessibility metadata in the package document that
+exposes their accessible properties, **regardless of whether** the publications also meet
+the accessibility or optimization requirements."* Este projeto não escreve nenhum
+`schema:*`.
+
+### Cobertura
+
+**Nenhum teste abre o arquivo gerado e o valida como arquivo** — todos conferem por
+substring, e `grep -n "fromstring|xmllint|epubcheck|ElementTree" tests/*.py` devolve nada. O
+docstring de `tests/test_f59_fonte_embutida.py` já narra o precedente: um `<Default>`
+inserido fora do `<Types>` passou por todas as substrings e tinha deixado de ser XML.
+
+Três ferramentas, e elas conferem coisas diferentes: `openxml-audit` (Python puro, com
+plugin de pytest), `epubcheck` 5.3.0 pelo pip (pede Java), e o `ace` da DAISY 1.4.6 (pede
+Node 20). **O que falta neste EPUB é justamente o que só o Ace vê** — o `epubcheck` já dá
+zero, nos dois modos e nas duas fontes.
+
+O `epubcheck` já está instalado nesta máquina e não está no `requirements.txt`. O critério
+que ele serve é **não regredir**; o que reprova hoje é o Ace.
+
+`epubcheck` no teste, e não inspeção à mão. Um DOCX que o Word recuse é hoje um defeito que
+só aparece na máquina do usuário.
+
+---
+
+## F112 — A geometria decide a caixa, e um dos dois caminhos não pede rótulo nenhum — A FAZER
+
+A causa que a F14 nomeou, a F19 mediu, a F107 destravou e ninguém ainda consertou. Ela
+responde por **2.141 palavras, 10,4% da prosa** do livro medido.
+
+`c/C`, `o/O`, `s/S`, `u/U`, `v/V`, `w/W`, `x/X`, `z/Z`, `p/P`, `k/K` e `j/J` são **o mesmo
+desenho**. O que os separa é o tamanho relativo à linha, e o recorte é redimensionado para
+32×32 antes de o classificador o ver: **a informação que decide foi jogada fora antes da
+decisão**. O mesmo vale para `o/0`, `l/1/I` e `g/9`.
+
+### O que já está medido, e é muito
+
+`core/altura_relativa.py` (F19), em distância entre médias por desvio combinado:
+
+| par | d'(topo) | d'(base) | d'(altura) |
+|---|---:|---:|---:|
+| `s`/`S` | **3,78** | 0,60 | 3,18 |
+| `o`/`0` | **3,24** | 0,60 | 2,66 |
+| `w`/`W` | **3,10** | 0,20 | 2,78 |
+| `c`/`C` | **3,00** | 0,30 | 1,82 |
+
+**O discriminante é o topo**, e a razão é tipográfica: todo glifo se apoia na mesma linha de
+base, então a base não distingue nada. O desempate *a posteriori* da F19 não pagou porque
+só dispara onde a geometria e a âncora discordam, e com âncora forte esse conjunto é quase
+todo erro da geometria.
+
+A F107 tirou o pré-requisito do caminho — o tamanho deixou de se perder na gravação — e
+mediu o que a entrada nova rende: `S` de 50,0% para **74,0%**, `W` de 33,3% para **83,3%**.
+E achou que preservar a proporção no recorte, encaixado em 32×32 com papel em volta em vez
+de esticado, paga **+2,8 pontos fora da família de caixa**.
+
+### O que falta é maiúscula rotulada, e o corpus explica por quê
+
+Páginas com `.box` rotulado à mão, cruzadas com a taxa de erro da F104:
+
+| livro | rotuladas | erro (F104) |
+|---|---:|---:|
+| Kasparov · Benko Gambit | 8 | — |
+| Darcy Lima · A Estratégia | 5 | recusado: português |
+| Nunn · Secrets of Rook Endings | 4 | **0,38%** — o melhor |
+| Seirawan · Xadrez Vitorioso | 3 | — |
+| Aagaard · Attacking Manual I | 3 | 0,65% |
+| Aagaard · Positional Play | 3 | — |
+| Aagaard · Practical Chess Defence | 2 | — |
+| Petrosian System | 1 | — |
+| **Yusupov · Chess Evolution 1** | **0** | **1,33%** |
+| **Yusupov · Complete** | **0** | **3,27%** |
+| **Dvoretsky · Endgame Manual** | **0** | **3,93%** |
+
+**Os três piores livros da tabela não têm uma página rotulada.** Todo limiar deste projeto
+— a folga do diacrítico, a régua do espaço, o envelope de proporção da F106, o piso de
+`CONF_MINIMA` — foi medido nos livros que já saem bem.
+
+E há a prova direta, porque o projeto exportou os dois. Medido com a mesma régua, partindo
+no hífen como a F108 parte:
+
+| livro | páginas rotuladas | palavras | caixa ilegítima | `S/s` |
+|---|---:|---:|---:|---:|
+| **Kasparov** · Benko Gambit (o `.epub` da raiz) | **8** | 39.418 | **0,32%** | **0,047** |
+| **Yusupov** · Chess Evolution 1 (o `.docx`) | **0** | 41.144 | **2,58%** | **0,203** |
+
+**Oito vezes a taxa, e quatro vezes a razão `S/s`** — mesmo pipeline, mesmo modelo, mesma
+semana. O 0,047 do Kasparov é o valor normal de um texto em inglês; o do Yusupov não é.
+
+E isso não é observação de estilo: torna hipótese em inverificável. A hipótese natural para
+a família A é que o separador de glifo colado corta o pingo do `i`, e o próprio projeto
+documenta o resíduo (`box_service.py:1488`, *"quinze casos em 5.747"*). Rodado o caminho de
+produção em três páginas rotuladas do Kasparov, com e sem o separador, contando boxes
+dentro de cada `i`/`j` do gabarito:
+
+| | 0 box | 1 box |
+|---|---:|---:|
+| com separador | 8 | **151** |
+| sem separador | 12 | 147 |
+
+**O pingo não se parte ali, e o separador melhora.** A hipótese não foi refutada — ela é
+inverificável, porque o livro que exibe o defeito não tem gabarito. É a mesma lição que o
+ROADMAP já registrou três vezes, agora no nível do corpus e não da métrica.
+
+**Rotular três páginas do Yusupov Complete e três do Dvoretsky é o pré-requisito desta
+fase**, e não consequência dela — a mesma ordem que a F107 estabeleceu.
+
+### E há um caminho que não pede rótulo nenhum, que a F19 não tentou
+
+Baird 1992 (*Document Image Defect Models and Their Uses*), p.7: *"The input to the shape
+classifier is an image of an isolated character, **without size or baseline context**."* —
+igual a este projeto. E p.8, o algoritmo:
+
+> Each alternative symbol interpretation implies a text size (estimated from per-class
+> statistics collected during training): the median of these sizes, weighted by confidence,
+> is selected as the line's dominant text size. **This size is then used to prune the
+> interpretations.**
+
+**A F19 pendurou a geometria depois, para desempatar contra a âncora, e mediu que não paga.
+Baird faz o contrário**: cada candidata *propõe* um tamanho, a linha vota qual é o tamanho
+dela, e o tamanho **poda** as candidatas. Não exige retreinar nada — só as estatísticas por
+classe, que saem da base de 626.181 recortes.
+
+O mesmo artigo, p.8 §5, nomeia o que este projeto chama de veto: *"We have experimented
+principally with **veto filters** … These include all-alphabetic or all-numeric rules (quite
+effective on Latin languages)"* — e "dígito não entra em palavra de prosa" mataria a família
+D, que são 8% da prosa.
+
+E há a resposta do Tesseract para a caixa, que também não pede treino (R. Smith, ICDAR 2007,
+p.632 §6): o *permuter* **gera a melhor palavra de cada regime de caixa** — top dictionary,
+top UPPER case, top lower case with optional initial upper, top numeric, top classifier — e
+escolhe a de menor distância total, cada categoria com sua constante. A regra tipográfica da
+F108 deixaria de ser regra imperativa que precisa de exceção para `Nf3` e passaria a ser
+**uma hipótese concorrente**.
+
+### O que esta fase alcança e nenhuma outra alcança
+
+O Seirawan e o Razuvaev. São 834 páginas sem uma linha de camada de texto, e ali não há
+língua para consultar nem contexto para pedir: quem lê é o pixel.
+
+---
+
+## F113 — Onde não há corte, não há corte errado — MEDIR ANTES DE DECIDIR
+
+A aposta mais forte no papel e a de maior risco na prática, e por isso ela entra no ROADMAP
+como **medição**, e não como decisão.
+
+### A ideia
+
+Um segundo motor que lê a **linha inteira**, sem segmentar caractere, treinado nas páginas
+rotuladas do próprio projeto. O caminho por caractere fica com o xadrez — diagrama,
+figurina e notação.
+
+Ele resolve por construção o que as outras fases resolvem por conserto: onde não há corte,
+não há corte errado; onde não há régua de espaço, não há espaço espúrio; e um decodificador
+que vê a linha inteira desempata `s`/`S` pelo contexto que o glifo isolado não tem.
+
+### O motor: Calamari, e o Kraken está fora por uma razão que não é qualidade
+
+| motor | licença | Windows | entrada de treino |
+|---|---|---|---|
+| **Calamari** 2.3.1 (12/11/2024) | GPL-3.0 | **sim** — o PyPI declara "OS Independent" | imagem de linha + `.gt.txt` |
+| Kraken | Apache-2.0 | **não** | imagem de linha + `.gt.txt` |
+
+README oficial do Kraken, conferido em 25/08/2026, verbatim: *"Kraken can be run on Linux or
+Mac OS X (both x64 and ARM)."* Windows não aparece em lugar nenhum, e este projeto roda em
+Windows 10.
+
+Três detalhes para quem escrever o script: os modos de `--resize` são `union`/`new`/`fail`
+na documentação 6.0.0 e **não** `add`/`both`, que são nomes da série 3.0; o Kraken **aceita**
+o mesmo par imagem-de-linha + `.gt.txt` do Calamari, e não exige ALTO nem PageXML; e a regra
+das "800 linhas" vale para *"printed script with a small grapheme inventory such as Arabic or
+Hebrew"*, não para 314 classes.
+
+E o Calamari traz de fábrica, em dois comandos, a **votação por confiança** de Reul, Wick,
+Springmann e Puppe (arXiv:1711.09670) — treinar N modelos em dobras diferentes e somar as
+confianças de cada caractere e das alternativas. O precedente de escala é o ISRI (Rice et
+al., 1996), que levou cinco motores de 90,10–98,83% para **99,15%**.
+
+### Modelo de visão-linguagem: não, e o número é claro
+
+arXiv:2606.13108 (PP-OCRv6, 11/06/2026, CC BY 4.0), Tabela 7: PP-OCRv6_medium (34,5 M
+parâmetros) **93,20**; Kimi-K2.6 85,00; Qwen3-VL-235B 80,56; GPT-5.5 **78,00**. E a razão
+que decide, verbatim: *"A critical advantage of specialized OCR models over VLMs is the
+absence of text hallucination — generating text not present in the input image."*
+
+**Para este projeto isso é requisito, não preferência.** Um OCR que erra deixa `biShop`, que
+o dicionário acusa e a razão de caixa mede; um modelo que alucina deixa uma frase plausível
+e errada, que nenhum instrumento deste projeto tem como pegar.
+
+### O que torna isso barato de testar
+
+**O `.box` deste projeto é o formato do Tesseract** — `core/avaliacao_pagina.py:52` diz
+isso na letra: *"Lê um `.box` do Tesseract"*. As páginas rotuladas convertem para
+transcrição de linha agrupando por linha e concatenando, sem escrever conversor. E há
+626.181 recortes rotulados em 314 classes para sintetizar linha onde faltar.
+
+### O que se perde, e é estrutural
+
+A caixa por caractere na prosa, e com ela a edição de box na UI, a coleta e a fila de
+revisão para o texto lido por esse caminho. **Procedência por caractere e leitura por linha
+são incompatíveis**, e escolher uma é escolher o que a UI pode oferecer sobre aquele texto.
+É a mesma perda da F110, pela mesma razão.
+
+### O número que decide
+
+Converter as páginas para transcrição de linha, afinar um motor de linha, e medir contra
+o pipeline de hoje **nas mesmas páginas**. Nada além disso decide esta fase.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
