@@ -15,8 +15,8 @@ trava com esse número sozinho. Comparar os candidatos exige rodá-los na mesma
 faixa, contra a mesma verdade, no mesmo processo — que é o que faltava.
 
 A tabela medida está na §7.1, sob "E agora a tabela tem número", e saiu daqui.
-Três motores entraram nela; o `rapidocr` e o `doctr` continuam sem número porque
-não estão instalados. **O EasyOCR com âncora própria deu 89,54% contra os 89,5%
+Quatro motores entraram nela; o `doctr` continua sem número porque não está
+instalado. **O EasyOCR com âncora própria deu 89,54% contra os 89,5%
 da F17** — é a validação deste instrumento, e é o motivo de a âncora ser um
 argumento e não uma escolha enterrada no código.
 
@@ -75,11 +75,14 @@ passa da rede?". Plugar o vencedor na cadeia é `medir_cadeia.py`, trocando o
 ## Aviso sobre dois adaptadores
 
 O `easyocr`, o `tesseract7` e o `tesseract13` chamam biblioteca que este projeto
-já usa, e o caminho deles é o de produção. O `rapidocr` e o `doctr` foram
-escritos a partir da documentação dos pacotes e **não foram executados** — nem um
-nem outro está instalado aqui. Se a API tiver mudado, o motor aparece como
-indisponível com a exceção ao lado, em vez de derrubar a corrida; o conserto é
-no adaptador, e os outros motores continuam dando número.
+já usa, e o caminho deles é o de produção. O `rapidocr` foi escrito a partir da
+documentação e **rodou de primeira** — `use_det=False` aceito, `txts` e `scores`
+onde a documentação prometia, e o `PP-OCRv6_rec_small.onnx` baixado sozinho.
+
+O `doctr` continua **escrito da documentação e não executado**: não está
+instalado aqui. Se a API tiver mudado, o motor aparece como indisponível com a
+exceção ao lado, em vez de derrubar a corrida; o conserto é no adaptador, e os
+outros motores continuam dando número.
 """
 
 import argparse

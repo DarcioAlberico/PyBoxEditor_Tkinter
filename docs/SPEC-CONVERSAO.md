@@ -776,13 +776,15 @@ Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, por
 | motor | acerto/box, âncora própria | acerto/box, âncora vazia | CER | linha exata | ms/linha |
 |---|---:|---:|---:|---:|---:|
 | EasyOCR `english_g2` | **89,54%** | 65,33% | 12,26% | 25,7% | 34,8 |
-| Tesseract `--psm 7` | 88,38% | **70,71%** | **10,56%** | **32,1%** | 138,2 |
+| Tesseract `--psm 7` | 88,38% | **70,71%** | 10,56% | 32,1% | 138,2 |
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
+| RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
-O `rapidocr`, o `doctr`, o PaddleOCR, o Calamari e o Kraken **continuam sem número**: nenhum
-está instalado neste ambiente. As colunas acima são o que se conseguiu medir sem instalar
-nada, e é por isso que elas existem.
+O `doctr`, o PaddleOCR, o Calamari e o Kraken **continuam sem número**: nenhum está
+instalado neste ambiente. As três primeiras linhas são o que se mediu sem instalar nada, e é
+por isso que elas existem; a quarta custou `pip install rapidocr onnxruntime` — oito pacotes,
+nenhum deles substituindo `numpy`, `torch` ou `opencv`.
 
 **O instrumento se validou sozinho.** O EasyOCR com âncora própria deu 89,54%, e a F17
 registrou **89,5%** — quatro centésimos de diferença, refazendo com um comando uma medida de
@@ -799,7 +801,39 @@ linha do Tesseract mais `psm 10` do Tesseract contra linha do EasyOCR mais carac
 EasyOCR. Com âncora vazia os dois correm sem muleta, e aí o `--psm 7` ganha por **5,4
 pontos**. A força do EasyOCR está no modo por caractere, não na leitura de linha: trocar de
 âncora lhe vale 24,2 pontos contra 17,7 do Tesseract. **O CER e a linha exata não dependem
-de âncora**, e neles o `--psm 7` ganha limpo — é o melhor leitor de linha dos três.
+de âncora**, e neles o `--psm 7` ganha do EasyOCR e do `--psm 13`. Quem ganha dos três é o
+RapidOCR — ver abaixo, porque ele ganha e perde ao mesmo tempo.
+
+**O RapidOCR lê a melhor linha e distribui a pior — e a causa é uma só.** Ele tem o menor
+CER (8,64%), a maior taxa de linha perfeita (34,3%) e é o mais rápido dos quatro (23,5 ms
+contra 34,8 do EasyOCR), rodando o `PP-OCRv6_rec_small.onnx` — o modelo da tabela do §7.2 —
+sem paddlepaddle. E tem o **pior** acerto por box: 56,34% contra 70,71% do `--psm 7` no mesmo
+pé. A razão está nos erros: onde o EasyOCR **troca** a figurina por letra errada, o RapidOCR
+a **omite**.
+
+    esperado  9.Bb4Qe3✝10.Kh1Qx411.Be7Rxc6
+    lido      9.xb4e3t10.h1xe411.e7xc6
+
+Uma troca custa um caractere e não mexe no comprimento. **Uma omissão encurta a string, e com
+ela todo box seguinte da linha anda uma casa** — é o descompasso que o `distribuir` documenta
+como *"qualquer descompasso desloca a linha inteira em silêncio"*. O CER cobra 1 pela
+omissão; o acerto por box cobra o resto da linha. Os dois números estão certos e medem coisas
+diferentes.
+
+**A consequência prática é que o RapidOCR precisaria de âncora, e não de menos.** Com uma
+âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a omissão,
+que é exatamente o mecanismo da F17. Ele é o candidato mais forte da tabela para o papel de
+**segunda opinião sobre a linha**, e o mais fraco para ler sozinho.
+
+**Uma linha rotulada parece estar errada, e vale conferir.** Entre as três piores do
+RapidOCR:
+
+    esperado  T?eseCondeampledidwhiTemanageTo
+    lido      thesecondexampledidWhitemanageto
+
+O rótulo é que parece corrompido, e o motor leu certo. É uma linha em 315 e não move nenhum
+número desta tabela, mas **penaliza todos os quatro motores igualmente** e sugere que o
+gabarito tem pelo menos um defeito.
 
 **O `--psm 13` inventa texto, e por isso não deve ser usado.** O modo "raw line" não faz
 análise de layout e despeja caractere depois do fim do texto: `Foreword5` sai como

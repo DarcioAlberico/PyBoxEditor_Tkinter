@@ -12283,8 +12283,9 @@ de produção (árbitro da F1.5b) e o `ler_pagina` de produção:
 | motor | acerto/box, âncora própria | acerto/box, âncora vazia | CER | linha exata | ms/linha |
 |---|---:|---:|---:|---:|---:|
 | EasyOCR `english_g2` | **89,54%** | 65,33% | 12,26% | 25,7% | 34,8 |
-| Tesseract `--psm 7` | 88,38% | **70,71%** | **10,56%** | **32,1%** | 138,2 |
+| Tesseract `--psm 7` | 88,38% | **70,71%** | 10,56% | 32,1% | 138,2 |
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
+| RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
 **Ninguém passa, e a margem não é de fração**: 8 pontos no melhor arranjo, 27 no pior. A
@@ -12307,8 +12308,9 @@ primeiros depende dela**:
 
 Trocar de âncora vale **24,2 pontos ao EasyOCR contra 17,7 ao Tesseract**, o que diz onde
 está a força de cada um: a do EasyOCR é o modo por caractere, não a leitura de linha. **O CER
-e a linha exata não dependem de âncora**, e neles o `--psm 7` ganha limpo. Como leitor de
-linha, ele é o melhor dos três.
+e a linha exata não dependem de âncora**, e neles o `--psm 7` ganha do EasyOCR e do
+`--psm 13`. Dos quatro, quem ganha é o RapidOCR — e pela seção seguinte se vê que ganhar CER
+e perder acerto por box é uma coisa só.
 
 ### O instrumento se validou sozinho
 
@@ -12316,6 +12318,40 @@ O EasyOCR com âncora própria deu **89,54%** contra os **89,5%** que a F17 regi
 centésimos, refazendo com um comando uma medida de meses atrás. É a lacuna que o
 `medir_cadeia.py` declara no cabeçalho — *"refazer qualquer uma delas hoje é reescrever o
 instrumento antes de medir"* — fechada para a F17.
+
+### O RapidOCR lê a melhor linha e distribui a pior
+
+Instalado depois da primeira tabela (`pip install rapidocr onnxruntime`, oito pacotes, nenhum
+substituindo `numpy`, `torch` ou `opencv`), ele roda o `PP-OCRv6_rec_small.onnx` — o modelo da
+tabela da SPEC §7.2 — sem paddlepaddle. Tem o **menor CER (8,64%)**, a **maior taxa de linha
+perfeita (34,3%)** e é o **mais rápido** dos quatro (23,5 ms contra 34,8 do EasyOCR). E tem o
+**pior** acerto por box: 56,34% contra 70,71% do `--psm 7` no mesmo pé.
+
+Não são resultados em conflito: são o mesmo fato. Onde o EasyOCR **troca** a figurina por
+letra errada, o RapidOCR a **omite**.
+
+    esperado  9.Bb4Qe3✝10.Kh1Qx411.Be7Rxc6
+    lido      9.xb4e3t10.h1xe411.e7xc6
+
+Uma troca custa um caractere e não mexe no comprimento. **Uma omissão encurta a string, e com
+ela todo box seguinte da linha anda uma casa** — o descompasso que o `distribuir` documenta
+como *"qualquer descompasso desloca a linha inteira em silêncio"*. O CER cobra 1 pela
+omissão; o acerto por box cobra o resto da linha.
+
+**Isso o torna o candidato mais forte para segunda opinião, e o mais fraco para ler sozinho.**
+Com uma âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a
+omissão, e é exatamente o mecanismo da F17.
+
+### Uma linha do gabarito parece errada
+
+Entre as três piores do RapidOCR:
+
+    esperado  T?eseCondeampledidwhiTemanageTo
+    lido      thesecondexampledidWhitemanageto
+
+O **rótulo** é que parece corrompido, e o motor leu certo. É uma linha em 315 e não move
+número nenhum desta fase, mas penaliza os quatro motores igualmente e sugere que o gabarito
+tem ao menos um defeito. Registrado para quem for rotular de novo.
 
 ### Dois defeitos dos motores, que a tabela não mostra
 
@@ -12336,14 +12372,19 @@ A F113 fecha com *"converter as páginas para transcrição de linha, afinar um 
 e medir contra o pipeline de hoje nas mesmas páginas"*. **Esta fase dá o piso desse número
 sem afinar nada**, e o piso é 8 pontos abaixo da cadeia. Não decide a F113 — motor afinado
 nas fontes destes livros é outra coisa que motor pronto —, mas diz de quanto o afinamento
-precisa: **9 pontos de CER a fechar**, e não um ajuste fino.
+precisa: **8,6 pontos de CER a fechar** a partir do melhor motor pronto, e não um ajuste
+fino.
 
 ### O que continua sem número
 
-O `rapidocr`, o `doctr`, o PaddleOCR, o Calamari e o Kraken. Nenhum está instalado neste
-ambiente, e os adaptadores do `rapidocr` e do `doctr` em `medir_linha.py` foram **escritos da
-documentação e não executados** — o cabeçalho do arquivo diz isso, e o motor que não carrega
-aparece com a exceção ao lado em vez de derrubar a corrida.
+O `doctr`, o PaddleOCR, o Calamari e o Kraken. Nenhum está instalado neste ambiente, e o
+adaptador do `doctr` em `medir_linha.py` foi **escrito da documentação e não executado** — o
+cabeçalho do arquivo diz isso, e o motor que não carrega aparece com a exceção ao lado em vez
+de derrubar a corrida.
+
+O do `rapidocr` estava na mesma condição e **passou**: escrito da documentação, rodou de
+primeira, com `use_det=False` e os atributos `txts`/`scores` como a documentação prometia.
+Vale um ponto para o método de escrever o adaptador antes de instalar o pacote.
 
 ### Onde está
 
