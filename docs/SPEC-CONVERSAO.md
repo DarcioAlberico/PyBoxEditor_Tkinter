@@ -768,6 +768,50 @@ de caixa. Medir o `psm 7` diz, de graça, quanto o permuter **original** entrega
 destes livros — que é o limite superior daquela proposta, e o número que decide se vale
 escrevê-la.
 
+#### E agora a tabela tem número
+
+Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, por
+`medir_linha.py`, com a segmentação de produção e o `ler_pagina` de produção:
+
+| motor | acerto/box, âncora própria | acerto/box, âncora vazia | CER | linha exata | ms/linha |
+|---|---:|---:|---:|---:|---:|
+| EasyOCR `english_g2` | **89,54%** | 65,33% | 12,26% | 25,7% | 34,8 |
+| Tesseract `--psm 7` | 88,38% | **70,71%** | **10,56%** | **32,1%** | 138,2 |
+| Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
+| *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
+
+O `rapidocr`, o `doctr`, o PaddleOCR, o Calamari e o Kraken **continuam sem número**: nenhum
+está instalado neste ambiente. As colunas acima são o que se conseguiu medir sem instalar
+nada, e é por isso que elas existem.
+
+**O instrumento se validou sozinho.** O EasyOCR com âncora própria deu 89,54%, e a F17
+registrou **89,5%** — quatro centésimos de diferença, refazendo com um comando uma medida de
+meses atrás. Era a lacuna que o `medir_cadeia.py` declara no cabeçalho: *"refazer qualquer
+uma delas hoje é reescrever o instrumento antes de medir"*.
+
+**Ninguém passa, e a margem não é de fração.** O melhor arranjo está **8 pontos** abaixo da
+cadeia, e o pior, 27. A trava da F18 fica onde está, e a conclusão desta seção deixa de ser
+previsão: **motor de linha pronto não muda produção neste projeto.**
+
+**A ordem entre os dois primeiros depende da âncora, e é isso que a coluna dupla mostra.**
+Com âncora própria cada motor ancora em si mesmo, então a coluna compara dois *compostos* —
+linha do Tesseract mais `psm 10` do Tesseract contra linha do EasyOCR mais caractere do
+EasyOCR. Com âncora vazia os dois correm sem muleta, e aí o `--psm 7` ganha por **5,4
+pontos**. A força do EasyOCR está no modo por caractere, não na leitura de linha: trocar de
+âncora lhe vale 24,2 pontos contra 17,7 do Tesseract. **O CER e a linha exata não dependem
+de âncora**, e neles o `--psm 7` ganha limpo — é o melhor leitor de linha dos três.
+
+**O `--psm 13` inventa texto, e por isso não deve ser usado.** O modo "raw line" não faz
+análise de layout e despeja caractere depois do fim do texto: `Foreword5` sai como
+`Forewordi—(its—'"s—s—s—sSS`. Em linha curta é ruinoso, e é a espécie de falha que o §7.2
+recusa por princípio. O `--psm 7` não faz isso.
+
+**E os três destroem notação, pelo mesmo motivo.** As figurinas estão fora do alfabeto dos
+três, e cada uma vira letra errada — `12...Ra6;12...Ra7` sai `12_Ea6;12_Eal` no EasyOCR, e
+`Nge518.Nxe5` sai `DgeS18.AxeS` no Tesseract. É o que o filtro do `em_bloco` existia para
+pegar e que a F36 mediu não pagar. **Nenhum motor de linha geral resolve a trilha de lance**;
+ela tem gramática e legalidade, que é o outro caminho e não este.
+
 ### 7.2 Modelo de visão-linguagem: não, e o número é claro
 
 arXiv:2606.13108 (PP-OCRv6, submetido em 11/06/2026, CC BY 4.0, PaddlePaddle). A Tabela 7,

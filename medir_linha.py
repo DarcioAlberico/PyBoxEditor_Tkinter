@@ -7,12 +7,18 @@ Os motores de **linha**, medidos lado a lado nas mesmas faixas.
     python medir_linha.py --so 0108             # só as páginas cujo nome casa
     python medir_linha.py --listar              # o que está instalado, e sai
 
-**Por que este arquivo existe.** A SPEC §7.1 compara seis motores de linha por
-licença, runtime e entrada de treino — e nenhuma linha daquela tabela tem
-**número medido nestes livros**. O único motor de linha que este projeto já mediu
-é o EasyOCR (F17: 72,9% para 89,5%), e a tabela da F18 decidiu a trava com esse
-número sozinho. Comparar os candidatos exige rodá-los na mesma faixa, contra a
-mesma verdade, no mesmo processo — que é o que falta.
+**Por que este arquivo existe.** A SPEC §7.1 comparava seis motores de linha por
+licença, runtime e entrada de treino, e nenhuma linha daquela tabela tinha
+**número medido nestes livros**. O único motor de linha que este projeto já
+havia medido era o EasyOCR (F17: 72,9% para 89,5%), e a tabela da F18 decidiu a
+trava com esse número sozinho. Comparar os candidatos exige rodá-los na mesma
+faixa, contra a mesma verdade, no mesmo processo — que é o que faltava.
+
+A tabela medida está na §7.1, sob "E agora a tabela tem número", e saiu daqui.
+Três motores entraram nela; o `rapidocr` e o `doctr` continuam sem número porque
+não estão instalados. **O EasyOCR com âncora própria deu 89,54% contra os 89,5%
+da F17** — é a validação deste instrumento, e é o motivo de a âncora ser um
+argumento e não uma escolha enterrada no código.
 
 **E o mais barato de todos já estava instalado.** O `tesseract --version` deste
 ambiente responde 5.5.0, que é LSTM, isto é, um reconhecedor de linha. O
