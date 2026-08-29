@@ -12285,9 +12285,10 @@ de produção (árbitro da F1.5b) e o `ler_pagina` de produção:
 | EasyOCR `english_g2` | **89,54%** | 65,33% | 12,26% | 25,7% | 34,8 |
 | Tesseract `--psm 7` | 88,38% | **70,71%** | 10,56% | 32,1% | 138,2 |
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
-| RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
+| RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | 23,5 |
 | docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
 | Calamari 2.3.1 `antiqua_historical` | — *sem modo por caractere* | 13,09% | 50,42% | 2,5% | — |
+| Kraken 7.1 `CATMuS-Print Tiny` | — *sem modo por caractere* | 48,02% | 19,41% | 21,6% | 16,4 † |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
 **Ninguém passa, e a margem não é de fração**: 8 pontos no melhor arranjo, 27 no pior. A
@@ -12343,6 +12344,49 @@ omissão; o acerto por box cobra o resto da linha.
 **Isso o torna o candidato mais forte para segunda opinião, e o mais fraco para ler sozinho.**
 Com uma âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a
 omissão, e é exatamente o mecanismo da F17.
+
+### O Kraken roda em Windows, e a §7.1 o excluía sem ter tentado
+
+**Esta é a correção mais cara desta fase**, porque não é um número novo: é uma premissa
+derrubada. A §7.1 cortou o Kraken citando o README — *"Kraken can be run on Linux or Mac OS
+X"* — e o classificador `Operating System :: POSIX` do PyPI. Nenhuma das duas fontes foi
+testada, e este projeto roda em Windows 10.
+
+**Testado, ele roda.** `pip install kraken` instala a 7.1 com torch 2.13.0 no Python 3.13
+daqui; `import kraken`, `kraken.rpred` e `kraken.lib.models` importam; `kraken --version`
+responde; e o reconhecimento devolve texto certo numa faixa real. Varridos os `.py` do wheel
+de 5,1 MB, não há um só import de `fcntl`, `resource`, `pwd`, `grp` ou `termios`.
+
+Os três atritos de Windows que existem **não estão no caminho de reconhecimento**: o
+`htrmopo` abre `iso15924.txt` sem declarar codificação e quebra em cp1252 (`PYTHONUTF8=1`
+resolve); o `kraken get` grava com *"invalid path"* (baixar do Zenodo contorna); e o
+`kraken -I '*.png'` devolve os arquivos expandidos ao parser do click como subcomandos (a API
+não passa por ali, e é o que o `rodar_kraken.py` faz).
+
+**E ele lê prosa moderna de verdade**, com o `CATMuS-Print Tiny`, treinado em impresso latino
+do século XV ao XX:
+
+    esperado  the force of the break... f6-f4. It was safer
+    kraken    the force of the break... f6-f4. It was safer
+    calamari  the force oſ he brea . S. ſ. It vvas afer
+
+**A escolha da §7.1 fica em aberto por causa disto.** O Calamari ganhou por eliminação de um
+candidato só, e a eliminação caiu:
+
+| | Calamari 2.3.1 | Kraken 7.1 |
+|---|---|---|
+| licença | GPL-3.0 | **Apache-2.0** |
+| runtime novo | **TensorFlow** | nenhum — torch, já em produção |
+| instala no Python 3.13 do projeto | **não** | **sim** |
+| entrada de treino | imagem + `.gt.txt` | imagem + `.gt.txt` |
+| modelo pronto de impresso moderno | **não existe** | **CATMuS-Print** |
+| CER medido nestes livros | 50,42% | **19,41%** |
+| votação por confiança pronta | **sim** (§7.6) | não, no mesmo formato |
+
+A única vantagem que resta ao Calamari é a votação do §7.6 — e ela foi medida abaixo, sem
+render. **Isto não escolhe o Kraken**: escolher motor de linha é a F113, e ela pede um modelo
+afinado nestes livros, não um pretreinado. O que esta fase estabelece é que a razão pela qual
+o Kraken estava fora **não existe**, e que a decisão precisa ser refeita com ele dentro.
 
 ### O Calamari não roda neste Python, e o número dele mede outra coisa
 
@@ -12452,8 +12496,12 @@ fino.
 
 ### O que continua sem número
 
-O PaddleOCR e o Kraken. O primeiro por escolha — o RapidOCR já rodou o mesmo `PP-OCRv6` sem o
-runtime dele —, e o segundo porque não roda em Windows, que é o que a tabela já dizia.
+**Só o PaddleOCR, e por escolha**: o RapidOCR já rodou o mesmo `PP-OCRv6` sem os 104,8 MB de
+runtime dele, e a linha que sairia seria a mesma.
+
+**†** o tempo dos três motores que rodam fora deste interpretador foi medido no `venv` deles,
+e não pela ponte — ela mediria o custo de consultar um dicionário. O Calamari fica sem número
+de tempo porque tem dois: 51 ms por linha com as cinco dobras, 13 ms com uma só.
 
 **Os dois adaptadores escritos às cegas passaram**, e isso vale como nota de método. O
 `rapidocr` e o `doctr` foram escritos só da documentação, com o pacote ausente, e nenhum dos

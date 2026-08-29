@@ -663,20 +663,36 @@ Levantado em 25 e 26 de agosto de 2026, com cada fonte aberta e conferida contra
 primária. O que não se sustentou está marcado como tal — inclusive coisas que a primeira
 passada deu por certas.
 
-### 7.1 O motor de linha: Calamari, e não Kraken nem PaddleOCR
+### 7.1 O motor de linha: a escolha do Calamari foi feita com uma informação errada
 
 | motor | licença | Windows | runtime novo | entrada de treino |
 |---|---|---|---|---|
 | **Calamari** 2.3.1 (12/11/2024) | GPL-3.0 | **sim** — o PyPI declara "OS Independent" | **TensorFlow** — `tensorflow>=2.4.0` no `requires_dist` | imagem de linha + `.gt.txt` |
-| Kraken | Apache-2.0 | **não** | torch, via `lightning` | imagem de linha + `.gt.txt` |
+| **Kraken** 7.1 (04/08/2026) | Apache-2.0 | **sim — medido**, ver abaixo; o README e o classificador do PyPI dizem POSIX, e estão desatualizados | **nenhum** — torch, já em produção | imagem de linha + `.gt.txt` |
 | PaddleOCR 3.7.0 (11/06/2026) | Apache-2.0 | **sim** — "OS Independent" no PyPI, e há wheel `cp313` do `paddlepaddle` para `win_amd64` | **paddlepaddle**, 104,8 MB | recorte + `rec_gt.txt`, mas o treino sai para o **PaddleX** |
 | **docTR** 1.1.0 (21/08/2026) | Apache-2.0 | sim — `requires_python` é `>=3.11,<4` | **nenhum** — `torch` e `torchvision`, que já estão em produção | `images/` + `labels.json`, treino no próprio pacote |
 | **RapidOCR** 3.9.2 (21/07/2026) | Apache-2.0 (modelos: copyright da Baidu) | sim — `>=3.8,<4` | **à escolha** — `onnxruntime` (MIT), ou o torch que já existe | **não treina**: é inferência dos modelos do PP-OCR |
 | **Tesseract** 5.5.0 | Apache-2.0 | **sim, e já instalado neste ambiente** | nenhum — binário externo que o `pytesseract` já exige | imagem de linha + `.gt.txt`, via `tesstrain` |
 
-**O Kraken está fora, e não por qualidade.** O README oficial diz na letra: *"Kraken can be
-run on Linux or Mac OS X (both x64 and ARM)"* — Windows não aparece em lugar nenhum, e
-este projeto roda em Windows 10.
+**O Kraken foi excluído por Windows, e o teste derrubou isso.** O README oficial diz na letra
+*"Kraken can be run on Linux or Mac OS X (both x64 and ARM)"*, e o PyPI declara
+`Operating System :: POSIX` — foi com essas duas fontes que a primeira passada o cortou, sem
+tentar. **Tentado, ele roda.** Nesta máquina, com Windows 10 e Python 3.13: `pip install
+kraken` instala a 7.1 com torch 2.13.0; `import kraken`, `kraken.rpred` e `kraken.lib.models`
+importam; `kraken --version` responde; e o reconhecimento devolve texto certo numa faixa real
+destes livros. Varridos os `.py` do wheel, **não há um só import de `fcntl`, `resource`,
+`pwd`, `grp` ou `termios`** — nada que amarre a POSIX.
+
+Há três atritos de Windows, e **nenhum deles está no caminho de reconhecimento**:
+
+- o `htrmopo` abre o `iso15924.txt` sem declarar codificação, o Windows usa cp1252 e o
+  `kraken list` estoura com `UnicodeDecodeError`. **`PYTHONUTF8=1` resolve**;
+- o `kraken get` grava com *"invalid path"* e deixa a pasta de modelo vazia — baixar o
+  `.mlmodel` direto do Zenodo contorna;
+- o `kraken -I '*.png'` expande o glob internamente e devolve os arquivos ao parser do click
+  como se fossem subcomandos (`Error: No such command '001a….png'`). A API não passa por ali.
+
+São o repositório de modelos e o laço em lote, não o motor.
 
 Três detalhes que mudam quem for escrever o script: os modos de `--resize` são
 `union`/`new`/`fail` na documentação 6.0.0, e **não** `add`/`both`, que são nomes da série
@@ -684,6 +700,27 @@ Três detalhes que mudam quem for escrever o script: os modos de `--resize` são
 ALTO nem PageXML; e a regra das "800 linhas para afinar" vale para *"printed script with a
 small grapheme inventory such as Arabic or Hebrew"*, não para um alfabeto de 314 classes —
 a própria página avisa que *"There is no hard rule for the amount of training data"*.
+
+#### A escolha desta seção precisa ser refeita
+
+O Calamari ganhou por eliminação de **um** candidato, e a eliminação caiu. Confrontados nos
+critérios desta tabela, mais o que se mediu depois:
+
+| | Calamari 2.3.1 | Kraken 7.1 |
+|---|---|---|
+| licença | GPL-3.0 | **Apache-2.0** |
+| runtime novo | **TensorFlow** | nenhum — torch, já em produção |
+| instala no Python 3.13 do projeto | **não** — `ResolutionImpossible` | **sim** |
+| entrada de treino | imagem + `.gt.txt` | imagem + `.gt.txt` |
+| modelo pronto de impresso moderno | **não existe** — só histórico | **CATMuS-Print** |
+| CER medido nestes livros | 50,42% | **19,41%** |
+| votação por confiança pronta | **sim** (§7.6) | não, no mesmo formato |
+
+**O Calamari mantém uma vantagem, e é a do §7.6**: a votação sai em dois comandos. Medida
+aqui, ela não rendeu — mas a medição foi sobre um modelo fora de domínio, e não decide (ver
+abaixo). **Fora isso, o Kraken lidera em tudo**, inclusive na única coluna que este projeto
+consegue verificar hoje sem treinar nada. A escolha da primeira linha não deve ser mantida
+por inércia; ela foi feita com uma informação que agora se sabe errada.
 
 **O PaddleOCR entra por coerência com o §7.2, e a primeira passada o deixou de fora.** A
 seção seguinte usa o artigo do PP-OCRv6 como a prova de que OCR especializado ganha de VLM,
@@ -778,13 +815,19 @@ Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, por
 | EasyOCR `english_g2` | **89,54%** | 65,33% | 12,26% | 25,7% | 34,8 |
 | Tesseract `--psm 7` | 88,38% | **70,71%** | 10,56% | 32,1% | 138,2 |
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
-| RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
+| RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | 23,5 |
 | docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
 | Calamari 2.3.1 `antiqua_historical` | — *sem modo por caractere* | 13,09% | 50,42% | 2,5% | — |
+| Kraken 7.1 `CATMuS-Print Tiny` | — *sem modo por caractere* | 48,02% | 19,41% | 21,6% | 16,4 † |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
-O PaddleOCR e o Kraken **continuam sem número**: o primeiro por escolha — o RapidOCR já roda
-o mesmo modelo sem o runtime dele — e o segundo porque não roda em Windows. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
+**†** o tempo dos motores que rodam fora foi medido no `venv` deles, e não pela ponte, que
+mediria o custo de consultar um dicionário. O Calamari fica sem número de tempo por outra
+razão: o dele é 51 ms por linha com as cinco dobras e 13 ms com uma só, e pôr um dos dois na
+coluna esconderia o outro.
+
+**Só o PaddleOCR continua sem número, e por escolha**: o RapidOCR já rodou o mesmo
+`PP-OCRv6` sem os 104,8 MB de runtime dele, e a linha que sairia seria a mesma. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
 existem. A quarta custou `pip install rapidocr onnxruntime` — oito pacotes — e a quinta,
 `pip install python-doctr` — dezesseis. **Nenhuma das duas instalações tocou em `numpy`,
 `torch`, `torchvision`, `opencv` ou `pillow`**, o que a coluna "runtime novo" previa e agora
@@ -828,6 +871,25 @@ diferentes.
 âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a omissão,
 que é exatamente o mecanismo da F17. Ele é o candidato mais forte da tabela para o papel de
 **segunda opinião sobre a linha**, e o mais fraco para ler sozinho.
+
+**O Kraken é o mais rápido da tabela, e o único que precisou de correção na §7.1.** Ele foi
+excluído por Windows sem ter sido tentado; tentado, roda — os detalhes estão acima. Com o
+**CATMuS-Print Tiny**, treinado em impresso latino do século XV ao XX, ele lê prosa moderna de
+verdade:
+
+    esperado  the force of the break... f6-f4. It was safer
+    kraken    the force of the break... f6-f4. It was safer
+    calamari  the force oſ he brea . S. ſ. It vvas afer
+
+**A comparação com o Calamari é a lição da linha, e não o lugar dele na tabela.** Os dois são
+motores de linha treináveis com o mesmo par imagem + `.gt.txt`; o que os separa nos números —
+19,41% de CER contra 50,42% — é **qual modelo pronto existe**, e não a arquitetura. O Kraken
+tem um de impresso moderno; o Calamari só tem de impresso histórico. Isso é a terceira coluna
+da tabela de candidatos cobrando a conta: **a entrada de treino, e o que já foi treinado com
+ela, decidem mais do que licença e runtime somados.**
+
+Onde ele também falha é onde todos falham — a notação. `17.KxfNxf318.Qxf3g5)15...Bxc3` sai
+`782atslags)15.axc3`. É a mesma parede da figurina que derruba os seis.
 
 **O Calamari não instala neste Python, e o número dele mede outra coisa.** As duas frases
 precisam ser lidas juntas.
