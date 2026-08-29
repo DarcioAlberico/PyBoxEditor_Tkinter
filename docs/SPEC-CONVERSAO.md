@@ -819,6 +819,7 @@ Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, por
 | docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
 | Calamari 2.3.1 `antiqua_historical` | — *sem modo por caractere* | 13,09% | 50,42% | 2,5% | — |
 | Kraken 7.1 `CATMuS-Print Tiny` | — *sem modo por caractere* | 48,02% | 19,41% | 21,6% | 16,4 † |
+| PaddleOCR `PP-OCRv6_medium_rec` | — *sem modo por caractere* | 55,82% | **8,64%** | 33,3% | 165,0 † |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
 **†** o tempo dos motores que rodam fora foi medido no `venv` deles, e não pela ponte, que
@@ -826,8 +827,13 @@ mediria o custo de consultar um dicionário. O Calamari fica sem número de temp
 razão: o dele é 51 ms por linha com as cinco dobras e 13 ms com uma só, e pôr um dos dois na
 coluna esconderia o outro.
 
-**Só o PaddleOCR continua sem número, e por escolha**: o RapidOCR já rodou o mesmo
-`PP-OCRv6` sem os 104,8 MB de runtime dele, e a linha que sairia seria a mesma. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
+**Todos os candidatos desta seção têm número.** O que sobra sem medir é motor **afinado**
+nestes livros, que é a F113 e não esta tabela.
+
+**A ponte se validou sozinha**: o RapidOCR foi medido duas vezes, uma em processo e outra
+pelo par `--exportar`/`--predicoes`, e as duas deram 56,34% / 8,64% / 34,3% — idênticas até o
+centésimo. É o que autoriza comparar na mesma tabela os motores que rodam aqui e os que rodam
+em interpretador separado. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
 existem. A quarta custou `pip install rapidocr onnxruntime` — oito pacotes — e a quinta,
 `pip install python-doctr` — dezesseis. **Nenhuma das duas instalações tocou em `numpy`,
 `torch`, `torchvision`, `opencv` ou `pillow`**, o que a coluna "runtime novo" previa e agora
@@ -871,6 +877,37 @@ diferentes.
 âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a omissão,
 que é exatamente o mecanismo da F17. Ele é o candidato mais forte da tabela para o papel de
 **segunda opinião sobre a linha**, e o mais fraco para ler sozinho.
+
+**O PaddleOCR fecha a tabela, e o que ele mede é o preço do nível `medium`.** Ele roda o
+`PP-OCRv6_medium_rec` — 34,5 M de parâmetros, a **primeira linha da tabela do §7.2, com
+93,20** —, contra o `PP-OCRv6_rec_small` de 7,7 M que o RapidOCR roda e que aquela tabela
+pontua em 88,20. Cinco pontos de vantagem no banco de OCR de documento. Aqui:
+
+| | modelo | parâmetros | §7.2 | CER | acerto/box | linha exata | ms/linha |
+|---|---|---:|---:|---:|---:|---:|---:|
+| RapidOCR | `PP-OCRv6_rec_small` | 7,7 M | 88,20 | **8,64%** | **56,34%** | **34,3%** | **23,3** |
+| PaddleOCR | `PP-OCRv6_medium_rec` | 34,5 M | 93,20 | **8,64%** | 55,82% | 33,3% | 165,0 |
+
+**O CER é o mesmo até o centésimo, e o `medium` é pior nas outras duas colunas.** Ele custa
+4,5× os parâmetros, 7× o tempo e 104,8 MB de runtime a mais, e não compra nada nestes livros.
+Conferido linha a linha, os dois concordam em **79,5% das 473** ignorando espaço — e o espaço
+é exatamente o que a distribuição apaga (`ler_pagina` faz `texto.replace(" ", "")`), então
+quase toda a diferença que resta é cosmética:
+
+    small   16.f4 c4 is unclear, and so is 16... xf2
+    medium  16.f4 c4 is unclear, and so is 16...xf2
+
+**A lição é sobre transferir delta de banco de dados**, e vale para o §7.2 inteiro: os cinco
+pontos entre `small` e `medium` foram medidos em OCR de documento geral, e estas faixas são
+dominadas por notação de xadrez, onde capacidade geral a mais não ajuda — a parede é a
+figurina, que nenhum dos dois tem no alfabeto. **O número do §7.2 continua válido para o que
+ele mede**; o que não se pode é assumir que ele chega até aqui.
+
+**E isto corrige uma frase que esteve nesta seção.** Ela dizia que o PaddleOCR ficava sem
+número *"por escolha, porque o RapidOCR já roda o mesmo modelo e a linha que sairia seria a
+mesma"*. A conclusão estava certa e o raciocínio, errado: o PP-OCRv6 não é um modelo, é uma
+família de três níveis que o próprio §7.2 pontua separadamente, e o RapidOCR roda o menor
+deles. A linha sai igual **por medição**, e não por serem a mesma coisa.
 
 **O Kraken é o mais rápido da tabela, e o único que precisou de correção na §7.1.** Ele foi
 excluído por Windows sem ter sido tentado; tentado, roda — os detalhes estão acima. Com o
