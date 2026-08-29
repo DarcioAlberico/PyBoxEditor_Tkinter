@@ -12287,6 +12287,7 @@ de produção (árbitro da F1.5b) e o `ler_pagina` de produção:
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
 | RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
 | docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
+| Calamari 2.3.1 `antiqua_historical` | — *sem modo por caractere* | 13,09% | 50,42% | 2,5% | — |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
 **Ninguém passa, e a margem não é de fração**: 8 pontos no melhor arranjo, 27 no pior. A
@@ -12343,6 +12344,59 @@ omissão; o acerto por box cobra o resto da linha.
 Com uma âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a
 omissão, e é exatamente o mecanismo da F17.
 
+### O Calamari não roda neste Python, e o número dele mede outra coisa
+
+**O impedimento é de resolução, não de esforço.** O `calamari-ocr` 2.3.1 pede
+`tensorflow>=2.4.0`, e o `ocrd-fork-tfaip` 1.2.7 que ele exige pina `tensorflow<2.16.0`. Para
+o Python 3.13 deste projeto **só existem o TensorFlow 2.20.0 e o 2.21.0**: `ResolutionImpossible`.
+O pip aceita `calamari-ocr` sem versão e resolve para a **1.0.5**, outra geração do produto —
+medi-la e chamá-la de 2.3.1 seria atribuir número à coisa errada. Isto é mais duro que o custo
+de runtime da tabela: não é que o Calamari **traga** TensorFlow, é que a versão da tabela **não
+roda no interpretador deste projeto**.
+
+Medi-lo exigiu um `venv` à parte em Python 3.11, com TensorFlow 2.15.1 e numpy 1.26.4, e a
+ponte `--exportar`/`--predicoes` que o `medir_linha.py` ganhou nesta rodada. A chave é o
+**sha1 dos bytes da faixa**, então o motor de fora recebeu exatamente as mesmas 473 tiras e o
+resultado voltou pelo mesmo `ler_pagina` e pelo mesmo cálculo de CER. Pôr o torch no 3.11 só
+para o árbitro da segmentação seriam 2,5 GB para nada.
+
+**E o modelo é de outro século.** O pacote não traz nenhum, e os do Calamari 2.x são todos de
+impresso histórico — `antiqua_historical`, `fraktur_*`, `gt4histocr`, `historical_french`,
+`idiotikon`. Não há inglês moderno. Com o `antiqua_historical`, o mais próximo por ser família
+romana, a primeira linha já denuncia:
+
+    the force oſ he brea . S. ſ. It vvas afer
+
+`ſ` e `vv` — o s longo e o duplo-v do impresso antigo, num livro de 2012. Nas piores linhas
+ele perde metade dos caracteres:
+
+    esperado  IwouldliketoproceedunderthemottoofaDutchchessclub:Let'sPlayChess!
+    lido      Iouneopoceeduneremouootauncness
+
+**Os 13,09% medem o descasamento de domínio, não o motor**, e registrá-los como veredito seria
+o erro que a SPEC §7.5 aponta em Eken et al.: número colhido fora do problema. O que a linha
+diz é que **motor de linha pronto sem modelo do domínio não serve** — e que a entrada de
+treino, terceira coluna da tabela da §7.1, deixa de ser conveniência para virar o requisito
+principal.
+
+### A votação da §7.6, medida pela primeira vez
+
+O `antiqua_historical` vem em **cinco dobras**, e a §7.6 chama a votação por confiança de
+melhor razão ganho por trabalho. O mecanismo é o prometido: um comando, cinco `--checkpoint`,
+nenhuma configuração. O ganho, não:
+
+| | acerto/box | CER | linha exata | 473 linhas em |
+|---|---:|---:|---:|---:|
+| cinco dobras, com votação | 13,09% | 50,42% | **2,5%** | 24 s |
+| uma dobra só | **13,56%** | **48,96%** | 1,9% | **6 s** |
+
+**A votação piorou o CER e o acerto por box, melhorou a linha exata, e custou 4× o tempo.**
+Isto **não refuta a §7.6**: o precedente do ISRI leva cinco motores de 90,10–98,83% para
+99,15%, e aqui são cinco dobras a ~50% de CER. Votação aproxima quem já está perto, e não há
+consenso a extrair de cinco leituras erradas. O que fica medido é o **preço** — 4× — e que a
+peça está pronta e é barata de acionar. O ganho dela continua por medir, e só um modelo de
+domínio o mediria.
+
 ### O docTR é o último em tudo, e a causa é de tamanho
 
 O `crnn_vgg16_bn` declara `input_shape (3, 32, 128)` — **128 pixels de largura**. Ele é um
@@ -12398,7 +12452,8 @@ fino.
 
 ### O que continua sem número
 
-O PaddleOCR, o Calamari e o Kraken. Nenhum está instalado neste ambiente.
+O PaddleOCR e o Kraken. O primeiro por escolha — o RapidOCR já rodou o mesmo `PP-OCRv6` sem o
+runtime dele —, e o segundo porque não roda em Windows, que é o que a tabela já dizia.
 
 **Os dois adaptadores escritos às cegas passaram**, e isso vale como nota de método. O
 `rapidocr` e o `doctr` foram escritos só da documentação, com o pacote ausente, e nenhum dos

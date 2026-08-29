@@ -780,10 +780,11 @@ Medido em **10.508 boxes com rótulo, 473 linhas de 10 páginas rotuladas**, por
 | Tesseract `--psm 13` | 87,63% | 67,87% | 12,18% | 27,9% | 137,1 |
 | RapidOCR `PP-OCRv6_rec_small` | — *sem modo por caractere* | 56,34% | **8,64%** | **34,3%** | **23,5** |
 | docTR `crnn_vgg16_bn` | — *sem modo por caractere* | 46,31% | 16,63% | 16,2% | 57,0 |
+| Calamari 2.3.1 `antiqua_historical` | — *sem modo por caractere* | 13,09% | 50,42% | 2,5% | — |
 | *(a cadeia de hoje)* | **97,60%** | — | — | — | — |
 
-O PaddleOCR, o Calamari e o Kraken **continuam sem número**: nenhum está instalado neste
-ambiente. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
+O PaddleOCR e o Kraken **continuam sem número**: o primeiro por escolha — o RapidOCR já roda
+o mesmo modelo sem o runtime dele — e o segundo porque não roda em Windows. As três primeiras linhas são o que se mediu sem instalar nada, e é por isso que elas
 existem. A quarta custou `pip install rapidocr onnxruntime` — oito pacotes — e a quinta,
 `pip install python-doctr` — dezesseis. **Nenhuma das duas instalações tocou em `numpy`,
 `torch`, `torchvision`, `opencv` ou `pillow`**, o que a coluna "runtime novo" previa e agora
@@ -827,6 +828,56 @@ diferentes.
 âncora de um item por box — que é o que a cadeia neural é — o alinhamento reabsorve a omissão,
 que é exatamente o mecanismo da F17. Ele é o candidato mais forte da tabela para o papel de
 **segunda opinião sobre a linha**, e o mais fraco para ler sozinho.
+
+**O Calamari não instala neste Python, e o número dele mede outra coisa.** As duas frases
+precisam ser lidas juntas.
+
+*Primeiro, o impedimento.* O `calamari-ocr` 2.3.1 depende de `tensorflow>=2.4.0`, e o
+`ocrd-fork-tfaip` 1.2.7, que ele exige, pina `tensorflow<2.16.0`. Para o Python 3.13 deste
+projeto **só existem o TensorFlow 2.20.0 e o 2.21.0** — a instalação é `ResolutionImpossible`.
+O pip aceita `calamari-ocr` sem versão e resolve para a **1.0.5**, que é outra geração do
+produto e não a linha desta tabela. Isto é mais duro que o custo de runtime já registrado
+acima: não é que o Calamari traga TensorFlow, é que **a versão da tabela não roda no
+interpretador deste projeto**. Medi-lo exigiu um `venv` separado em Python 3.11, com
+TensorFlow 2.15.1 e numpy 1.26.4, e a ponte `--exportar`/`--predicoes` do `medir_linha.py` —
+cuja chave é o sha1 dos bytes da faixa, para o motor de fora receber exatamente as mesmas 473
+tiras.
+
+*Segundo, o modelo.* O pacote não traz nenhum, e **os do Calamari 2.x são todos de impresso
+histórico**: `antiqua_historical`, `fraktur_*`, `gt4histocr`, `historical_french`,
+`idiotikon`. Não há modelo de inglês moderno. Usei o `antiqua_historical`, o mais próximo por
+ser família romana, e a primeira linha já denuncia o descasamento:
+
+    the force oſ he brea . S. ſ. It vvas afer
+
+**`ſ` e `vv`** — o s longo e o duplo-v do impresso antigo, aplicados a um livro de 2012. Nas
+piores linhas ele simplesmente perde metade dos caracteres:
+
+    esperado  IwouldliketoproceedunderthemottoofaDutchchessclub:Let'sPlayChess!
+    lido      Iouneopoceeduneremouootauncness
+
+*Terceiro, a votação da §7.6 — que este projeto nunca tinha medido.* O `antiqua_historical`
+vem em **cinco dobras**, e a §7.6 chama a votação por confiança de melhor razão ganho por
+trabalho. O mecanismo funciona como prometido: um comando, cinco `--checkpoint`, sem
+configuração. O ganho, não:
+
+| | acerto/box | CER | linha exata | 473 linhas em |
+|---|---:|---:|---:|---:|
+| cinco dobras, com votação | 13,09% | 50,42% | **2,5%** | 24 s |
+| uma dobra só | **13,56%** | **48,96%** | 1,9% | **6 s** |
+
+**A votação piorou o CER e o acerto por box, melhorou a linha exata, e custou 4× o tempo.**
+Isto **não refuta a §7.6**, e ler assim seria erro: o precedente do ISRI leva cinco motores de
+90,10–98,83% para 99,15%, e o que existe aqui são cinco dobras a ~50% de CER. Votação
+aproxima quem já está perto; não há consenso a extrair de cinco leituras erradas. O que a
+tabela acrescenta é o **preço** — 4× — e a confirmação de que a peça está pronta e é barata de
+acionar. O ganho dela continua por medir, e só um modelo de domínio o mediria.
+
+**Os 13,09% e o CER de 50,42% medem o descasamento de domínio, e não o motor.** Registrá-los
+como veredito sobre o Calamari seria o mesmo erro que a §7.5 aponta em Eken et al. — número
+colhido fora do problema que se quer resolver. O que a linha diz de verdade é que **motor de
+linha pronto sem modelo do domínio não serve**, e que a entrada de treino da terceira coluna
+deixa de ser um detalhe de conveniência para virar o requisito principal.
 
 **O docTR é o último em tudo, e a causa é de tamanho — não de qualidade.** O
 `crnn_vgg16_bn` declara `input_shape (3, 32, 128)`: **128 pixels de largura**. Ele é um

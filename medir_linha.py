@@ -15,9 +15,9 @@ trava com esse número sozinho. Comparar os candidatos exige rodá-los na mesma
 faixa, contra a mesma verdade, no mesmo processo — que é o que faltava.
 
 A tabela medida está na §7.1, sob "E agora a tabela tem número", e saiu daqui.
-Os cinco motores deste arquivo entraram nela. **O EasyOCR com âncora própria deu 89,54% contra os 89,5%
-da F17** — é a validação deste instrumento, e é o motivo de a âncora ser um
-argumento e não uma escolha enterrada no código.
+Os cinco motores deste arquivo entraram nela. **O EasyOCR com âncora própria
+deu 89,54% contra os 89,5% da F17** — é a validação deste instrumento, e é o
+motivo de a âncora ser um argumento e não uma escolha enterrada no código.
 
 **E o mais barato de todos já estava instalado.** O `tesseract --version` deste
 ambiente responde 5.5.0, que é LSTM, isto é, um reconhecedor de linha. O
@@ -89,6 +89,9 @@ faixa, e este arquivo não faz isso.
 """
 
 import argparse
+import hashlib
+import json
+import os
 import sys
 import time
 from typing import Optional, Tuple
@@ -154,6 +157,10 @@ class Motor:
 
     nome = "?"
     sobre = ""
+
+    #: O `ms/linha` deste motor sai da corrida; quem lê predição de fora não
+    #: mede tempo nenhum e declara isso.
+    tempo_medido = True
 
     def __init__(self):
         self._cache = {}
@@ -322,6 +329,82 @@ class MotorDocTR(Motor):
             return "", 0.0
         texto, conf = saida[0][0], saida[0][1]
         return (texto or ""), max(0.0, min(1.0, float(conf)))
+
+
+class MotorDeArquivo(Motor):
+    """
+    Um motor que **não roda aqui**: lê predições que outro processo escreveu.
+
+    Existe pelo Calamari (F114). Ele exige `tensorflow<2.16.0` por causa do
+    `ocrd-fork-tfaip`, e para o Python 3.13 deste projeto só existem o 2.20 e o
+    2.21 — a versão 2.3.1 é `ResolutionImpossible` aqui. Rodá-lo pede um
+    interpretador 3.11 à parte, e pôr o torch lá dentro só para o árbitro da
+    segmentação seriam 2,5 GB para nada.
+
+    A ponte é o par `--exportar` / `--predicoes`, e a chave é o **sha1 dos bytes
+    da faixa**: o motor de fora recebe exatamente as tiras que os de dentro
+    receberam, e a tabela continua sendo sobre a mesma população. Uma faixa sem
+    predição responde vazio, e o relatório diz quantas foram.
+    """
+
+    #: O tempo aqui é o de consultar um dicionário, e não o do motor. Zero numa
+    #: coluna de milissegundos leria como "instantâneo", que é pior que vazio.
+    tempo_medido = False
+
+    def __init__(self, caminho, nome):
+        super().__init__()
+        self.nome = nome
+        self._caminho = caminho
+        self.sobre = f"predições lidas de {os.path.basename(caminho)}"
+        self.sem_predicao = 0
+
+    def preparar(self):
+        with open(self._caminho, encoding="utf-8") as f:
+            self._pred = json.load(f)
+
+    def _ler(self, faixa):
+        chave = chave_da_faixa(faixa)
+        item = self._pred.get(chave)
+        if item is None:
+            self.sem_predicao += 1
+            return "", 0.0
+        if isinstance(item, str):
+            return item, 0.0
+        return (item[0] or ""), float(item[1]) if len(item) > 1 else 0.0
+
+
+def chave_da_faixa(faixa: np.ndarray) -> str:
+    """O sha1 dos bytes da tira, truncado. É a chave da ponte com o motor de fora."""
+    return hashlib.sha1(faixa.tobytes()).hexdigest()[:16]
+
+
+def exportar(paginas, destino) -> int:
+    """
+    Escreve as faixas em PNG e o gabarito ao lado, para um motor que roda fora.
+
+    Sai um `faixas.json` com `{chave: {página, linha, verdade, completa}}`, e um
+    PNG por chave. Quem roda o motor de fora devolve um `predicoes.json` com
+    `{chave: [texto, confiança]}` — e `--predicoes` o traz de volta para a mesma
+    tabela.
+    """
+    from PIL import Image
+    os.makedirs(destino, exist_ok=True)
+    indice = {}
+    for p in paginas:
+        for i, linha in enumerate(p.linhas):
+            if not _legivel(linha):
+                continue
+            tira = ldl.faixa_da_linha(p.arr, linha)
+            if tira is None:
+                continue
+            chave = chave_da_faixa(tira)
+            Image.fromarray(tira).save(os.path.join(destino, chave + ".png"))
+            verdade, completa = verdade_da_linha(p, linha)
+            indice[chave] = {"pagina": p.nome, "linha": i,
+                             "verdade": verdade, "completa": completa}
+    with open(os.path.join(destino, "faixas.json"), "w", encoding="utf-8") as f:
+        json.dump(indice, f, ensure_ascii=False, indent=1)
+    return len(indice)
 
 
 def motores_conhecidos():
@@ -513,8 +596,9 @@ def tabela(resultados, ancora):
         passa = "SIM" if a > BARRA_DA_CADEIA else "não"
         marca = "" if propria or ancora == "vazia" else " *"
         caiu = caiu or bool(marca)
+        tempo = f"{ms_linha:>10.1f}" if ms_linha is not None else f"{'—':>10}"
         print(f"{nome + marca:<13}{a:>11.2f}%{cer:>8.2f}%{exatas:>12.1f}%"
-              f"{ms_linha:>10.1f}{passa:>9}")
+              f"{tempo}{passa:>9}")
     print("-" * 76)
     print(f"{'(a cadeia)':<13}{BARRA_DA_CADEIA:>11.2f}%")
     if ancora == "propria":
@@ -551,12 +635,24 @@ def main():
                          "dobro); 'vazia' distribui a linha pela posicao")
     ap.add_argument("--erros", type=int, default=0,
                     help="mostra as N piores linhas de cada motor")
+    ap.add_argument("--exportar", metavar="DIR", default=None,
+                    help="escreve as faixas em PNG e o gabarito em DIR, para um "
+                         "motor que roda fora deste interpretador, e sai")
+    ap.add_argument("--predicoes", metavar="JSON", default=None,
+                    help="le predicoes que um motor de fora escreveu e as mede "
+                         "como os outros; a chave e o sha1 da faixa")
+    ap.add_argument("--nome", default="externo",
+                    help="como chamar o motor de --predicoes na tabela")
     ap.add_argument("--listar", action="store_true",
                     help="diz o que está instalado e sai, sem medir nada")
     args = ap.parse_args()
 
     escolhidos = motores_conhecidos()
-    if args.motores:
+    if args.predicoes:
+        # Só ele: uma corrida de `--predicoes` responde por um motor de fora, e
+        # misturá-la com os de dentro faria a mesma tabela custar meia hora.
+        escolhidos = [MotorDeArquivo(args.predicoes, args.nome)]
+    elif args.motores:
         pedidos = set(args.motores)
         escolhidos = [m for m in escolhidos if m.nome in pedidos]
         faltando = pedidos - {m.nome for m in escolhidos}
@@ -622,15 +718,27 @@ def main():
           f"{total_linhas - legiveis} restantes\nnão são lidas por motor nenhum, "
           f"e os boxes delas contam como erro em todos.")
 
+    if args.exportar:
+        quantas = exportar(paginas, args.exportar)
+        print(f"\n{quantas} faixa(s) escritas em {args.exportar}, com o "
+              f"`faixas.json` ao lado.\nO motor de fora devolve um "
+              f"`predicoes.json` de {{chave: [texto, confiança]}}, e "
+              f"`--predicoes`\no traz de volta para esta mesma tabela.")
+        return 0
+
     resultados = []
     for m in prontos:
         print(f"\nMedindo {m.nome}...", flush=True)
         por_box, por_linha = medir(m, paginas, args.ancora)
-        ms_linha = m.ms / m.consultas if m.consultas else 0.0
+        ms_linha = (m.ms / m.consultas if m.consultas else 0.0
+                    ) if m.tempo_medido else None
         resultados.append((m.nome, por_box, por_linha, ms_linha,
                            args.ancora == "propria" and tem_ancora_propria(m)))
         if m.falhas:
             print(f"  {m.falhas} faixa(s) estouraram — última: {m.ultimo_erro}")
+        if getattr(m, "sem_predicao", 0):
+            print(f"  {m.sem_predicao} faixa(s) sem predição no arquivo — "
+                  f"contam como leitura vazia.")
 
     tabela(resultados, args.ancora)
 
