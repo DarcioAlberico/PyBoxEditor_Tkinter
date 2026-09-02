@@ -1,3 +1,4 @@
+import collections
 import os
 import tkinter as tk
 import tkinter.font as tkfont
@@ -1776,6 +1777,25 @@ class MainWindow(tk.Frame):
             return
         fonte_do_diagrama, moldura, cantos, corpo_pt = escolha
 
+        # **O idioma do livro, e não o do programa** (F109). Ele liga a máscara
+        # de alfabeto — a letra acentuada que o inglês não escreve deixa de
+        # competir com a certa — e vai no `dc:language` do EPUB e no `w:lang`
+        # do DOCX. A camada de texto do PDF responde por ele em 72% das páginas
+        # do corpus; onde não há camada (a digitalização de verdade) é o
+        # usuário quem diz, porque a máscara errada apagaria o `ç` do livro
+        # inteiro.
+        idioma = livro.idioma_do_pdf(input_pdf)
+        detectado = idioma is not None
+        if idioma is None:
+            idioma = "pt" if messagebox.askyesno(
+                "Idioma do livro",
+                "O livro é em português?\n\n"
+                "O PDF não tem camada de texto que diga o idioma, e ele "
+                "decide que letras o OCR pode responder: num livro em inglês "
+                "a letra acentuada é sempre erro de leitura, e deixa de "
+                "competir com a certa.\n\n"
+                "Não: o livro é tratado como inglês.") else "en"
+
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
         # PNG pequenos e poupa caçá-los na tela um a um.
@@ -1826,7 +1846,8 @@ class MainWindow(tk.Frame):
                 h.raise_if_cancelled()
                 h.progress(atual, total, f"página {atual}/{total}")
 
-            paginas = livro.extrair(input_pdf, self.learning_service.ler_texto,
+            paginas = livro.extrair(input_pdf,
+                                    self.learning_service.leitor_de_texto(idioma),
                                     coletor=coletor,
                                     lex=self.lexico_da_sessao(),
                                     # A prova visual do reparo de colagem (F69):
@@ -1846,7 +1867,7 @@ class MainWindow(tk.Frame):
                               titulo=os.path.splitext(os.path.basename(input_pdf))[0],
                               diagramas="fonte" if embutir else "png",
                               corpo_pt=corpo_pt, moldura=moldura,
-                              cantos=cantos)
+                              cantos=cantos, idioma=idioma)
             if coletor is not None:
                 coletor.gravar_indice()
             return paginas, coletor
@@ -1898,6 +1919,22 @@ class MainWindow(tk.Frame):
                 linhas.append(f"Reparos do dicionário: {reparos} palavra(s) "
                               f"corrigida(s) pelo desenho, {cortes} colada(s) "
                               f"partida(s).")
+            # **O que saiu da prosa tem de ser dito** (F109), pela mesma razão
+            # do reparo: quem exporta precisa poder conferir que o que foi
+            # retirado era cabeçalho de página, e não a primeira linha de um
+            # capítulo que se repetia.
+            retirados = collections.Counter()
+            for p in paginas:
+                retirados.update(p.cabecalhos)
+            if retirados:
+                exemplos = ", ".join(f"'{t}' ({n}×)"
+                                     for t, n in retirados.most_common(3))
+                linhas.append(f"Cabeçalhos e rodapés de página retirados: "
+                              f"{sum(retirados.values())} — {exemplos}")
+            nome = {"en": "inglês", "pt": "português"}.get(idioma, idioma)
+            linhas.append(f"Idioma: {nome} "
+                          + ("(pela camada de texto do PDF)" if detectado
+                             else "(informado)"))
             if de_imagem:
                 linhas.append(f"{de_imagem} página(s) eram imagem e saíram inteiras.")
             if coletor is not None:

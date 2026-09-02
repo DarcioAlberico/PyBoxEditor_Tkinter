@@ -11744,7 +11744,7 @@ continua lendo `S` no lugar de `s` com 0,898 de confiança, e o que a F107 nomeo
 de pé. Palavra fora do dicionário, palavra do idioma errado e palavra partida na quebra de
 linha ficam todas como estavam.
 
-## F109 — Uma palavra de prosa em cinco sai com defeito, e a maioria não é do modelo — A FAZER
+## F109 — Uma palavra de prosa em cinco sai com defeito, e a maioria não é do modelo — CONCLUÍDA
 
 Uma revisão da conversão para DOCX e EPUB, pedida porque o arquivo exportado continuava
 ruim depois da F107 e da F108. A spec inteira está em
@@ -11791,87 +11791,214 @@ uma a uma as 544 que sobram:
 assinatura visível de um espaço que não foi posto. Quem for atrás de caixa a partir daqui
 vai procurar no lugar errado — e essa é a razão de esta fase existir antes das outras.
 
-### Os seis consertos
+### Os seis consertos, e no que cada um deu
 
-**1. A máscara de alfabeto por livro.** O modelo tem 314 classes e todas competem em todo
-recorte de todo livro. No Yusupov, que é em inglês, saem **17 letras acentuadas distintas
-em 1.112 ocorrências** — `Š` 185×, `É` 404×, `ê` 409×, e ainda `ã`, `õ` e `ç`. Nenhuma é
-legítima. O conserto entra em `learning_service.candidatas`, no mesmo formato do veto da
-F106 — filtra as candidatas e escolhe entre as que sobram —, e o custo de execução é um
-teste de pertinência. **É o conserto mais barato desta fase e o de maior efeito imediato.**
+Dos seis, a F115 já tinha feito o segundo — os três reparos do dicionário que o livro não
+recebia — e o quarto já existia sem que a lista soubesse: `medir_prosa.py` imprime a razão de
+caixa de um livro inteiro desde a F115, e é a tabela da SPEC §1 número a número. Esta fase
+faz os quatro que sobravam, e um sétimo que os quatro exigiram: **o programa não sabia em que
+idioma o livro estava**, e sem isso a máscara de alfabeto não tem o que mascarar.
 
-**2. Os três reparos que existem e o livro não recebe.** `core/lexico.py` tem uma caixa de
-ferramentas inteira, construída ao longo da F9 e da F66:
-
-| função | onde | quem a chama |
+| conserto | onde | medido |
 |---|---|---|
-| `arrumar_caixa` | `lexico.py:506` | **`livro.py:1199`** — a F108 ligou, ontem |
-| `partir_colada` | `lexico.py:318` | só `medir_lexico.py` |
-| `juntar_hifenizadas` | `lexico.py:269` | só `medir_lexico.py` |
-| `reparar` / `reparos_da_pagina` | `lexico.py:815` | só a UI |
+| 1. a máscara de alfabeto por livro | `core/alfabeto.py`, `LearningService.ler_texto(idioma)` | 75 → **0** letras fora do ASCII no Yusupov |
+| 2. os três reparos que o livro não recebia | F115 | — |
+| 3. a fila de coordenada fora da prosa | `diagrama.caixas_dos_rotulos`, em `livro.caixas_e_diagramas` | 29 → **0** filas soltas no Yusupov |
+| 4. a razão de caixa como instrumento | `medir_prosa.py`, desde a F115 | — |
+| 5. cabeçalho e rodapé fora da prosa | `livro.retirar_cabecalhos` | 293 linhas no Yusupov e 220 no Aagaard, nenhuma prosa; a prosa com defeito cai de 11,92% para 11,13% |
+| 6. a régua com o terceiro balde | `medir_confusao_no_livro.contar`, `medir_troca.py` | 1,32% → **3,82%**, o fator 2,89 que a §6 previu |
+| 7. o idioma do livro | `livro.idioma_do_pdf`, e a pergunta na exportação | 6 dos 8 livros pela camada de texto; os 2 escaneados perguntam |
 
-**O caminho do livro chama exatamente uma das quatro.** As outras três têm teste, têm
-medição própria e não têm consumidor em produção. `partir_colada` foi medida em 7 de 7
-junções reais e tem três condições que a blindam contra falso positivo; ela acerta em cheio
-a família C — **304 palavras do DOCX partem em duas palavras do dicionário**, `thechapter`
-21 vezes —, e precisa das lacunas entre caracteres, que o caminho do livro tem porque tem
-os boxes. `juntar_hifenizadas` junta 490 palavras no Nunn (medido na F104).
+A medição de antes e depois é o Yusupov Chess Evolution 1 inteiro, 264 páginas, relido
+pelo `medir_prosa.py --pdf` numa árvore em HEAD e na árvore de trabalho, com o mesmo modelo
+copiado para as duas — que é a régua que a F115 deixou, e o cuidado que ela custou.
 
-Não é acidente isolado: é o que a F108 já registrou ("o caminho do livro não carregava o
-léxico", "o reparo da F66 existe e não estava ligado"), e ela ligou uma. **O caminho que
-escreve o arquivo é o último a ser ligado a qualquer coisa, e é o único que o usuário
-vê.** Fica como regra: função nova sem chamada no `livro.py` não está pronta.
+### 1. A máscara, e um número que já tinha caído antes dela
 
-**3. A fila de coordenada fora da prosa.** 146 parágrafos do DOCX são só a fila `a`–`h` do
-tabuleiro — `a b c d e f g h` 28×, e partida: `f g h` 24×, `a b c d e` 23×. É daqui que
-saem os `hDiagram` e `eDiagram`: a letra de coluna cola na legenda da figura. A faixa do
-diagrama já é território conhecido (`livro.MARGEM_DIAGRAMA`).
+A SPEC §2.5 contou **1.112** letras acentuadas no DOCX do Yusupov. O mesmo livro relido
+hoje, em HEAD, sem máscara nenhuma, dá **75, em 16 letras** — o DOCX era de 25/08, e o modelo
+é o terceiro desde então (a F115 registrou os três). A maior parte da queixa era do modelo, e
+o retreino a levou.
 
-**4. A razão de caixa como instrumento.** Ela mede sem gabarito, num livro inteiro, em
-segundos. No Yusupov: `S/s` = 0,203, `W/w` = 0,311, `(O+0)/o` = 0,194 — e o **`J/j` =
-1,452**, que é novo e não estava na lista da F107. É a irmã da coluna "fora do dicionário"
-da F104: barata, calculável antes de tudo, e preditiva. Vira `medir_caixa.py --livro` e
-vira critério de aceitação.
+O que sobra é o que a máscara alcança: com `--idioma en`, saem **0**.
+As 16 de antes eram `ô` 20×, `Š` 9×, `é` 8×, `ä` 8×, `ö` 6× — nenhuma legítima num livro em
+inglês. E no Aagaard, 13 em 8 letras → 0.
 
-**5. Cabeçalho e rodapé fora da prosa.** A F104 já mediu que é o maior contribuinte de três
-dos seis livros. O sinal é forte e barato: o mesmo texto, na mesma posição, em centenas de
-páginas.
+Ela entra em `ler_texto` no molde exato do veto da F106, e os dois crivos valem **juntos**: a
+candidata que o idioma admite ainda tem de caber no recorte, e sem candidata que passe nos
+dois fica a leitura que havia — inventar uma classe que a rede não ofereceu seria o voto que
+a F19 mediu e descartou. O caminho que passa não paga nada: a segunda passada pela rede só
+acontece quando a primeira leitura é vetada. E o que se mascara é a **letra latina fora do
+ASCII**, e não `isalpha()`: o `Δ` é letra para o Python e é símbolo de análise para o livro.
 
-**6. A régua, antes de tudo — e ela mede errado pelo mesmo motivo que a F108 achou.** A
-cegueira a caixa de `Lexico.conhece` não ficou só no caminho do livro: entrou nos
-instrumentos. `medir_confusao_no_livro.py:274-276` faz `if lx.conhece(nucleo): conhecidas
-+= 1`, e no DOCX do Yusupov isso absolve **441 ocorrências em 215 formas** de erro de caixa
-(`alSo` 31×, `pointS` 23×, `biShop` 15×). A taxa publicada é 234/17.692 = **1,32%**; com o
-balde de caixa é 675/17.692 = **3,82%** — fator **2,89**.
+O que a máscara custa é dito em `core/alfabeto.py`: num livro em inglês, `café` e `Šahović`
+saem sem o acento. A spec já tinha aceitado esse preço, e o número acima é o motivo.
 
-E há um segundo mecanismo, pior: a mesma linha faz `prior[nucleo.lower()] += 1`, então o
-`alSo` mal lido **vota a favor de si mesmo** no prior que depois atribui os erros.
+### 3. A fila de coordenada, e por que a margem não a via
 
-`medir_troca.py:104` tem o mesmo defeito e pior — ele compara com `.lower()` dos dois lados
-e o `total += 1` acontece na **linha 103, antes**, então erro de caixa entra no denominador
-**como acerto**. Foi essa régua que escolheu o tamanho da lista de palavras na F9.1. A
-contraprova de que é assimetria e não convenção está em `medir_lexico.py:97-98`, que faz a
-mesma comparação **sem** `.lower()`.
+`Diagrama.exclusao` tira do texto a caixa **inteiramente** dentro de 1,4 alturas de caractere
+em volta do tabuleiro. A letra `a`–`h` impressa a 1,2 alturas da borda tem o pé a 1,7 — a
+margem não a contém, e ela chegava ao texto como uma linha de oito caracteres. É a mesma
+assimetria que a F95 achou na legenda de baixo do Nunn ("nasce a 1,29 escalas e desce até
+2,3"), do outro lado.
 
-**Consequência: a tabela dos seis livros e o "dez vezes de diferença" não estão errados —
-estão não testados.** Esta fase não pode publicar número novo antes de a régua ganhar o
-terceiro balde, e a tabela precisa de duas colunas novas, não de um número corrigido.
+`diagrama.caixas_dos_rotulos` usa a régua de `ler_rotulos` — a caixa do tamanho de uma
+marca, **contida** na largura do tabuleiro, com a borda voltada para ele dentro da faixa — e
+só nos lados em que `ler_rotulos` achou rótulo. A continência é o que a separa da prosa da
+coluna vizinha, que só se sobrepõe. No Yusupov relido: **29** filas soltas em
+HEAD (22 delas `f g h`, que é a metade da fila que a coluna da direita deixava escapar) e **0** depois.
 
-E existe um erro de caixa que nenhum instrumento do projeto vê: **a inicial trocada**.
-`Also` por `also` é padrão legítimo — `caixa_estranha` não acende, `conhece` não acende, a
-razão `S/s` mal se move. Quem o enxerga é a taxa de Titlecase por letra, contra um livro
-nativo: `S` dá **21,5%** no DOCX do Yusupov contra **3,7%** no EPUB nativo do Kasparov,
-enquanto `T` dá 16,3% contra 18,8% — alto nos dois, e portanto inocente. Excesso estimado:
-**~85 ocorrências**, contra as 234 que a régua reporta como o total de erros do livro.
+### 5. O cabeçalho de página, que só o livro inteiro reconhece
+
+A F104 mediu que ele é o maior contribuinte de erro de três dos seis livros, e não é erro de
+leitura: `Attacking Manual - Volume 1` no alto de toda página par multiplica um erro só por
+centenas de páginas. E não é prosa — no arquivo exportado não há página, e um `Chapter 3`
+solto a cada trinta linhas é ruído no meio do texto.
+
+Numa página só ele é uma linha curta como outra qualquer. O sinal é o do livro — o mesmo
+texto, na mesma margem, página atrás de página —, e por isso `retirar_cabecalhos` é uma
+passada à parte no `extrair`, no molde de `partir_coladas`, e roda **antes** dela e do
+negrito: o vocabulário do livro e o peso redondo de cada caractere medem-se sobre a prosa.
+
+**E ela olha a linha impressa, e não o parágrafo — e isso foi medido, não previsto.** A
+primeira versão tirava o parágrafo inteiro quando ele era uma linha só, e no Yusupov isso
+bastava. No Aagaard tirou **12 em 263 páginas**: ali o cabeçalho está colado ao primeiro
+parágrafo em quase toda página — `8 The Attacking Manual – Volume 1 Having thought this
+through…` —, porque a régua do salto vertical (F103) não o separa do corpo. `Paragrafo`
+passou a guardar onde cada linha impressa começa no texto (`inicios`) e onde o parágrafo
+acaba na página (`pe`), e `_cortar` tira a linha com os dois vetores da F105 e da F115 no
+mesmo passo — o teste que trava isso é o mesmo molde dos de alinhamento da F115.
+
+Quatro réguas, e a repetição sozinha não basta:
+
+- **na margem** — a linha começa nos 12% de cima da página, ou o parágrafo acaba nos 12% de
+  baixo (`MARGEM_DE_PAGINA`). É o que a ordem dos blocos não diz: numa página de duas
+  colunas o rodapé centrado cai na coluna da esquerda, no meio da lista. Por isso
+  `Paragrafo` ganhou `topo` e `pe`, e `PaginaExtraida`, `altura`.
+- **curta** (até 8 palavras), **com letra ou número** — o `=` que o filete decorativo vira
+  quando é lido tem a assinatura vazia do número de página, e não é número de página —,
+  **fora de parênteses** e **sem lance**. As duas últimas vieram de falsos positivos
+  medidos: `(see page 43)` no alto de cinco páginas do Aagaard é remissão, e `20...♗d3!`
+  passava pela régua de lance porque `parece_lance` lê `Bd3!` e o livro imprime a figurina
+  — a tradução é a mesma que `notacao.Simbolo` faz, e `_lance_limpo` a faz aqui.
+- **em três páginas ou mais** (`PAGINAS_DE_CABECALHO`), e não numa fração do livro: o
+  cabeçalho de capítulo muda a cada capítulo, e uma fração de um livro de 2.612 páginas o
+  deixaria passar inteiro.
+
+A assinatura tira o número — `Chapter 3 · 37` e `Chapter 3 · 38` são o mesmo cabeçalho — e o
+número de página sozinho vira a assinatura vazia, que é a de todo número de página. É
+também o que faz `14 The Attacking M` e `100 The Attacking Ma` serem o mesmo cabeçalho
+mesmo com o fim derrubado por confiança de um jeito em cada página.
+
+O que saiu, conferido a olho:
+
+| livro | páginas | linhas retiradas | o que eram |
+|---|---:|---:|---|
+| Yusupov · Chess Evolution 1 | 264 | **293** | 151 números de página; 61 números com o filete lido junto (`= 12`); `Exerc1.ses` 23× e `S0lut1.0ns` 12×, em vinte grafias — o cabeçalho traz o `i` partido da família A —; e os títulos de capítulo: `Tactics 1`, `Positional advantages`, `F1.nal`, `ndex ofgames` |
+| Aagaard · Attacking Manual I | 263 | **220** | `N The Attacking M` 91× com o fim derrubado por confiança; `Chap` e `Cha` 97×, idem; `Chapter 9 229` 13×; `face 13` (o *Preface*). Nenhum número de página solto: ali ele está dentro do cabeçalho |
+
+Duas rodadas antes desta tiveram falso positivo, e as duas réguas que os mataram estão
+acima: seis linhas de variação (`20...♗d3!`) e cinco remissões (`(see page 43)`), as onze no
+Aagaard. Nesta rodada não há linha de prosa nas duas listas.
+
+A prosa com defeito do Yusupov (`medir_prosa.py`, as cinco famílias) cai de **11,92% para
+11,13%** só com o cabeçalho fora — e é o que a F104 tinha dito: o cabeçalho mal lido
+multiplicado por 264 páginas era a forma mais frequente de erro do livro.
+
+E o que foi retirado **não é silencioso**, pela mesma razão do reparo da F115: cada página
+guarda o texto em `PaginaExtraida.cabecalhos`, e o relatório do fim da exportação diz
+quantos saíram e os três mais frequentes.
+
+### 6. A régua, com o balde que faltava
+
+`medir_confusao_no_livro.contar` devolve quatro coisas onde devolvia três. A palavra que o
+dicionário conhece **e** tem a caixa estranha (`lexico.caixa_estranha`) não é acerto nem entra
+no prior: vai para o balde dela. Refeito sobre o `_teste-1.docx`:
+
+| | palavras | % |
+|---|---:|---:|
+| prosa | 17.692 | |
+| atribuída a uma confusão de caractere (o número publicado) | 234 | 1,32% |
+| caixa errada, que `conhece` absolvia | **441** em 215 formas | 2,49% |
+| as duas | 675 | **3,82%** |
+
+`alSo` 31×, `pointS` 23×, `poSition` 19×, `biShop` 15× — as mesmas formas que a §6 contou à
+mão, no mesmo número. **A tabela dos seis livros da F104 continua não testada**: ela precisa
+das duas colunas, e refazê-la é reler seis livros com o modelo de hoje, que não é o modelo
+dela. O instrumento está pronto para quem o fizer.
+
+`medir_troca.py` deixou de baixar os dois lados, e ganhou a coluna `caixa`. Refeito nas
+páginas rotuladas, com o modelo de hoje:
+
+| lista | palavras | pego | escondido | só caixa | recall | alarme |
+|---|---:|---:|---:|---:|---:|---:|
+| idioma | 73.447 | 36 | 59 | **16** | 37,9% | 6,8% |
+| idioma + nomes | 310.465 | 31 | 64 | **16** | 32,6% | 3,8% |
+
+Um quarto dos erros que a lista esconde é só de caixa — os que ela **nunca** poderia pegar,
+porque não tem caixa, e que a F108 pega por outro caminho. Os números não se comparam com a
+tabela da F9.1 (58,5% e 53,8%): o modelo é outro, e a régua é outra. E a lista de escondidos
+mostra o que a F9.1 já avisava sobre a verdade remontada — `'theory' <- 'theoy'` é o
+**rótulo** com a letra a menos, não a leitura.
+
+E a inicial trocada, que nenhum instrumento via, ganhou a tabela em `medir_prosa.py`: a taxa
+de inicial maiúscula por letra. No Yusupov relido ela diz `b` 49,5%, `v` 49,3%, `d` 42,9% —
+que é `Black`, `Very` e `Diagram`, e é legítimo. É o que a §6 previu: **ela só fala contra um
+livro nativo**, e a comparação fica para quem tiver o par.
+
+### 7. O idioma do livro
+
+`lexico.carregar` tinha `idioma="en"` e `exportar.para_epub` tinha `IDIOMA_PADRAO = "en"`,
+e ninguém passava outra coisa a nenhum dos dois: todo livro deste projeto era inglês. A
+máscara de alfabeto não pode viver com isso — a máscara errada apaga o `ç` de um livro
+inteiro.
+
+`livro.idioma_do_pdf` lê a **camada de texto** do PDF em quarenta páginas espalhadas pelo
+livro e conta palavras que só um dos dois idiomas escreve (`the`, `with` / `que`, `não`).
+Nunca chuta: responde só com três vezes mais ocorrências de um lado. Nos oito livros do
+corpus:
+
+| livro | camada | resposta |
+|---|---|---|
+| Yusupov · Chess Evolution 1 | sim | en |
+| Yusupov · Complete | sim | en |
+| Aagaard · Attacking Manual I | sim | en |
+| Nunn · Secrets of Rook Endings | sim | en |
+| Dvoretsky · Endgame Manual | sim | en |
+| Darcy Lima · A Estratégia | sim | **pt** |
+| Seirawan · Xadrez Vitorioso | não | `None` |
+| Razuvaev · Akiba Rubinstein | não | `None` |
+
+Os dois `None` são as duas digitalizações de verdade (F110), e ali a exportação **pergunta**
+— uma caixa a mais, e só nesse caso. O idioma vai para três lugares: a máscara
+(`leitor_de_texto`), o `dc:language` do EPUB, e o `<w:lang>` do DOCX, que era uma das doze
+linhas da tabela da F111 e entrou aqui porque o parâmetro já estava na mão.
 
 ### O que esta fase não alcança
 
-**A família A inteira** (419 palavras) e **a família D inteira** (1.651) — o `i` partido e
-o dígito dentro da palavra. Da família C ela alcança a parte que `partir_colada` pega, e o
-número medido é 304 de 952.
+O mesmo que ela disse ao abrir: **a família A** (o `i` partido, 350 palavras no Yusupov
+relido) e **a família D** (o dígito dentro da palavra, 456), que são de segmentação e de
+reconhecimento e estão na F110, na F112 e na F113. Da família C, o que `partir_coladas` não
+alcança.
 
-Somadas, ficam de fora **2.718 palavras, 13,2% da prosa**. Elas são de segmentação e de
-reconhecimento, e estão na F110, na F112 e na F113. Esta fase mexe no que está solto.
+### Onde está
+
+- `core/alfabeto.py`, novo — a máscara. `LearningService.ler_texto` ganhou `idioma`, e
+  `leitor_de_texto` o prende para o livro inteiro.
+- `diagrama.caixas_dos_rotulos`, nova, chamada de `livro.caixas_e_diagramas` depois do
+  ornamento e antes da legenda.
+- `livro.retirar_cabecalhos`, nova, com `Paragrafo.topo`, `Paragrafo.linhas_impressas`,
+  `PaginaExtraida.altura` e `PaginaExtraida.cabecalhos`; chamada do `extrair` antes de
+  `partir_coladas`.
+- `livro.idioma_do_pdf`, nova. `ui/main_window.py` a chama, pergunta quando ela não
+  responde, e passa o idioma aos três consumidores; o relatório do fim diz o idioma e os
+  cabeçalhos retirados. `exportar.para_docx` ganhou `idioma`.
+- `medir_confusao_no_livro.py` (o terceiro balde), `medir_troca.py` (a coluna `caixa`) e
+  `medir_prosa.py` (`--idioma`, a fila de coordenadas, as letras fora do ASCII, a inicial
+  maiúscula por letra e os cabeçalhos retirados) são a régua desta fase.
+
+`tests/test_f109_alfabeto_e_cabecalho.py`, 35 testes, e um a mais na F104 para o balde. A
+suíte sai de 1.850 para 1.886, verde.
 
 ---
 
@@ -12038,7 +12165,7 @@ do impresso — não OOXML nem OPF.
 | `<h2>` **sem `id`**, e nenhum `<h1>` no livro inteiro — pular de nada para `h2` é violação de hierarquia | `exportar.py:412` | âncora, e promover capítulo a `h1` |
 | hífen de fim de linha chega ao arquivo — **49 medidos** (`be- cause`, `oppo- nent`) | `livro.py:862` | `juntar_hifenizadas`, que a F109 liga |
 | o DOCX sai no template nu: Carta, Calibri 11, `<w:ind>` = 0 em 8.499 parágrafos, sem justificação — e o EPUB do mesmo livro sai justificado com recuo de 1,2 em | `exportar.py:941` é um `Document()` nu | um desenho de página só para os dois formatos |
-| `para_docx` **não tem parâmetro de idioma**, e `<w:lang>` aparece 0 vez | `exportar.py:845-850` | passar o idioma que o EPUB já recebe |
+| ~~`para_docx` **não tem parâmetro de idioma**, e `<w:lang>` aparece 0 vez~~ — **feito na F109 §7**, junto com o idioma do livro | `exportar.py:845-850` | passar o idioma que o EPUB já recebe |
 
 ### A acessibilidade deixou de ser opcional na Europa em 28/06/2025
 

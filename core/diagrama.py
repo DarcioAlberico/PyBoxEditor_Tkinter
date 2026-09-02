@@ -1013,6 +1013,50 @@ def _caixas_da_banda(imagem, caixa, escala, lado, boxes) -> List[BoxEntry]:
     return dentro
 
 
+def caixas_dos_rotulos(caixa: Tuple[int, int, int, int], escala: float,
+                       rotulos: Rotulos, boxes: Sequence[BoxEntry]
+                       ) -> List[BoxEntry]:
+    """
+    As caixas da página que são rótulo de casa deste tabuleiro (F109 §3).
+
+    **Existe porque a margem de exclusão pede continência, e o rótulo nem
+    sempre cabe nela.** `livro.caixas_e_diagramas` tira do texto a caixa
+    inteiramente dentro de `MARGEM_DIAGRAMA` (1,4 alturas de caractere); a
+    letra `a`–`h` impressa a 1,2 alturas da borda tem o pé a 1,7, e escapa. No
+    Yusupov exportado, 146 parágrafos eram só a fila `a b c d e f g h` — ou o
+    pedaço dela que escapou —, e é dela que sai o `hDiagram`: o `h` que sobrou
+    cola na legenda da figura seguinte.
+
+    A régua é a de `ler_rotulos`, e por isso só vale nos lados em que ele
+    **achou** rótulo: a caixa do tamanho de uma marca, contida na largura (ou
+    na altura) do tabuleiro, e cuja borda voltada para ele cai na faixa de
+    `FAIXA_EM_CARACTERES`. A continência no eixo do tabuleiro é o que separa
+    o rótulo da prosa da coluna vizinha, que só se sobrepõe.
+    """
+    if not rotulos.presentes or not boxes:
+        return []
+    x1, y1, x2, y2 = caixa
+    faixa = escala * FAIXA_EM_CARACTERES
+    maxima = MARCA_MAXIMA * escala
+    saida = []
+    for b in boxes:
+        if b.y2 - b.y1 > maxima or b.x2 - b.x1 > maxima:
+            continue
+        for lado in rotulos.lados:
+            if lado == "abaixo":
+                dentro = x1 <= b.x1 and b.x2 <= x2 and y2 <= b.y1 <= y2 + faixa
+            elif lado == "acima":
+                dentro = x1 <= b.x1 and b.x2 <= x2 and y1 - faixa <= b.y2 <= y1
+            elif lado == "esquerda":
+                dentro = y1 <= b.y1 and b.y2 <= y2 and x1 - faixa <= b.x2 <= x1
+            else:
+                dentro = y1 <= b.y1 and b.y2 <= y2 and x2 <= b.x1 <= x2 + faixa
+            if dentro:
+                saida.append(b)
+                break
+    return saida
+
+
 def ler_titulo(imagem, caixa: Tuple[int, int, int, int],
                escala: Optional[float] = None,
                classificar: Optional[Callable] = None,

@@ -6,7 +6,7 @@ import glob
 from typing import List, Tuple, Optional, Callable
 from PIL import Image
 
-from core import proporcao, vertical
+from core import alfabeto, proporcao, vertical
 from core.box_model import BoxEntry
 from core.learner import CharacterLearner, char_to_folder
 from core.neural_trainer import NeuralTrainer, NeuralPredictor
@@ -144,13 +144,22 @@ class LearningService:
         return self._predictor.predict(crop_np)
 
     def ler_texto(self, crop_np: np.ndarray,
-                  referencia: Optional[float] = None) -> Tuple[str, float]:
+                  referencia: Optional[float] = None,
+                  idioma: Optional[str] = None) -> Tuple[str, float]:
         """
-        `predict_neural` com o veto geométrico da F106 — para quem lê **texto**.
+        `predict_neural` com o veto geométrico da F106 e a máscara de alfabeto
+        da F109 — para quem lê **texto**.
 
         Mesmo contrato `(recorte) -> (char, confiança)`, então entra no lugar do
         outro sem nenhuma outra mudança; a proporção que o veto usa é a do
         próprio recorte, e não precisa ser passada de fora.
+
+        `idioma` é o do livro (`"en"`, `"pt"`), e liga a máscara: a letra
+        acentuada que o idioma não escreve é vetada como o travessão fora de
+        proporção é — a rede dá as candidatas seguintes e a primeira que cabe
+        nos dois crivos sai. Sem idioma a máscara não opina, que é o de antes.
+        O que ela pega está medido em `core.alfabeto`; quem lê um livro inteiro
+        prende o idioma uma vez com `leitor_de_texto`.
 
         **Não é o classificador de tudo, e a separação é o assunto.** A rede crua
         continua respondendo onde a pergunta não é "que caractere é este":
@@ -164,15 +173,35 @@ class LearningService:
         """
         char, conf = self.predict_neural(crop_np)
         largura, altura = proporcao.lados(crop_np)
-        if proporcao.cabe(char, largura, altura, referencia):
+        if (alfabeto.permitido(char, idioma)
+                and proporcao.cabe(char, largura, altura, referencia)):
             return char, conf
 
         # Segunda passada pela rede, e só aqui: medido, o veto pega 2 leituras
         # em 10.641 numa página normal. O caminho de sempre não paga nada.
+        # **A máscara filtra antes da geometria escolher**, e os dois crivos
+        # valem juntos: a candidata que o idioma admite ainda precisa caber no
+        # recorte. Sem candidata que passe nos dois, fica a leitura que havia —
+        # inventar uma classe que a rede não ofereceu seria o voto que a F19
+        # mediu e descartou.
         escolhida = proporcao.escolher(
-            self.candidatas(crop_np, k=proporcao.CANDIDATAS),
+            alfabeto.filtrar(self.candidatas(crop_np, k=proporcao.CANDIDATAS),
+                             idioma),
             largura, altura, referencia)
         return escolhida if escolhida is not None else (char, conf)
+
+    def leitor_de_texto(self, idioma: Optional[str] = None) -> Callable:
+        """
+        `ler_texto` com o idioma do livro preso (F109).
+
+        `livro.extrair` chama o classificador com o recorte só, e é o contrato
+        certo — ele não tem por que saber de idioma. Quem sabe é quem abriu o
+        livro, e prende aqui, uma vez, o que vale para todas as páginas.
+        """
+        def ler(crop_np: np.ndarray, referencia: Optional[float] = None
+                ) -> Tuple[str, float]:
+            return self.ler_texto(crop_np, referencia, idioma=idioma)
+        return ler
 
     def probabilidade_de(self, crop_np: np.ndarray, char: str) -> float:
         """Quanto a rede dá a **esta** classe neste recorte (F69). 0,0 sem modelo."""

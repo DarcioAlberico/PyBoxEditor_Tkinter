@@ -64,6 +64,7 @@ import collections
 import os
 import re
 import sys
+import unicodedata
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -135,8 +136,12 @@ def texto_do_epub(caminho: str) -> str:
     return "\n".join(partes)
 
 
-def paginas_do_pdf(caminho: str, paginas=None, lex=None):
-    """As `PaginaExtraida` do caminho de produção, com o modelo de verdade."""
+def paginas_do_pdf(caminho: str, paginas=None, lex=None, idioma=None):
+    """
+    As `PaginaExtraida` do caminho de produção, com o modelo de verdade.
+
+    `idioma` liga a máscara de alfabeto (F109 §1), como a exportação liga.
+    """
     from core import livro
     from core.services.learning_service import LearningService
 
@@ -148,7 +153,8 @@ def paginas_do_pdf(caminho: str, paginas=None, lex=None):
         if atual % 10 == 0 or atual == total:
             print(f"  ... {atual}/{total} páginas", flush=True)
 
-    return livro.extrair(caminho, servico.ler_texto, paginas=paginas, lex=lex,
+    return livro.extrair(caminho, servico.leitor_de_texto(idioma),
+                         paginas=paginas, lex=lex,
                          progress_callback=progresso)
 
 
@@ -292,6 +298,41 @@ def razao_de_caixa(texto: str):
     return saida
 
 
+#: A fila de coordenadas que escapou da margem do diagrama (F109 §3): uma
+#: linha só de letras `a`–`h` soltas, três ou mais.
+FILA_DE_COORDENADAS = re.compile(r"^[a-h]( [a-h]){2,}$", re.MULTILINE)
+
+
+def letras_fora_do_ascii(texto: str):
+    """`{letra: vezes}` das letras latinas acentuadas — a máscara da F109 §1."""
+    conta = collections.Counter(
+        c for c in texto
+        if ord(c) > 127 and c.isalpha()
+        and unicodedata.name(c, "").startswith("LATIN "))
+    return conta
+
+
+def taxa_de_titlecase(palavras):
+    """
+    `{letra: (Capitalizadas, total)}` por inicial — a inicial trocada (F109 §6).
+
+    É o erro de caixa que nenhum instrumento vê: `Also` por `also` é padrão
+    legítimo, `caixa_estranha` não acende, `conhece` não acende, e a razão
+    `S/s` mal se move. O que o denuncia é a taxa por letra contra um livro
+    nativo — `S` dá 21,5% no DOCX do Yusupov e 3,7% no EPUB do Kasparov,
+    enquanto `T` dá 16% nos dois (é o `The`), e portanto é inocente.
+    """
+    conta = collections.defaultdict(lambda: [0, 0])
+    for palavra in palavras:
+        inicial = palavra[:1]
+        if not inicial.isalpha():
+            continue
+        par = conta[inicial.lower()]
+        par[1] += 1
+        par[0] += inicial.isupper()
+    return {k: tuple(v) for k, v in conta.items()}
+
+
 def defeitos_do_texto(texto: str, lex):
     """
     Os dois defeitos que o próprio texto denuncia, e que a F115 zera.
@@ -361,6 +402,24 @@ def relatar(texto: str, lex, exemplos: int = 4) -> None:
     print(f"  espaço duplo                          {duplos:7d}")
     print(f"  hífen de fim de linha que ainda junta {hifens:7d}")
 
+    # As três réguas da F109 que o texto sozinho mede.
+    filas = len(FILA_DE_COORDENADAS.findall(texto))
+    acentos = letras_fora_do_ascii(texto)
+    print(f"  fila de coordenadas solta (a b c d…)  {filas:7d}")
+    print(f"  letra latina fora do ASCII            "
+          f"{sum(acentos.values()):7d}  em {len(acentos)} letras: "
+          + ", ".join(f"{l}×{n}" for l, n in acentos.most_common(8)))
+
+    print("\ninicial maiúscula por letra (a inicial trocada só aparece "
+          "contra um livro nativo)")
+    taxas = taxa_de_titlecase(nucleos)
+    print(f"{'letra':6s} {'Capit.':>8s} {'total':>8s} {'%':>7s}")
+    for letra, (cima, total_l) in sorted(
+            taxas.items(), key=lambda kv: -kv[1][0] / max(1, kv[1][1]))[:10]:
+        if total_l < 100:
+            continue
+        print(f"{letra:6s} {cima:8d} {total_l:8d} {100 * cima / total_l:6.1f}%")
+
 
 def main(argv=None) -> int:
     _console_em_utf8()
@@ -375,6 +434,8 @@ def main(argv=None) -> int:
     ap.add_argument("--lista", default=None, help="outro arquivo de léxico")
     ap.add_argument("--sem-lexico", action="store_true",
                     help="relê o PDF sem passar o léxico ao `livro.extrair`")
+    ap.add_argument("--idioma", default=None, choices=("en", "pt"),
+                    help="liga a máscara de alfabeto da F109 na releitura")
     ap.add_argument("--exemplos", type=int, default=4)
     ap.add_argument("--salvar", default=None,
                     help="grava o texto lido, para remedir sem reler o PDF")
@@ -392,9 +453,25 @@ def main(argv=None) -> int:
         # lugar: os reparos acontecem no parágrafo. `--sem-lexico` mede o que
         # sairia sem eles, que é a coluna "antes" da tabela.
         extraidas = paginas_do_pdf(args.pdf, paginas,
-                                   None if args.sem_lexico else lex)
+                                   None if args.sem_lexico else lex,
+                                   args.idioma)
         texto = texto_das_paginas(extraidas)
         print(f"páginas: {len(extraidas)}")
+        # O que `retirar_cabecalhos` tirou (F109 §5), para o olho conferir que
+        # era cabeçalho: a régua é a repetição, e a repetição não sabe ler.
+        retirados = collections.Counter()
+        for p in extraidas:
+            retirados.update(p.cabecalhos)
+        numeros = sum(n for t, n in retirados.items() if t.strip().isdigit())
+        sem_letra = sum(n for t, n in retirados.items()
+                        if not any(c.isalpha() for c in t))
+        print(f"cabeçalhos e rodapés de página retirados: "
+              f"{sum(retirados.values())} em {len(retirados)} textos — "
+              f"{numeros} só número de página, {sem_letra - numeros} só "
+              f"símbolo, e os com letra:")
+        for t, n in retirados.most_common():
+            if any(c.isalpha() for c in t):
+                print(f"  {n:4d}×  {t!r}")
     elif args.docx:
         texto = texto_do_docx(args.docx)
     elif args.epub:

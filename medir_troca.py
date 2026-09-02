@@ -17,6 +17,12 @@ palavra de prosa lida:
 O par (recall, alarme falso) é o que decide o tamanho da lista, e a medida 3 do
 ROADMAP é a saída deste arquivo.
 
+**A comparação é sensível a caixa** (F109 §6). Era `.lower()` dos dois lados, e
+com isso `alSo` lido por `also` entrava no denominador **como acerto** — e como a
+lista conhece `also`, o erro que ela escondia nem era contado. A coluna `caixa`
+diz quantos dos escondidos são só de caixa: são os que a lista nunca poderia
+pegar, porque ela não tem caixa, e que a F108 pega por outro caminho.
+
 **Pedaço com box sem par não é medível**, e ignorar isso inverteu o resultado na
 primeira rodada. A verdade é remontada dos pares de `comparar`; um box gerado sem par
 contribui string vazia e a verdade sai truncada, então saíam como "erro escondido"
@@ -101,12 +107,15 @@ def medir(listas, exemplos=18):
             if len(certo) < 2 or not certo.isalpha() or len(lido) < 2:
                 continue
             total += 1
-            errada = normalizar(lido).lower() != normalizar(certo).lower()
+            errada = normalizar(lido) != normalizar(certo)
+            so_caixa = (errada and normalizar(lido).lower()
+                        == normalizar(certo).lower())
             com_erro += errada
             for nome, lista in listas.items():
                 conhece = lido.lower() in lista
                 if errada and conhece:
                     conta[nome]["escondido"] += 1
+                    conta[nome]["caixa"] += so_caixa
                     if len(escondidos[nome]) < exemplos:
                         escondidos[nome].append(f"{lido!r}<-{certo!r}")
                 elif errada:
@@ -122,11 +131,12 @@ def medir(listas, exemplos=18):
           f"{com_erro} com erro de OCR ===========")
     print(f"({nao_medivel} pedaços fora da conta por terem box sem par)\n")
     print(f"{'lista':<16} {'palavras':>9} {'pego':>6} {'escond':>7} "
-          f"{'recall':>8} {'alarme':>8} {'precisão':>9}")
+          f"{'caixa':>6} {'recall':>8} {'alarme':>8} {'precisão':>9}")
     for nome, c in conta.items():
         pego, esc, alarme = c["pego"], c["escondido"], c["alarme"]
         rec = 100.0 * pego / (pego + esc) if pego + esc else 0.0
         print(f"{nome:<16} {len(listas[nome]):>9} {pego:>6} {esc:>7} "
+              f"{c['caixa']:>6} "
               f"{rec:>7.1f}% {100.0*alarme/total:>7.1f}% "
               f"{100.0*pego/(pego+alarme) if pego+alarme else 0:>8.1f}%")
 

@@ -259,24 +259,36 @@ def parte_em_conhecidas(nucleo: str, lx):
 
 def contar(palavras, lx):
     """
-    `(conhecidas, formas fora do dicionário, prior)` de um texto já tokenizado.
+    `(conhecidas, formas fora do dicionário, prior, formas com a caixa errada)`
+    de um texto já tokenizado.
 
     O prior são as palavras que o livro **acertou**, e é ele que decide o
     empate lá adiante. Sai daqui e não de fora porque o léxico do projeto é
     alfabético: não há frequência em lugar nenhum deste repositório.
+
+    **O terceiro balde existe porque `conhece` baixa os dois lados** (F109
+    §6): `alSo` é conhecido, e por isso contava como acerto — 441 ocorrências
+    em 215 formas absolvidas no DOCX do Yusupov, e a taxa publicada saía 1,32%
+    onde era 3,82%. Pior, `alSo` entrava no prior e votava a favor de si
+    mesmo. A caixa estranha (`lexico.caixa_estranha`) sai da conta de acerto
+    e do prior, e vai para o balde dela: não é confusão de caractere, é a
+    F107, e a matriz não a deve receber.
     """
     conhecidas, fora, prior = 0, collections.Counter(), collections.Counter()
+    caixa = collections.Counter()
     for pedaco in palavras:
         nucleo, _ = lexico.nucleo(pedaco)
         if (not nucleo or len(nucleo) < MINIMO or not nucleo.isalpha()
                 or notacao.parece_lance(pedaco) or notacao.parece_lance(nucleo)):
             continue
-        if lx.conhece(nucleo):
+        if not lx.conhece(nucleo):
+            fora[nucleo] += 1
+        elif lexico.caixa_estranha(nucleo):
+            caixa[nucleo] += 1
+        else:
             conhecidas += 1
             prior[nucleo.lower()] += 1
-        else:
-            fora[nucleo] += 1
-    return conhecidas, fora, prior
+    return conhecidas, fora, prior, caixa
 
 
 def medir(fora, prior, lx, vizinhanca):
@@ -398,15 +410,29 @@ def palavras_do_pdf(caminho: str, cache=None, paginas=None):
 # ----------------------------------------------------------------------
 
 def relatar(conhecidas, fora, categorias, confusao, atribuidas, indecisas,
-            exemplos=0):
-    prosa = conhecidas + sum(fora.values())
+            exemplos=0, caixa=None):
+    caixa = caixa or collections.Counter()
+    total_caixa = sum(caixa.values())
+    prosa = conhecidas + sum(fora.values()) + total_caixa
     total_fora = sum(fora.values())
     atrib = sum(n for c, n in categorias.items() if c.startswith("atribuída"))
 
     print(f"palavras de prosa (>= {MINIMO} letras, fora da notação): {prosa:,}")
     print(f"  no dicionário {conhecidas:,}   fora dele {total_fora:,} "
           f"em {len(fora):,} formas "
-          f"({total_fora / max(1, prosa) * 100:.1f}%)\n")
+          f"({total_fora / max(1, prosa) * 100:.2f}%)")
+    # **As duas colunas, e não um número corrigido** (F109 §6): a de fora do
+    # dicionário é a que a tabela dos seis livros publicou, e a de caixa é a
+    # que ela não via. Somadas, são a taxa de erro que a régua enxerga.
+    print(f"  caixa errada, que o dicionário absolvia: {total_caixa:,} "
+          f"em {len(caixa):,} formas "
+          f"({total_caixa / max(1, prosa) * 100:.2f}%)")
+    print(f"  com erro, somando as duas: {total_fora + total_caixa:,} "
+          f"({(total_fora + total_caixa) / max(1, prosa) * 100:.2f}%)")
+    if caixa:
+        print("  caixa mais frequente: "
+              + ", ".join(f"{f}({n})" for f, n in caixa.most_common(6)))
+    print()
 
     if prosa and total_fora / prosa > IDIOMA_ERRADO:
         print(f"** {total_fora / prosa * 100:.0f}% das palavras estão fora do "
@@ -504,7 +530,7 @@ def main() -> int:
                  if args.paginas else None)
         palavras = palavras_do_pdf(args.pdf, args.cache, quais)
 
-    conhecidas, fora, prior = contar(palavras, lx)
+    conhecidas, fora, prior, caixa = contar(palavras, lx)
     if not fora:
         print("nenhuma palavra fora do dicionário")
         return 0
@@ -514,7 +540,8 @@ def main() -> int:
           f"{len(vizinhanca.indice):,} chaves\n", flush=True)
 
     return relatar(conhecidas, fora,
-                   *medir(fora, prior, lx, vizinhanca), exemplos=args.exemplos)
+                   *medir(fora, prior, lx, vizinhanca), exemplos=args.exemplos,
+                   caixa=caixa)
 
 
 if __name__ == "__main__":

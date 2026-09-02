@@ -842,14 +842,32 @@ def _caixa_do_diagrama(doc, moldura: str, largura_pt: float):
     return celula
 
 
+def _idioma_do_estilo(estilo, idioma: str) -> None:
+    """`<w:lang w:val=...>` no estilo, que os parágrafos herdam (F111)."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    rpr = estilo.element.get_or_add_rPr()
+    lang = rpr.find(qn("w:lang"))
+    if lang is None:
+        lang = OxmlElement("w:lang")
+        rpr.append(lang)
+    lang.set(qn("w:val"), idioma)
+
+
 def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
               titulo: str = "Livro", autor: str = "",
               largura_figura_cm: float = 9.0,
               diagramas: str = "png",
               corpo_pt: float = CORPO_PADRAO_PT,
-              moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO) -> str:
+              moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO,
+              idioma: str = IDIOMA_PADRAO) -> str:
     """
     Escreve o DOCX. Devolve o caminho.
+
+    `idioma` vai no `<w:lang>` do estilo base (F111): é o mesmo que o EPUB
+    recebe desde a F2.6, e sem ele o Word revisa a ortografia de um livro em
+    inglês no idioma do programa — e sublinha o livro inteiro.
 
     A figura entra com largura medida, e não no tamanho em pixels: o recorte sai
     a 300 dpi e teria 700 px de largura, que o Word põe como 700 pontos e
@@ -942,6 +960,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     doc.core_properties.title = titulo
     if autor:
         doc.core_properties.author = autor
+    _idioma_do_estilo(doc.styles["Normal"], idioma)
 
     # A casa é o quadrado do em, então o corpo da fonte **é** a casa: o que o
     # usuário pediu em pontos entra aqui sem conta nenhuma (F97). Era derivado

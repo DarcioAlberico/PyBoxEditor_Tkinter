@@ -37,6 +37,8 @@ o lugar da figura.
 import io
 import re
 from array import array
+import collections
+import re
 from dataclasses import dataclass, field
 from math import isnan, nan
 from typing import Callable, List, Optional, Sequence, Tuple, Union
@@ -177,6 +179,27 @@ class Paragrafo:
     #: palavras existem nele. Guardar a medida por parágrafo é o que permite
     #: adiar a decisão até haver livro.
     lacunas: Optional[array] = None
+    #: Onde o parágrafo começa e acaba na página, em pixels da imagem lida
+    #: (F109).
+    #:
+    #: É o que `retirar_cabecalhos` precisa para saber se um parágrafo está na
+    #: margem de cima ou na de baixo — a ordem dos blocos não diz isso numa
+    #: página de duas colunas, onde o rodapé centrado cai no meio da lista.
+    #: `None` no parágrafo que não veio de linhas da página: a faixa do
+    #: diagrama, a legenda, e os que os testes montam à mão.
+    topo: Optional[int] = None
+    pe: Optional[int] = None
+    #: Onde cada linha impressa começa no `texto` (F109). A primeira é `0`.
+    #:
+    #: **O parágrafo não esquece a linha**, e é isto que permite tirar dele o
+    #: cabeçalho de página que a régua do salto (F103) colou ao primeiro
+    #: parágrafo — no Aagaard é o caso de quase toda página. Vazio no
+    #: parágrafo montado à mão.
+    inicios: List[int] = field(default_factory=list)
+
+    @property
+    def linhas_impressas(self) -> int:
+        return len(self.inicios)
 
 
 @dataclass
@@ -285,6 +308,14 @@ class PaginaExtraida:
     #: Quantas palavras coladas foram partidas nesta página (F115). Preenchido
     #: pela passada `partir_coladas`, que é quem decide.
     cortes: int = 0
+    #: A altura da imagem lida, em pixels. É a régua de `retirar_cabecalhos`:
+    #: "na margem de cima" é uma fração disto, e não um número de pixels.
+    altura: int = 0
+    #: O texto de cada cabeçalho ou rodapé de página que saiu desta página
+    #: (F109). Preenchido pela passada `retirar_cabecalhos`, que é quem
+    #: decide — e guardado como texto, e não como número, para o relatório do
+    #: fim da exportação poder dizer **o que** foi retirado.
+    cabecalhos: List[str] = field(default_factory=list)
 
     @property
     def texto(self) -> str:
@@ -504,6 +535,18 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     ornamento = _celulas_de_ornamento(respingos, escala)
     grandes = [b for b in grandes
                if _celula(b, escala) not in ornamento]
+
+    # **O rótulo que a margem não alcançou** (F109 §3). A exclusão pede a caixa
+    # inteira dentro de 1,4 alturas de caractere, e a letra `a`–`h` impressa
+    # a 1,2 alturas da borda tem o pé fora dela. Ela chegava ao texto como uma
+    # linha de oito caracteres — `a b c d e f g h`, 146 parágrafos no Yusupov
+    # exportado — e o `h` que sobrava colava na legenda da figura seguinte. Só
+    # nos lados em que `ler_rotulos` achou rótulo, e pela régua dele.
+    for d in diagramas:
+        usadas = {id(b) for b in diagrama.caixas_dos_rotulos(
+            d.tabuleiro, escala, d.rotulos, grandes)}
+        if usadas:
+            grandes = [b for b in grandes if id(b) not in usadas]
 
     # **A legenda de baixo é procurada no texto da página, e não no que a
     # margem comeu** (F95). É a assimetria que a F60 não tinha por que notar: o
@@ -1088,11 +1131,13 @@ def _paragrafo_de(linhas: Sequence[Linha],
     partes: List[str] = []
     todos: List[Optional[float]] = []
     vaos: List[Optional[float]] = []
+    inicios: List[int] = []
     for i, t in enumerate(textos):
         if i and not juntas[i - 1]:
             partes.append(" ")
             todos.append(None)
             vaos.append(None)
+        inicios.append(len(todos))
         partes.append(t)
         todos.extend(pesos[i])
         vaos.extend(lacunas[i])
@@ -1109,7 +1154,10 @@ def _paragrafo_de(linhas: Sequence[Linha],
             texto = arrumado
 
     return Paragrafo(texto, pesos=negrito.vetor(todos),
-                     lacunas=negrito.vetor(vaos))
+                     lacunas=negrito.vetor(vaos),
+                     topo=min(l.topo for l in linhas),
+                     pe=max(l.topo + l.altura for l in linhas),
+                     inicios=inicios)
 
 
 #: Quantas vezes uma palavra precisa aparecer **sozinha** no material para
@@ -1245,6 +1293,187 @@ def partir_coladas(paginas: Sequence["PaginaExtraida"],
             pagina.cortes += len(cortes)
             total += len(cortes)
     return total
+
+
+#: Em quantas páginas o mesmo texto tem de aparecer na mesma margem para ser
+#: cabeçalho ou rodapé (F109 §5).
+#:
+#: Três, e não uma fração do livro: o cabeçalho de capítulo muda a cada
+#: capítulo, e um capítulo de dez páginas dá cinco ocorrências na página ímpar.
+#: Uma fração de um livro de 2.612 páginas o deixaria passar inteiro.
+PAGINAS_DE_CABECALHO = 3
+
+#: Fração da altura da página que é margem — de cima ou de baixo. O parágrafo
+#: que começa fora dela não é candidato, por mais que se repita.
+MARGEM_DE_PAGINA = 0.12
+
+#: Mais palavras que isto numa linha só não é cabeçalho, é prosa.
+PALAVRAS_DE_CABECALHO = 8
+
+
+def _assinatura(texto: str) -> str:
+    """
+    O que fica de um cabeçalho quando se tira o que muda de página para página.
+
+    O número sai — `Chapter 3 · 37` e `Chapter 3 · 38` são o mesmo cabeçalho —
+    e a pontuação vira espaço. O número de página sozinho vira a assinatura
+    vazia, que é a de todo número de página.
+    """
+    baixo = re.sub(r"\d+", "", texto.lower())
+    return " ".join(re.sub(r"[^\w\s]", " ", baixo).split())
+
+
+def _candidato_a_cabecalho(linha: str) -> bool:
+    """
+    Uma linha curta, com letra ou número, e sem lance: a régua que a
+    repetição ainda confirma.
+
+    A letra ou o número é o que separa o número de página do `=` que o
+    filete decorativo vira quando é lido: os dois têm a assinatura vazia, e
+    sem isto o filete sairia como rodapé. Ele não é cabeçalho, é ruído, e
+    ruído tem outro dono.
+    """
+    palavras = linha.split()
+    if not 0 < len(palavras) <= PALAVRAS_DE_CABECALHO:
+        return False
+    if not any(c.isalnum() for c in linha):
+        return False
+    # O parêntese é o outro dono: `(see page 43)` no alto de três páginas é
+    # remissão, e cabeçalho de página nunca vem entre parênteses.
+    if linha.startswith("(") and linha.endswith(")"):
+        return False
+    return not any(notacao.parece_lance(_lance_limpo(w)) for w in palavras)
+
+
+def _lance_limpo(palavra: str) -> str:
+    """
+    `20...♗d3!` como `parece_lance` o entende: sem o número do lance, com a
+    figurina em letra e o travessão do roque em hífen. Ele lê `Bd3!`, e não
+    o que o livro imprime — é a mesma tradução que `notacao.Simbolo` faz.
+    """
+    sem_numero = re.sub(r"^\d+\.(\.\.)?", "", palavra)
+    return "".join(notacao.FIGURINAS.get(c, "-" if c in "–—" else c)
+                   for c in sem_numero)
+
+
+def _linha_da_margem(p: Paragrafo, margem: str) -> Tuple[int, int]:
+    """
+    `(início, fim)` no `texto` da linha impressa que encosta na margem —
+    a primeira para `"alto"`, a última para `"baixo"`.
+
+    O corte leva o espaço que a junta ao resto, para o parágrafo que sobra
+    não começar nem acabar em espaço; e leva o **fim** do texto quando o
+    parágrafo tem uma linha só.
+    """
+    if len(p.inicios) <= 1:
+        return 0, len(p.texto)
+    if margem == "alto":
+        return 0, p.inicios[1]
+    inicio = p.inicios[-1]
+    if p.texto[inicio - 1:inicio] == " ":
+        inicio -= 1
+    return inicio, len(p.texto)
+
+
+def _nas_margens(pagina: PaginaExtraida) -> List[Tuple[str, Paragrafo]]:
+    """`[("alto", p), ("baixo", p)]` — o parágrafo de cada margem, se há."""
+    paragrafos = [b for b in pagina.blocos
+                  if isinstance(b, Paragrafo) and b.topo is not None
+                  and b.inicios and not b.titulo]
+    if not paragrafos or not pagina.altura:
+        return []
+    saida = []
+    alto = min(paragrafos, key=lambda p: p.topo)
+    if alto.topo <= pagina.altura * MARGEM_DE_PAGINA:
+        saida.append(("alto", alto))
+    baixo = max(paragrafos, key=lambda p: p.pe if p.pe is not None else p.topo)
+    pe = baixo.pe if baixo.pe is not None else baixo.topo
+    if (pe >= pagina.altura * (1 - MARGEM_DE_PAGINA)
+            and not (baixo is alto and len(baixo.inicios) == 1)):
+        saida.append(("baixo", baixo))
+    return saida
+
+
+def _cortar(p: Paragrafo, inicio: int, fim: int) -> None:
+    """
+    Tira `texto[inicio:fim]` do parágrafo, com os vetores no mesmo passo.
+
+    Os vetores da F105 e da F115 andam caractere a caractere com o texto, e
+    um corte fora de passo desligaria o negrito em silêncio — `negrito.marcar`
+    pula o parágrafo cujo vetor não bate. `inicios` anda junto, e as fatias
+    de negrito que o corte alcança saem: quem remarca com o livro inteiro as
+    refaz.
+    """
+    p.texto = p.texto[:inicio] + p.texto[fim:]
+    if p.pesos is not None:
+        p.pesos = np.concatenate([p.pesos[:inicio], p.pesos[fim:]])
+    if p.lacunas is not None:
+        p.lacunas = np.concatenate([p.lacunas[:inicio], p.lacunas[fim:]])
+    tamanho = fim - inicio
+    p.inicios = [i if i < inicio else i - tamanho
+                 for i in p.inicios if not inicio <= i < fim]
+    p.negrito = [(a if a < inicio else a - tamanho,
+                  b if b <= inicio else b - tamanho)
+                 for a, b in p.negrito if b <= inicio or a >= fim]
+
+
+def retirar_cabecalhos(paginas: Sequence[PaginaExtraida]
+                       ) -> "collections.Counter":
+    """
+    Tira o cabeçalho e o rodapé de página da prosa (F109 §5).
+
+    **O sinal é o do livro inteiro, e por isso é uma passada à parte**, no molde
+    de `partir_coladas`: o mesmo texto, na mesma margem, em página atrás de
+    página. Numa página só o cabeçalho é uma linha curta como outra qualquer.
+
+    A F104 mediu que ele é o maior contribuinte de erro de três dos seis
+    livros — não porque seja mal lido, mas porque um erro nele se multiplica
+    por centenas de páginas: `Attacking Manual - Volume 1` no alto de toda
+    página par. E ele não é prosa: no arquivo exportado não há página, e um
+    `Chapter 3` solto a cada trinta linhas é só ruído no meio do texto.
+
+    **Olha a linha impressa, e não o parágrafo.** No Aagaard o cabeçalho
+    está colado ao primeiro parágrafo em quase toda página — a régua do
+    salto (F103) não o separa —, e uma passada por parágrafo tirava 12 em
+    263 páginas. `Paragrafo.inicios` é o que permite achar a primeira linha
+    dentro do parágrafo, e `_cortar` a tira com os vetores no mesmo passo.
+
+    Quatro réguas, e a repetição sozinha não basta: a linha tem de estar na
+    margem (`MARGEM_DE_PAGINA`), ser curta, ter letra ou número e não ter
+    lance — a abertura `1.e4 c5 2.♘f3` que abre três páginas seguidas não é
+    cabeçalho. Devolve `{texto: páginas}` do que saiu, e cada página guarda
+    o dela em `cabecalhos`.
+    """
+    vistos: "collections.Counter" = collections.Counter()
+    por_pagina = []
+    for pagina in paginas:
+        candidatos = []
+        for margem, p in _nas_margens(pagina):
+            inicio, fim = _linha_da_margem(p, margem)
+            linha = p.texto[inicio:fim].strip()
+            if _candidato_a_cabecalho(linha):
+                chave = (margem, _assinatura(linha))
+                vistos[chave] += 1
+                candidatos.append((chave, p, margem, linha))
+        por_pagina.append(candidatos)
+
+    retirados: "collections.Counter" = collections.Counter()
+    for pagina, candidatos in zip(paginas, por_pagina):
+        for chave, p, margem, linha in candidatos:
+            if vistos[chave] < PAGINAS_DE_CABECALHO:
+                continue
+            # A posição é refeita na hora do corte: o "alto" e o "baixo" do
+            # mesmo parágrafo mudam o texto um do outro.
+            inicio, fim = _linha_da_margem(p, margem)
+            if p.texto[inicio:fim].strip() != linha:
+                continue
+            if len(p.inicios) <= 1:
+                pagina.blocos = [b for b in pagina.blocos if b is not p]
+            else:
+                _cortar(p, inicio, fim)
+            pagina.cabecalhos.append(linha)
+            retirados[linha] += 1
+    return retirados
 
 
 def _agrupar_em_paragrafos(linhas: Sequence[Linha],
@@ -1620,7 +1849,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
                                descartados_por_confianca=fracos,
-                               colunas=len(colunas), reparos=reparos)
+                               colunas=len(colunas), reparos=reparos,
+                               altura=int(img.shape[0]))
 
     def figura(d: Diagrama) -> List[Bloco]:
         """
@@ -1750,6 +1980,59 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     return resultado
 
 
+#: Palavras que só um dos dois idiomas escreve, para `idioma_do_pdf`.
+#:
+#: Curtas e frequentes, e **nenhuma dos dois lados**: `a` e `as` são artigo em
+#: português e palavra comum em inglês, e ficaram de fora por isso. Bastam
+#: porque a pergunta é grosseira — o livro é de um idioma só, e o texto de
+#: quarenta páginas responde por centenas de ocorrências.
+PALAVRAS_DE_IDIOMA = {
+    "en": frozenset("the and of to is with that this white black it on by "
+                    "after not for".split()),
+    "pt": frozenset("de que o e os com não para um uma das dos mais também "
+                    "ou brancas pretas".split()),
+}
+
+#: Ocorrências abaixo das quais `idioma_do_pdf` não responde.
+OCORRENCIAS_DE_IDIOMA = 50
+
+#: Quantas vezes o idioma vencedor tem de bater o outro.
+VANTAGEM_DE_IDIOMA = 3.0
+
+
+def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:
+    """
+    `"en"`, `"pt"`, ou `None` quando a camada de texto do PDF não diz (F109).
+
+    **Lê a camada de texto, e não a imagem**, porque é barato e porque está lá
+    em 72% das páginas do corpus (F110). Onde não está — o Seirawan e o
+    Razuvaev, que são digitalizações de verdade — sai `None`, e quem chama
+    pergunta ao usuário. Nunca chuta: o idioma liga a máscara de alfabeto
+    (`core.alfabeto`), e a máscara errada apaga o `ç` de um livro inteiro.
+
+    As páginas são espalhadas pelo livro, e não as primeiras: as primeiras são
+    o frontispício e o sumário, que num livro traduzido ainda trazem o nome
+    original.
+    """
+    doc = fitz.open(caminho)
+    try:
+        total = len(doc)
+        passo = max(1, total // max(1, paginas))
+        conta: "collections.Counter" = collections.Counter()
+        for numero in range(0, total, passo):
+            texto = doc[numero].get_text().lower()
+            for palavra in re.findall(r"[a-záàâãéêíóôõúüç]+", texto):
+                for idioma, lista in PALAVRAS_DE_IDIOMA.items():
+                    if palavra in lista:
+                        conta[idioma] += 1
+    finally:
+        doc.close()
+    if sum(conta.values()) < OCORRENCIAS_DE_IDIOMA:
+        return None
+    (primeiro, n1), (_segundo, n2) = (conta.most_common(2) + [("", 0)])[:2]
+    return primeiro if n1 >= VANTAGEM_DE_IDIOMA * max(1, n2) else None
+
+
 def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             paginas: Optional[Sequence[int]] = None,
             conf_minima: float = CONF_MINIMA, dpi_figura: int = DPI_FIGURA,
@@ -1785,6 +2068,11 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         probabilidade=probabilidade))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
+        # **O cabeçalho de página sai antes de tudo** (F109): ele não é prosa,
+        # e o que vem depois — o vocabulário do livro, o negrito — mede-se
+        # sobre a prosa. Só o livro inteiro o reconhece, e é por isso que ele
+        # não sai no `extrair_pagina`.
+        retirar_cabecalhos(saida)
         # **Repartido com o livro inteiro por vocabulário** (F115), pela mesma
         # razão que o negrito é remarcado logo abaixo: o portão que decide se
         # `of`+`positions` pode ser um corte é "estas duas palavras existem

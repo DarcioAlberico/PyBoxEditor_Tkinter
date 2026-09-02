@@ -140,10 +140,25 @@ def test_o_espaco_perdido_se_reconhece_pela_partição():
 
 def test_contar_separa_prosa_de_notacao_e_monta_o_prior():
     lx = _lexico("two", "pawn")
-    conhecidas, fora, prior = mcl.contar(
+    conhecidas, fora, prior, caixa = mcl.contar(
         ["two", "pawn,", "Nf3", "exd5", "rwo", "12", "of", "pawn"], lx)
     assert conhecidas == 3 and prior == {"two": 1, "pawn": 2}
     assert fora == {"rwo": 1}, "lance, número ou palavra curta entrou na conta"
+    assert caixa == {}
+
+
+def test_a_caixa_errada_nao_e_acerto_nem_vota_no_prior():
+    """
+    F109 §6. `alSo` é conhecido porque `conhece` baixa os dois lados, e por
+    isso contava como acerto **e** entrava no prior, votando a favor de si
+    mesmo. Sai para o terceiro balde, e o prior fica só com o que está certo.
+    """
+    lx = _lexico("also", "bishop")
+    conhecidas, fora, prior, caixa = mcl.contar(
+        ["alSo", "also", "biShop", "Bishop", "BISHOP"], lx)
+    assert caixa == {"alSo": 1, "biShop": 1}
+    assert conhecidas == 3 and prior == {"also": 1, "bishop": 2}
+    assert fora == {}
 
 
 # ----------------------------------------------------------------------
