@@ -275,6 +275,16 @@ class PaginaExtraida:
     #: lido como duas colunas — a queixa que abriu a fase não tinha como ser
     #: conferida sem este número.
     colunas: int = 1
+    #: Quantas palavras o dicionário reescreveu nesta página (F115).
+    #:
+    #: **Existe porque a F66 recusou este reparo chamando-o de "reescrever o
+    #: texto em silêncio".** O silêncio era metade da objeção, e é a metade que
+    #: um número no relatório resolve: quem exporta vê quantas palavras trocaram
+    #: e pode conferi-las. A outra metade — a precisão — foi a F69 que resolveu.
+    reparos: int = 0
+    #: Quantas palavras coladas foram partidas nesta página (F115). Preenchido
+    #: pela passada `partir_coladas`, que é quem decide.
+    cortes: int = 0
 
     @property
     def texto(self) -> str:
@@ -577,9 +587,9 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
                     coletor: Optional[Callable] = None,
                     pagina: int = 0
                     ) -> Tuple[str, int, List[Optional[float]],
-                               List[Optional[float]]]:
+                               List[Optional[float]], List[int]]:
     """
-    (texto, caídos por confiança, espessura e lacuna de cada caractere).
+    (texto, caídos por confiança, espessura, lacuna e box de cada caractere).
 
     O `coletor` recebe todo caractere classificado, com a confiança junto. É
     aqui que ele entra porque é aqui que os dois dados existem juntos, e a
@@ -619,6 +629,14 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     resposta nenhuma. Ele está aqui para o número ser legível e comparável com o
     que a F9.1 mediu (0,18–0,50 no corte contra 0,00–0,27 fora dele), e é a
     mediana da linha pela mesma razão que a régua do espaço é (F107).
+
+    **E o box de cada caractere, que é o que `lexico.reparar` chama de
+    `simbolos`** (F115). O par `(caractere, índice do box)` é o contrato dele, e
+    ele existe porque **um box não vale um caractere**: a ligadura traz dois, e o
+    derrubado por confiança não traz nenhum. Só aqui essa conta é conhecida. O
+    índice é dentro de `linha`, e quem quiser o da página converte — é o que o
+    `extrair_pagina` faz, porque a régua do box largo é da página inteira.
+    O espaço inserido não veio de box nenhum, e leva `-1`.
     """
     # A régua do espaço é do `diagrama` e é uma só (F107) — ver
     # `limiar_de_espaco`. Ela mede o vão contra o **vão típico desta linha**, e
@@ -630,6 +648,7 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     partes, fracos = [], 0
     pesos: List[Optional[float]] = []
     lacunas: List[Optional[float]] = []
+    caixas: List[int] = []
     pendente = False
     # Alguma caixa entre a última que escreveu e esta não escreveu nada: a
     # lacuna atravessa um buraco e deixa de ser a distância entre dois vizinhos.
@@ -659,23 +678,96 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
             partes.append(" ")
             pesos.append(None)
             lacunas.append(None)
+            caixas.append(-1)
             pendente = False
         vao = (None if i == 0 or saltou
                else (b.x1 - linha[i - 1].x2) / largura)
         partes.append(saida)
         # Um por caractere **do que saiu**, e não do que entrou: um sinônimo de
-        # saída pode ter mais de um caractere. É o que mantém a lista alinhada
-        # ao texto.
+        # saída pode ter mais de um caractere. É o que mantém as listas
+        # alinhadas ao texto.
         pesos.extend([negrito.espessura(recorte)] * len(saida))
         lacunas.extend([vao] + [0.0] * (len(saida) - 1))
+        caixas.extend([i] * len(saida))
         saltou = False
     texto = "".join(partes)
-    # O `strip` do texto tem de acontecer nos três, ou o alinhamento se perde
+    # O `strip` do texto tem de acontecer nos quatro, ou o alinhamento se perde
     # logo na primeira linha que comece com espaço.
     inicio = len(texto) - len(texto.lstrip())
     fim = len(texto.rstrip())
     return (texto[inicio:fim], fracos, pesos[inicio:fim],
-            lacunas[inicio:fim])
+            lacunas[inicio:fim], caixas[inicio:fim])
+
+
+def _reparar_texto(texto: str, pesos: List[Optional[float]],
+                   lacunas: List[Optional[float]], caixas: Sequence[int],
+                   largos, lex, provar
+                   ) -> Tuple[str, List[Optional[float]],
+                              List[Optional[float]], int]:
+    """
+    A palavra que a colagem estragou, corrigida pelo dicionário (F115).
+
+    **É o quarto e último reparo da lista da F109 §4.1, e o único que precisava
+    de duas coisas que só existem aqui**: o box de cada caractere, para saber o
+    que veio de um box largo demais para um glifo, e a imagem, para a prova
+    visual poder olhar o papel.
+
+    `lexico.reparar` apaga o que veio do box largo, ancora no resto e procura no
+    dicionário uma palavra naquele molde: `Dmamic` vira `D` + máscara + `amic`,
+    e só `dynamic` cabe. **A prova da F69 é obrigatória aqui**, e o `provar` é
+    quem a traz: sem ela o reparo escolhe por comprimento, e a F66 mediu 62,5%
+    de precisão — inaceitável para algo que reescreve o texto em silêncio. Com
+    ela, a nota separa o que está desenhado no papel do que não está.
+
+    **A palavra sem box largo nem chega a ser perguntada.** É o caso da imensa
+    maioria, e pular antes de consultar o dicionário é o que faz o reparo caber
+    num livro inteiro.
+
+    O texto pode mudar de comprimento — `Dmamic` tem seis letras e `Dynamic`
+    tem sete. Quando muda, a espessura e a lacuna do trecho saem: elas foram
+    medidas sobre os glifos que estavam lá, e não sobre os que passaram a
+    estar. Quando não muda, ficam — e o negrito da palavra reparada sobrevive.
+    """
+    trocas: List[Tuple[int, int, str]] = []
+    for achado in re.finditer(r"\S+", texto):
+        inicio, fim = achado.span()
+        pedaco = achado.group(0)
+        if notacao.parece_lance(pedaco):
+            continue
+        simbolos = [(texto[i], caixas[i]) for i in range(inicio, fim)]
+        if not any(i in largos for _c, i in simbolos):
+            continue
+        reparo = lexico.reparar(simbolos, largos, lex, provar)
+        if reparo is None:
+            continue
+        _nuc, desloc = lexico.nucleo(pedaco)
+        trocas.append((inicio + desloc,
+                       inicio + desloc + len(reparo.palavra),
+                       reparo.corrigida))
+
+    if not trocas:
+        return texto, pesos, lacunas, 0
+
+    partes: List[str] = []
+    novos: List[Optional[float]] = []
+    novas: List[Optional[float]] = []
+    anterior = 0
+    for inicio, fim, corrigida in trocas:
+        partes.append(texto[anterior:inicio])
+        novos.extend(pesos[anterior:inicio])
+        novas.extend(lacunas[anterior:inicio])
+        partes.append(corrigida)
+        if len(corrigida) == fim - inicio:
+            novos.extend(pesos[inicio:fim])
+            novas.extend(lacunas[inicio:fim])
+        else:
+            novos.extend([None] * len(corrigida))
+            novas.extend([None] * len(corrigida))
+        anterior = fim
+    partes.append(texto[anterior:])
+    novos.extend(pesos[anterior:])
+    novas.extend(lacunas[anterior:])
+    return "".join(partes), novos, novas, len(trocas)
 
 
 #: Quanto da faixa uma régua de tabela precisa atravessar para ser régua (F72).
@@ -831,7 +923,7 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
                     BoxService._agrupar_em_linhas(dentro)):
                 # A célula não leva peso: a tabela sai como `Tabela`, e nem o
                 # EPUB nem o DOCX marcam negrito dentro de célula (F105).
-                texto, n, _pesos, _lac = _texto_da_linha(
+                texto, n, _pesos, _lac, _cx = _texto_da_linha(
                     img, sub, classificar, conf_minima, coletor, numero)
                 fracos += n
                 if texto:
@@ -1150,6 +1242,7 @@ def partir_coladas(paginas: Sequence["PaginaExtraida"],
             bloco.texto = "".join(partes)
             bloco.pesos = negrito.vetor(pesos)
             bloco.lacunas = negrito.vetor(lacunas)
+            pagina.cortes += len(cortes)
             total += len(cortes)
     return total
 
@@ -1287,7 +1380,7 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
         return None
     partes = []
     for linha in quebrar_em_linhas(d.caixas_da_faixa):
-        texto, fracos, _p, _l = _texto_da_linha(img, linha, classificar,
+        texto, fracos, _p, _l, _c = _texto_da_linha(img, linha, classificar,
                                                 conf_minima, coletor, numero)
         if fracos or not texto:
             return None
@@ -1408,7 +1501,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
                    moldura=render_diagrama.MOLDURA_PADRAO,
                    cantos: str = render_diagrama.CANTO_PADRAO,
-                   lex: Optional["lexico.Lexico"] = None
+                   lex: Optional["lexico.Lexico"] = None,
+                   probabilidade: Optional[Callable] = None
                    ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
@@ -1430,6 +1524,13 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     `COMO_NO_LIVRO` decide **por diagrama**, pelo que `diagrama.ler_rotulos`
     achou em volta de cada um; e um mesmo livro mistura os dois casos na mesma
     página.
+
+    `probabilidade(recorte, char) -> float` liga o reparo de colagem da F66/F69
+    (`_reparar_texto`). **Sem ele o reparo não acontece, e é de propósito:** a
+    F66 mediu 62,5% de precisão quando o comprimento decide sozinho, e recusou
+    ligar por isso. Quem autoriza a troca é a prova visual, e ela precisa
+    perguntar ao modelo quanto ele dá a uma letra num pedaço de papel — que é
+    uma pergunta que o `classificar` desta função não responde.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
@@ -1454,7 +1555,20 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                               blocos=[Figura(png, larg, alt, origem="pagina")],
                               pagina_de_imagem=True)
 
-    fracos = 0
+    # **A régua do box largo e a prova visual são da página inteira**, e por
+    # isso saem daqui e não de dentro da linha: `_largura_de_referencia` mede a
+    # largura de caractere linha a linha mas precisa da página para o piso, e a
+    # prova indexa os boxes da página. Montadas uma vez por página, e não uma
+    # vez por palavra — a memória do `prova_de_reparo` é o que torna a fase
+    # pagável (F69).
+    posicao = {id(b): i for i, b in enumerate(boxes)}
+    largos, provar = set(), None
+    if lex is not None and lex.sinaliza and probabilidade is not None:
+        largos = lexico.boxes_largos(boxes)
+        if largos:
+            provar = BoxService.prova_de_reparo(img, boxes, probabilidade)
+
+    fracos = reparos = 0
     # A tabela sai da página antes das linhas: as células dela não são linhas de
     # prosa, e deixá-las virar parágrafo é o defeito que a F72 fecha.
     achado = _tabela_da_pagina(img, boxes, classificar, conf_minima, coletor,
@@ -1472,9 +1586,18 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
 
     medidas: List[Linha] = []
     for linha in quebrar_em_linhas(boxes):
-        texto, n, pesos, vaos = _texto_da_linha(
+        texto, n, pesos, vaos, caixas = _texto_da_linha(
             img, linha, classificar, conf_minima, coletor, numero)
         fracos += n
+        if provar is not None and texto:
+            # O índice do box passa a ser o da **página**, que é onde a régua do
+            # box largo e a prova visual falam (`boxes_largos`,
+            # `prova_de_reparo`); o `_texto_da_linha` só conhece a linha.
+            texto, pesos, vaos, n_reparos = _reparar_texto(
+                texto, pesos, vaos,
+                [posicao[id(linha[c])] if c >= 0 else -1 for c in caixas],
+                largos, lex, provar)
+            reparos += n_reparos
         # **O dicionário deixou de entrar aqui, e subiu para o parágrafo**
         # (F115). A F108 o ligou nesta linha, e era o lugar certo enquanto o
         # único reparo era a caixa: a correção preserva o comprimento, e as
@@ -1497,7 +1620,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
                                descartados_por_confianca=fracos,
-                               colunas=len(colunas))
+                               colunas=len(colunas), reparos=reparos)
 
     def figura(d: Diagrama) -> List[Bloco]:
         """
@@ -1637,6 +1760,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             moldura=render_diagrama.MOLDURA_PADRAO,
             cantos: str = render_diagrama.CANTO_PADRAO,
             lex: Optional["lexico.Lexico"] = None,
+            probabilidade: Optional[Callable] = None,
             progress_callback=None) -> List[PaginaExtraida]:
     """Lê o PDF inteiro (ou as páginas pedidas) como imagem."""
     import os
@@ -1657,7 +1781,8 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         coordenadas=coordenadas, fonte=fonte,
                                         lado_do_diagrama=lado_do_diagrama,
                                         moldura=moldura, cantos=cantos,
-                                        lex=lex))
+                                        lex=lex,
+                                        probabilidade=probabilidade))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         # **Repartido com o livro inteiro por vocabulário** (F115), pela mesma

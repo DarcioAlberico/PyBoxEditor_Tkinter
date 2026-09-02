@@ -88,7 +88,7 @@ def test_o_caractere_derrubado_nao_escreve_dois_espacos():
     espaço duplo.
     """
     img, boxes = _linha_de("abc", [30, 30])
-    texto, fracos, pesos, _lac = livro._texto_da_linha(
+    texto, fracos, pesos, _lac, _cx = livro._texto_da_linha(
         img, boxes, _ler([("a", 0.9), ("b", 0.2), ("c", 0.9)]), 0.5)
     assert fracos == 1, "o `b` tinha de cair por confiança"
     assert texto == "a c", f"saiu {texto!r} — o espaço saiu duas vezes"
@@ -105,7 +105,7 @@ def test_o_buraco_no_meio_da_palavra_deixa_de_dobrar_o_espaco():
     """
     img, boxes = _linha_de("knight", [2, 2, 12, 12, 2])
     leituras = [(c, 0.9 if c != "g" else 0.2) for c in "knight"]
-    texto, fracos, pesos, _lac = livro._texto_da_linha(
+    texto, fracos, pesos, _lac, _cx = livro._texto_da_linha(
         img, boxes, _ler(leituras), 0.5)
     assert fracos == 1
     assert texto == "kni ht", f"saiu {texto!r}"
@@ -116,7 +116,7 @@ def test_o_buraco_de_vao_estreito_nao_parte_a_palavra():
     """O outro lado: onde a página não tem vão, o buraco não inventa um."""
     img, boxes = _linha_de("knight", [2, 2, 2, 2, 2])
     leituras = [(c, 0.9 if c != "g" else 0.2) for c in "knight"]
-    texto, _fracos, _pesos, _lac = livro._texto_da_linha(
+    texto, _fracos, _pesos, _lac, _cx = livro._texto_da_linha(
         img, boxes, _ler(leituras), 0.5)
     assert texto == "kniht"
 
@@ -128,7 +128,7 @@ def test_o_derrubado_entre_duas_palavras_continua_separando():
     só. Sem isto, `White ✝ moves` sairia `Whitemoves`.
     """
     img, boxes = _linha_de("A_B", [40, 40])
-    texto, _f, _p, _lac = livro._texto_da_linha(
+    texto, _f, _p, _lac, _cx = livro._texto_da_linha(
         img, boxes, _ler([("A", 0.9), ("+", 0.1), ("B", 0.9)]), 0.5)
     assert texto == "A B"
 
@@ -136,7 +136,7 @@ def test_o_derrubado_entre_duas_palavras_continua_separando():
 def test_a_linha_sem_nada_derrubado_sai_como_antes():
     """A trava de regressão: onde não há buraco, a régua não mudou."""
     img, boxes = _linha_de("abcd", [2, 40, 2])
-    texto, fracos, pesos, _lac = livro._texto_da_linha(
+    texto, fracos, pesos, _lac, _cx = livro._texto_da_linha(
         img, boxes, _ler([(c, 0.9) for c in "abcd"]), 0.5)
     assert (texto, fracos) == ("ab cd", 0)
     assert len(pesos) == len(texto)
@@ -150,7 +150,7 @@ def test_o_vetor_de_espessuras_acompanha_o_buraco():
     linha andaria uma casa.
     """
     img, boxes = _linha_de("abc", [30, 30])
-    texto, _f, pesos, _lac = livro._texto_da_linha(
+    texto, _f, pesos, _lac, _cx = livro._texto_da_linha(
         img, boxes, _ler([("a", 0.9), ("b", 0.2), ("c", 0.9)]), 0.5)
     assert len(pesos) == len(texto) == 3
     assert pesos[1] is None, "o espaço tem de vir sem medida"
@@ -295,7 +295,7 @@ def test_a_lacuna_sai_da_linha_alinhada_ao_texto():
     `partir_colada` precisa do vão entre cada par de caracteres vizinhos.
     """
     img, boxes = _linha_de("abcd", [2, 40, 2])
-    texto, _f, pesos, lacunas = livro._texto_da_linha(
+    texto, _f, pesos, lacunas, _cx = livro._texto_da_linha(
         img, boxes, _ler([(c, 0.9) for c in "abcd"]), 0.5)
     assert texto == "ab cd"
     assert len(lacunas) == len(pesos) == len(texto)
@@ -312,7 +312,7 @@ def test_a_lacuna_atravessa_o_buraco_e_vira_desconhecida():
     """
     img, boxes = _linha_de("knight", [2, 2, 2, 2, 2])
     leituras = [(c, 0.9 if c != "g" else 0.2) for c in "knight"]
-    texto, _f, _p, lacunas = livro._texto_da_linha(
+    texto, _f, _p, lacunas, _cx = livro._texto_da_linha(
         img, boxes, _ler(leituras), 0.5)
     assert texto == "kniht"
     assert lacunas[3] is None, "o `h` vem depois do buraco: vão desconhecido"
@@ -462,6 +462,132 @@ def test_sem_lexico_nao_parte_nada():
     colada = _colada("ofthe", [None, 0.05, 0.40, 0.05, 0.05])
     assert livro.partir_coladas([_pagina(colada)], None) == 0
     assert colada.texto == "ofthe"
+
+
+# ----------------------------------------------------------------------
+# A colagem, e o reparo que a F66 recusou por falta de prova
+# ----------------------------------------------------------------------
+
+#: Pequeno e explícito, como o da F69: quem lê precisa saber **quais**
+#: candidatos existem, e com 310 mil palavras isso é invisível.
+PROSA = {"hater", "hammer", "the", "of"}
+
+
+def _provar_de(tabela):
+    """Um `provar` de mentira: a nota de cada trecho vem da tabela, por letra."""
+    def provar(caixas, letras):
+        provar.perguntas += 1
+        return tabela.get(letras, 0.0)
+    provar.perguntas = 0
+    return provar
+
+
+def _linha_pronta(texto):
+    """(texto, pesos, lacunas, caixas) de uma linha, um box por caractere."""
+    return (texto, [0.5] * len(texto), [0.1] * len(texto), list(range(len(texto))))
+
+
+def test_a_colagem_se_repara_quando_o_papel_concorda():
+    """
+    `hamer` é o par que a F69 escolheu: `hater` casa sem esconder caractere e
+    está errado; `hammer` esconde um e é o que está impresso. Sem prova o
+    comprimento decide e erra — a F66 mediu 62,5% de precisão por isso.
+    """
+    lex = _lex(*PROSA)
+    texto, pesos, lacunas, caixas = _linha_pronta("hamer")
+    saida, p, l, n = livro._reparar_texto(
+        texto, pesos, lacunas, caixas, {2}, lex, _provar_de({"mm": 1.0}))
+    assert (saida, n) == ("hammer", 1)
+    # O comprimento mudou, então a medida do papel antigo não vale mais.
+    assert len(p) == len(l) == len(saida)
+    assert all(v is None for v in p)
+
+
+def test_a_palavra_sem_box_largo_nem_e_perguntada():
+    """
+    O portão barato, e é ele que faz o reparo caber num livro inteiro: a imensa
+    maioria das palavras não tem box largo, e nem o dicionário nem a prova
+    precisam ser consultados sobre elas.
+    """
+    lex = _lex(*PROSA)
+    provar = _provar_de({"mm": 1.0})
+    texto, pesos, lacunas, caixas = _linha_pronta("hamer")
+    saida, _p, _l, n = livro._reparar_texto(
+        texto, pesos, lacunas, caixas, set(), lex, provar)
+    assert (saida, n) == ("hamer", 0)
+    assert provar.perguntas == 0, "não havia box largo: nada a perguntar"
+
+
+def test_o_papel_que_discorda_recusa_a_troca():
+    """
+    A régua da F69. Quem tira nota baixa não entra, e o texto sai como o OCR o
+    leu — errado e visível, que é o lado seguro de errar.
+    """
+    lex = _lex(*PROSA)
+    texto, pesos, lacunas, caixas = _linha_pronta("hamer")
+    saida, _p, _l, n = livro._reparar_texto(
+        texto, pesos, lacunas, caixas, {2}, lex, _provar_de({}))
+    assert (saida, n) == ("hamer", 0)
+
+
+def test_a_notacao_nao_se_repara():
+    """
+    O mesmo portão dos outros dois reparos. A F69 mediu que quatro dos sete
+    recusados dela eram lance que a figurina fez passar por palavra — `Ndl` que
+    o dicionário "conserta" para `Geidl`.
+    """
+    lex = _lex("hater", "hammer", "geidl")
+    texto, pesos, lacunas, caixas = _linha_pronta("Nd4")
+    saida, _p, _l, n = livro._reparar_texto(
+        texto, pesos, lacunas, caixas, {1}, lex, _provar_de({"eid": 1.0}))
+    assert (saida, n) == ("Nd4", 0)
+
+
+def test_o_reparo_de_mesmo_comprimento_preserva_a_medida():
+    """
+    Quando o conserto não muda o tamanho da palavra, a espessura e a lacuna de
+    cada caractere continuam valendo — e o negrito da palavra reparada
+    sobrevive (F105).
+    """
+    lex = _lex("the", "of")
+    texto, pesos, lacunas, caixas = _linha_pronta("tbe")
+    saida, p, l, n = livro._reparar_texto(
+        texto, pesos, lacunas, caixas, {1}, lex, _provar_de({"h": 1.0}))
+    assert (saida, n) == ("the", 1)
+    assert p == [0.5, 0.5, 0.5] and l == [0.1, 0.1, 0.1]
+
+
+def test_a_pontuacao_em_volta_sobrevive_ao_reparo():
+    """O reparo é do núcleo; a vírgula e o parêntese não são da palavra."""
+    lex = _lex(*PROSA)
+    texto, pesos, lacunas, caixas = _linha_pronta("(hamer),")
+    saida, p, _l, n = livro._reparar_texto(
+        texto, pesos, lacunas, caixas, {3}, lex, _provar_de({"mm": 1.0}))
+    assert (saida, n) == ("(hammer),", 1)
+    assert len(p) == len(saida)
+
+
+def test_a_pagina_conta_os_reparos():
+    """
+    **A F66 recusou este reparo chamando-o de "reescrever o texto em
+    silêncio".** O número na `PaginaExtraida` é o que desfaz o silêncio, e o
+    relatório do fim da exportação o mostra.
+    """
+    import inspect
+
+    assert "reparos" in inspect.signature(livro.PaginaExtraida).parameters
+    assert livro.PaginaExtraida(numero=0).reparos == 0
+
+
+def test_sem_probabilidade_o_reparo_nao_roda():
+    """
+    O padrão é não reparar, e é de propósito: sem a prova visual o reparo
+    escolhe por comprimento, que é o que a F66 mediu e recusou.
+    """
+    import inspect
+
+    for f in (livro.extrair, livro.extrair_pagina):
+        assert inspect.signature(f).parameters["probabilidade"].default is None
 
 
 if __name__ == "__main__":

@@ -1794,6 +1794,25 @@ class MainWindow(tk.Frame):
             if teto is self.CANCELADO:
                 return
 
+        # **O reparo de colagem é escolha, e o padrão é não** (F115). Ele é
+        # exato — medido, 19 de 19 trocas certas nas páginas rotuladas — e é
+        # caro: a prova visual pergunta ao modelo letra por letra, e a extração
+        # de 30 páginas do Nunn passou de 77 s para 964 s. Quem exporta um livro
+        # de 900 páginas precisa saber disso antes, e não depois.
+        reparar = messagebox.askyesno(
+            "Consertar as palavras que a colagem estragou?",
+            "Quando dois glifos se encostam eles viram um box só, e o box vira "
+            "um caractere: `Dynamic` sai `Dmamic` e `Vancura` sai `Wncura`.\n\n"
+            "O dicionário sabe qual palavra cabe naquele molde, e o modelo é "
+            "consultado sobre o que está desenhado no papel antes de autorizar "
+            "a troca — medido, 19 de 19 trocas certas nas páginas de "
+            "conferência.\n\n"
+            "Em compensação é lento: a extração leva cerca de doze vezes mais "
+            "tempo. Num livro de 300 páginas isso é a diferença entre minutos "
+            "e horas.\n\n"
+            "Não: o texto sai como o OCR o leu.",
+            default=messagebox.NO)
+
         def trabalho(h):
             h.log("Carregando modelo neural...")
             if not self.learning_service.load_predictor():
@@ -1810,6 +1829,13 @@ class MainWindow(tk.Frame):
             paginas = livro.extrair(input_pdf, self.learning_service.ler_texto,
                                     coletor=coletor,
                                     lex=self.lexico_da_sessao(),
+                                    # A prova visual do reparo de colagem (F69):
+                                    # é ela que autoriza trocar `Dmamic` por
+                                    # `Dynamic`. Sem ela o reparo não roda, e é
+                                    # assim que o "não" da pergunta o desliga.
+                                    probabilidade=(
+                                        self.learning_service.probabilidade_de
+                                        if reparar else None),
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
                                     moldura=moldura, cantos=cantos,
@@ -1861,6 +1887,17 @@ class MainWindow(tk.Frame):
                     linhas += recortados[:12]
                     if len(recortados) > 12:
                         linhas.append(f"  ... e mais {len(recortados) - 12}")
+            # **O dicionário reescreveu texto, e isso tem de aparecer** (F115).
+            # A F66 recusou ligar o reparo de colagem chamando-o de "reescrever
+            # o texto em silêncio"; o silêncio era metade da objeção, e é esta
+            # linha que a desfaz — quem exporta vê quantas palavras mudaram e
+            # pode conferi-las.
+            reparos = sum(p.reparos for p in paginas)
+            cortes = sum(p.cortes for p in paginas)
+            if reparos or cortes:
+                linhas.append(f"Reparos do dicionário: {reparos} palavra(s) "
+                              f"corrigida(s) pelo desenho, {cortes} colada(s) "
+                              f"partida(s).")
             if de_imagem:
                 linhas.append(f"{de_imagem} página(s) eram imagem e saíram inteiras.")
             if coletor is not None:

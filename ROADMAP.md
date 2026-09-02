@@ -12563,14 +12563,18 @@ acima — se a linha do EasyOCR sair de 89,5%, o instrumento mudou.
 
 ## F115 — O caractere derrubado escrevia dois espaços, e os reparos do dicionário nunca viam a palavra inteira — CONCLUÍDA
 
-Uma revisão do OCR e da conversão, pedida depois da F114. Saíram três consertos no
-`core/livro.py`, dois instrumentos, e **um quarto achado que ficou medido e sem conserto** —
+Uma revisão do OCR e da conversão, pedida depois da F114. Saíram quatro consertos no
+`core/livro.py`, dois instrumentos, e **um quinto achado que ficou medido e sem conserto** —
 porque as duas correções candidatas foram medidas e as duas custam mais do que rendem.
 
-Os três consertos são de **montagem do texto**, e não de reconhecimento. É o que a F109 §4.1
-chama de "os reparos que existem e o livro não recebe": ela listou quatro funções e uma só
-tinha chamador em produção. **Esta fase liga as outras duas que cabiam aqui**, e sobra
-`reparar`/`reparos_da_pagina`, que precisa dos boxes.
+Os quatro consertos são de **montagem do texto**, e não de reconhecimento. É o que a F109
+§4.1 chama de "os reparos que existem e o livro não recebe": ela listou quatro funções e uma
+só tinha chamador em produção. **Esta fase liga as três que faltavam**, e a lista fecha.
+
+Elas não entraram do mesmo jeito, e a diferença é o que cada uma custa. As três primeiras são
+baratas e ficam sempre ligadas. A quarta — o reparo de colagem da F66 — é exata e **doze
+vezes e meia mais lenta**, e por isso entra como pergunta na janela de exportação, com o
+padrão em não.
 
 ---
 
@@ -12815,6 +12819,103 @@ registrado, com o caminho, e não entra por 7 palavras em 354 páginas.
 
 ---
 
+### 4. O reparo de colagem, que a F66 recusou e a F69 destravou
+
+`lexico.reparar` é o quarto da lista da F109 §4.1, e o único que **nunca teve chamador em
+produção nenhum** — nem a UI, ao contrário do que aquela seção registrou; os únicos
+consumidores eram `medir_reparo.py` e os testes.
+
+Ele apaga o que veio de um box largo demais para um glifo, ancora no resto e procura no
+dicionário a palavra que cabe naquele molde: `Dmamic` vira `D` + máscara + `amic`, e só
+`dynamic` cabe.
+
+#### Por que ele estava desligado, e o que mudou
+
+**A F66 mediu e recusou**, na letra: *"62,5% de precisão é inaceitável para algo que reescreve
+o texto em silêncio"*, e concluiu *"o código fica, e `livro` não o chama"*. Sem prova visual o
+reparo escolhe por comprimento, e por essa régua `drazic` ganha de `dynamic` — casa sem
+esconder caractere nenhum.
+
+**A F69 construiu a prova** — perguntar ao modelo quanto ele dá a uma letra naquele pedaço de
+papel — e mediu que ela separa as duas populações. Mas a F69 saiu marcada "(instrumento)": a
+prova ficou escrita, medida, e sem ligar em lado nenhum.
+
+Faltava uma coisa antes de ligar, e ela está dita na própria F69: **a régua é uma
+probabilidade, e por isso ela não atravessa uma calibração.** `NOTA_MINIMA` = 0,5 foi medida em
+dois modelos, e o de hoje é um terceiro — 314 classes, T = 1,825.
+
+#### A régua remedida, e o vão que encolhe
+
+`medir_reparo.py --nota 0.0 0.5`, nas mesmas páginas rotuladas:
+
+| | reparos | precisão pelo rótulo automático |
+|---|---:|---:|
+| sem régua (nota ≥ 0) | 29 | 48% |
+| **com a régua de 0,5** | **19** | 63% |
+
+**E o rótulo automático é teto, não verdade** — é o mesmo aviso que a F66 e a F69 deixaram.
+Lidos um a um os 19 que passam, os 7 que ele chama de errados são rótulo **truncado**: ele diz
+`eample` onde o reparo escreve `example`, `tonamt` onde escreve `tournament`, `Wadering` onde
+escreve `Wandering`, `wit` onde escreve `with`, `Bo` onde escreve `Benko`. **Os 19 estão
+certos.**
+
+O vão continua existindo, e continua encolhendo:
+
+| modelo | aceitos | recusados | vão |
+|---|---|---|---:|
+| 249 classes, softmax cru (F69) | 0,884 – 1,000 | 0,000 – 0,004 | **221×** |
+| 258 classes, T = 2,0993 (F69) | 0,777 – 0,998 | 0,000 – 0,052 | **15×** |
+| **314 classes, T = 1,825 (hoje)** | **0,847 – 0,999** | **0,000 – 0,259** | **3,3×** |
+
+O 0,5 continua dentro dele, e não precisou mexer. **Mas a tendência é o que vale registrar: 221
+→ 15 → 3,3.** A régua não é mais "qualquer ponto do vão"; ela ainda tem folga dos dois lados, e
+quem retreinar de novo tem de refazer esta tabela antes de confiar nela.
+
+Do lado recusado, 8 são erro de verdade — `wehave` → `behave` e `Ifwe` → `Iftime`, que são
+palavras lidas **certas** às quais falta só o espaço, mais `fChess` → `lichess` e três de lance
+ou nome. E 2 são acerto perdido: `Dg6nce` → `Defence` com 0,001 e `Kfer` → `Safer` com 0,259.
+**Quem reescreve texto em silêncio paga em recall, não em precisão**, e as duas palavras
+continuam fora do dicionário, então a fila de revisão continua vendo-as.
+
+#### O que ele acha num livro, e o que ele custa
+
+30 páginas do Nunn, o caminho de produção inteiro:
+
+| | |
+|---|---:|
+| palavras reparadas | 8 |
+| extração sem o reparo | **77 s** |
+| extração com o reparo | **964 s** |
+
+    Wncura      -> Vancura        suffets     -> suffers
+    fmnt        -> front          Shakhrwtny  -> Shakhmatny
+    Bemer—      -> Berner—        'Vancara    -> 'Vancura
+
+As oito estão certas — `Vancura` é a posição de torre mais citada deste livro e `Shakhmatny` é
+a revista que ele cita.
+
+**E são doze vezes e meia o tempo.** A prova pergunta ao modelo letra por letra e posição por
+posição, e paga isso por candidato do dicionário; num livro de 300 páginas a diferença é entre
+minutos e horas.
+
+#### Por isso ele entra como pergunta, e o padrão é não
+
+`extrair` e `extrair_pagina` ganharam `probabilidade`, e **sem ele o reparo não roda** — não
+por acidente, mas porque rodar sem prova é exatamente a configuração que a F66 mediu em 62,5% e
+recusou. A janela de exportação pergunta, com o custo escrito nela, e o padrão é **não**.
+
+**E ele deixou de ser silencioso**, que era a outra metade da objeção da F66: a
+`PaginaExtraida` conta os reparos e o relatório do fim da exportação diz quantas palavras o
+dicionário trocou. Quem exportar pode conferi-las.
+
+**Otimizar a prova não foi tentado, e não deve ser tentado de olho.** O custo está no
+`provar_letras` da F69, que varre ±40% da largura de uma letra em passos de 20% — e essa
+varredura é o que faz a prova funcionar onde não há vale no perfil, que é um quarto das
+colagens. Cortar candidato ou passo muda o número das duas tabelas acima, e quem mexer ali
+refaz as duas.
+
+---
+
 ### A tabela das cinco famílias, refeita
 
 Os dois livros inteiros, relidos com o modelo, o mesmo dos dois lados — o `model_meta.json`
@@ -12891,8 +12992,11 @@ está dita lá. `medir_faixa.py` é o que a próxima tentativa tem de bater.
 As famílias A, D e o que sobra de C e E — 1.998 palavras no Yusupov, 11,9% da prosa, e 2.545
 no Nunn. Elas são de segmentação e de reconhecimento, e estão na F110, na F112 e na F113.
 
-Dos "três reparos prontos" da F109 §4.1 fica **um**: `reparar`/`reparos_da_pagina`, que
-precisa dos boxes e por isso não cabe no caminho do livro sem que ele passe a carregá-los.
+Dos quatro reparos que a F109 §4.1 listou **não fica nenhum**: a lista fecha aqui. O que
+fica em aberto é a **régua** do quarto deles — o vão da prova visual encolheu de 221× para
+3,3× em três modelos, e quem retreinar refaz `medir_reparo.py --nota` antes de confiar nela.
+E fica o custo: doze vezes e meia é caro demais para ser padrão, e otimizá-lo exige refazer
+as duas tabelas da §4.
 
 E ficam as ~7 junções de hífen que o corte revelou e a ordem dos reparos não alcança — ver o
 fim da §3, que traz o caminho: o `nan` que o vetor de lacunas deixa no primeiro caractere de
@@ -12929,6 +13033,9 @@ Tudo em `core/livro.py`:
 - `partir_coladas` e `vocabulario`, novas, e `VISTAS_PARA_CORTAR` — o reparo que se decide
   com o livro na mão (§3). Chamadas do `extrair_pagina` e do `extrair`, no molde do
   `negrito.marcar`.
+- `_reparar_texto`, nova, e o `probabilidade` que desce do `extrair` até ela (§4) — o reparo
+  que se decide com o **papel** na mão. `PaginaExtraida.reparos` e `.cortes` contam o que foi
+  trocado, e `ui/main_window.py` pergunta antes e mostra depois.
 - `Linha.lacunas` e `Paragrafo.lacunas` — a medida sai da linha e espera o livro.
 
 Dois instrumentos. `medir_prosa.py` refaz a tabela das cinco famílias e é o critério de
@@ -12937,9 +13044,10 @@ versionado justamente por isso: **uma recusa sem instrumento é uma opinião**, 
 pessoa a olhar a faixa precisa poder refazer as duas colunas antes de escrever a terceira
 régua.
 
-`tests/test_f115_buraco_e_hifen.py`, 29 testes — os 10 dos dois primeiros consertos falham
-no código de antes, conferido rodando o próprio arquivo contra uma árvore em HEAD. A suíte
-inteira sai de 1.813 para 1.842, verde.
+`tests/test_f115_buraco_e_hifen.py`, 37 testes — os 10 dos dois primeiros consertos falham
+no código de antes, conferido rodando o próprio arquivo contra uma árvore em HEAD. A prova do
+§4 é injetada como a da F69, e por isso nenhum teste pede modelo treinado. A suíte inteira sai
+de 1.813 para 1.850, verde.
 
 ---
 

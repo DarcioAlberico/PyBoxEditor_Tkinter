@@ -151,7 +151,7 @@ def medir_livro(caminho, quantas, ler, mostrar=False):
             if not tabuleiros:
                 continue
             for d, linha in linhas_da_faixa(img, tabuleiros, escala, ler):
-                texto, _f, _p, _l = livro._texto_da_linha(img, linha, ler,
+                texto, _f, _p, _l, _c = livro._texto_da_linha(img, linha, ler,
                                                       livro.CONF_MINIMA)
                 e_cabecalho = parece_cabecalho(texto)
                 # Régua A: a linha inteira cabe no retângulo de exclusão.

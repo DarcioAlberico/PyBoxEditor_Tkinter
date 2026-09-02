@@ -284,7 +284,7 @@ def test_o_livro_le_a_linha_com_a_regua_nova():
     for b in ano:
         img[b.y1 + 1:b.y2 - 1, b.x1 + 1:b.x2 - 1] = 0
 
-    texto, _fracos, _pesos, _lac = livro._texto_da_linha(
+    texto, _fracos, _pesos, _lac, _cx = livro._texto_da_linha(
         img, ano, lambda r: ("2", 0.99), conf_minima=0.5)
     assert texto == "2222"        # sem espaço nenhum dentro do ano
 
