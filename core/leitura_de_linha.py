@@ -392,6 +392,7 @@ def ler_pagina(
     conf_maxima_para_trocar: Optional[float] = None,
     cancelado: Optional[Callable[[], bool]] = None,
     progresso: Optional[Callable[[int, int], None]] = None,
+    ao_falhar: Optional[Callable[[BoxEntry, Exception], None]] = None,
 ) -> List[Tuple[BoxEntry, str, float, str]]:
     """
     `(box, char, confiança, fonte)` para cada box de `linhas`, em ordem.
@@ -415,13 +416,39 @@ def ler_pagina(
     é obrigatória: a rede acerta 97,6% e a linha 89,5%, então deixá-la mandar em
     tudo **regride 7,3 pontos**. Passando `0.70`, ela só toca no que a cadeia
     não soube responder.
+
+    `ao_falhar(box, exceção)` é o que segura a página quando **um** recorte dá
+    erro. Sem ele (o padrão), a exceção sobe como sempre subiu — é o contrato
+    que `medir_cadeia.py` e os testes esperam. Com ele, o box cuja leitura
+    falhou sai vazio, a faixa cuja leitura falhou deixa a linha com a âncora, e
+    quem chamou é avisado de cada caso. Existe porque a alternativa era perder
+    uma página inteira já lida por causa de um `cv2.resize` num recorte
+    degenerado: o cancelamento aplica o parcial, e o erro não aplicava nada.
     """
+    def ler_box(b):
+        if ao_falhar is None:
+            return ler_caractere(b)
+        try:
+            return ler_caractere(b)
+        except Exception as e:  # noqa: BLE001 — devolvido a quem chamou
+            ao_falhar(b, e)
+            return ("", 0.0, "vazio")
+
+    def ler_tira(linha, tira):
+        if ao_falhar is None:
+            return ler_faixa(tira)
+        try:
+            return ler_faixa(tira)
+        except Exception as e:  # noqa: BLE001 — devolvido a quem chamou
+            ao_falhar(linha[0], e)
+            return ("", 0.0)
+
     saida = []
     for i, linha in enumerate(linhas):
         if cancelado is not None and cancelado():
             break
 
-        por_char = [ler_caractere(b) for b in linha]
+        por_char = [ler_box(b) for b in linha]
         chars = [c for c, _cf, _fo in por_char]
         confs = [cf for _c, cf, _fo in por_char]
         fontes = [fo for _c, _cf, fo in por_char]
@@ -430,7 +457,7 @@ def ler_pagina(
         if em_bloco(linha, deslocam, chars):
             tira = faixa_da_linha(pagina, linha)
             if tira is not None:
-                texto, conf_linha = ler_faixa(tira)
+                texto, conf_linha = ler_tira(linha, tira)
                 texto = texto.replace(" ", "")
 
         final = distribuir(chars, texto) if texto else list(chars)

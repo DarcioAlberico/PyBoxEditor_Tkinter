@@ -2350,6 +2350,9 @@ class MainWindow(tk.Frame):
         )
 
     def generate_and_fill_easyocr(self):
+        # `_busy` antes de gerar — ver o comentário sobre `generate_and_fill_linha`.
+        if self._busy("OCR (EasyOCR)"):
+            return
         self.generate_boxes_opencv()
         if self.boxes:
             self.auto_fill_characters_easyocr()
@@ -2428,6 +2431,12 @@ class MainWindow(tk.Frame):
         # que o `faixas` aqui em cima já usa.
         margens = {}
 
+        # Um recorte que o OCR não consegue ler não pode custar a página: o
+        # cancelamento aplica o parcial, e um erro solto no meio do laço não
+        # aplicava nada do que já estava lido. O box fica vazio, e o diálogo
+        # de fim diz quantos foram e qual foi o primeiro erro.
+        falhas = []
+
         def trabalho(h):
             lidos = leitura_de_linha.ler_pagina(
                 pagina, linhas,
@@ -2440,6 +2449,7 @@ class MainWindow(tk.Frame):
                 conf_maxima_para_trocar=conf_maxima_para_trocar,
                 cancelado=lambda: h.cancelled,
                 progresso=lambda i, n: h.progress(i, n, f"linha {i}/{n}"),
+                ao_falhar=lambda b, e: falhas.append(f"{type(e).__name__}: {e}"),
             )
             return {"lidos": lidos, "cancelado": h.cancelled}
 
@@ -2465,26 +2475,42 @@ class MainWindow(tk.Frame):
                 texto += (f"\n\nCancelado: {feitos} de {total} boxes "
                           f"processados; o resto ficou como estava.")
                 self.status.set(f"{titulo}: cancelado ({feitos}/{total}).")
-            messagebox.showinfo(titulo, texto)
+            if falhas:
+                texto += (f"\n\n{len(falhas)} leitura(s) falharam e o box "
+                          f"ficou vazio. Primeiro erro:\n{falhas[0]}")
+                messagebox.showwarning(titulo, texto)
+            else:
+                messagebox.showinfo(titulo, texto)
 
         self._run_task(titulo, trabalho, aplicar)
 
+    # As quatro ações abaixo conferem `_busy` **antes** de gerar os boxes, e
+    # não só dentro do preenchimento. Gerar substitui a lista da página; com
+    # uma tarefa em andamento, o usuário perdia os boxes e em seguida lia que
+    # a ação "não pode começar agora" — e a tarefa em curso ainda aplicava o
+    # resultado dela por cima da lista nova.
+
     def generate_and_fill_linha(self):
+        if self._busy("OCR (EasyOCR por linha)"):
+            return
         self.generate_boxes_opencv()
         if self.boxes:
             self.auto_fill_characters_linha()
 
     def generate_and_fill_combined(self):
+        if self._busy("Detectar e preencher (Híbrido)"):
+            return
         self.generate_boxes_opencv()
         if not self.boxes:
             return
+        # O denominador do veto geométrico (F106), tirado da página inteira uma
+        # vez só — é o que separa o ponto do quadrado. Aqui, e não dentro de
+        # `preparar`: aquele roda na thread de trabalho, e `self.boxes` é da UI.
+        referencia = proporcao.altura_de_referencia(self.boxes)
 
         def preparar(h, pagina, faixas, margens):
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
-            # O denominador do veto geométrico (F106), tirado da página inteira
-            # uma vez só — é o que separa o ponto do quadrado.
-            referencia = proporcao.altura_de_referencia(self.boxes)
 
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
@@ -2513,22 +2539,37 @@ class MainWindow(tk.Frame):
         )
 
     def generate_and_fill_neural(self):
+        titulo = "Detectar e preencher (Neural)"
+        if self._busy(titulo):
+            return
         # Antes do trabalho, não depois: este é o caminho em que a confiança da
         # rede vira `b.confidence`, e é ela que decide a cor do box e o filtro
         # "só pendentes". Saber que a escala não está calibrada muda como o
         # usuário lê o resultado que está prestes a gerar.
         self._avisar_do_modelo()
+        # **Sem modelo, a ação para aqui — e não segue sem a rede.** O
+        # `aviso_do_modelo` só fala de modelo que carregou; quando a carga
+        # falha ele cala, e a cadeia, vendo `loaded=False`, pulava a rede em
+        # silêncio. O que sobrava era o k-NN em 0,30 com a trava da linha em
+        # 0,70: a combinação que a tabela de `CONF_MAXIMA_PARA_A_LINHA_HIBRIDO`
+        # mediu como a pior (93,57% contra 95,68%), com o diálogo de fim
+        # dizendo só "Neural: 0". Quem quer ler sem a rede tem o «Híbrido».
+        if not self.learning_service.load_predictor():
+            messagebox.showerror(titulo, self.learning_service.motivo_do_modelo())
+            return
         self.generate_boxes_opencv()
         if not self.boxes:
             return
+        # Na thread da UI, pela razão dita em `generate_and_fill_combined`.
+        referencia = proporcao.altura_de_referencia(self.boxes)
 
         def preparar(h, pagina, faixas, margens):
             h.log("Carregando modelo neural...")
-            self.learning_service.load_predictor()
+            if not self.learning_service.load_predictor():
+                raise RuntimeError(self.learning_service.motivo_do_modelo())
             h.log("Carregando base de referência...")
             learner = self.learning_service._get_learner()
             predictor = self.learning_service._predictor
-            referencia = proporcao.altura_de_referencia(self.boxes)
 
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
@@ -2544,7 +2585,7 @@ class MainWindow(tk.Frame):
             return ler_caractere
 
         self._preencher_por_linha(
-            "Detectar e preencher (Neural)", preparar,
+            titulo, preparar,
             lambda fontes: (f"Neural: {fontes.get('neural', 0)}\n"
                             f"Referência: {fontes.get('learner', 0)}\n"
                             f"EasyOCR: {fontes.get('easyocr', 0)}\n"
