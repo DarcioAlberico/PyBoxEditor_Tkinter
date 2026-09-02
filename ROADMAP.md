@@ -12561,6 +12561,282 @@ acima — se a linha do EasyOCR sair de 89,5%, o instrumento mudou.
 
 ---
 
+## F115 — O caractere derrubado escrevia dois espaços, e o reparo do dicionário nunca via a palavra inteira — CONCLUÍDA
+
+Uma revisão do OCR e da conversão, pedida depois da F114. Saíram dois consertos no
+`core/livro.py`, um instrumento, e **um terceiro achado que ficou medido e sem conserto** —
+porque as duas correções candidatas foram medidas e as duas custam mais do que rendem.
+
+Os dois consertos são de **montagem do texto**, e não de reconhecimento. É o que a F109 §4.1
+chama de "os reparos que existem e o livro não recebe", e esta fase liga o segundo dos três.
+
+---
+
+### O achado que ficou em pé, e as duas réguas que caíram
+
+A revisão apontou `livro._na_faixa` como permissiva demais. Ela recolhe para o cabeçalho do
+diagrama toda caixa cujo **pé** caia dentro de 1,4 alturas de caractere acima da borda do
+tabuleiro e que apenas **se sobreponha** a ele na horizontal — e num livro de coluna única
+toda linha de prosa se sobrepõe. A última linha do parágrafo acima de cada diagrama sairia
+do parágrafo e viraria `<h2>` no EPUB e `Heading 2` no DOCX.
+
+A evidência era o `Kasparov - The Dynamic Benko Gambit (2012).epub` da raiz, que é saída
+deste projeto. Contados nele:
+
+| | |
+|---|---:|
+| `<h2>` no arquivo | 122 |
+| deles com figurina de xadrez — são notação, não cabeçalho | **111** |
+| deles contendo `Diagram` ou `Ex.` | **0** |
+| deles com palavra de dicionário de quatro letras ou mais | **0** |
+
+`♘c7`, `4.♘e2!?`, `9...♖a3`. Nenhum é cabeçalho de diagrama.
+
+Aquele EPUB é de 18/08/2026 e a F103 é de 24/08 — ele sai com um parágrafo por linha
+impressa, que é a assinatura do defeito que a F103 fechou, e portanto é saída de um código
+que não existe mais. Por isso ele **não decide nada sobre hoje**, e foi preciso remedir.
+
+#### O defeito existe, e a primeira varredura não o viu
+
+Medido no código de hoje, com o classificador de produção, em 60 páginas sorteadas de cada um
+dos oito livros de `PDF/` (480 páginas, semente fixa). "Prosa" é a linha recolhida que **não**
+parece cabeçalho de diagrama:
+
+| livro | linhas recolhidas | delas, prosa |
+|---|---:|---:|
+| **Darcy Lima · A Estratégia** (pt) | 15 | **12** |
+| **Dvoretsky · Endgame Manual** | 9 | **6** |
+| Nunn · Secrets of Rook Endings | 1 | 1 |
+| Yusupov · Chess Evolution 1 | 71 | 1 |
+| Yusupov Complete | 60 | 3 |
+| Razuvaev · Akiba Rubinstein | 3 | 0 |
+| Aagaard · Attacking Manual I | 0 | 0 |
+| Seirawan · Xadrez Vitorioso | 0 | 0 |
+| **total** | **159** | **23** |
+
+**O defeito é de dois livros, e num deles é quase tudo o que a faixa recolhe**: 12 de 15 no
+Darcy Lima, 6 de 9 no Dvoretsky. Nos dois Yusupov, que são 131 das 159 linhas, a faixa acerta
+— o que ela recolhe são os `Diagram 12-1 △` que ela existe para recolher, e as 4 marcadas como
+prosa são `Diagram` mal lido (`I]iagram 2f3`, `Dagram19`).
+
+No Darcy Lima o que se perde é `um par de Cavalos como n`, `es no campo adversário`, `entar
+peões dobrados q`, `a]uda do outro Bispo Um` — pedaços do **meio** de uma linha de prosa,
+cortados onde o tabuleiro começa e onde ele acaba. Uma linha a cada cinco páginas, e cada uma
+vira `<h2>` no EPUB ou um PNG que ninguém pesquisa.
+
+**A primeira varredura desta revisão disse "0 em 240 páginas", e o erro foi meu, na régua.**
+Ela perguntou *"há palavra de dicionário de quatro letras nesta linha?"*, e essa pergunta é
+cega duas vezes: o dicionário do projeto é inglês, e o livro em que o defeito acontece é em
+português; e notação não tem palavra de dicionário, que é o caso do Kasparov. Refeita a
+pergunta como *"isto parece cabeçalho de diagrama?"*, o defeito apareceu na primeira página
+que o tinha. **É a terceira vez que este ROADMAP registra "a propriedade medida não era a que
+interessava", agora na régua da própria revisão.**
+
+#### As duas réguas candidatas, e as duas caem
+
+Com o defeito medido, foram medidas também as duas correções óbvias — **antes** de escrever
+qualquer uma:
+
+| régua | prosa salva (de 23) | cabeçalhos perdidos |
+|---|---:|---:|
+| a linha tem de caber no retângulo de exclusão | 6 | 4 |
+| a linha continua fora da faixa (há texto de página na mesma altura) | 22 | **99** |
+
+A primeira quase não alcança, e perde quase tanto quanto salva: o pedaço de prosa que a faixa
+captura é justamente o que se sobrepõe ao tabuleiro, e ele **cabe** na exclusão.
+
+A segunda alcança quase tudo e destrói o recurso: nos dois Yusupov o cabeçalho do diagrama
+está na mesma altura da coluna vizinha e do diagrama ao lado, então "há texto de página nesta
+altura" é verdade para 99 cabeçalhos legítimos — **quatro vezes e meia** o que ela salva.
+
+**`_na_faixa` fica como está**, e não por falta de evidência do defeito — por falta de uma
+régua que o separe. As duas que se apresentavam foram medidas e as duas custam mais do que
+rendem.
+
+**A direção que sobra, para quem pegar isto:** o que separa o cabeçalho da linha de prosa não
+é largura nem vizinhança horizontal, é o **vão vertical acima dele**. O cabeçalho é apartado
+do parágrafo; a linha de prosa está a um passo de linha da anterior. O passo por coluna já é
+calculado — `_metricas_por_coluna`, F103 —, só que depois, e a faixa é decidida antes. Ligar
+os dois é a fase, e não uma linha.
+
+---
+
+### 1. O caractere derrubado por confiança escrevia dois espaços
+
+`_texto_da_linha` derruba o caractere abaixo de `CONF_MINIMA`, e a régua do espaço não
+olhava para isso: ela corria entre caixas **vizinhas** e escrevia um espaço por vão que
+passasse do limiar. Um glifo derrubado entre dois vãos largos passava por dois, e escrevia
+dois espaços.
+
+    antes    'kni  ht'      por `knight` com o `g` fraco
+    depois   'kni ht'
+
+O vão continua sendo medido onde ele existe — entre caixas vizinhas. O que mudou é **quando
+ele é escrito**: enquanto nada sai, o espaço fica pendente, e sai uma vez só quando o
+próximo caractere sai.
+
+**O que este conserto não faz, e precisa ser dito:** ele não devolve `kniht`. Os vãos em
+volta do buraco continuam sendo os da página, e quando eles são largos de verdade — que é o
+caso da linha degradada em que o defeito aparece — há separação ali. Suprimir o espaço por
+inteiro colaria `White ✝ moves` em `Whitemoves`, e há teste travando isso.
+
+| espaços duplos na prosa | antes | depois |
+|---|---:|---:|
+| Yusupov · Chess Evolution 1 (264 págs.) | **472** | **0** |
+| Nunn · Secrets of Rook Endings (354 págs.) | **26** | **0** |
+
+---
+
+### 2. Os reparos do dicionário sobem da linha para o parágrafo
+
+A F108 ligou `lexico.arrumar_caixa` em `extrair_pagina`, uma linha de cada vez, e o
+comentário dela dizia na letra que a palavra partida pelo hífen ficava de fora: *"o núcleo de
+cada metade não é palavra, o portão não abre, e a correção não acontece"*. A própria F108
+registrou isso em "o que esta fase não alcança".
+
+`lexico.juntar_hifenizadas` existe desde a F9.1, tem teste, tem medição própria — a F104
+estimou 490 junções no Nunn — e **não tinha um chamador em produção**. É o segundo dos "três
+reparos prontos" que a F109 §4.1 lista, e o primeiro a ser ligado desde que ela os listou.
+
+Os dois reparos passaram para `_paragrafo_de`, que é a única altura em que a palavra que o
+livro imprimiu existe inteira. O vetor de espessuras da F105 anda junto: cada caractere que
+sai do texto — o hífen, e o espaço que separava as duas linhas — sai também do vetor, senão
+`negrito.marcar` pula o parágrafo em silêncio.
+
+| hífen de fim de linha que ainda formaria palavra | antes | depois |
+|---|---:|---:|
+| Yusupov · Chess Evolution 1 | **13** | **3** |
+| Nunn · Secrets of Rook Endings | **1.212** | **9** |
+
+O Nunn é o livro que hifeniza: `dia-gram` 88×, `be-cause` 48×, `fol-lowed` 48×, `zug-zwang`
+44×, `posi-tion` 43×. **A F104 estimou 490 e o número é 2,5× isso.**
+
+**O que sobra não é junção perdida — é o teto da régua.** Conferidos um a um, os 9 do Nunn e
+os 3 do Yusupov são `the a-, b- or c-files` e `the c5- and f6–pawns`: hífen e palavra
+seguinte na **mesma** linha impressa, onde não há quebra para juntar. `juntar_hifenizadas` só
+olha o fim de uma linha contra o começo da seguinte, e o texto exportado não guarda mais onde
+a linha acabava — daí o contador ser um teto, e estar documentado como tal.
+
+**E a junção recusa o que tem de recusar.** No Yusupov há 12 pares `palavra- palavra`; os que
+o dicionário junta são `be-cause`, `king-side`, `follow-ing`, `dan-ger`, `oppo-nent` e
+`compensa-tion`, e os outros são `light-squared` e `dark-squared` — hífen de verdade, que
+continua no lugar. O critério é o da F9.1 e não tem limiar: junta se o resultado for palavra.
+
+**A caixa também passou a alcançar a palavra partida**, e é ganho de graça: `bi-` + `Shop`
+não abre o portão de `conhece` em nenhuma das duas linhas, e `biShop` abre.
+
+---
+
+### A tabela das cinco famílias, refeita
+
+Os dois livros inteiros, relidos com o modelo, o mesmo dos dois lados — o `model_meta.json`
+da árvore de trabalho foi copiado para a árvore em HEAD, porque o do HEAD aponta para outro
+`.pth` e a comparação mediria o modelo em vez do código.
+
+| família | Yusupov antes | Yusupov depois | Nunn antes | Nunn depois |
+|---|---:|---:|---:|---:|
+| A. o `i` partido em haste e pingo | 350 | 350 | 155 | 155 |
+| B. caixa homográfica | 0 | 0 | 14 | 14 |
+| C. palavra colada | 795 | 793 | 2.360 | **1.895** |
+| D. dígito espúrio dentro da palavra | 456 | 456 | 496 | 496 |
+| E. resto fora do dicionário | 501 | 501 | 383 | **327** |
+| **com defeito** | 2.102 · **12,55%** | 2.100 · **12,54%** | 3.408 · **6,51%** | 2.887 · **5,61%** |
+
+**No Nunn a tabela move 0,90 ponto — um sétimo do erro do livro — e no Yusupov não move.** A
+diferença entre os dois é uma só: o Nunn hifeniza e o Yusupov quase não. Onde há hifenização,
+ligar uma função que já existia há sete fases apaga 465 palavras da família C e 56 da E.
+
+**Duas coisas a registrar sobre a tabela em si.** A família B do Yusupov sai em zero porque a
+F108 já está ligada dos dois lados, e a razão `S/s` deste livro é hoje **0,078** contra os
+0,203 que a SPEC §1 mediu no DOCX exportado três horas antes da F108. E esta régua mede
+12,55% onde a spec mediu 20,26% no mesmo livro: **a diferença é de definição, e não de
+conserto** — a spec classificou à mão, sobre um arquivo, e este instrumento exige que a
+palavra tenha duas letras e caracteres de prosa, o que tira a linha de fonte de diagrama que
+a própria spec §2.7 mediu como contaminação da conta.
+
+---
+
+### O instrumento
+
+`medir_prosa.py`, que é a conta da SPEC §1 escrita. Lê de quatro lugares — um DOCX, um EPUB,
+o PDF relido com o modelo, ou um texto que ele mesmo gravou — e devolve as cinco famílias, a
+razão de caixa e os dois defeitos que o texto denuncia sozinho.
+
+**Ele foi validado contra a spec antes de decidir qualquer coisa**, e a validação é forte: a
+tabela de razão de caixa do `_teste-1.docx` sai **igual número a número** à da SPEC §1 —
+`S/s` = 0,203, `W/w` = 0,311, `J/j` = 1,452, `V/v` = 0,162, `Z/z` = 0,164, `K/k` = 0,148,
+`P/p` = 0,077, `C/c` = 0,048, `(O+0)/o` = 0,194 — e a família A sai em 2,09% contra os 2,03%
+da spec. No EPUB do Kasparov, `S/s` = **0,047**, que é o valor que a spec §2.2 registra como
+o normal de um texto em inglês.
+
+Três réguas dele foram escolhidas por medição, e as três estão documentadas no arquivo:
+
+- **a colagem exige quatro letras de sobra.** Com três, a família C dava 1.785 palavras no
+  Kasparov e engolia a E inteira: numa lista de 310.465 palavras quase todo trio de letras
+  existe, e `phoros` "decompunha" em `ros`.
+- **o dígito é procurado na palavra, e não no núcleo.** `lexico.nucleo` apara o que não é
+  letra das **pontas** — é o que ele deve fazer, porque é o que vai ao dicionário —, e com
+  isso `lut1` vira `lut` e `1nto` vira `nto`: metade da família D sumia para a E. Vale 224
+  palavras neste livro.
+- **o hífen é contado pela remontagem verdadeira.** A primeira versão casava as letras
+  iniciais do token seguinte e contava `nor- mal1y` como junção de `normal`; o núcleo daquele
+  token é `mal1y` inteiro, e a remontagem dá `normal1y`, que não é palavra. A régua frouxa
+  dizia 13 junções pendentes no Nunn onde havia 1.
+
+---
+
+### O que esta fase não alcança, e onde isso está
+
+**A faixa que come prosa**, que é o achado desta fase sem conserto: 12 linhas em 60 páginas
+do Darcy Lima e 6 em 60 do Dvoretsky. As duas réguas candidatas estão medidas e recusadas
+acima, e a direção que sobra — o vão vertical acima da linha, contra o passo da coluna —
+está dita lá. `medir_faixa.py` é o que a próxima tentativa tem de bater.
+
+As famílias A, C, D e E — 2.100 palavras no Yusupov, 12,5% da prosa. Elas são de segmentação
+e de reconhecimento, e estão na F110, na F112 e na F113.
+
+Dos "três reparos prontos" da F109 §4.1 ficam dois: `partir_colada` precisa das lacunas entre
+caracteres, que `_paragrafo_de` não tem — quem as tem é `_texto_da_linha`, e levá-las até lá
+é um vetor a mais ao lado do de espessuras, do mesmo feitio do da F105; e
+`reparar`/`reparos_da_pagina` precisa dos boxes.
+
+E ficam os defeitos de escrita do arquivo que esta revisão levantou e que não são desta fase.
+Seis já estavam na F111. **Três não estavam**, e ficam registrados aqui:
+
+- **`exportar.trechos` descarta faixa de negrito fora de ordem, em silêncio.** Com `(10,15)`
+  antes de `(2,5)`, a segunda some. Hoje é latente — `negrito._juntar` emite ordenado —, e
+  ordenar na entrada fecha a porta.
+- **duas tabelas coladas viram uma quando o Word abre o arquivo.** O diagrama em modo de
+  fonte já tem o parágrafo de 1 pt que as separa (`exportar.py:1000`); o bloco `Tabela` não
+  tem. Tabela seguida de diagrama em modo de fonte sai fundida, e livro que termina em tabela
+  fica sem o separador que o Word pede.
+- **símbolo que a fonte de recurso não cobre sai mudo.** `fonte_dos_simbolos` escolhe a de
+  maior cobertura e o que sobra sai sem `<span>` nenhum, sem nada no relatório do fim da
+  exportação dizendo quais foram.
+
+E dois que a revisão conferiu e que estão **certos**, para ninguém os caçar de novo: o nome de
+família que o `fontTable.xml` escreve bate com o nome interno das três fontes embutidas
+(`SkakNew-Diagram Regular` → `SkakNew-Diagram`), e a ofuscação da fonte no DOCX segue a norma.
+
+---
+
+### Onde está
+
+`core/livro.py` — `_texto_da_linha` (o espaço pendente), `_juntar_no_hifen` (nova) e
+`_paragrafo_de` (os dois reparos, e o `lex` que desce pelo `_agrupar_em_paragrafos`).
+
+Dois instrumentos. `medir_prosa.py` refaz a tabela das cinco famílias e é o critério de
+aceitação desta fase. `medir_faixa.py` é o que recusou as duas réguas da seção de cima, e
+está versionado justamente por isso: **uma recusa sem instrumento é uma opinião**, e a
+próxima pessoa a olhar a faixa precisa poder refazer as duas colunas antes de escrever a
+terceira régua.
+
+`tests/test_f115_buraco_e_hifen.py`, 14 testes — **10 deles falham no código de antes**,
+conferido rodando o próprio arquivo contra uma árvore em HEAD; os outros 4 são as travas de
+regressão, e passam nos dois. A suíte inteira sai de 1.813 para 1.827, verde.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

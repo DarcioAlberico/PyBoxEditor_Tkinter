@@ -579,6 +579,20 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     precisa dos dois — a espessura de um `.` só quer dizer alguma coisa
     comparada com a de outros `.`. A lista sai alinhada ao `texto`, caractere a
     caractere, com `None` no espaço entre palavras e no que não deu para medir.
+
+    **O caractere derrubado por confiança não abre espaço** (F115). A régua do
+    vão corria entre caixas vizinhas e não olhava se a do meio tinha produzido
+    letra: um glifo derrubado entre dois vãos largos escrevia **dois** espaços,
+    e um derrubado no meio da palavra partia a palavra em duas. Medido no
+    Kasparov exportado, 298 parágrafos com espaço duplo; e `knight` com o `g`
+    fraco saía `kni ht`, que são dois pedaços que o dicionário não conhece —
+    contra `kniht`, que é uma palavra só e o reparo ainda pode alcançar.
+
+    O vão continua sendo medido entre caixas vizinhas, que é onde ele existe;
+    o que muda é **quando ele é escrito**. Enquanto nada sai, o espaço fica
+    pendente, e sai uma vez só quando o próximo caractere sai. Isso mantém as
+    duas leituras certas com uma régua só: o buraco no meio de `knight` não
+    separa nada, e o `✝` derrubado entre duas palavras continua separando-as.
     """
     # A régua do espaço é do `diagrama` e é uma só (F107) — ver
     # `limiar_de_espaco`. Ela mede o vão contra o **vão típico desta linha**, e
@@ -587,6 +601,7 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     limiar = diagrama.limiar_de_espaco(linha)
     partes, fracos = [], 0
     pesos: List[Optional[float]] = []
+    pendente = False
     for i, b in enumerate(linha):
         recorte = vertical.recorte_de_pe(img, b)
         char, conf = classificar(recorte) if recorte.size else ("", 0.0)
@@ -599,19 +614,23 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
         if char and conf < conf_minima:
             char, fracos = "", fracos + 1
         if i and b.x1 - linha[i - 1].x2 > limiar:
-            partes.append(" ")
-            pesos.append(None)
+            pendente = True
         # **Depois do coletor, e antes do texto.** A base de treino guarda o
         # recorte sob a classe que o modelo emitiu — é ela que ensina o modelo —,
         # e o livro recebe o que a classe significa: o `✝` do xeque sai `+`, e
         # uma busca por `Nxe4+` passa a achar a página. Ver `notacao`.
         saida = notacao.normalizar_saida(char or "")
+        if not saida:
+            continue
+        if pendente:
+            partes.append(" ")
+            pesos.append(None)
+            pendente = False
         partes.append(saida)
         # Um por caractere **do que saiu**, e não do que entrou: um sinônimo de
-        # saída pode ter mais de um caractere, e o caractere derrubado por
-        # confiança não tem nenhum. É o que mantém a lista alinhada ao texto.
-        espessura = negrito.espessura(recorte) if saida else None
-        pesos.extend([espessura] * len(saida))
+        # saída pode ter mais de um caractere. É o que mantém a lista alinhada
+        # ao texto.
+        pesos.extend([negrito.espessura(recorte)] * len(saida))
     texto = "".join(partes)
     # O `strip` do texto tem de acontecer nos dois, ou o alinhamento se perde
     # logo na primeira linha que comece com espaço.
@@ -851,26 +870,96 @@ def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
             for coluna, (margem, altura, passo) in metricas.items()}
 
 
-def _paragrafo_de(linhas: Sequence[Linha]) -> Paragrafo:
+def _juntar_no_hifen(textos: List[str], pesos: List[List[Optional[float]]],
+                     lex: Optional["lexico.Lexico"]) -> List[bool]:
+    """
+    Remonta a palavra partida no fim da linha — texto e espessuras juntos (F115).
+
+    Devolve um booleano por linha: `juntas[i]` verdadeiro quer dizer que a linha
+    `i` continua na `i + 1` **sem espaço no meio**.
+
+    **`lexico.juntar_hifenizadas` existe desde a F9.1, com teste e com medição,
+    e não tinha um chamador em produção** — a F104 mediu que ela juntaria 490
+    palavras no Nunn, e as 490 continuavam saindo partidas no arquivo. Ela
+    *propõe* e não altera nada, e é este o lugar de aplicar: aqui as linhas do
+    parágrafo já estão juntas, que é a única altura em que a palavra existe
+    inteira. Por linha, como a F108 fazia com a caixa, o `com-` e o `promised`
+    nunca se veem.
+
+    A remontagem é a do léxico — o hífen sai, e o resto dos dois pedaços fica.
+    A direita entra a partir do **núcleo**: pontuação abrindo a linha seguinte é
+    borda, e não faz parte da palavra que se remonta.
+
+    **O vetor de espessuras anda junto, e é por isso que esta função mexe nos
+    dois** (F105). Cada caractere que sai do texto sai também do vetor, e o
+    espaço que deixa de separar as duas linhas leva o `None` dele — senão a
+    marcação de negrito do resto do parágrafo anda uma casa por junção.
+    """
+    juntas = [False] * len(textos)
+    if lex is None or lex.vazio:
+        return juntas
+    for juncao in lexico.juntar_hifenizadas([t.split(" ") for t in textos],
+                                            lex):
+        k = juncao.linha
+        sem_hifen = textos[k].rstrip(lexico.HIFENS)
+        del pesos[k][len(sem_hifen):]
+        textos[k] = sem_hifen
+        _nuc, ini = lexico.nucleo(textos[k + 1].split(" ")[0])
+        if ini:
+            textos[k + 1] = textos[k + 1][ini:]
+            del pesos[k + 1][:ini]
+        juntas[k] = True
+    return juntas
+
+
+def _paragrafo_de(linhas: Sequence[Linha],
+                  lex: Optional["lexico.Lexico"] = None) -> Paragrafo:
     """
     As linhas de um parágrafo, juntas — texto e espessuras no mesmo passo.
 
     **O vetor de espessuras tem de ficar alinhado ao texto** (F105), e o espaço
     que junta duas linhas conta como caractere: sem o `nan` dele, a primeira
     quebra de linha do parágrafo deslocaria toda a medida do resto em um.
+
+    **É aqui que o dicionário entra, e não na linha** (F115). A F108 o ligou em
+    `extrair_pagina`, uma linha de cada vez, e ali metade das palavras que ele
+    existe para consertar ainda não existe: a que o hífen partiu no fim da linha
+    não está inteira em lado nenhum. Subir os dois reparos para o parágrafo é o
+    que os põe sobre a palavra que o livro imprimiu, e não sobre o pedaço que
+    coube na linha.
     """
-    texto = " ".join(l.texto for l in linhas)
-    pesos: List[Optional[float]] = []
-    for i, l in enumerate(linhas):
-        if i:
-            pesos.append(None)
-        pesos.extend(l.pesos if l.pesos is not None
-                     else [None] * len(l.texto))
-    return Paragrafo(texto, pesos=negrito.vetor(pesos))
+    textos = [l.texto for l in linhas]
+    pesos = [list(l.pesos) if l.pesos is not None else [None] * len(l.texto)
+             for l in linhas]
+    juntas = _juntar_no_hifen(textos, pesos, lex)
+
+    partes: List[str] = []
+    todos: List[Optional[float]] = []
+    for i, t in enumerate(textos):
+        if i and not juntas[i - 1]:
+            partes.append(" ")
+            todos.append(None)
+        partes.append(t)
+        todos.extend(pesos[i])
+    texto = "".join(partes)
+
+    if lex is not None:
+        arrumado = lexico.arrumar_caixa(texto, lex)
+        # **O contrato de `arrumar_caixa` é sair do mesmo comprimento**, e é
+        # dele que o vetor de espessuras depende. Conferir custa a comparação
+        # de dois inteiros e evita que uma mudança lá desligue o negrito daqui
+        # em silêncio: `negrito.marcar` pula o parágrafo cujo vetor não bate
+        # com o texto, e pular não deixa rastro nenhum.
+        if len(arrumado) == len(texto):
+            texto = arrumado
+
+    return Paragrafo(texto, pesos=negrito.vetor(todos))
 
 
 def _agrupar_em_paragrafos(linhas: Sequence[Linha],
-                           metricas: Optional[dict] = None) -> List[Paragrafo]:
+                           metricas: Optional[dict] = None,
+                           lex: Optional["lexico.Lexico"] = None
+                           ) -> List[Paragrafo]:
     """
     Linhas → parágrafos.
 
@@ -888,6 +977,9 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
 
     `metricas` vem do `_metricas_por_coluna` da página inteira; sem ela, sai
     destas linhas mesmo, que é o que serve a quem chama com a página toda.
+
+    `lex` desce para o `_paragrafo_de`, que é onde os reparos do dicionário
+    acontecem (F115). Sem ele o parágrafo sai como as linhas o escreveram.
     """
     if not linhas:
         return []
@@ -909,12 +1001,12 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
                   and linha.topo - anterior.topo
                   > passo * (1 + SALTO_DE_PARAGRAFO))
         if atual and (recuou or saltou or trocou):
-            paragrafos.append(_paragrafo_de(atual))
+            paragrafos.append(_paragrafo_de(atual, lex))
             atual = []
         atual.append(linha)
         anterior = linha
     if atual:
-        paragrafos.append(_paragrafo_de(atual))
+        paragrafos.append(_paragrafo_de(atual, lex))
     return paragrafos
 
 
@@ -1185,18 +1277,15 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         texto, n, pesos = _texto_da_linha(img, linha, classificar, conf_minima,
                                           coletor, numero)
         fracos += n
-        # **A primeira vez que o dicionário entra no caminho do livro** (F108).
-        # Até aqui ele só existia na revisão da UI, e o arquivo exportado saía
-        # sem nenhuma ajuda dele — o `biShop` que a rede lia confiante ia direto
-        # para o DOCX, e nem `conhece` o via, porque ele baixa os dois lados.
-        #
-        # Na linha e não no parágrafo, porque aqui `pesos` ainda está ao lado do
-        # texto e a correção preserva o comprimento: as fatias de negrito da
-        # F105 continuam apontando para o mesmo caractere. Palavra partida na
-        # quebra de linha fica de fora — o núcleo de cada metade não é palavra, o
-        # portão não abre, e a correção não acontece.
-        if texto and lex is not None:
-            texto = lexico.arrumar_caixa(texto, lex)
+        # **O dicionário deixou de entrar aqui, e subiu para o parágrafo**
+        # (F115). A F108 o ligou nesta linha, e era o lugar certo enquanto o
+        # único reparo era a caixa: a correção preserva o comprimento, e as
+        # fatias de negrito da F105 continuavam apontando para o mesmo
+        # caractere. O que a linha não tem é a palavra que o hífen partiu no fim
+        # dela — o próprio comentário de lá dizia que ela ficava de fora —, e
+        # `juntar_hifenizadas` precisa das duas metades ao mesmo tempo. Ver
+        # `_paragrafo_de`, que faz os dois reparos com o vetor de espessuras ao
+        # lado, um passo acima.
         if texto:
             medidas.append(Linha(
                 topo=min(b.y1 for b in linha),
@@ -1284,7 +1373,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             if col != coluna or (ate is not None and d.topo >= ate):
                 restam.append((col, d))
                 continue
-            resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
+            resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
             corrente = []
             resultado.blocos.extend(figura(d))
         pendentes = restam
@@ -1299,7 +1388,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         nonlocal corrente, tabela
         if tabela is None or (ate is not None and topo_da_tabela >= ate):
             return
-        resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
+        resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
         corrente = []
         resultado.blocos.append(tabela)
         tabela = None
@@ -1313,7 +1402,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         soltar_tabela(ate=medida.topo)
         corrente.append(medida)
         coluna_anterior = medida.coluna
-    resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas))
+    resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
     corrente = []
     soltar_tabela()
     for _col, d in pendentes:
