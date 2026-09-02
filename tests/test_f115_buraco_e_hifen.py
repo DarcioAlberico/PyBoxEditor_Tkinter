@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pytest
 
-from core import lexico, livro
+from core import lexico, livro, negrito
 from core.box_model import BoxEntry
 
 
@@ -88,7 +88,7 @@ def test_o_caractere_derrubado_nao_escreve_dois_espacos():
     espaço duplo.
     """
     img, boxes = _linha_de("abc", [30, 30])
-    texto, fracos, pesos = livro._texto_da_linha(
+    texto, fracos, pesos, _lac = livro._texto_da_linha(
         img, boxes, _ler([("a", 0.9), ("b", 0.2), ("c", 0.9)]), 0.5)
     assert fracos == 1, "o `b` tinha de cair por confiança"
     assert texto == "a c", f"saiu {texto!r} — o espaço saiu duas vezes"
@@ -105,7 +105,7 @@ def test_o_buraco_no_meio_da_palavra_deixa_de_dobrar_o_espaco():
     """
     img, boxes = _linha_de("knight", [2, 2, 12, 12, 2])
     leituras = [(c, 0.9 if c != "g" else 0.2) for c in "knight"]
-    texto, fracos, pesos = livro._texto_da_linha(
+    texto, fracos, pesos, _lac = livro._texto_da_linha(
         img, boxes, _ler(leituras), 0.5)
     assert fracos == 1
     assert texto == "kni ht", f"saiu {texto!r}"
@@ -116,7 +116,7 @@ def test_o_buraco_de_vao_estreito_nao_parte_a_palavra():
     """O outro lado: onde a página não tem vão, o buraco não inventa um."""
     img, boxes = _linha_de("knight", [2, 2, 2, 2, 2])
     leituras = [(c, 0.9 if c != "g" else 0.2) for c in "knight"]
-    texto, _fracos, _pesos = livro._texto_da_linha(
+    texto, _fracos, _pesos, _lac = livro._texto_da_linha(
         img, boxes, _ler(leituras), 0.5)
     assert texto == "kniht"
 
@@ -128,7 +128,7 @@ def test_o_derrubado_entre_duas_palavras_continua_separando():
     só. Sem isto, `White ✝ moves` sairia `Whitemoves`.
     """
     img, boxes = _linha_de("A_B", [40, 40])
-    texto, _f, _p = livro._texto_da_linha(
+    texto, _f, _p, _lac = livro._texto_da_linha(
         img, boxes, _ler([("A", 0.9), ("+", 0.1), ("B", 0.9)]), 0.5)
     assert texto == "A B"
 
@@ -136,7 +136,7 @@ def test_o_derrubado_entre_duas_palavras_continua_separando():
 def test_a_linha_sem_nada_derrubado_sai_como_antes():
     """A trava de regressão: onde não há buraco, a régua não mudou."""
     img, boxes = _linha_de("abcd", [2, 40, 2])
-    texto, fracos, pesos = livro._texto_da_linha(
+    texto, fracos, pesos, _lac = livro._texto_da_linha(
         img, boxes, _ler([(c, 0.9) for c in "abcd"]), 0.5)
     assert (texto, fracos) == ("ab cd", 0)
     assert len(pesos) == len(texto)
@@ -150,7 +150,7 @@ def test_o_vetor_de_espessuras_acompanha_o_buraco():
     linha andaria uma casa.
     """
     img, boxes = _linha_de("abc", [30, 30])
-    texto, _f, pesos = livro._texto_da_linha(
+    texto, _f, pesos, _lac = livro._texto_da_linha(
         img, boxes, _ler([("a", 0.9), ("b", 0.2), ("c", 0.9)]), 0.5)
     assert len(pesos) == len(texto) == 3
     assert pesos[1] is None, "o espaço tem de vir sem medida"
@@ -249,6 +249,219 @@ def test_a_correcao_de_caixa_continua_preservando_o_comprimento():
     lex = _lex("bishop", "also")
     texto = "biShop alSo"
     assert len(lexico.arrumar_caixa(texto, lex)) == len(texto)
+
+
+# ----------------------------------------------------------------------
+# A palavra colada, e a lacuna que a denuncia
+# ----------------------------------------------------------------------
+
+def _com_lacunas(texto, lacunas, peso=0.1):
+    return livro.Linha(topo=0, esquerda=0, altura=10, texto=texto,
+                       pesos=[peso] * len(texto), lacunas=lacunas)
+
+
+def test_a_lacuna_da_linha_chega_ao_paragrafo():
+    """
+    O elo entre os dois vetores: a medida sai da linha, e quem decide o corte é
+    uma passada depois, com o livro inteiro. Sem este campo no `Paragrafo` a
+    medida se perderia na montagem e `partir_coladas` não teria o que ler.
+    """
+    p = livro._paragrafo_de([_com_lacunas("ab", [None, 0.3]),
+                             _com_lacunas("cd", [None, 0.4])])
+    assert p.texto == "ab cd"
+    assert len(p.lacunas) == len(p.texto)
+    assert p.lacunas[1] == pytest.approx(0.3)
+    # O espaço que junta as duas linhas não tem vão medido, e o primeiro
+    # caractere da linha de baixo tampouco: não há caixa anterior a ele.
+    assert np.isnan(p.lacunas[2]) and np.isnan(p.lacunas[3])
+    assert p.lacunas[4] == pytest.approx(0.4)
+
+
+def test_a_juncao_no_hifen_encurta_os_dois_vetores():
+    """
+    A trava gêmea da que a F105 pede para `pesos`: a junção tira o hífen e o
+    espaço do texto, e os dois têm de sair do vetor de lacunas junto.
+    """
+    linhas = [_com_lacunas("com-", [None, 0.1, 0.1, 0.1]),
+              _com_lacunas("promised", [None] + [0.1] * 7)]
+    p = livro._paragrafo_de(linhas, _lex("compromised"))
+    assert p.texto == "compromised"
+    assert len(p.lacunas) == len(p.pesos) == len(p.texto)
+
+
+def test_a_lacuna_sai_da_linha_alinhada_ao_texto():
+    """
+    O terceiro vetor que `_texto_da_linha` devolve, e a razão de ele existir:
+    `partir_colada` precisa do vão entre cada par de caracteres vizinhos.
+    """
+    img, boxes = _linha_de("abcd", [2, 40, 2])
+    texto, _f, pesos, lacunas = livro._texto_da_linha(
+        img, boxes, _ler([(c, 0.9) for c in "abcd"]), 0.5)
+    assert texto == "ab cd"
+    assert len(lacunas) == len(pesos) == len(texto)
+    assert lacunas[0] is None, "o primeiro caractere não tem vão anterior"
+    assert lacunas[2] is None, "o espaço não tem vão medido"
+    # As caixas medem 20 px, então o vão de 2 px é 0,1 largura mediana.
+    assert lacunas[1] == pytest.approx(0.1)
+
+
+def test_a_lacuna_atravessa_o_buraco_e_vira_desconhecida():
+    """
+    Caixa derrubada por confiança no meio da palavra: o vão que sobra não é a
+    distância entre dois vizinhos, e afirmar que é seria inventar medida.
+    """
+    img, boxes = _linha_de("knight", [2, 2, 2, 2, 2])
+    leituras = [(c, 0.9 if c != "g" else 0.2) for c in "knight"]
+    texto, _f, _p, lacunas = livro._texto_da_linha(
+        img, boxes, _ler(leituras), 0.5)
+    assert texto == "kniht"
+    assert lacunas[3] is None, "o `h` vem depois do buraco: vão desconhecido"
+
+
+def _pagina(*blocos):
+    return livro.PaginaExtraida(numero=0, blocos=list(blocos))
+
+
+def _colada(texto, lacunas):
+    return livro.Paragrafo(texto, pesos=negrito.vetor([0.1] * len(texto)),
+                           lacunas=negrito.vetor(lacunas))
+
+
+def _atesta(*palavras):
+    """Um parágrafo que põe estas palavras no vocabulário do material."""
+    texto = " ".join(palavras)
+    return _colada(texto, [None] * len(texto))
+
+
+def test_a_palavra_colada_se_parte_onde_a_lacuna_e_maior():
+    """
+    `ofthe` é o caso canônico da família C — 304 palavras no DOCX medido, e
+    `thechapter` 21 vezes. `lexico.partir_colada` existe desde a F9.1 e **não
+    tinha chamador em produção**; este é o terceiro e último dos três reparos
+    que a F109 §4.1 listou.
+    """
+    lex = _lex("of", "the")
+    colada = _colada("ofthe", [None, 0.05, 0.40, 0.05, 0.05])
+    pagina = _pagina(colada, _atesta("of", "of", "the", "the"))
+    assert livro.partir_coladas([pagina], lex) == 1
+    assert colada.texto == "of the"
+    assert len(colada.pesos) == len(colada.texto) == len(colada.lacunas)
+
+
+def test_o_corte_exige_as_duas_metades_vistas_no_material():
+    """
+    **O quarto portão, e o que torna o reparo utilizável sobre saída de OCR.**
+    As três condições da F9.1 foram medidas sobre texto rotulado, onde o único
+    defeito é o espaço que faltou. Na saída do modelo há `fering` e `fmnt`, que
+    também decompõem contra uma lista de 310.465 palavras — nela existem `ng`,
+    `fm` e `feri`. Sem o vocabulário do material, medido, o reparo erra ~29 dos
+    148 cortes de 200 páginas.
+    """
+    lex = _lex("of", "the")
+    colada = _colada("ofthe", [None, 0.05, 0.40, 0.05, 0.05])
+    # Sem nada que ateste `of` e `the`, o corte não acontece.
+    assert livro.partir_coladas([_pagina(colada)], lex) == 0
+    assert colada.texto == "ofthe"
+
+
+def test_uma_aparicao_so_nao_basta():
+    """`VISTAS_PARA_CORTAR` é 2: a metade espúria costuma aparecer uma vez."""
+    lex = _lex("of", "the")
+    colada = _colada("ofthe", [None, 0.05, 0.40, 0.05, 0.05])
+    pagina = _pagina(colada, _atesta("of", "the"))
+    assert livro.partir_coladas([pagina], lex) == 0
+
+
+def test_a_palavra_colada_nao_se_parte_sem_lacuna_que_se_destaque():
+    """
+    A terceira condição da F9.1, e é ela que separa junção de nome próprio:
+    `Benko` decompõe em `ben` e `ko` numa lista de 310 mil, e não tem vão
+    interno que se destaque. Sem ela o reparo partiria meio livro.
+    """
+    lex = _lex("of", "the")
+    colada = _colada("ofthe", [None, 0.1, 0.1, 0.1, 0.1])
+    pagina = _pagina(colada, _atesta("of", "of", "the", "the"))
+    assert livro.partir_coladas([pagina], lex) == 0
+    assert colada.texto == "ofthe"
+
+
+def test_a_palavra_com_lacuna_desconhecida_nao_se_parte():
+    """
+    Onde uma caixa se perdeu, a comparação da terceira condição seria contra um
+    número que ninguém mediu. Recusar é o lado seguro — e é o que faz a palavra
+    que o hífen acabou de remontar não ser partida de volta.
+    """
+    lex = _lex("of", "the")
+    colada = _colada("ofthe", [None, 0.05, None, 0.05, 0.05])
+    pagina = _pagina(colada, _atesta("of", "of", "the", "the"))
+    assert livro.partir_coladas([pagina], lex) == 0
+
+
+def test_a_palavra_conhecida_nunca_se_parte():
+    """
+    A primeira condição da F9.1. Ela sozinha já descartava as 51 palavras boas
+    que também decomporiam nas páginas medidas — `some` em `so`+`me`.
+    """
+    lex = _lex("some", "so", "me")
+    colada = _colada("some", [None, 0.05, 0.40, 0.05])
+    pagina = _pagina(colada, _atesta("so", "so", "me", "me"))
+    assert livro.partir_coladas([pagina], lex) == 0
+    assert colada.texto == "some"
+
+
+def test_a_notacao_fica_fora_do_reparo():
+    """
+    `partir_colada` não tem opinião útil sobre onde partir um lance, e o
+    dicionário muito menos. O portão é o `notacao.parece_lance` de sempre.
+    """
+    lex = _lex("ex", "d4")
+    colada = _colada("exd4", [None, 0.05, 0.40, 0.05])
+    pagina = _pagina(colada, _atesta("ex", "ex", "d4", "d4"))
+    assert livro.partir_coladas([pagina], lex) == 0
+
+
+def test_o_corte_respeita_a_pontuacao_das_pontas():
+    """
+    O reparo pergunta pelo **núcleo**, como o `medir_lexico` pergunta, e a fatia
+    de lacunas anda junto com ele. A vírgula não entra na conta nem se perde.
+    """
+    lex = _lex("of", "the")
+    colada = _colada("(ofthe),", [None, None, 0.05, 0.40, 0.05, 0.05,
+                                  None, None])
+    pagina = _pagina(colada, _atesta("of", "of", "the", "the"))
+    assert livro.partir_coladas([pagina], lex) == 1
+    assert colada.texto == "(of the),"
+
+
+def test_o_corte_e_idempotente():
+    """
+    A segunda passada não faz nada, e é o que permite `extrair_pagina` cortar
+    com a página e `extrair` cortar de novo com o livro — o mesmo contrato do
+    `negrito.marcar` (F105). Depois do corte as metades estão no dicionário, e a
+    primeira condição as recusa.
+    """
+    lex = _lex("of", "the")
+    colada = _colada("ofthe", [None, 0.05, 0.40, 0.05, 0.05])
+    pagina = _pagina(colada, _atesta("of", "of", "the", "the"))
+    assert livro.partir_coladas([pagina], lex) == 1
+    assert livro.partir_coladas([pagina], lex) == 0
+    assert colada.texto == "of the"
+
+
+def test_o_vocabulario_ignora_lance_e_desconhecida():
+    """
+    Quem entra no vocabulário é palavra de prosa que o dicionário conhece: é a
+    lista de quem pode ser **metade** de um corte, e lance não pode.
+    """
+    lex = _lex("of", "the")
+    pagina = _pagina(_atesta("of", "♘f3", "the", "zzzz"))
+    assert livro.vocabulario([pagina], lex) == {"of": 1, "the": 1}
+
+
+def test_sem_lexico_nao_parte_nada():
+    colada = _colada("ofthe", [None, 0.05, 0.40, 0.05, 0.05])
+    assert livro.partir_coladas([_pagina(colada)], None) == 0
+    assert colada.texto == "ofthe"
 
 
 if __name__ == "__main__":

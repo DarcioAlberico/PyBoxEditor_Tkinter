@@ -35,8 +35,10 @@ o lugar da figura.
 """
 
 import io
+import re
 from array import array
 from dataclasses import dataclass, field
+from math import isnan, nan
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 
@@ -167,6 +169,14 @@ class Paragrafo:
     #: permite remarcar — o `extrair_pagina` marca com uma página por
     #: referência, e o `extrair` remarca com todas.
     pesos: Optional[array] = None
+    #: A lacuna antes de cada caractere do `texto`, em larguras medianas da
+    #: linha — `nan` no que não deu para medir (F115).
+    #:
+    #: Está aqui pela mesma razão que `pesos`: quem decide onde faltou espaço é
+    #: `partir_coladas`, e ele precisa do **livro inteiro** para saber quais
+    #: palavras existem nele. Guardar a medida por parágrafo é o que permite
+    #: adiar a decisão até haver livro.
+    lacunas: Optional[array] = None
 
 
 @dataclass
@@ -565,9 +575,11 @@ def _celulas_de_ornamento(respingos: Sequence[BoxEntry], escala: float) -> set:
 def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
                     classificar: Callable, conf_minima: float,
                     coletor: Optional[Callable] = None,
-                    pagina: int = 0) -> Tuple[str, int, List[Optional[float]]]:
+                    pagina: int = 0
+                    ) -> Tuple[str, int, List[Optional[float]],
+                               List[Optional[float]]]:
     """
-    (texto, quantos caíram por confiança, espessura de cada caractere).
+    (texto, caídos por confiança, espessura e lacuna de cada caractere).
 
     O `coletor` recebe todo caractere classificado, com a confiança junto. É
     aqui que ele entra porque é aqui que os dois dados existem juntos, e a
@@ -593,15 +605,35 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     pendente, e sai uma vez só quando o próximo caractere sai. Isso mantém as
     duas leituras certas com uma régua só: o buraco no meio de `knight` não
     separa nada, e o `✝` derrubado entre duas palavras continua separando-as.
+
+    **A lacuna sai daqui pelo mesmo motivo que a espessura** (F115): é o vão
+    entre esta caixa e a anterior, em larguras medianas da linha, e é o que
+    `lexico.partir_colada` precisa para achar onde faltou um espaço. Ela é
+    `None` onde não dá para medir — no primeiro caractere, no espaço entre
+    palavras, e depois de uma caixa que não produziu letra —, e `0,0` dentro de
+    uma ligadura, onde não há vão porque as duas letras saem do mesmo box.
+
+    **O normalizador não decide nada, e é bom que não decida.** As três
+    condições de `partir_colada` comparam as lacunas de *dentro da mesma
+    palavra* umas com as outras, então dividir todas pela mesma largura não muda
+    resposta nenhuma. Ele está aqui para o número ser legível e comparável com o
+    que a F9.1 mediu (0,18–0,50 no corte contra 0,00–0,27 fora dele), e é a
+    mediana da linha pela mesma razão que a régua do espaço é (F107).
     """
     # A régua do espaço é do `diagrama` e é uma só (F107) — ver
     # `limiar_de_espaco`. Ela mede o vão contra o **vão típico desta linha**, e
     # não contra a largura de tinta: largura de tinta muda com o alfabeto sem
     # que o espacejamento mude junto, e era isso que partia `2011` em `20 1 1`.
     limiar = diagrama.limiar_de_espaco(linha)
+    largura = float(np.median([b.x2 - b.x1 for b in linha])) if linha else 1.0
+    largura = largura or 1.0
     partes, fracos = [], 0
     pesos: List[Optional[float]] = []
+    lacunas: List[Optional[float]] = []
     pendente = False
+    # Alguma caixa entre a última que escreveu e esta não escreveu nada: a
+    # lacuna atravessa um buraco e deixa de ser a distância entre dois vizinhos.
+    saltou = False
     for i, b in enumerate(linha):
         recorte = vertical.recorte_de_pe(img, b)
         char, conf = classificar(recorte) if recorte.size else ("", 0.0)
@@ -621,22 +653,29 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
         # uma busca por `Nxe4+` passa a achar a página. Ver `notacao`.
         saida = notacao.normalizar_saida(char or "")
         if not saida:
+            saltou = True
             continue
         if pendente:
             partes.append(" ")
             pesos.append(None)
+            lacunas.append(None)
             pendente = False
+        vao = (None if i == 0 or saltou
+               else (b.x1 - linha[i - 1].x2) / largura)
         partes.append(saida)
         # Um por caractere **do que saiu**, e não do que entrou: um sinônimo de
         # saída pode ter mais de um caractere. É o que mantém a lista alinhada
         # ao texto.
         pesos.extend([negrito.espessura(recorte)] * len(saida))
+        lacunas.extend([vao] + [0.0] * (len(saida) - 1))
+        saltou = False
     texto = "".join(partes)
-    # O `strip` do texto tem de acontecer nos dois, ou o alinhamento se perde
+    # O `strip` do texto tem de acontecer nos três, ou o alinhamento se perde
     # logo na primeira linha que comece com espaço.
     inicio = len(texto) - len(texto.lstrip())
     fim = len(texto.rstrip())
-    return texto[inicio:fim], fracos, pesos[inicio:fim]
+    return (texto[inicio:fim], fracos, pesos[inicio:fim],
+            lacunas[inicio:fim])
 
 
 #: Quanto da faixa uma régua de tabela precisa atravessar para ser régua (F72).
@@ -792,8 +831,8 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
                     BoxService._agrupar_em_linhas(dentro)):
                 # A célula não leva peso: a tabela sai como `Tabela`, e nem o
                 # EPUB nem o DOCX marcam negrito dentro de célula (F105).
-                texto, n, _pesos = _texto_da_linha(img, sub, classificar,
-                                                   conf_minima, coletor, numero)
+                texto, n, _pesos, _lac = _texto_da_linha(
+                    img, sub, classificar, conf_minima, coletor, numero)
                 fracos += n
                 if texto:
                     partes.append(texto)
@@ -820,6 +859,11 @@ class Linha:
     #: `_texto_da_linha`. `None` é a linha que veio de outro lugar que não a
     #: página — as dos testes, e as que se montam à mão.
     pesos: Optional[List[Optional[float]]] = None
+    #: A lacuna antes de cada caractere do `texto`, em larguras medianas da
+    #: linha (F115). É o que `lexico.partir_colada` precisa para achar onde
+    #: faltou um espaço, e vem do mesmo lugar e pelo mesmo motivo que `pesos`:
+    #: é aqui que o box e o caractere que ele virou existem lado a lado.
+    lacunas: Optional[List[Optional[float]]] = None
 
 
 def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
@@ -871,6 +915,7 @@ def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
 
 
 def _juntar_no_hifen(textos: List[str], pesos: List[List[Optional[float]]],
+                     lacunas: List[List[Optional[float]]],
                      lex: Optional["lexico.Lexico"]) -> List[bool]:
     """
     Remonta a palavra partida no fim da linha — texto e espessuras juntos (F115).
@@ -903,11 +948,18 @@ def _juntar_no_hifen(textos: List[str], pesos: List[List[Optional[float]]],
         k = juncao.linha
         sem_hifen = textos[k].rstrip(lexico.HIFENS)
         del pesos[k][len(sem_hifen):]
+        del lacunas[k][len(sem_hifen):]
         textos[k] = sem_hifen
         _nuc, ini = lexico.nucleo(textos[k + 1].split(" ")[0])
         if ini:
             textos[k + 1] = textos[k + 1][ini:]
             del pesos[k + 1][:ini]
+            del lacunas[k + 1][:ini]
+        # A lacuna do primeiro caractere da linha de baixo já era `None` — não
+        # há caixa anterior nela —, e continua sendo depois da junção: o vão
+        # entre as duas metades da palavra atravessa uma quebra de linha e não
+        # é distância nenhuma. É o que faz `_partir_coladas` recusar a palavra
+        # remontada, que é o certo: ela acabou de ser afirmada pelo dicionário.
         juntas[k] = True
     return juntas
 
@@ -924,23 +976,34 @@ def _paragrafo_de(linhas: Sequence[Linha],
     **É aqui que o dicionário entra, e não na linha** (F115). A F108 o ligou em
     `extrair_pagina`, uma linha de cada vez, e ali metade das palavras que ele
     existe para consertar ainda não existe: a que o hífen partiu no fim da linha
-    não está inteira em lado nenhum. Subir os dois reparos para o parágrafo é o
-    que os põe sobre a palavra que o livro imprimiu, e não sobre o pedaço que
-    coube na linha.
+    não está inteira em lado nenhum. Subir os reparos para o parágrafo é o que
+    os põe sobre a palavra que o livro imprimiu, e não sobre o pedaço que coube
+    na linha.
+
+    **Dois dos três reparos correm aqui, e o terceiro não pode.** Juntar o hífen
+    e arrumar a caixa decidem-se com a palavra na mão; partir o que está colado
+    decide-se com o **livro** na mão, e por isso `partir_coladas` é uma passada
+    à parte — ver lá. É a mesma separação que a F105 faz com o negrito: o que dá
+    para medir na página mede-se aqui, e o que precisa de tudo espera.
     """
     textos = [l.texto for l in linhas]
     pesos = [list(l.pesos) if l.pesos is not None else [None] * len(l.texto)
              for l in linhas]
-    juntas = _juntar_no_hifen(textos, pesos, lex)
+    lacunas = [list(l.lacunas) if l.lacunas is not None
+               else [None] * len(l.texto) for l in linhas]
+    juntas = _juntar_no_hifen(textos, pesos, lacunas, lex)
 
     partes: List[str] = []
     todos: List[Optional[float]] = []
+    vaos: List[Optional[float]] = []
     for i, t in enumerate(textos):
         if i and not juntas[i - 1]:
             partes.append(" ")
             todos.append(None)
+            vaos.append(None)
         partes.append(t)
         todos.extend(pesos[i])
+        vaos.extend(lacunas[i])
     texto = "".join(partes)
 
     if lex is not None:
@@ -953,7 +1016,142 @@ def _paragrafo_de(linhas: Sequence[Linha],
         if len(arrumado) == len(texto):
             texto = arrumado
 
-    return Paragrafo(texto, pesos=negrito.vetor(todos))
+    return Paragrafo(texto, pesos=negrito.vetor(todos),
+                     lacunas=negrito.vetor(vaos))
+
+
+#: Quantas vezes uma palavra precisa aparecer **sozinha** no material para
+#: poder ser metade de um corte (F115).
+#:
+#: **Não é gosto: sem ele o reparo parte lixo em lixo.** `lexico.partir_colada`
+#: exige que as duas metades estejam no dicionário, e o dicionário deste projeto
+#: tem 310.465 palavras — nele existem `ng`, `fm`, `nt`, `er` e `feri`. Medido em
+#: 200 páginas do Nunn e do Yusupov, o reparo solto dá 148 cortes e erra ~29:
+#: `fering` vira `feri ng`, `fmnt` vira `fm nt`, `Bemer` vira `Bem er`. É o
+#: mesmo perigo que `medir_lexico._parte_em_palavras` documenta — *"contra a
+#: lista grande esta função mentia: `Benko` decompõe em `ben`+`ko`"* — e o
+#: remédio é o dele: **o vocabulário do próprio material**.
+#:
+#: Exigir que as duas metades tenham sido vistas soltas duas vezes deixa 117 dos
+#: 148 cortes e mata dois terços do erro. Uma vez só não separa: a metade
+#: espúria costuma aparecer uma vez, dentro da própria palavra colada de outra
+#: página.
+VISTAS_PARA_CORTAR = 2
+
+
+def vocabulario(paginas: Sequence["PaginaExtraida"],
+                lex: "lexico.Lexico") -> dict:
+    """
+    {palavra: quantas vezes ela apareceu **sozinha**}, das páginas dadas.
+
+    Só palavra que o dicionário conhece e que não é lance: é a lista de quem
+    pode ser metade de um corte, e ela sai do próprio livro porque é a única
+    fonte de frequência que este repositório tem (a mesma escolha que o
+    `medir_confusao_no_livro` faz para o prior dele).
+    """
+    conta: dict = {}
+    for pagina in paginas:
+        for bloco in pagina.blocos:
+            if not isinstance(bloco, Paragrafo):
+                continue
+            for pedaco in bloco.texto.split():
+                if notacao.parece_lance(pedaco):
+                    continue
+                nuc, _i = lexico.nucleo(pedaco)
+                if nuc and lex.conhece(nuc):
+                    chave = nuc.lower()
+                    conta[chave] = conta.get(chave, 0) + 1
+    return conta
+
+
+def _cortes_do_paragrafo(bloco: Paragrafo, lex: "lexico.Lexico",
+                         visto: dict) -> List[int]:
+    """Onde este parágrafo perdeu um espaço. Índices no `texto`, em ordem."""
+    cortes: List[int] = []
+    lacunas = bloco.lacunas
+    if lacunas is None or len(lacunas) != len(bloco.texto):
+        return cortes
+    for achado in re.finditer(r"\S+", bloco.texto):
+        pedaco = achado.group(0)
+        if notacao.parece_lance(pedaco):
+            continue
+        nuc, desloc = lexico.nucleo(pedaco)
+        if len(nuc) < 2 * lexico.MIN_PARTE:
+            continue
+        base = achado.start() + desloc
+        fatia = [lacunas[i] for i in range(base + 1, base + len(nuc))]
+        # Lacuna que não foi medida — caixa perdida por confiança no meio da
+        # palavra, ou a junção que o hífen acabou de fazer. A terceira condição
+        # de `partir_colada` compararia contra um número que ninguém mediu.
+        if len(fatia) != len(nuc) - 1 or any(isnan(v) for v in fatia):
+            continue
+        corte = lexico.partir_colada(nuc, fatia, lex)
+        if not corte:
+            continue
+        esquerda, direita = nuc[:corte].lower(), nuc[corte:].lower()
+        if min(visto.get(esquerda, 0),
+               visto.get(direita, 0)) < VISTAS_PARA_CORTAR:
+            continue
+        cortes.append(base + corte)
+    return cortes
+
+
+def partir_coladas(paginas: Sequence["PaginaExtraida"],
+                   lex: Optional["lexico.Lexico"]) -> int:
+    """
+    Põe o espaço que a segmentação perdeu — `ofthe` vira `of the`. Devolve
+    quantos (F115).
+
+    **`lexico.partir_colada` é o terceiro dos reparos que a F109 §4.1 listou**,
+    e o último a ganhar chamador em produção. Ele foi medido em 7 de 7 junções
+    reais e traz três condições: a palavra não pode estar no dicionário, tem de
+    partir em **duas** palavras que estão, e a lacuna no ponto de corte tem de
+    ser a **maior de dentro da palavra**.
+
+    **As três foram medidas sobre texto rotulado, e o OCR traz uma população que
+    elas nunca viram.** Na verdade rotulada o único defeito é o espaço que
+    faltou; na saída do modelo há `fering`, `fmnt` e `Wncura`, que também
+    decompõem em duas palavras da lista. Daí o quarto portão desta função — o
+    vocabulário do material —, e daí ela ser uma passada à parte: ele só existe
+    depois de o livro inteiro estar lido. Ver `VISTAS_PARA_CORTAR`.
+
+    **É o molde do `negrito.marcar`, e pela mesma razão** (F105): o
+    `extrair_pagina` chama com a página que acabou de ler, que é o melhor que dá
+    para fazer quando só há uma, e o `extrair` chama com todas — e é essa que
+    vale. A operação é idempotente: o que já foi partido está no dicionário, e a
+    primeira condição o recusa.
+    """
+    if lex is None or lex.vazio:
+        return 0
+    visto = vocabulario(paginas, lex)
+    total = 0
+    for pagina in paginas:
+        for bloco in pagina.blocos:
+            if not isinstance(bloco, Paragrafo):
+                continue
+            cortes = _cortes_do_paragrafo(bloco, lex, visto)
+            if not cortes:
+                continue
+            partes, pesos, lacunas = [], [], []
+            anterior = 0
+            for corte in cortes:
+                partes.append(bloco.texto[anterior:corte])
+                pesos.extend(bloco.pesos[anterior:corte])
+                lacunas.extend(bloco.lacunas[anterior:corte])
+                # O espaço que entra não tem espessura nem lacuna medidas: ele
+                # não estava na página, e é justamente essa a queixa.
+                partes.append(" ")
+                pesos.append(nan)
+                lacunas.append(nan)
+                anterior = corte
+            partes.append(bloco.texto[anterior:])
+            pesos.extend(bloco.pesos[anterior:])
+            lacunas.extend(bloco.lacunas[anterior:])
+            bloco.texto = "".join(partes)
+            bloco.pesos = negrito.vetor(pesos)
+            bloco.lacunas = negrito.vetor(lacunas)
+            total += len(cortes)
+    return total
 
 
 def _agrupar_em_paragrafos(linhas: Sequence[Linha],
@@ -1089,7 +1287,7 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
         return None
     partes = []
     for linha in quebrar_em_linhas(d.caixas_da_faixa):
-        texto, fracos, _pesos = _texto_da_linha(img, linha, classificar,
+        texto, fracos, _p, _l = _texto_da_linha(img, linha, classificar,
                                                 conf_minima, coletor, numero)
         if fracos or not texto:
             return None
@@ -1274,8 +1472,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
 
     medidas: List[Linha] = []
     for linha in quebrar_em_linhas(boxes):
-        texto, n, pesos = _texto_da_linha(img, linha, classificar, conf_minima,
-                                          coletor, numero)
+        texto, n, pesos, vaos = _texto_da_linha(
+            img, linha, classificar, conf_minima, coletor, numero)
         fracos += n
         # **O dicionário deixou de entrar aqui, e subiu para o parágrafo**
         # (F115). A F108 o ligou nesta linha, e era o lugar certo enquanto o
@@ -1284,8 +1482,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         # caractere. O que a linha não tem é a palavra que o hífen partiu no fim
         # dela — o próprio comentário de lá dizia que ela ficava de fora —, e
         # `juntar_hifenizadas` precisa das duas metades ao mesmo tempo. Ver
-        # `_paragrafo_de`, que faz os dois reparos com o vetor de espessuras ao
-        # lado, um passo acima.
+        # `_paragrafo_de`, que faz os três reparos com os dois vetores ao lado,
+        # um passo acima.
         if texto:
             medidas.append(Linha(
                 topo=min(b.y1 for b in linha),
@@ -1294,7 +1492,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 texto=texto,
                 coluna=_coluna_de((min(b.x1 for b in linha)
                                    + max(b.x2 for b in linha)) / 2, colunas),
-                pesos=pesos))
+                pesos=pesos, lacunas=vaos))
 
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
@@ -1418,6 +1616,11 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     resultado.diagramas_desenhados = sum(
         1 for b in resultado.blocos
         if isinstance(b, Figura) and b.origem == "render")
+    # **Antes do negrito, e não depois** (F115): o corte acrescenta um espaço no
+    # meio do parágrafo, e é o negrito que tem de ver o texto final — ele mede
+    # palavra a palavra, e uma palavra que se parte em duas passa a ser medida
+    # como duas.
+    partir_coladas([resultado], lex)
     # O negrito, com esta página por referência (F105). Quem lê o livro inteiro
     # remarca no fim, e acerta 6,5 pontos a mais — ver `negrito.marcar`.
     negrito.marcar([resultado])
@@ -1457,6 +1660,13 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         lex=lex))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
+        # **Repartido com o livro inteiro por vocabulário** (F115), pela mesma
+        # razão que o negrito é remarcado logo abaixo: o portão que decide se
+        # `of`+`positions` pode ser um corte é "estas duas palavras existem
+        # neste livro", e numa página só quase nada existe duas vezes. Também é
+        # idempotente — o que já foi partido está no dicionário, e a primeira
+        # condição de `partir_colada` o recusa.
+        partir_coladas(saida, lex)
         # **Remarcado com o livro inteiro por referência** (F105). Cada página
         # já saiu marcada contra si mesma, que é o melhor que dá para fazer
         # quando só há uma; com todas, o peso redondo de cada caractere é

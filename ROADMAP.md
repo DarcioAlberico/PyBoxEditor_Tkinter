@@ -12561,14 +12561,16 @@ acima — se a linha do EasyOCR sair de 89,5%, o instrumento mudou.
 
 ---
 
-## F115 — O caractere derrubado escrevia dois espaços, e o reparo do dicionário nunca via a palavra inteira — CONCLUÍDA
+## F115 — O caractere derrubado escrevia dois espaços, e os reparos do dicionário nunca viam a palavra inteira — CONCLUÍDA
 
-Uma revisão do OCR e da conversão, pedida depois da F114. Saíram dois consertos no
-`core/livro.py`, um instrumento, e **um terceiro achado que ficou medido e sem conserto** —
+Uma revisão do OCR e da conversão, pedida depois da F114. Saíram três consertos no
+`core/livro.py`, dois instrumentos, e **um quarto achado que ficou medido e sem conserto** —
 porque as duas correções candidatas foram medidas e as duas custam mais do que rendem.
 
-Os dois consertos são de **montagem do texto**, e não de reconhecimento. É o que a F109 §4.1
-chama de "os reparos que existem e o livro não recebe", e esta fase liga o segundo dos três.
+Os três consertos são de **montagem do texto**, e não de reconhecimento. É o que a F109 §4.1
+chama de "os reparos que existem e o livro não recebe": ela listou quatro funções e uma só
+tinha chamador em produção. **Esta fase liga as outras duas que cabiam aqui**, e sobra
+`reparar`/`reparos_da_pagina`, que precisa dos boxes.
 
 ---
 
@@ -12727,24 +12729,118 @@ não abre o portão de `conhece` em nenhuma das duas linhas, e `biShop` abre.
 
 ---
 
+### 3. A palavra colada, e o portão que a lista de 310 mil exigiu
+
+`lexico.partir_colada` é o **terceiro e último** dos reparos que a F109 §4.1 listou como
+"existem, têm teste, e não têm consumidor em produção". Ele acha onde faltou um espaço —
+`ofthe` vira `of the` — e traz três condições da F9.1: a palavra não pode estar no dicionário,
+tem de partir em duas que estão, e a lacuna no ponto de corte tem de ser a **maior de dentro da
+palavra**.
+
+Para a terceira condição existir foi preciso um vetor novo ao lado do de espessuras: a **lacuna
+antes de cada caractere**, em larguras medianas da linha, que `_texto_da_linha` mede onde o box
+e o caractere que ele virou existem lado a lado — o mesmo lugar e o mesmo motivo da F105. O
+normalizador não decide nada, e é bom que não decida: as três condições comparam lacunas *da
+mesma palavra* umas com as outras, então dividir todas pela mesma largura não muda resposta
+nenhuma.
+
+#### As três condições foram medidas sobre texto rotulado, e o OCR é outra população
+
+Ligado como está escrito, o reparo dá **148 cortes em 200 páginas** do Nunn e do Yusupov, e
+erra cerca de **29**:
+
+    ofstud     -> of stud        theresult  -> the result       (bons)
+    fering     -> feri ng        fmnt       -> fm nt            (erros)
+    Wncura,    -> Wn cura,       Bemer—     -> Bem er—          (erros)
+
+A causa é a lista. `partir_colada` exige que as duas metades estejam no dicionário, e o deste
+projeto tem **310.465 palavras** — nele existem `ng`, `fm`, `nt`, `er` e `feri`. Na verdade
+rotulada, que é onde a F9.1 mediu os 7 de 7, o único defeito é o espaço que faltou; na saída do
+modelo há `fering` e `Wncura`, que também decompõem. **A condição não ficou fraca: a população
+mudou.**
+
+Isto não é achado novo — é o mesmo que `medir_lexico._parte_em_palavras` documenta na letra:
+*"contra a lista grande esta função mentia: `Benko` decompõe em `ben`+`ko` e `queenside` em
+`queen`+`side`, porque uma lista desse tamanho tem lixo de duas e três letras para todo lado"*.
+E o remédio é o dele: **o vocabulário do próprio material**.
+
+#### O quarto portão, e por que ele obriga a uma passada à parte
+
+As duas metades precisam ter sido vistas **soltas, duas vezes**, no material lido
+(`VISTAS_PARA_CORTAR`). Medido nas mesmas 200 páginas:
+
+| | cortes | dos quais errados (conferidos à mão) |
+|---|---:|---:|
+| sem o portão | 148 | ~29 |
+| com o portão | 117 | ~7 |
+
+Ele mata dois terços do erro e custa 9 cortes bons. Uma aparição só não separa: a metade
+espúria costuma aparecer uma vez, dentro da própria palavra colada de outra página.
+
+**E é ele que faz o reparo ser uma passada à parte, e não mais uma linha do `_paragrafo_de`.**
+O vocabulário só existe depois de o livro inteiro estar lido, e numa página só quase nada
+aparece duas vezes. `livro.partir_coladas` é o molde do `negrito.marcar` (F105) e pela mesma
+razão: o `extrair_pagina` chama com a página que acabou de ler, o `extrair` chama com todas, e
+é essa que vale. É idempotente — depois do corte as metades estão no dicionário, e a primeira
+condição as recusa.
+
+Para isso o `Paragrafo` guarda as lacunas como guarda os pesos: a medida sai da linha, e a
+decisão espera o livro.
+
+#### O que rendeu, e com que precisão
+
+No Yusupov inteiro são **103 trechos partidos** e no Nunn **371**. Conferidos: no Yusupov 99
+dos 103 estão certos — os 4 errados são a fila `a b c d e f g h` do tabuleiro vazando para a
+prosa, que é o defeito 3 da F109 e não deste reparo. Numa amostra de 40 dos 371 do Nunn, 40
+estão certos.
+
+    ofthe    -> of the        Ifyou       -> If you        NewYork  -> New York
+    Nextis   -> Next is       equallywell -> equally well  toplay   -> to play
+
+O efeito na tabela está na seção seguinte.
+
+#### Um resíduo que o corte revelou, e não criou
+
+O contador de hífens pendentes do `medir_prosa.py` sobe de 9 para 16 no Nunn, e a subida é
+**boa notícia lida direito**: antes o texto trazia `ofdia- gram` e `ofan- other`, e a
+remontagem dava `ofdiagram`, que não é palavra — `juntar_hifenizadas` recusava, certo. Com o
+corte a esquerda vira `dia-` e `an-`, e agora `diagram` e `another` são palavras.
+
+**São ~7 junções que a ordem dos reparos deixa na mesa**, porque o hífen se junta durante a
+montagem da página, com as linhas na mão, e o corte só acontece depois, com o livro. Juntar de
+novo no fim exigiria saber onde as linhas acabavam, e isso não sobrevive ao parágrafo — a não
+ser pelo próprio vetor de lacunas, que traz `nan` no primeiro caractere de cada linha. Fica
+registrado, com o caminho, e não entra por 7 palavras em 354 páginas.
+
+
+---
+
 ### A tabela das cinco famílias, refeita
 
 Os dois livros inteiros, relidos com o modelo, o mesmo dos dois lados — o `model_meta.json`
 da árvore de trabalho foi copiado para a árvore em HEAD, porque o do HEAD aponta para outro
 `.pth` e a comparação mediria o modelo em vez do código.
 
-| família | Yusupov antes | Yusupov depois | Nunn antes | Nunn depois |
-|---|---:|---:|---:|---:|
-| A. o `i` partido em haste e pingo | 350 | 350 | 155 | 155 |
-| B. caixa homográfica | 0 | 0 | 14 | 14 |
-| C. palavra colada | 795 | 793 | 2.360 | **1.895** |
-| D. dígito espúrio dentro da palavra | 456 | 456 | 496 | 496 |
-| E. resto fora do dicionário | 501 | 501 | 383 | **327** |
-| **com defeito** | 2.102 · **12,55%** | 2.100 · **12,54%** | 3.408 · **6,51%** | 2.887 · **5,61%** |
+As colunas são as três, na ordem em que os reparos entraram: o livro como estava, com o
+espaço e o hífen (§1 e §2), e com o corte de palavra colada (§3).
 
-**No Nunn a tabela move 0,90 ponto — um sétimo do erro do livro — e no Yusupov não move.** A
-diferença entre os dois é uma só: o Nunn hifeniza e o Yusupov quase não. Onde há hifenização,
-ligar uma função que já existia há sete fases apaga 465 palavras da família C e 56 da E.
+| família | Yusupov antes | +espaço/hífen | +corte | Nunn antes | +espaço/hífen | +corte |
+|---|---:|---:|---:|---:|---:|---:|
+| A. o `i` partido | 350 | 350 | 350 | 155 | 155 | 155 |
+| B. caixa homográfica | 0 | 0 | 0 | 14 | 14 | 15 |
+| C. palavra colada | 795 | 793 | **691** | 2.360 | **1.895** | **1.553** |
+| D. dígito espúrio | 456 | 456 | 456 | 496 | 496 | 495 |
+| E. resto fora do dicionário | 501 | 501 | 501 | 383 | **327** | 327 |
+| **com defeito** | **12,55%** | 12,54% | **11,92%** | **6,51%** | 5,61% | **4,93%** |
+
+**O Nunn cai de 6,51% para 4,93% — um quarto do erro do livro — e o Yusupov de 12,55% para
+11,92%.** A diferença entre os dois é o hífen: o Nunn hifeniza e o Yusupov quase não, e por
+isso a coluna do meio move um e não move o outro. O corte move os dois, porque espaço perdido
+não depende de tipografia — depende da régua do espaço, que é a mesma em todo livro.
+
+A família B do Nunn sobe de 14 para 15, e é ganho disfarçado: `ofwheTher` era uma palavra
+colada e virou `of wheTher`, que é uma palavra de prosa com caixa errada. O defeito não
+nasceu; ele saiu de trás do outro, e agora está numa família onde alguém pode alcançá-lo.
 
 **Duas coisas a registrar sobre a tabela em si.** A família B do Yusupov sai em zero porque a
 F108 já está ligada dos dois lados, e a razão `S/s` deste livro é hoje **0,078** contra os
@@ -12792,13 +12888,15 @@ do Darcy Lima e 6 em 60 do Dvoretsky. As duas réguas candidatas estão medidas 
 acima, e a direção que sobra — o vão vertical acima da linha, contra o passo da coluna —
 está dita lá. `medir_faixa.py` é o que a próxima tentativa tem de bater.
 
-As famílias A, C, D e E — 2.100 palavras no Yusupov, 12,5% da prosa. Elas são de segmentação
-e de reconhecimento, e estão na F110, na F112 e na F113.
+As famílias A, D e o que sobra de C e E — 1.998 palavras no Yusupov, 11,9% da prosa, e 2.545
+no Nunn. Elas são de segmentação e de reconhecimento, e estão na F110, na F112 e na F113.
 
-Dos "três reparos prontos" da F109 §4.1 ficam dois: `partir_colada` precisa das lacunas entre
-caracteres, que `_paragrafo_de` não tem — quem as tem é `_texto_da_linha`, e levá-las até lá
-é um vetor a mais ao lado do de espessuras, do mesmo feitio do da F105; e
-`reparar`/`reparos_da_pagina` precisa dos boxes.
+Dos "três reparos prontos" da F109 §4.1 fica **um**: `reparar`/`reparos_da_pagina`, que
+precisa dos boxes e por isso não cabe no caminho do livro sem que ele passe a carregá-los.
+
+E ficam as ~7 junções de hífen que o corte revelou e a ordem dos reparos não alcança — ver o
+fim da §3, que traz o caminho: o `nan` que o vetor de lacunas deixa no primeiro caractere de
+cada linha é a marca de onde a linha começava.
 
 E ficam os defeitos de escrita do arquivo que esta revisão levantou e que não são desta fase.
 Seis já estavam na F111. **Três não estavam**, e ficam registrados aqui:
@@ -12822,18 +12920,26 @@ família que o `fontTable.xml` escreve bate com o nome interno das três fontes 
 
 ### Onde está
 
-`core/livro.py` — `_texto_da_linha` (o espaço pendente), `_juntar_no_hifen` (nova) e
-`_paragrafo_de` (os dois reparos, e o `lex` que desce pelo `_agrupar_em_paragrafos`).
+Tudo em `core/livro.py`:
+
+- `_texto_da_linha` — o espaço pendente (§1) e o vetor de lacunas (§3). Devolve quatro
+  coisas onde devolvia três.
+- `_juntar_no_hifen`, nova, e `_paragrafo_de` — os dois reparos que se decidem com a
+  palavra na mão (§2), e o `lex` que desce pelo `_agrupar_em_paragrafos`.
+- `partir_coladas` e `vocabulario`, novas, e `VISTAS_PARA_CORTAR` — o reparo que se decide
+  com o livro na mão (§3). Chamadas do `extrair_pagina` e do `extrair`, no molde do
+  `negrito.marcar`.
+- `Linha.lacunas` e `Paragrafo.lacunas` — a medida sai da linha e espera o livro.
 
 Dois instrumentos. `medir_prosa.py` refaz a tabela das cinco famílias e é o critério de
-aceitação desta fase. `medir_faixa.py` é o que recusou as duas réguas da seção de cima, e
-está versionado justamente por isso: **uma recusa sem instrumento é uma opinião**, e a
-próxima pessoa a olhar a faixa precisa poder refazer as duas colunas antes de escrever a
-terceira régua.
+aceitação desta fase. `medir_faixa.py` é o que recusou as duas réguas da faixa, e está
+versionado justamente por isso: **uma recusa sem instrumento é uma opinião**, e a próxima
+pessoa a olhar a faixa precisa poder refazer as duas colunas antes de escrever a terceira
+régua.
 
-`tests/test_f115_buraco_e_hifen.py`, 14 testes — **10 deles falham no código de antes**,
-conferido rodando o próprio arquivo contra uma árvore em HEAD; os outros 4 são as travas de
-regressão, e passam nos dois. A suíte inteira sai de 1.813 para 1.827, verde.
+`tests/test_f115_buraco_e_hifen.py`, 29 testes — os 10 dos dois primeiros consertos falham
+no código de antes, conferido rodando o próprio arquivo contra uma árvore em HEAD. A suíte
+inteira sai de 1.813 para 1.842, verde.
 
 ---
 
