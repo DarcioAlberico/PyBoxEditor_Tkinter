@@ -12075,7 +12075,7 @@ ajuda.
 
 ---
 
-## F111 — O arquivo abre no Word e não é um livro — A FAZER
+## F111 — O arquivo abre no Word e não é um livro — CONCLUÍDA
 
 Isto não é reconhecimento. É o arquivo julgado como arquivo, e é o único defeito que o
 usuário vê **mesmo quando o OCR acerta**.
@@ -12175,23 +12175,87 @@ exposes their accessible properties, **regardless of whether** the publications 
 the accessibility or optimization requirements."* Este projeto não escreve nenhum
 `schema:*`.
 
+### O que entrou, linha a linha
+
+A tabela dos defeitos de arquivo era de doze linhas, e a acessibilidade e a cobertura eram
+mais duas seções. Está tudo feito, menos o itálico — que não é defeito de arquivo, é
+reconhecimento, e tem a F105 por molde. E entrou o que a tabela chamava de "não há
+capítulo", que é a única coisa desta fase que **lê a página**.
+
+| defeito | o que entrou |
+|---|---|
+| `<dc:creator>python-docx</dc:creator>`, `dcterms:created` em 2013, miniatura da biblioteca | `_propriedades_do_docx`: título, autor, data de hoje (ou `SOURCE_DATE_EPOCH`), descrição vazia — e a miniatura sai **pela relação**, não pelo zip: o `python-docx` só escreve a parte que alguém aponta |
+| as oito linhas do diagrama sem escape no XHTML | `html.escape` nas duas saídas de `_diagrama_em_texto`, com teste que põe `<&>` numa linha e passa o XHTML pelo `ElementTree` |
+| figurina em célula sem a fonte no DOCX | a célula é escrita por `escrever_paragrafo`, o mesmo caminho da prosa, com `p=celula.paragraphs[0]` |
+| diagrama em modo de fonte sem texto alternativo | `w:tblCaption="Diagrama"` e `w:tblDescription=<FEN>` no `tblPr` da `_caixa_do_diagrama` — os dois últimos filhos do esquema, e por isso cabem depois do `tblLook` |
+| nenhum FEN chega ao `descr` | **não era defeito**: os 151 do livro medido eram todos `origem="recorte"`, e o recorte não tem posição lida — `Figura.fen` é "quando ela foi lida e mereceu confiança". O DOCX medido foi exportado sem redesenhar |
+| `lang` ausente no `<html>` e no `nav.xhtml` | `lang` ao lado do `xml:lang`, nos dois |
+| `dc:identifier` literal `pyboxeditor` | `identificador_de`: `urn:uuid:` de um UUID v5 sobre autor e título — o mesmo livro exportado de novo mantém a identidade, e dois livros nunca a repartem |
+| `dcterms:modified` fixo em `2026-01-01` | `agora()`: `SOURCE_DATE_EPOCH` quando existe, e a hora corrente quando não. Serve ao DOCX também |
+| `<h2>` sem `id`, e nenhum `<h1>` | `ancora()`: `t{página}-{n}` nos dois níveis; o capítulo (`Paragrafo.nivel == 1`) sai `<h1>` e `Heading 1`, e o `nav.xhtml` lista **os capítulos** com âncora — e cai para "Página N" só no livro sem capítulo detectado |
+| hífen de fim de linha no arquivo | F115 |
+| o DOCX no template nu | `_desenho_da_pagina`: Georgia 11, justificado, recuo de 1,2 em, margem de 2,2 cm — o que a CSS do EPUB já dizia. O primeiro parágrafo depois de figura, tabela ou título sai sem recuo, como o `p.primeira` de lá |
+| `para_docx` sem idioma | F109 §7 |
+
+E os três da F115:
+
+| defeito | o que entrou |
+|---|---|
+| `exportar.trechos` descarta faixa fora de ordem | `sorted(negrito)` na entrada, com teste |
+| duas tabelas coladas viram uma no Word | o `separador()` de 1 pt que o diagrama em modo de fonte já tinha sai também depois de toda `Tabela` |
+| símbolo que a fonte de recurso não cobre sai mudo | `simbolos_sem_fonte(texto)`, e o relatório do fim da exportação lista o que ficou mudo |
+
+### A acessibilidade, declarada
+
+`schema:accessMode` (`textual`, e `visual` quando há figura), `accessModeSufficient`
+`textual`, `accessibilityFeature` `alternativeText`, `structuralNavigation` e
+`readingOrder`, `accessibilityHazard` `none`, e um `accessibilitySummary` que diz de onde o
+texto veio. É o que o arquivo oferece, e nem mais nem menos: a EPUB Accessibility 1.1 §2.2
+pede a declaração, não a conformidade — e o que o Ace da DAISY reprovava era a ausência dela.
+
+### O capítulo, pela altura da linha — medido, e desligado
+
+`Paragrafo.titulo` tinha um marcador só, a faixa do diagrama, e o painel do Word mostrava
+390 legendas e nenhum capítulo. O mecanismo entrou inteiro: `Paragrafo.nivel`, o `<h1>` com
+âncora, o `Heading 1`, e o `nav.xhtml` que lista os capítulos em vez das páginas. O que
+ficou **desligado** foi quem os marca — e foi medido antes de ficar.
+
+O sinal do capítulo é o corpo: a `Linha` traz a mediana da altura das caixas dela, e
+`_metricas_por_coluna` traz a da coluna. A régua (`_e_titulo`): uma linha só, com
+**1,7 vezes** a altura da coluna, curta, de letras, sem lance, e no terço de cima da página.
+Ligada por `medir_prosa.py --capitulos`, nos dois livros inteiros:
+
+| livro | corpo do título, pela camada de texto | a régua achou | e eram |
+|---|---:|---:|---|
+| Yusupov · Chess Evolution 1 | 19,6 pt sobre 11 — **1,78×** | 20 em 264 páginas | 8 títulos (`CONTENTS`, `Preface`, `Exerc1.ses`, `CHAPTER`, `Scor1.n`, `Mate 1.n three m`…) e 12 que não são: `fyu scred less`, `ffyou scred less than 11pz.nts,` — a caixa de pontuação dos exercícios, prosa em corpo maior |
+| Aagaard · Attacking Manual I | 12,7 pt sobre 10 — **1,27×** (`A sneak preview`) | 1 (`Preface`, 17,2 pt) | o capítulo dele está abaixo de qualquer régua de altura que não inunde |
+
+E o que a régua devolve, quando acerta a página, é o que o OCR lê num corpo de exibição:
+`S()lut1.()ns`, `Sc0r1.n`, `C♖APER` — o `o` vira `()` e o `i` vira `1.`, que é a família A
+da F109 em glifo grande. Antes da régua de letras ela achava 60, com todos os `Solutions`
+dentro; com a régua, os `Solutions` saem junto com o lixo, porque não têm 70% de letras. Não
+há régua tipográfica que separe um título mal lido de um pedaço mal lido.
+
+**O capítulo é da F110.** A camada de texto do PDF traz as duas coisas que faltam aqui — o
+corpo em pontos e o texto limpo —, e ali `Preface` a 17,2 pt e `Exercises` a 19,6 pt são uma
+comparação de número. `DETECTAR_CAPITULOS = False` em `core/livro.py` guarda a régua e o
+motivo, e o sumário cai para "Página N" enquanto não há capítulo — que é o que havia.
+
+### O que esta fase não alcança
+
+**O itálico.** Zero runs em 36.442, e ele não tem sequer campo onde morar. A F105 mediu se o
+sinal do negrito existia antes de projetar a detecção, e o mesmo método serve para a
+inclinação — é uma fase, e não uma linha desta tabela.
+
+**A aspa curva** e a licença das duas fontes de xadrez, que não é de código.
+
 ### Cobertura
 
-**Nenhum teste abre o arquivo gerado e o valida como arquivo** — todos conferem por
-substring, e `grep -n "fromstring|xmllint|epubcheck|ElementTree" tests/*.py` devolve nada. O
-docstring de `tests/test_f59_fonte_embutida.py` já narra o precedente: um `<Default>`
-inserido fora do `<Types>` passou por todas as substrings e tinha deixado de ser XML.
-
-Três ferramentas, e elas conferem coisas diferentes: `openxml-audit` (Python puro, com
-plugin de pytest), `epubcheck` 5.3.0 pelo pip (pede Java), e o `ace` da DAISY 1.4.6 (pede
-Node 20). **O que falta neste EPUB é justamente o que só o Ace vê** — o `epubcheck` já dá
-zero, nos dois modos e nas duas fontes.
-
-O `epubcheck` já está instalado nesta máquina e não está no `requirements.txt`. O critério
-que ele serve é **não regredir**; o que reprova hoje é o Ace.
-
-`epubcheck` no teste, e não inspeção à mão. Um DOCX que o Word recuse é hoje um defeito que
-só aparece na máquina do usuário.
+`tests/test_f111_arquivo.py`, 28 testes. Dois deles abrem **toda** parte XML dos dois
+formatos com o `ElementTree` — é o que o precedente da F59 pedia —, e um roda o `epubcheck`
+5.3.0 sobre o EPUB em modo de fonte, com tabela e com capítulo, e exige retorno zero (pulado
+quando ele não está instalado, e ele entrou no `requirements-dev.txt`; conferido à mão que
+um EPUB sem `dc:language` devolve 1 e `RSC-005`). A suíte sai de 1.886 para 1.946, verde.
 
 ---
 

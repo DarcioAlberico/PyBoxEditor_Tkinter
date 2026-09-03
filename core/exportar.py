@@ -15,8 +15,11 @@ arquivo que o Word recusa abrir sem dizer por quê. Ali a dependência
 (`python-docx`) paga.
 """
 
+import datetime
 import html
 import os
+import time
+import uuid
 import zipfile
 from typing import List, Optional, Sequence, Tuple
 
@@ -285,7 +288,11 @@ def _diagrama_em_texto(figura: Figura) -> str:
         # Dez linhas de dez caracteres, e nada em volta: o filete e o `a`–`h`
         # são glifos da mesma fonte (F99). É o caso simples, e o que o resto
         # desta função existe para contornar quando a fonte não o permite.
-        miolo = "\n".join(f"<p>{linha}</p>" for linha in figura.linhas or [])
+        # Escapado como as outras saídas do módulo: as duas fontes de hoje só
+        # emitem caractere seguro, e a terceira que mapear `<` quebraria o
+        # XHTML sem que nada aqui acusasse (F111).
+        miolo = "\n".join(f"<p>{html.escape(linha)}</p>"
+                          for linha in figura.linhas or [])
         return (f'<div class="diagrama {familia}" title="{titulo_do_alt}" '
                 f'aria-label="{titulo_do_alt}" role="img">\n{miolo}\n</div>')
 
@@ -295,6 +302,7 @@ def _diagrama_em_texto(figura: Figura) -> str:
     letras, filas = render_diagrama.rotulos(figura.orientacao)
     linhas = []
     for i, linha in enumerate(figura.linhas or []):
+        linha = html.escape(linha)
         if figura.coordenadas:
             linha = f'<span class="rot"><i>{filas[i]}</i></span>{linha}'
         linhas.append(f"<p>{linha}</p>")
@@ -321,8 +329,11 @@ def trechos(texto: str, negrito: Sequence[Tuple[int, int]]
     num lugar só. Trecho vazio não sai: uma marca que comece no primeiro
     caractere não deve produzir um `<strong>` precedido de nada.
     """
+    # **Ordenado na entrada** (F111): com `(10, 15)` antes de `(2, 5)` a
+    # segunda faixa sumia em silêncio. Hoje `negrito._juntar` emite em ordem,
+    # e ordenar aqui fecha a porta para quem não emitir.
     saida, fim_anterior = [], 0
-    for inicio, fim in negrito:
+    for inicio, fim in sorted(negrito):
         inicio, fim = max(inicio, fim_anterior), min(fim, len(texto))
         if fim <= inicio:
             continue
@@ -365,11 +376,82 @@ def _marcado(paragrafo: Paragrafo, simbolos: str) -> str:
                    for t, forte in trechos(paragrafo.texto, paragrafo.negrito))
 
 
+def ancora(pagina: PaginaExtraida, n: int) -> str:
+    """O `id` do n-ésimo título da página — o mesmo no XHTML e no `nav`."""
+    return f"t{pagina.numero + 1}-{n}"
+
+
+def capitulos(paginas: Sequence[PaginaExtraida]) -> List[Tuple[str, str, str]]:
+    """
+    `[(arquivo da página, âncora, texto)]` dos títulos de capítulo (F111).
+
+    É o sumário: o `nav.xhtml` lista isto quando há, e cai para "Página N"
+    quando o livro não tem um capítulo detectado — que é o que ele listava
+    antes, e que num livro de 2.612 páginas era um sumário de 2.612 números.
+    """
+    saida = []
+    for pagina in paginas:
+        n = 0
+        for bloco in pagina.blocos:
+            if isinstance(bloco, Paragrafo) and bloco.titulo:
+                n += 1
+                if bloco.nivel == 1:
+                    saida.append((nome_da_pagina(pagina), ancora(pagina, n),
+                                  bloco.texto))
+    return saida
+
+
+def nome_da_pagina(pagina: PaginaExtraida) -> str:
+    return f"pagina-{pagina.numero + 1:04d}.xhtml"
+
+
+def agora() -> str:
+    """
+    A data do arquivo, como o EPUB a pede: `2026-09-02T15:04:05Z`.
+
+    `SOURCE_DATE_EPOCH` manda quando existe — é a convenção dos builds
+    reprodutíveis, e o que os testes usam para o arquivo sair igual duas vezes
+    —; sem ela, é agora. Era `2026-01-01T00:00:00Z` fixo (F111).
+    """
+    epoca = os.environ.get("SOURCE_DATE_EPOCH")
+    instante = int(epoca) if epoca and epoca.isdigit() else int(time.time())
+    return datetime.datetime.fromtimestamp(
+        instante, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def identificador_de(titulo: str, autor: str = "") -> str:
+    """
+    Uma URN por livro, estável entre exportações do mesmo livro (F111).
+
+    Era `pyboxeditor` literal em todo arquivo, e o `unique-identifier` é a
+    identidade da publicação: dois livros com a mesma são um só para o leitor
+    que os catalogue. UUID v5 sobre título e autor — o mesmo livro exportado
+    de novo mantém a identidade, e o leitor o reconhece como edição nova.
+    """
+    return "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                        f"pyboxeditor:{autor}|{titulo}"))
+
+
+def simbolos_sem_fonte(texto: str) -> str:
+    """
+    Os símbolos do texto que **nenhuma** fonte de recurso desenha (F111).
+
+    `fonte_dos_simbolos` escolhe a de maior cobertura e o que sobra saía sem
+    `<span>` nenhum e sem nada no relatório — o leitor vê um quadradinho e
+    ninguém sabe qual caractere era. Quem exporta imprime isto no fim.
+    """
+    precisa = sorted({c for c in texto if ord(c) >= PISO_DO_SIMBOLO})
+    recurso = fonte_dos_simbolos(texto)
+    cobertos = set(recurso[2]) if recurso else set()
+    return "".join(c for c in precisa if c not in cobertos)
+
+
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                      diagramas: str = "png", simbolos: str = "",
                      idioma: str = IDIOMA_PADRAO,
                      corpo_pt: float = CORPO_PADRAO_PT) -> str:
     corpo, i = [], 0
+    titulos = 0
     primeiro = True
     for bloco in pagina.blocos:
         if isinstance(bloco, Tabela):
@@ -406,10 +488,12 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                 # O `titulo` existe na `Paragrafo` desde a F2.6 e os dois
                 # exportadores o ignoravam: todo cabeçalho saía como parágrafo
                 # comum, e sem `<h2>` o sumário do leitor não tem por onde
-                # navegar. Hoje nada o marca — a marcação é trabalho de quem
-                # detectar título na página —, mas o campo deixou de ser letra
-                # morta do lado de cá.
-                corpo.append(f"<h2>{texto}</h2>")
+                # navegar. O capítulo (`nivel` 1, F111) sai `<h1>`, e os dois
+                # levam `id`: é a âncora que o `nav.xhtml` aponta.
+                titulos += 1
+                nivel = 1 if bloco.nivel == 1 else 2
+                corpo.append(f'<h{nivel} id="{ancora(pagina, titulos)}">'
+                             f"{texto}</h{nivel}>")
                 primeiro = True
                 continue
             classe = ' class="primeira"' if primeiro else ""
@@ -419,7 +503,7 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE html>\n'
         f'<html xmlns="http://www.w3.org/1999/xhtml" '
-        f'xml:lang="{html.escape(idioma)}">\n'
+        f'lang="{html.escape(idioma)}" xml:lang="{html.escape(idioma)}">\n'
         f"<head><title>Página {pagina.numero + 1}</title>"
         '<link rel="stylesheet" type="text/css" href="estilo.css"/></head>\n'
         "<body>\n" + "\n".join(corpo) + "\n</body>\n</html>\n"
@@ -514,7 +598,7 @@ def fontes_usadas(paginas: Sequence[PaginaExtraida]) -> dict:
 
 def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
               titulo: str = "Livro", autor: str = "",
-              identificador: str = "pyboxeditor",
+              identificador: Optional[str] = None,
               diagramas: str = "png", idioma: str = IDIOMA_PADRAO,
               corpo_pt: float = CORPO_PADRAO_PT,
               moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO) -> str:
@@ -587,16 +671,17 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         with open(origem, "rb") as f:
             arquivos.append((f"OEBPS/fonts/{os.path.basename(origem)}", f.read()))
 
-    capitulos = []
+    capitulos_do_livro = capitulos(paginas)
+    arquivos_de_pagina = []
     for pagina, imagens in zip(paginas, imagens_por_pagina):
-        nome = f"pagina-{pagina.numero + 1:04d}.xhtml"
-        capitulos.append(nome)
+        nome = nome_da_pagina(pagina)
+        arquivos_de_pagina.append(nome)
         arquivos.append((f"OEBPS/{nome}",
                          _xhtml_da_pagina(pagina, imagens, diagramas, simbolos,
                                           idioma, corpo_pt).encode("utf-8")))
 
     itens = [f'<item id="c{i}" href="{n}" media-type="application/xhtml+xml"/>'
-             for i, n in enumerate(capitulos)]
+             for i, n in enumerate(arquivos_de_pagina)]
     itens += [f'<item id="img{i}" href="{n[len("OEBPS/"):]}" media-type="image/png"/>'
               for i, (n, _d) in enumerate(arquivos) if n.endswith(".png")]
     itens += [f'<item id="fnt{i}" href="fonts/{os.path.basename(o)}" '
@@ -605,7 +690,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     itens.append('<item id="css" href="estilo.css" media-type="text/css"/>')
     itens.append('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" '
                  'properties="nav"/>')
-    espinha = "".join(f'<itemref idref="c{i}"/>' for i in range(len(capitulos)))
+    espinha = "".join(f'<itemref idref="c{i}"/>' for i in range(len(arquivos_de_pagina)))
 
     # O `ibooks:specified-fonts` é o que faz o Apple Books respeitar a fonte
     # embutida em vez de trocá-la pela do leitor. Sem ele o tabuleiro sai como
@@ -615,28 +700,59 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     ibooks = ('<meta property="ibooks:specified-fonts">true</meta>\n'
               if fontes_no_zip else "")
 
+    # **Os metadados de acessibilidade são obrigatórios desde 28/06/2025 na
+    # Europa** (EPUB Accessibility 1.1 §2.2, F111): todo EPUB tem de declarar
+    # o que oferece, tenha ou não o que oferecer. O que este arquivo oferece é
+    # texto de verdade, figura com `alt` (o FEN, quando lido) e a navegação
+    # pelos títulos — e é isso que se declara, nem mais nem menos.
+    tem_figura = any(isinstance(b, Figura) for p in paginas for b in p.blocos)
+    acessibilidade = (
+        '<meta property="schema:accessMode">textual</meta>\n'
+        + ('<meta property="schema:accessMode">visual</meta>\n'
+           if tem_figura else "")
+        + '<meta property="schema:accessModeSufficient">textual</meta>\n'
+        '<meta property="schema:accessibilityFeature">alternativeText</meta>\n'
+        '<meta property="schema:accessibilityFeature">structuralNavigation</meta>\n'
+        '<meta property="schema:accessibilityFeature">readingOrder</meta>\n'
+        '<meta property="schema:accessibilityHazard">none</meta>\n'
+        '<meta property="schema:accessibilitySummary">Texto reconhecido de um '
+        'livro impresso; os diagramas de xadrez trazem a posição em FEN como '
+        'texto alternativo quando ela foi lida.</meta>\n')
+
     opf = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
         f'unique-identifier="pub-id"{prefixo}>\n'
         '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
-        f'<dc:identifier id="pub-id">{html.escape(identificador)}</dc:identifier>\n'
+        f'<dc:identifier id="pub-id">'
+        f'{html.escape(identificador or identificador_de(titulo, autor))}'
+        '</dc:identifier>\n'
         f"<dc:title>{html.escape(titulo)}</dc:title>\n"
         f'<dc:language>{html.escape(idioma)}</dc:language>\n'
         + (f"<dc:creator>{html.escape(autor)}</dc:creator>\n" if autor else "")
-        + '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>\n'
+        + f'<meta property="dcterms:modified">{agora()}</meta>\n'
+        + acessibilidade
         + ibooks
         + "</metadata>\n<manifest>\n" + "\n".join(itens) + "\n</manifest>\n"
         f"<spine>{espinha}</spine>\n</package>\n"
     )
 
+    # O sumário lista os capítulos quando o livro os tem (F111), e as páginas
+    # quando não: "Página N" 2.612 vezes não é sumário, mas é o que há.
+    if capitulos_do_livro:
+        entradas = "".join(
+            f'<li><a href="{arquivo}#{alvo}">{html.escape(texto)}</a></li>'
+            for arquivo, alvo, texto in capitulos_do_livro)
+    else:
+        entradas = "".join(f'<li><a href="{n}">Página {i + 1}</a></li>'
+                           for i, n in enumerate(arquivos_de_pagina))
     nav = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n'
            '<html xmlns="http://www.w3.org/1999/xhtml" '
-           'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Sumário</title>'
+           'xmlns:epub="http://www.idpf.org/2007/ops" '
+           f'lang="{html.escape(idioma)}" xml:lang="{html.escape(idioma)}">'
+           "<head><title>Sumário</title>"
            "</head><body><nav epub:type=\"toc\"><h1>Sumário</h1><ol>"
-           + "".join(f'<li><a href="{n}">Página {i + 1}</a></li>'
-                     for i, n in enumerate(capitulos))
-           + "</ol></nav></body></html>\n")
+           + entradas + "</ol></nav></body></html>\n")
 
     pasta = os.path.dirname(os.path.abspath(caminho))
     if pasta:
@@ -761,7 +877,8 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
             z.writestr(nome, dados)
 
 
-def _caixa_do_diagrama(doc, moldura: str, largura_pt: float):
+def _caixa_do_diagrama(doc, moldura: str, largura_pt: float,
+                       descricao: str = ""):
     """
     A célula de largura fixa onde o tabuleiro em texto mora (F97, F98).
 
@@ -796,6 +913,13 @@ def _caixa_do_diagrama(doc, moldura: str, largura_pt: float):
 
     O `w:cantSplit` é de graça e resolve o que o `page-break-inside: avoid` do
     EPUB resolve lá: tabuleiro partido entre duas páginas.
+
+    `descricao` vai no `w:tblDescription` (F111): é o texto alternativo da
+    tabela, o mesmo lugar que o `descr` da figura — sem ele o leitor de tela
+    lia 501 tabelas de oito filas de letras sem saber que eram tabuleiros. O
+    `tblCaption` e o `tblDescription` são os dois últimos filhos do `tblPr`
+    no esquema, e por isso podem entrar depois do `tblLook` que o
+    `python-docx` escreve no fim.
     """
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.oxml import OxmlElement
@@ -815,6 +939,13 @@ def _caixa_do_diagrama(doc, moldura: str, largura_pt: float):
     if tblw is not None:
         tblw.set(qn("w:type"), "dxa")
         tblw.set(qn("w:w"), str(int(largura.twips)))
+    legenda = OxmlElement("w:tblCaption")
+    legenda.set(qn("w:val"), "Diagrama")
+    tabela._tbl.tblPr.append(legenda)
+    if descricao:
+        alt = OxmlElement("w:tblDescription")
+        alt.set(qn("w:val"), descricao)
+        tabela._tbl.tblPr.append(alt)
 
     linha = tabela.rows[0]
     linha.height = None
@@ -840,6 +971,60 @@ def _caixa_do_diagrama(doc, moldura: str, largura_pt: float):
         margens.append(m)
     props.append(margens)
     return celula
+
+
+def _propriedades_do_docx(doc, titulo: str, autor: str) -> None:
+    """
+    O arquivo com a identidade do livro, e não a da biblioteca (F111).
+
+    O template do `python-docx` traz `<dc:creator>python-docx</dc:creator>`,
+    `dcterms:created` em 2013-12-23, "generated by python-docx" na descrição e
+    uma miniatura de 8 KB que é a de um documento vazio — byte a byte igual em
+    todo livro exportado. Tudo isso é o que o Word mostra em Propriedades, e
+    nada disso é do livro.
+
+    A miniatura sai pela relação, e não pelo zip: o `python-docx` escreve as
+    partes que alcança pelas relações, e a que ninguém aponta não é escrita.
+    """
+    data = datetime.datetime.strptime(agora(), "%Y-%m-%dT%H:%M:%SZ")
+    props = doc.core_properties
+    props.title = titulo
+    props.author = autor
+    props.last_modified_by = ""
+    props.comments = ""
+    props.created = data
+    props.modified = data
+    pacote = doc.part.package
+    for rid, rel in list(pacote.rels.items()):
+        if rel.reltype.endswith("/thumbnail"):
+            pacote.rels.pop(rid)
+
+
+#: O desenho de página do DOCX (F111): o que a CSS do EPUB já dizia.
+#:
+#: Era o template nu do `python-docx`: Carta, Calibri 11, sem recuo, sem
+#: justificação — e o EPUB do mesmo livro saía justificado com recuo de 1,2 em.
+#: Um livro tem margem de livro e parágrafo de livro, e os dois formatos têm
+#: de concordar sobre isso.
+CORPO_DO_TEXTO_PT = 11.0
+MARGEM_DA_PAGINA_CM = 2.2
+FONTE_DO_TEXTO = "Georgia"
+
+
+def _desenho_da_pagina(doc) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Cm, Pt
+
+    normal = doc.styles["Normal"]
+    normal.font.name = FONTE_DO_TEXTO
+    normal.font.size = Pt(CORPO_DO_TEXTO_PT)
+    formato = normal.paragraph_format
+    formato.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    formato.first_line_indent = Pt(CORPO_DO_TEXTO_PT * 1.2)
+    formato.space_after = Pt(CORPO_DO_TEXTO_PT * 0.35)
+    for secao in doc.sections:
+        secao.top_margin = secao.bottom_margin = Cm(MARGEM_DA_PAGINA_CM)
+        secao.left_margin = secao.right_margin = Cm(MARGEM_DA_PAGINA_CM)
 
 
 def _idioma_do_estilo(estilo, idioma: str) -> None:
@@ -933,7 +1118,8 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     recurso = fonte_dos_simbolos("".join(p.texto for p in paginas))
     simbolos = recurso[2] if recurso else ""
 
-    def escrever_paragrafo(texto: str, negrito: Sequence[Tuple[int, int]] = ()):
+    def escrever_paragrafo(texto: str, negrito: Sequence[Tuple[int, int]] = (),
+                           p=None):
         """
         Um parágrafo, com os símbolos em runs de outra fonte e o negrito da
         página (F105).
@@ -943,8 +1129,13 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         por caractere mantém o XML legível e o arquivo menor. O peso é atributo
         do run pelo mesmo motivo, e os dois cortes se somam: um trecho em
         negrito com uma figurina no meio sai em três runs.
+
+        `p` é o parágrafo em que escrever, quando ele já existe — a célula da
+        tabela nasce com um (F111). Era `celula.text`, que cria o run sem
+        `rPr`, e a figurina saía na Calibri.
         """
-        p = doc.add_paragraph()
+        if p is None:
+            p = doc.add_paragraph()
         for trecho, forte in trechos(texto, negrito):
             for pedaco, e_simbolo in _por_familia(trecho, simbolos):
                 run = p.add_run(pedaco)
@@ -957,10 +1148,28 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         return p
 
     doc = Document()
-    doc.core_properties.title = titulo
-    if autor:
-        doc.core_properties.author = autor
+    _propriedades_do_docx(doc, titulo, autor)
     _idioma_do_estilo(doc.styles["Normal"], idioma)
+    _desenho_da_pagina(doc)
+
+    def separador():
+        """
+        O parágrafo de 1 pt que separa duas tabelas coladas.
+
+        **Duas tabelas coladas no XML viram uma só quando o Word abre o
+        arquivo**, e a página de exercícios é exatamente isso: dois diagramas
+        seguidos, sem prosa entre eles, que sairiam dentro da mesma moldura,
+        um por cima do outro. O parágrafo entre as duas separa — e vai de 1 pt
+        de entrelinha exata, que é o que o Word aceita como separador sem abrir
+        vão visível. Serve de segunda coisa: documento que termina em tabela é
+        o outro caso em que ele reclama. Vale para a `Tabela` do livro também
+        (F111): tabela seguida de diagrama saía fundida.
+        """
+        vao = doc.add_paragraph()
+        vao.paragraph_format.space_before = Pt(0)
+        vao.paragraph_format.space_after = Pt(0)
+        vao.paragraph_format.line_spacing = Pt(1)
+        vao.paragraph_format.first_line_indent = Pt(0)
 
     # A casa é o quadrado do em, então o corpo da fonte **é** a casa: o que o
     # usuário pediu em pontos entra aqui sem conta nenhuma (F97). Era derivado
@@ -969,19 +1178,24 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     corpo = Pt(corpo_pt)
 
     usadas = {}
+    # O primeiro parágrafo depois de figura, tabela ou título sai sem recuo,
+    # como o `p.primeira` da CSS do EPUB (F111): um desenho de página só para
+    # os dois formatos.
+    primeiro = True
     for i, pagina in enumerate(paginas):
         if i:
             doc.add_page_break()
         for bloco in pagina.blocos:
             if isinstance(bloco, Figura) and em_texto(bloco):
                 usadas[bloco.fonte] = None
+                primeiro = True
                 # A largura é a das linhas, e não oito fixo: as emolduradas
                 # têm dez caracteres. E a moldura da caixa sai quando o texto
                 # já traz a sua — senão o diagrama ganharia duas (F99).
                 colunas = max(len(linha) for linha in bloco.linhas)
                 caixa = _caixa_do_diagrama(
                     doc, "sem" if bloco.linhas_emolduradas else moldura,
-                    corpo_pt * colunas)
+                    corpo_pt * colunas, _alternativo(bloco))
                 for i_linha, linha in enumerate(bloco.linhas):
                     # A célula já nasce com um parágrafo vazio, e ele é o da
                     # primeira fila: um `add_paragraph` aqui deixaria uma linha
@@ -992,6 +1206,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     # largura do tabuleiro, e centrar aqui devolveria a voz ao
                     # espaço do fim da fila — ver `_caixa_do_diagrama`.
                     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                    p.paragraph_format.first_line_indent = Pt(0)
                     p.paragraph_format.space_before = Pt(0)
                     p.paragraph_format.space_after = Pt(0)
                     # Entrelinha **exata e igual ao corpo**, e não múltipla:
@@ -1008,19 +1223,9 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     # Sem o `hAnsi`, o Word desenha a fonte pedida só até o
                     # primeiro caractere que julgue não-ASCII.
                     familia_do_run(run, bloco.fonte)
-                # **Duas tabelas coladas no XML viram uma só quando o Word
-                # abre o arquivo**, e a página de exercícios é exatamente isso:
-                # dois diagramas seguidos, sem prosa entre eles, que sairiam
-                # dentro da mesma moldura, um por cima do outro. Um parágrafo
-                # entre as duas separa — e ele vai de 1 pt de entrelinha exata,
-                # que é o que o Word aceita como separador sem abrir vão
-                # visível. Serve de segunda coisa: documento que termina em
-                # tabela é o outro caso em que ele reclama.
-                vao = doc.add_paragraph()
-                vao.paragraph_format.space_before = Pt(0)
-                vao.paragraph_format.space_after = Pt(0)
-                vao.paragraph_format.line_spacing = Pt(1)
+                separador()
             elif isinstance(bloco, Figura):
+                primeiro = True
                 pt = largura_em_pt(bloco, corpo_pt)
                 forma = doc.add_picture(
                     _io.BytesIO(bloco.png),
@@ -1043,11 +1248,22 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     pass
                 for fila, textos in zip(t.rows, bloco.linhas):
                     for celula, texto in zip(fila.cells, textos):
-                        celula.text = texto
+                        # Pelo mesmo caminho da prosa, e não por `celula.text`
+                        # (F111): é o que põe a fonte na figurina da célula.
+                        p = escrever_paragrafo(texto, p=celula.paragraphs[0])
+                        p.paragraph_format.first_line_indent = Pt(0)
+                        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                separador()
+                primeiro = True
             else:
                 p = escrever_paragrafo(bloco.texto, bloco.negrito)
                 if bloco.titulo:
-                    p.style = doc.styles["Heading 2"]
+                    p.style = doc.styles["Heading 1" if bloco.nivel == 1
+                                         else "Heading 2"]
+                    primeiro = True
+                elif primeiro:
+                    p.paragraph_format.first_line_indent = Pt(0)
+                    primeiro = False
 
     pasta = os.path.dirname(os.path.abspath(caminho))
     if pasta:
