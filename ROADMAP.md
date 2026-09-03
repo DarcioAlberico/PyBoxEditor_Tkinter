@@ -13270,6 +13270,79 @@ Reproduzir: `python medir_cadeia.py --neural --sem-trava-para` e
 
 ---
 
+## F117 — A máscara de alfabeto chega à tela, e a cadeia passa a ter um crivo só — CONCLUÍDA
+
+O último item da revisão do «Detectar e Preencher (Neural)» (ver F116). A F109 pôs a máscara
+de alfabeto em `LearningService.ler_texto`, e só o caminho do livro a chama. As duas ações da
+tela leem pela cadeia de `ocr_service`, que não a tinha: na janela, `É` e `ê` continuavam
+competindo com `E` e `e` num livro em inglês. Havia duas implementações de "rede mais veto"
+— o passo 1 de `fallback_chain_detalhado` e o `ler_texto` —, e um crivo que entrava numa e
+não na outra é exatamente o defeito que a F1.5 registrou para os dois caminhos da cadeia.
+
+### O que entrou
+
+**A máscara na cadeia, com a forma do veto da F106.** `fallback_chain_detalhado` (e
+`fallback_chain`) ganham `idioma`, `None` por omissão. Com ele, `cabe` passa a ser "o idioma
+admite **e** a geometria admite", e a segunda passada escolhe entre as candidatas filtradas
+pelos dois crivos. A regra é a mesma do `ler_texto` — filtra e escolhe entre as que sobram,
+nunca inventa classe —, e a fonte da leitura não muda: a máscara não lê nada.
+
+**Vale para o k-NN também**, e o `ler_texto` não o alcançava. As classes dele são as mesmas
+pastas de `training_data`, com as mesmas letras acentuadas, e a margem do vencedor derrubado
+sai `SEM_MARGEM`, como no veto geométrico.
+
+**A tela pergunta o idioma uma vez por documento.** `MainWindow._idioma_do_livro` é a
+pergunta que a exportação já fazia (camada de texto do PDF; sem ela, o usuário diz), agora num
+lugar só. `idioma_da_sessao` a faz na **primeira ação que precisa**, e não na abertura — quem
+abre um PDF para arrastar boxes não responde sobre idioma —, e esquece junto com o léxico.
+Imagem solta fica sem idioma, que é a regra de `core.alfabeto`: página avulsa não sabe de que
+livro é, e máscara sem opinião é a cadeia de antes, nunca a máscara errada. O diálogo de fim
+das duas ações diz que máscara valeu.
+
+### Medido, e o número é pequeno de propósito
+
+`medir_cadeia.py --idioma en`, nas 10 páginas rotuladas, 10.508 caracteres, contra a cadeia
+sem máscara no mesmo processo:
+
+| caminho | sem máscara | com máscara | leituras fora do alfabeto | trocas |
+|---|---:|---:|---:|---:|
+| neural | 97,37% | 97,37% | 1 → 0 | 1, errada antes e depois |
+| híbrido | 97,58% | 97,58% | 0 → 0 | 0 |
+
+**Uma leitura em 10.508, e a F109 contou 1.112 num livro.** Não é contradição: as páginas
+rotuladas são as mesmas em que o modelo treinou e de que a base do k-NN foi colhida — o k-NN
+responde nelas consultando a própria cópia (F23, "as 2 limpas"), e a rede as viu. A letra
+acentuada vence **em livro que o modelo não viu**, que é onde a F109 a mediu e onde a tela
+vai ser usada. O instrumento não tem como ver isso, e o número que sustenta a máscara
+continua sendo o da F109; o que esta tabela diz é o que a F106 disse do veto geométrico —
+**ela não quebra nada onde não tem o que fazer**.
+
+A única troca é um `ça` (ligadura) lido onde a verdade é `a`: a máscara derruba, nenhuma
+candidata da rede passa do limiar, e o EasyOCR lê `c`. Errado antes e depois.
+
+### O custo, que é decisão da F109 e fica registrado
+
+`ACENTUADAS["en"]` é vazio, e um livro de xadrez em inglês escreve `Réti`, `Grünfeld`,
+`Sämisch`. Com a máscara ligada eles saem `Reti`, `Grunfeld`, `Samisch` — a candidata seguinte
+é a letra sem acento, e é a que a máscara escolhe. A F109 pagou isso por 1.112 leituras
+erradas num livro só, e esta fase não reabre a conta; quem reabrir tem o `--idioma` para
+medir.
+
+### Onde está
+
+- `core/services/ocr_service.py` — `idioma` na cadeia, e os dois crivos em `cabe`/`escolher`.
+- `ui/main_window.py` — `_idioma_do_livro`, `idioma_da_sessao`, `_frase_do_idioma`; as duas
+  ações passam `idioma=`; a exportação usa a mesma pergunta.
+- `medir_cadeia.py` — `--idioma`, `Cadeia.idioma`, `tabela_mascara`; `tabela_linha` ganhou
+  o sujeito da frase.
+
+Cobertura: `tests/test_f117_mascara_na_cadeia.py`, 13 testes — a rede e o k-NN caem para a
+candidata admitida, os dois crivos valem juntos, sem idioma nada muda e ninguém paga segunda
+passada; a janela não pergunta para imagem, não pergunta com camada de texto, pergunta uma vez
+por digitalização e de novo no próximo documento. Suíte: 1918.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

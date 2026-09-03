@@ -376,10 +376,16 @@ class Pagina:
 # Os dois caminhos, como as duas ações os montam
 # ----------------------------------------------------------------------
 
+#: "O idioma que a cadeia carrega" — o padrão de `rodar` e de `Cadeia.leitor`,
+#: para `None` poder significar "sem máscara" quando alguém o passa de
+#: propósito.
+DA_CADEIA = object()
+
+
 class Cadeia:
     """Os modelos carregados e memorizados, e as duas leituras por caractere."""
 
-    def __init__(self, com_rede):
+    def __init__(self, com_rede, idioma=None):
         self.ocr = ServicoMemorizado()
         svc = LearningService()
         self.learner = _Memo(svc._get_learner())
@@ -388,8 +394,13 @@ class Cadeia:
             if not svc.load_predictor():
                 raise SystemExit("sem modelo treinado — o caminho neural precisa dele")
             self.predictor = _Memo(svc._predictor)
+        # O idioma das páginas medidas (F117). Mora na cadeia, e não em cada
+        # chamada, porque é parte de como as ações a montam: toda tabela mede
+        # com ele, e só `tabela_mascara` o desliga de propósito.
+        self.idioma = idioma
 
-    def leitor(self, pagina, caminho, learner_threshold, neural_threshold=None):
+    def leitor(self, pagina, caminho, learner_threshold, neural_threshold=None,
+               idioma=DA_CADEIA):
         """
         `ler_caractere(box)` da ação pedida, com os limiares que ela usa.
 
@@ -401,8 +412,14 @@ class Cadeia:
         `altura_de_referencia` vai junto porque as duas ações a passam desde a
         F106: sem ela o veto de tamanho (ponto contra quadrado) fica desligado
         aqui e ligado na janela, e o instrumento deixa de medir produção.
+
+        `idioma` é a máscara de alfabeto (F117), que as duas ações passam desde
+        que a tela pergunta o idioma do livro. Por omissão é o da cadeia;
+        `None` explícito é a cadeia sem máscara.
         """
         referencia = proporcao.altura_de_referencia(pagina.boxes)
+        if idioma is DA_CADEIA:
+            idioma = self.idioma
 
         def hibrido(b):
             justo, contexto = pagina.recortes(b)
@@ -411,6 +428,7 @@ class Cadeia:
                 neural_threshold=learner_threshold,
                 learner_threshold=learner_threshold,
                 altura_de_referencia=referencia,
+                idioma=idioma,
             )
             if fonte not in ("learner", "easyocr"):
                 return ("", 0.0, "vazio")
@@ -425,6 +443,7 @@ class Cadeia:
                                   else neural_threshold),
                 learner_threshold=learner_threshold,
                 altura_de_referencia=referencia,
+                idioma=idioma,
             )
             return (char, c, fonte)
 
@@ -473,7 +492,7 @@ class Cadeia:
 
 def rodar(cadeia, paginas, caminho, learner_threshold, trava,
           neural_threshold=None, deslocam=None,
-          fontes_sem_trava=FONTES_SEM_TRAVA):
+          fontes_sem_trava=FONTES_SEM_TRAVA, idioma=DA_CADEIA):
     """
     `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
 
@@ -487,6 +506,10 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
     `fontes_sem_trava` são as fontes da âncora que a trava não protege — ver
     `ler_pagina`. O padrão é o de produção (F116); `frozenset()` é a trava de
     antes, que segurava toda fonte.
+
+    `idioma` liga a máscara de alfabeto (F117). O padrão é o da cadeia, que
+    `--idioma` fixa para todas as tabelas; `None` explícito desliga a máscara,
+    e é o que `tabela_mascara` usa como ponta de comparação.
     """
     saida = []
     for p in paginas:
@@ -494,7 +517,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
             p.arr, p.linhas,
             ler_faixa=cadeia.ocr.easyocr_linha_conf,
             ler_caractere=cadeia.leitor(p, caminho, learner_threshold,
-                                        neural_threshold),
+                                        neural_threshold, idioma=idioma),
             deslocam=deslocam,
             conf_maxima_para_trocar=trava,
             fontes_sem_trava=fontes_sem_trava,
@@ -2013,7 +2036,7 @@ def tabela_roteamento(aquecidos, verdade):
               f"{'':>4}{ganha:<12}")
 
 
-def tabela_linha(sem_linha, com_linha):
+def tabela_linha(sem_linha, com_linha, quem="A linha"):
     """
     O que a linha trocou, e se cada troca foi conserto ou quebra.
 
@@ -2021,6 +2044,9 @@ def tabela_linha(sem_linha, com_linha):
     falta para saber se dá para melhorar é a razão entre as duas metades: 42
     trocas com 42 consertos e 0 quebras é um teto; 60 consertos e 18 quebras é
     um alvo.
+
+    `quem` é o sujeito da frase: a mesma conta serve à máscara de alfabeto
+    (F117), que também troca caractere por caractere.
     """
     consertos = quebras = neutras = 0
     for reg0, reg1 in zip(sem_linha, com_linha):
@@ -2037,7 +2063,7 @@ def tabela_linha(sem_linha, com_linha):
             neutras += 1
 
     total = consertos + quebras + neutras
-    print(f"\nA linha trocou {total} boxes: {consertos} conserto(s), "
+    print(f"\n{quem} trocou {total} boxes: {consertos} conserto(s), "
           f"{quebras} quebra(s), {neutras} errado antes e depois.")
     if total:
         print(f"Saldo: {consertos - quebras:+d} caractere(s).")
@@ -2216,6 +2242,45 @@ def tabela_sem_trava(cadeia, paginas, caminho, learner_threshold, trava,
                      ["acerto", "trocados"], linhas_da_tabela)
 
 
+def tabela_mascara(cadeia, paginas, caminho, learner_threshold, trava, idioma,
+                   deslocam=None):
+    """
+    A máscara de alfabeto (F117) contra a cadeia sem ela, no mesmo processo.
+
+    A F109 mediu a máscara no livro exportado — 1.112 letras acentuadas num
+    livro em inglês, nenhuma legítima. Aqui ela é medida onde as duas ações da
+    tela a passam: na cadeia inteira, com o k-NN também mascarado, e contra o
+    rótulo. A conta que importa é a dos boxes em que a leitura **mudou**: a
+    máscara só age onde a primeira resposta era uma letra que o idioma não
+    escreve, então tudo o que ela toca está nesta lista.
+    """
+    from core import alfabeto
+
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, idioma=None)
+    com = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, idioma=idioma)
+
+    def acentuadas(r):
+        return sum(1 for reg in r if not alfabeto.permitido(reg[2], idioma))
+
+    print(f"\n=== A máscara de alfabeto ({idioma}) ===")
+    tabela_varredura(f"máscara de alfabeto, idioma {idioma}",
+                     ["acerto", "fora do alf."],
+                     [("sem máscara", [acerto(sem), acentuadas(sem)]),
+                      ("com máscara", [acerto(com), acentuadas(com)])])
+    tabela_linha(sem, com, quem="A máscara")
+
+    mudou = [(x, y) for x, y in zip(sem, com)
+             if normalizar(x[2]) != normalizar(y[2])]
+    if mudou:
+        print(f"\n{'antes':>8}{'depois':>8}{'verdade':>9}{'fonte':>10}   página")
+        for x, y in mudou[:40]:
+            print(f"{x[2]:>8}{y[2]:>8}{x[3]:>9}{y[0]:>10}   {y[4]}")
+        if len(mudou) > 40:
+            print(f"  (+{len(mudou) - 40})")
+
+
 def tabela_varredura(titulo, colunas, linhas_da_tabela):
     print(f"\n--- {titulo} ---")
     print(f"{'':<14}" + "".join(f"{c:>14}" for c in colunas))
@@ -2284,6 +2349,11 @@ def main():
                          "âncora (sem valores: easyocr) — a linha manda sempre "
                          "no box que elas responderam, e a trava segue valendo "
                          "para o resto")
+    ap.add_argument("--idioma", default=None,
+                    help="o idioma das páginas rotuladas ('en', 'pt'): liga a "
+                         "máscara de alfabeto (F117) em todas as tabelas, como "
+                         "as ações da tela a ligam, e acrescenta a tabela da "
+                         "máscara contra a cadeia sem ela")
     args = ap.parse_args()
 
     caminho = "neural" if args.neural else "hibrido"
@@ -2314,7 +2384,7 @@ def main():
     # `--regua` pede a rede porque duas das candidatas são dela. Sem isto o
     # `predictor` fica `None` e as duas colunas sairiam achatadas em zero — que
     # é pior que sair vazias, porque zero parece medida.
-    cadeia = Cadeia(com_rede=args.neural or args.regua)
+    cadeia = Cadeia(com_rede=args.neural or args.regua, idioma=args.idioma)
 
     # Guardado antes de envelopar: o cabeçalho precisa do tamanho da base, e a
     # partir daqui `cadeia.learner` pode não ser mais o memo cru.
@@ -2510,6 +2580,10 @@ def main():
         tabela_sem_trava(cadeia, paginas, caminho, padrao_learner, padrao_trava,
                          frozenset(args.sem_trava_para or ["easyocr"]),
                          producao, deslocam=deslocam)
+
+    if args.idioma:
+        tabela_mascara(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                       args.idioma, deslocam=deslocam)
 
     if args.pdf is not None:
         if not args.neural:

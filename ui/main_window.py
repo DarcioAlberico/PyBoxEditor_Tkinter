@@ -361,6 +361,9 @@ class MainWindow(tk.Frame):
         # é a mesma ordem do `deepcopy` que a F3.8 teve de tirar do caminho da
         # tecla. A chave custa 0,36 ms.
         self._cache_suspeitas = (None, [])
+        # O idioma do documento, conferido na primeira ação que o pede (F117).
+        # Ver `idioma_da_sessao`.
+        self._idioma = None
         # A ressalva do modelo já foi mostrada nesta sessão? Ver
         # `_avisar_do_modelo`: é sobre o arquivo, então uma vez basta.
         self._modelo_conferido = False
@@ -1810,17 +1813,7 @@ class MainWindow(tk.Frame):
         # do corpus; onde não há camada (a digitalização de verdade) é o
         # usuário quem diz, porque a máscara errada apagaria o `ç` do livro
         # inteiro.
-        idioma = livro.idioma_do_pdf(input_pdf)
-        detectado = idioma is not None
-        if idioma is None:
-            idioma = "pt" if messagebox.askyesno(
-                "Idioma do livro",
-                "O livro é em português?\n\n"
-                "O PDF não tem camada de texto que diga o idioma, e ele "
-                "decide que letras o OCR pode responder: num livro em inglês "
-                "a letra acentuada é sempre erro de leitura, e deixa de "
-                "competir com a certa.\n\n"
-                "Não: o livro é tratado como inglês.") else "en"
+        idioma, detectado = self._idioma_do_livro(input_pdf)
 
         # A extração já sabe onde o modelo é fraco: são os caracteres que ela
         # derruba por confiança. Guardá-los custa o disco de alguns milhares de
@@ -2536,6 +2529,8 @@ class MainWindow(tk.Frame):
         # vez só — é o que separa o ponto do quadrado. Aqui, e não dentro de
         # `preparar`: aquele roda na thread de trabalho, e `self.boxes` é da UI.
         referencia = proporcao.altura_de_referencia(self.boxes)
+        # E o idioma do livro (F117), pela mesma razão: ele pode perguntar.
+        idioma = self.idioma_da_sessao()
 
         def preparar(h, pagina, faixas, margens):
             h.log("Carregando base de referência...")
@@ -2551,6 +2546,7 @@ class MainWindow(tk.Frame):
                     neural_threshold=LEARNER_THRESHOLD_HIBRIDO,
                     learner_threshold=LEARNER_THRESHOLD_HIBRIDO,
                     altura_de_referencia=referencia,
+                    idioma=idioma,
                 )
                 if leitura.fonte not in ("learner", "easyocr"):
                     return ("", 0.0, "vazio")
@@ -2563,9 +2559,18 @@ class MainWindow(tk.Frame):
             lambda fontes: (f"Encontrados via Base: {fontes.get('learner', 0)}\n"
                             f"Encontrados via OCR: {fontes.get('easyocr', 0)}\n"
                             f"Corrigidos pela linha: "
-                            f"{fontes.get('easyocr_linha', 0)}"),
+                            f"{fontes.get('easyocr_linha', 0)}"
+                            + self._frase_do_idioma(idioma)),
             conf_maxima_para_trocar=CONF_MAXIMA_PARA_A_LINHA_HIBRIDO,
         )
+
+    @staticmethod
+    def _frase_do_idioma(idioma):
+        """A linha do diálogo que diz que máscara de alfabeto valeu (F117)."""
+        if idioma is None:
+            return "\nMáscara de alfabeto: desligada (página sem livro)"
+        nome = {"en": "inglês", "pt": "português"}.get(idioma, idioma)
+        return f"\nMáscara de alfabeto: {nome}"
 
     def generate_and_fill_neural(self):
         titulo = "Detectar e preencher (Neural)"
@@ -2591,6 +2596,7 @@ class MainWindow(tk.Frame):
             return
         # Na thread da UI, pela razão dita em `generate_and_fill_combined`.
         referencia = proporcao.altura_de_referencia(self.boxes)
+        idioma = self.idioma_da_sessao()
 
         def preparar(h, pagina, faixas, margens):
             h.log("Carregando modelo neural...")
@@ -2608,6 +2614,7 @@ class MainWindow(tk.Frame):
                     neural_threshold=NEURAL_THRESHOLD,
                     learner_threshold=LEARNER_THRESHOLD_NEURAL,
                     altura_de_referencia=referencia,
+                    idioma=idioma,
                 )
                 margens[id(b)] = leitura.margem
                 return (leitura.char, leitura.confianca, leitura.fonte)
@@ -2619,7 +2626,8 @@ class MainWindow(tk.Frame):
                             f"Referência: {fontes.get('learner', 0)}\n"
                             f"EasyOCR: {fontes.get('easyocr', 0)}\n"
                             f"Corrigidos pela linha: "
-                            f"{fontes.get('easyocr_linha', 0)}"),
+                            f"{fontes.get('easyocr_linha', 0)}"
+                            + self._frase_do_idioma(idioma)),
             conf_maxima_para_trocar=CONF_MAXIMA_PARA_A_LINHA,
         )
 
@@ -2655,6 +2663,52 @@ class MainWindow(tk.Frame):
         """Força a recarga do léxico e das suspeitas — chamada ao abrir."""
         self._lexico = None
         self._cache_suspeitas = (None, [])
+        # O idioma é do livro, como o léxico: o próximo documento pergunta de
+        # novo. `None` aqui quer dizer "ainda não conferido", e não "sem idioma".
+        self._idioma = None
+
+    @staticmethod
+    def _idioma_do_livro(caminho_pdf):
+        """
+        `(idioma, detectado)` de um PDF (F109).
+
+        A camada de texto responde em 72% das páginas do corpus; onde não há
+        camada — a digitalização de verdade — é o usuário quem diz, porque a
+        máscara errada apagaria o `ç` do livro inteiro. Um lugar só para a
+        exportação e para a tela, para as duas perguntarem a mesma coisa.
+        """
+        idioma = livro.idioma_do_pdf(caminho_pdf)
+        if idioma is not None:
+            return idioma, True
+        return ("pt" if messagebox.askyesno(
+            "Idioma do livro",
+            "O livro é em português?\n\n"
+            "O PDF não tem camada de texto que diga o idioma, e ele "
+            "decide que letras o OCR pode responder: num livro em inglês "
+            "a letra acentuada é sempre erro de leitura, e deixa de "
+            "competir com a certa.\n\n"
+            "Não: o livro é tratado como inglês.") else "en"), False
+
+    def idioma_da_sessao(self):
+        """
+        O idioma do documento aberto, ou `None` — que desliga a máscara.
+
+        Conferido **uma vez por documento**, na primeira ação que o pede, e não
+        na abertura: quem abre um PDF para arrastar boxes não precisa responder
+        sobre idioma. A pergunta, quando há, é a mesma da exportação.
+
+        Uma imagem solta fica sem idioma, e é a regra de `core.alfabeto`: quem
+        lê uma página avulsa não sabe de que livro ela é, e a máscara sem
+        opinião é a cadeia de antes — nunca a máscara errada.
+        """
+        if self._idioma is None:
+            idioma = None
+            if self.session is not None and self.session.is_pdf:
+                idioma, _detectado = self._idioma_do_livro(self.session.path)
+            # Guardado como tupla para distinguir "conferido: nenhum" de "ainda
+            # não conferido", que é o `None` cru.
+            self._idioma = (idioma,)
+        return self._idioma[0]
 
     def aprender_palavras_da_pagina(self, boxes=None):
         """

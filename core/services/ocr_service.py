@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from PIL import Image
 
-from core import proporcao
+from core import alfabeto, proporcao
 from core.box_model import SEM_MARGEM
 
 
@@ -283,6 +283,7 @@ class OCRService:
         easyocr_gpu: bool = False,
         contexto: Optional[np.ndarray] = None,
         altura_de_referencia: Optional[float] = None,
+        idioma: Optional[str] = None,
     ) -> Tuple[str, str, float]:
         """
         Executa a cadeia de fallback:
@@ -303,7 +304,8 @@ class OCRService:
             learner_threshold=learner_threshold,
             easyocr_languages=easyocr_languages, easyocr_gpu=easyocr_gpu,
             contexto=contexto,
-            altura_de_referencia=altura_de_referencia).como_tupla()
+            altura_de_referencia=altura_de_referencia,
+            idioma=idioma).como_tupla()
 
     def fallback_chain_detalhado(
         self,
@@ -318,6 +320,7 @@ class OCRService:
         easyocr_gpu: bool = False,
         contexto: Optional[np.ndarray] = None,
         altura_de_referencia: Optional[float] = None,
+        idioma: Optional[str] = None,
     ) -> Leitura:
         """
         A mesma cadeia, devolvendo também a **margem** do k-NN (F44).
@@ -330,6 +333,15 @@ class OCRService:
         `altura_de_referencia` é a mediana da altura dos boxes da página, e serve
         ao veto geométrico da F106 — sem ela, o veto roda só pela proporção. Quem
         tem a página à mão a tira de `proporcao.altura_de_referencia`.
+
+        `idioma` liga a máscara de alfabeto da F109 (`core.alfabeto`), que é o
+        outro veto com a mesma forma: a letra acentuada que o idioma não escreve
+        é impossível como o travessão num recorte em pé é impossível, e o mesmo
+        elo dá a candidata seguinte que passe **nos dois crivos**. `None` é a
+        cadeia de antes. É a mesma regra de `LearningService.ler_texto`, que a
+        aplica só à rede para quem lê o livro inteiro; aqui ela vale também
+        para o k-NN, cujas classes são as mesmas pastas de `training_data` e
+        trazem as mesmas letras acentuadas.
         """
         # Os dois elos que classificam esticam o recorte para 32×32 sem
         # preservar proporção, então nenhum dos dois enxerga se a barra de tinta
@@ -337,16 +349,24 @@ class OCRService:
         # são exatamente o que o esticão apagou.
         largura, altura = proporcao.lados(crop_np)
 
+        def cabe(char):
+            return (alfabeto.permitido(char, idioma)
+                    and proporcao.cabe(char, largura, altura,
+                                       altura_de_referencia))
+
+        def escolher(candidatas):
+            return proporcao.escolher(alfabeto.filtrar(candidatas, idioma),
+                                      largura, altura, altura_de_referencia)
+
         # 1. Neural
         if predictor is not None and getattr(predictor, "loaded", False):
             char, conf = predictor.predict(crop_np)
-            if not proporcao.cabe(char, largura, altura, altura_de_referencia):
+            if not cabe(char):
                 # Segunda passada pela rede, e só aqui: medido, o veto pega 2
                 # leituras em 10.641 numa página normal. O caminho de sempre não
                 # paga nada por isto existir.
-                escolhida = proporcao.escolher(
-                    predictor.predict_topk(crop_np, k=proporcao.CANDIDATAS),
-                    largura, altura, altura_de_referencia)
+                escolhida = escolher(
+                    predictor.predict_topk(crop_np, k=proporcao.CANDIDATAS))
                 if escolhida is not None:
                     char, conf = escolhida
             if conf > neural_threshold:
@@ -355,10 +375,9 @@ class OCRService:
         # 2. Learner
         if learner is not None:
             char, conf, margem = learner.predict_e_margem(crop_np)
-            if not proporcao.cabe(char, largura, altura, altura_de_referencia):
-                escolhida = proporcao.escolher(
-                    learner.candidatas(crop_np, n=proporcao.CANDIDATAS),
-                    largura, altura, altura_de_referencia)
+            if not cabe(char):
+                escolhida = escolher(
+                    learner.candidatas(crop_np, n=proporcao.CANDIDATAS))
                 if escolhida is not None:
                     # A margem media o vencedor que o veto derrubou, e não este.
                     # `SEM_MARGEM` é o que ela quer dizer agora; ela não decide
