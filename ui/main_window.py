@@ -171,6 +171,32 @@ LEARNER_THRESHOLD_HIBRIDO = 0.30
 #: de somar com ele.
 CONF_MAXIMA_PARA_A_LINHA_HIBRIDO = LEARNER_THRESHOLD_HIBRIDO
 
+#: As fontes da âncora que a trava da linha **não** protege (F116).
+#:
+#: A trava existe para a linha não passar por cima da rede (F20) e do k-NN
+#: (F21), e compara `cf >= trava` sem olhar quem respondeu. Só que o último elo
+#: da cadeia, o `easyocr`, tem confiança **plana**: a F48 mediu mediana 0,97 no
+#: erro e no acerto, e é por isso que ele entra inteiro na fila de revisão
+#: (`FONTES_SEMPRE_REVISADAS`). Plana e alta, ela passava pela trava sempre — e
+#: o elo que acerta 29% (neural) e 44% (híbrido) no que lhe sobra ficava
+#: protegido da linha, que é o melhor conserto que ele tem.
+#:
+#: Medido nas 10 páginas rotuladas, 10.508 caracteres, contra a produção do
+#: mesmo processo (`medir_cadeia.py --sem-trava-para`):
+#:
+#:     caminho    trava    sem isenção   isentando   trocas novas   conserto / quebra
+#:     neural      0,70        97,32%      97,37%              8            6 / 0
+#:     híbrido     0,30        97,43%      97,58%             37           17 / 1
+#:
+#: Nos boxes que o EasyOCR respondeu: 35 dos 38 (neural) e 165 dos 165
+#: (híbrido) estavam travados; o acerto neles sobe de 28,95% para 44,74% e de
+#: 44,24% para 53,94%. A trava do resto não muda de lugar com a isenção ligada
+#: — o híbrido continua melhor em 0,30, e o neural fica no platô da F25.
+#:
+#: **Só o `easyocr`.** O `learner` e o `neural` têm confiança que ordena (F51:
+#: separação 0,795 e 0,634), e é neles que a trava faz o que a F20 mediu.
+FONTES_SEM_TRAVA = frozenset({"easyocr"})
+
 #: Confiança mínima para a rede responder sozinha, sem passar ao k-NN.
 #:
 #: **Este número é por modelo, e já se moveu duas vezes.** Era 0,8; a F22 mediu
@@ -2447,6 +2473,9 @@ class MainWindow(tk.Frame):
                 # o `_alinhar` absorve o deslocamento, e filtrar joga fora as
                 # correções do resto da linha. Ver `leitura_de_linha.em_bloco`.
                 conf_maxima_para_trocar=conf_maxima_para_trocar,
+                # A trava não segura o box que o EasyOCR respondeu (F116): a
+                # confiança dele é plana, e a linha acerta mais que ele ali.
+                fontes_sem_trava=FONTES_SEM_TRAVA,
                 cancelado=lambda: h.cancelled,
                 progresso=lambda i, n: h.progress(i, n, f"linha {i}/{n}"),
                 ao_falhar=lambda b, e: falhas.append(f"{type(e).__name__}: {e}"),

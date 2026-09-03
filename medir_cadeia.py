@@ -70,7 +70,7 @@ from PIL import Image
 
 from core import learner as core_learner
 from core import leitura_de_linha as ldl
-from core import vertical
+from core import proporcao, vertical
 from core.avaliacao_pagina import (EQUIVALENTES, carregar_box, comparar,
                                    normalizar)
 from core.services.box_service import faixas_de_linha
@@ -79,7 +79,7 @@ from core.services.ocr_service import OCRService
 from ui import confidence as conf_ui
 from medir_paginas import MIN_ROTULADOS, paginas_rotuladas, segmentar
 from ui.main_window import (CONF_MAXIMA_PARA_A_LINHA,
-                            CONF_MAXIMA_PARA_A_LINHA_HIBRIDO,
+                            CONF_MAXIMA_PARA_A_LINHA_HIBRIDO, FONTES_SEM_TRAVA,
                             LEARNER_THRESHOLD_HIBRIDO,
                             LEARNER_THRESHOLD_NEURAL, NEURAL_THRESHOLD)
 
@@ -159,6 +159,26 @@ class _Memo:
             self._cache[chave] = self._alvo.voto(crop, k=k)
         return self._cache[chave]
 
+    # As duas abaixo são o que o veto geométrico da F106 pede ao elo quando a
+    # primeira leitura não cabe no recorte. **Sem elas o instrumento morria
+    # com `AttributeError` na primeira página em que o veto disparasse** — e
+    # ele dispara em ~2 de 10.641 recortes, o bastante para toda rodada cair.
+    # O veto entrou em produção sem que ninguém rodasse isto depois.
+
+    def candidatas(self, crop, n=5):
+        """Só o k-NN tem isto."""
+        chave = ("candidatas", n, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.candidatas(crop, n=n)
+        return self._cache[chave]
+
+    def predict_topk(self, crop, k=5):
+        """Só a rede tem isto."""
+        chave = ("topk", k, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.predict_topk(crop, k=k)
+        return self._cache[chave]
+
 
 class _MemoCombinado:
     """
@@ -180,6 +200,9 @@ class _MemoCombinado:
 
     def vizinhos(self, crop, k=1):
         return self._memo.vizinhos(crop, k=k)
+
+    def candidatas(self, crop, n=5):
+        return self._memo.candidatas(crop, n=n)
 
     def margem(self, crop):
         return self._memo.margem(crop)
@@ -219,6 +242,12 @@ class _MemoComDistancia:
     def vizinhos(self, crop, k=1):
         return self._memo.vizinhos(crop, k=k)
 
+    def candidatas(self, crop, n=5):
+        # A confiança das candidatas sai na escala de produção, e não na de
+        # `D`: o veto só usa a ordem delas, e a confiança da escolhida só
+        # importa nos ~2 recortes em 10 mil em que ele dispara.
+        return self._memo.candidatas(crop, n=n)
+
     def margem(self, crop):
         return self._memo.margem(crop)
 
@@ -253,6 +282,9 @@ class _MemoComVoto:
 
     def vizinhos(self, crop, k=1):
         return self._memo.vizinhos(crop, k=k)
+
+    def candidatas(self, crop, n=5):
+        return self._memo.candidatas(crop, n=n)
 
     def margem(self, crop):
         return self._memo.margem(crop)
@@ -365,13 +397,20 @@ class Cadeia:
         `generate_and_fill_neural`, inclusive o zeramento do híbrido: fonte que
         não é `learner` nem `easyocr` vira box vazio com confiança 0,0 — que é o
         que a F21 registrou como o lugar onde a linha mais tem a dizer.
+
+        `altura_de_referencia` vai junto porque as duas ações a passam desde a
+        F106: sem ela o veto de tamanho (ponto contra quadrado) fica desligado
+        aqui e ligado na janela, e o instrumento deixa de medir produção.
         """
+        referencia = proporcao.altura_de_referencia(pagina.boxes)
+
         def hibrido(b):
             justo, contexto = pagina.recortes(b)
             char, fonte, c = self.ocr.fallback_chain(
                 justo, learner=self.learner, contexto=contexto,
                 neural_threshold=learner_threshold,
                 learner_threshold=learner_threshold,
+                altura_de_referencia=referencia,
             )
             if fonte not in ("learner", "easyocr"):
                 return ("", 0.0, "vazio")
@@ -385,6 +424,7 @@ class Cadeia:
                 neural_threshold=(NEURAL_THRESHOLD if neural_threshold is None
                                   else neural_threshold),
                 learner_threshold=learner_threshold,
+                altura_de_referencia=referencia,
             )
             return (char, c, fonte)
 
@@ -432,7 +472,8 @@ class Cadeia:
 
 
 def rodar(cadeia, paginas, caminho, learner_threshold, trava,
-          neural_threshold=None, deslocam=None):
+          neural_threshold=None, deslocam=None,
+          fontes_sem_trava=FONTES_SEM_TRAVA):
     """
     `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
 
@@ -442,6 +483,10 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
 
     `deslocam` é o filtro da F36, e o padrão `None` reproduz o que a ação fazia
     antes dela — que é o que as tabelas da F18 à F35 mediram.
+
+    `fontes_sem_trava` são as fontes da âncora que a trava não protege — ver
+    `ler_pagina`. O padrão é o de produção (F116); `frozenset()` é a trava de
+    antes, que segurava toda fonte.
     """
     saida = []
     for p in paginas:
@@ -452,6 +497,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
                                         neural_threshold),
             deslocam=deslocam,
             conf_maxima_para_trocar=trava,
+            fontes_sem_trava=fontes_sem_trava,
         )
         for b, char, conf, fonte in lidos:
             verdade = p.verdade.get(id(b))
@@ -2111,6 +2157,65 @@ def tabela_alfabeto(cadeia, paginas, caminho, learner_threshold, trava):
         linhas_da_tabela)
 
 
+def tabela_sem_trava(cadeia, paginas, caminho, learner_threshold, trava,
+                     isentas, producao, deslocam=None):
+    """
+    A trava isentando `isentas`, contra a produção do mesmo processo.
+
+    A hipótese: a trava foi feita para a linha não passar por cima da rede
+    (F20), mas `cf >= trava` vale para toda fonte — inclusive o `easyocr`, cuja
+    confiança a F48 mediu como plana (mediana 0,97 no erro e no acerto). Esse
+    elo é o último da cadeia, acerta 46% no que lhe sobra, e é onde a linha
+    (89,5%) mais teria a dizer; se a trava o protege, protege o pior elo do
+    melhor conserto. Isentá-lo é deixar a linha mandar ali sempre, e a trava
+    seguir valendo para a rede e o k-NN.
+
+    A conta que decide não é o total — o elo responde ~1,5% dos boxes — e sim
+    o que muda nos boxes que ele respondeu: quantos estavam travados, quantos a
+    linha troca, e conserto contra quebra em cada troca.
+    """
+    def trocados(r):
+        return sum(1 for reg in r if reg[0] == "easyocr_linha")
+
+    # As duas pontas são calculadas aqui, e não herdadas de `producao`: desde a
+    # F116 produção **já** isenta o `easyocr`, e a tabela compara a trava que
+    # segura toda fonte com a que isenta `isentas` — que pode ser outro conjunto.
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, fontes_sem_trava=frozenset())
+    isento = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                   deslocam=deslocam, fontes_sem_trava=isentas)
+    nomes = ", ".join(sorted(isentas))
+    print(f"\n=== A trava ({trava}) isentando {nomes} ===")
+    tabela_varredura(f"trava {trava}, isentando {nomes}",
+                     ["acerto", "trocados"],
+                     [("sem isenção", [acerto(sem), trocados(sem)]),
+                      ("isentando", [acerto(isento), trocados(isento)]),
+                      ("produção", [acerto(producao), trocados(producao)])])
+    tabela_linha(sem, isento)
+
+    # A população que a mudança alcança: quem a âncora respondeu por uma das
+    # fontes isentas. `travados` são os que a trava segurava e a isenção solta.
+    pares = [(x, y) for x, y in zip(sem, isento) if x[0] in isentas]
+    if pares:
+        travados = [x for x, _y in pares if x[1] >= trava]
+        print(f"\nNos {len(pares)} boxes que a âncora respondeu por {nomes}: "
+              f"{acerto([x for x, _y in pares]):.2f}% sem isenção, "
+              f"{acerto([y for _x, y in pares]):.2f}% isentando. "
+              f"{len(travados)} estavam travados (conf >= {trava}), "
+              f"a {acerto(travados):.2f}%.")
+        tabela_linha([x for x, _y in pares], [y for _x, y in pares])
+
+    # E a trava do resto, com a isenção ligada: soltar o elo fraco pode mudar
+    # onde a trava dos elos fortes deve ficar.
+    linhas_da_tabela = []
+    for t in sorted({trava, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99}):
+        r = rodar(cadeia, paginas, caminho, learner_threshold, t,
+                  deslocam=deslocam, fontes_sem_trava=isentas)
+        linhas_da_tabela.append((f"{t:.2f}", [acerto(r), trocados(r)]))
+    tabela_varredura(f"a trava do resto, isentando {nomes}",
+                     ["acerto", "trocados"], linhas_da_tabela)
+
+
 def tabela_varredura(titulo, colunas, linhas_da_tabela):
     print(f"\n--- {titulo} ---")
     print(f"{'':<14}" + "".join(f"{c:>14}" for c in colunas))
@@ -2174,6 +2279,11 @@ def main():
                     help="varre o roteamento com min(absoluta, margem) **e** com "
                          "a de produção, no mesmo processo e na mesma base — a "
                          "ideia aberta na F24")
+    ap.add_argument("--sem-trava-para", nargs="*", default=None,
+                    help="mede a trava da linha isentando estas fontes da "
+                         "âncora (sem valores: easyocr) — a linha manda sempre "
+                         "no box que elas responderam, e a trava segue valendo "
+                         "para o resto")
     args = ap.parse_args()
 
     caminho = "neural" if args.neural else "hibrido"
@@ -2395,6 +2505,11 @@ def main():
             linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
         tabela_varredura("trava da leitura por linha (F18)",
                          ["acerto", "trocados"], linhas_da_tabela)
+
+    if args.sem_trava_para is not None:
+        tabela_sem_trava(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                         frozenset(args.sem_trava_para or ["easyocr"]),
+                         producao, deslocam=deslocam)
 
     if args.pdf is not None:
         if not args.neural:

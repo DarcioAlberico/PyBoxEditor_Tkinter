@@ -108,6 +108,62 @@ def test_a_linha_que_a_faixa_leu_bem_nao_e_afetada_pela_que_falhou():
 
 
 # ----------------------------------------------------------------------
+# `fontes_sem_trava` — a hipótese que `medir_cadeia.py --sem-trava-para` mede
+# ----------------------------------------------------------------------
+
+def _ancora_por_fonte(fontes):
+    def ler(b):
+        return (b.char, 0.95, fontes[b.char])
+    return ler
+
+
+def test_a_fonte_isenta_e_trocada_mesmo_acima_da_trava():
+    fontes = {"a": "neural", "0": "easyocr"}
+    saida = ldl.ler_pagina(_pagina(), [_boxes("a0")],
+                           ler_faixa=lambda t: ("ao", 0.9),
+                           ler_caractere=_ancora_por_fonte(fontes),
+                           conf_maxima_para_trocar=0.70,
+                           fontes_sem_trava={"easyocr"})
+    assert [(c, f) for _b, c, _cf, f in saida] == [
+        ("a", "neural"), ("o", "easyocr_linha")]
+
+
+def test_sem_a_isencao_a_trava_segura_as_duas():
+    fontes = {"a": "neural", "0": "easyocr"}
+    saida = ldl.ler_pagina(_pagina(), [_boxes("a0")],
+                           ler_faixa=lambda t: ("ao", 0.9),
+                           ler_caractere=_ancora_por_fonte(fontes),
+                           conf_maxima_para_trocar=0.70)
+    assert "".join(c for _b, c, _cf, _f in saida) == "a0"
+
+
+def test_a_isencao_nao_solta_a_fonte_que_nao_esta_nela():
+    fontes = {"a": "neural", "0": "learner"}
+    saida = ldl.ler_pagina(_pagina(), [_boxes("a0")],
+                           ler_faixa=lambda t: ("ao", 0.9),
+                           ler_caractere=_ancora_por_fonte(fontes),
+                           conf_maxima_para_trocar=0.70,
+                           fontes_sem_trava={"easyocr"})
+    assert "".join(c for _b, c, _cf, _f in saida) == "a0"
+
+
+def test_as_duas_acoes_isentam_so_o_easyocr():
+    """
+    Medido e ligado na F116: `_preencher_por_linha` é o laço das duas ações
+    «Detectar e Preencher» (Neural e Híbrido), e passa `FONTES_SEM_TRAVA`.
+    O PDF pesquisável fica de fora — o `reconhecer` dele não devolve a fonte,
+    então não há como isentar por fonte ali.
+    """
+    from core.searchable_pdf import _ler_boxes
+    from ui.main_window import FONTES_SEM_TRAVA, MainWindow
+
+    assert FONTES_SEM_TRAVA == frozenset({"easyocr"})
+    assert "fontes_sem_trava=FONTES_SEM_TRAVA" in inspect.getsource(
+        MainWindow._preencher_por_linha)
+    assert "fontes_sem_trava" not in inspect.getsource(_ler_boxes)
+
+
+# ----------------------------------------------------------------------
 # 1 e 2 — a janela, sem modelo e com tarefa em andamento
 # ----------------------------------------------------------------------
 

@@ -393,6 +393,7 @@ def ler_pagina(
     cancelado: Optional[Callable[[], bool]] = None,
     progresso: Optional[Callable[[int, int], None]] = None,
     ao_falhar: Optional[Callable[[BoxEntry, Exception], None]] = None,
+    fontes_sem_trava: Optional[Container[str]] = None,
 ) -> List[Tuple[BoxEntry, str, float, str]]:
     """
     `(box, char, confiança, fonte)` para cada box de `linhas`, em ordem.
@@ -424,6 +425,12 @@ def ler_pagina(
     quem chamou é avisado de cada caso. Existe porque a alternativa era perder
     uma página inteira já lida por causa de um `cv2.resize` num recorte
     degenerado: o cancelamento aplica o parcial, e o erro não aplicava nada.
+
+    `fontes_sem_trava` são as fontes da âncora que a trava **não** protege: um
+    box respondido por uma delas é tratado como se a confiança fosse zero, e a
+    linha manda nele sempre. É a hipótese de que a trava, feita para proteger a
+    rede, protege também o elo cuja confiança não ordena nada (`easyocr`, F48).
+    O padrão `None` é produção; `medir_cadeia.py --sem-trava-para` é quem mede.
     """
     def ler_box(b):
         if ao_falhar is None:
@@ -464,7 +471,9 @@ def ler_pagina(
         for b, sugerido, antes, cf, fonte in zip(linha, final, chars,
                                                  confs, fontes):
             travado = (conf_maxima_para_trocar is not None
-                       and cf >= conf_maxima_para_trocar)
+                       and cf >= conf_maxima_para_trocar
+                       and not (fontes_sem_trava is not None
+                                and fonte in fontes_sem_trava))
             trocou = bool(texto) and not travado and sugerido != antes
             ch = sugerido if trocou else antes
             if not ch:

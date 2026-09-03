@@ -122,6 +122,59 @@ def test_memo_responde_ao_loaded_do_fallback_chain():
     assert mc._Memo(_ModeloFalso()).loaded is True
 
 
+class _ElosComCandidatas(_ModeloFalso):
+    """O k-NN tem `candidatas`, a rede tem `predict_topk`; o veto pede os dois."""
+
+    def candidatas(self, crop, n=5):
+        self.chamadas += 1
+        return [(self.predict(crop)[0], 0.5), ("x", 0.1)][:n]
+
+    def predict_topk(self, crop, k=5):
+        self.chamadas += 1
+        return [(self.predict(crop)[0], 0.5), ("y", 0.1)][:k]
+
+
+def test_memo_serve_as_candidatas_que_o_veto_geometrico_pede():
+    """
+    O `fallback_chain` pede `learner.candidatas` e `predictor.predict_topk`
+    quando a primeira leitura não cabe no recorte (F106). O envelope não os
+    tinha, e o instrumento morria com `AttributeError` na primeira página em
+    que o veto disparasse — que é ~2 recortes em 10 mil, o bastante para toda
+    rodada cair. O veto entrou em produção sem que ninguém rodasse isto.
+    """
+    modelo = _ElosComCandidatas()
+    memo = mc._Memo(modelo)
+    crop = _crop()
+
+    assert memo.candidatas(crop, n=2) == modelo.candidatas(crop, n=2)
+    assert memo.predict_topk(crop, k=2) == modelo.predict_topk(crop, k=2)
+
+    antes = modelo.chamadas
+    for _ in range(5):
+        memo.candidatas(crop, n=2)
+        memo.predict_topk(crop, k=2)
+    assert modelo.chamadas == antes, "memorizado: nenhuma consulta nova"
+
+    for envelope in (mc._MemoCombinado(memo), mc._MemoComDistancia(memo, 1000),
+                     mc._MemoComVoto(memo, 3)):
+        assert envelope.candidatas(crop, n=2) == memo.candidatas(crop, n=2)
+
+
+def test_rodar_isenta_da_trava_o_que_producao_isenta():
+    """
+    Toda tabela do instrumento mede produção por omissão (F116). Um `rodar`
+    que voltasse a segurar toda fonte mediria a trava de antes com o nome da
+    de hoje — o mesmo defeito que `test_os_dois_limiares_do_hibrido_sao_o_mesmo_numero`
+    guarda para o limiar.
+    """
+    import inspect
+
+    from ui.main_window import FONTES_SEM_TRAVA
+
+    padrao = inspect.signature(mc.rodar).parameters["fontes_sem_trava"].default
+    assert padrao == FONTES_SEM_TRAVA == frozenset({"easyocr"})
+
+
 # ----------------------------------------------------------------------
 # 2. A memória do EasyOCR, que é substituição de `classmethod`
 # ----------------------------------------------------------------------

@@ -13178,6 +13178,98 @@ de 1.813 para 1.850, verde.
 
 ---
 
+## F116 — A trava da linha protegia o elo cuja confiança não diz nada — CONCLUÍDA
+
+Saiu de uma revisão do «Detectar e Preencher (Neural)» de ponta a ponta. A revisão achou
+quatro defeitos de código, que entraram antes desta fase (commit `7af07ac`: sem modelo a ação
+seguia com o k-NN em silêncio; os boxes eram regenerados antes do `_busy`; `self.boxes` era
+lido da thread de trabalho; um recorte com erro perdia a página inteira), e uma hipótese que
+pedia medição. Esta fase é a hipótese.
+
+### A hipótese
+
+A trava da leitura por linha (F18, F20, F21) compara `cf >= trava` e não olha quem respondeu.
+Ela existe para a linha (89,5%) não passar por cima da rede (97,6%) — e faz isso bem. Só que
+a mesma comparação vale para o **último** elo da cadeia, o `easyocr`, cuja confiança a F48
+mediu como plana: mediana 0,97 no erro e no acerto, e é por isso que ele entra inteiro na
+fila de revisão. Plana e alta, ela passava pela trava sempre. O elo que acerta 29% no caminho
+neural e 44% no híbrido, no que lhe sobra, ficava **protegido** do único conserto que tem, que
+é a linha. A trava feita para o elo forte estava servindo ao elo fraco.
+
+### Medido
+
+`medir_cadeia.py --sem-trava-para`, nas 10 páginas rotuladas, 10.508 caracteres, com o modelo
+e a base da árvore de trabalho (167.056 referências). As duas pontas saem do **mesmo processo**,
+sobre as mesmas respostas memorizadas — só o roteamento muda.
+
+| caminho | trava | segurando toda fonte | isentando `easyocr` | trocas novas | conserto / quebra / neutra |
+|---|---:|---:|---:|---:|---:|
+| neural | 0,70 | 97,32% | **97,37%** | 8 | 6 / 0 / 2 |
+| híbrido | 0,30 | 97,43% | **97,58%** | 37 | 17 / 1 / 19 |
+
+A conta que decide não é o total, porque o elo responde 0,4% e 1,6% dos boxes. É o que muda
+nos boxes que ele respondeu:
+
+| caminho | boxes do `easyocr` | travados | acerto antes | acerto isentando |
+|---|---:|---:|---:|---:|
+| neural | 38 | 35 | 28,95% | **44,74%** |
+| híbrido | 165 | 165 | 44,24% | **53,94%** |
+
+Quase todos travados, como a F48 previa: a confiança plana e alta é justamente a que passa
+por `cf >= trava`. E a linha ganha do elo com folga nos dois caminhos — 6 consertos contra 0
+quebras, 17 contra 1.
+
+**A trava do resto não muda de lugar.** Varrida com a isenção ligada, a do híbrido continua
+melhor em 0,30 (97,58%, caindo para 97,22% em 0,60 e 93,87% em 0,99, o mesmo desenho da
+F23). A do neural dá 97,43% em 0,80 contra 97,37% em 0,70 — 6 caracteres, dentro do platô que
+a F25 já chamou de platô, e o 0,70 fica.
+
+**O acerto de produção do neural saiu 97,32%, e a F25 tinha 97,52%.** Não é regressão: o
+modelo e a base são outros (314 classes, 167 mil referências contra 86 mil). Só a comparação
+dentro da mesma rodada vale, e é a que está nas tabelas.
+
+### O que entrou
+
+- `FONTES_SEM_TRAVA = frozenset({"easyocr"})` em `ui/main_window.py`, ao lado das travas e
+  com a tabela. **Só o `easyocr`**: o `learner` e o `neural` têm confiança que ordena (F51,
+  separação 0,795 e 0,634), e neles a trava faz o que a F20 mediu.
+- `ler_pagina` ganhou `fontes_sem_trava`, opcional e `None` por omissão — o contrato dos
+  outros chamadores não muda. `_preencher_por_linha` o passa, e ele é o laço das duas ações
+  «Detectar e Preencher» (Neural e Híbrido). A ação «EasyOCR por linha» também passa por ali,
+  mas roda sem trava, então nada muda nela.
+- **O PDF pesquisável fica de fora.** O `reconhecer` dele devolve `(char, confiança)` sem a
+  fonte, e a trava do `_ler_boxes` é `conf < conf_linha_maxima` — não há como isentar por
+  fonte sem mudar o contrato. A F40 mediu aquele laço em 97,52% contra 97,50% da janela; a
+  diferença que esta fase abre entre os dois é de ~0,05 ponto e fica registrada.
+
+### O instrumento estava quebrado desde a F106
+
+A primeira rodada morreu com `AttributeError: '_Memo' object has no attribute 'candidatas'`.
+O veto geométrico da F106 pede `learner.candidatas` e `predictor.predict_topk` quando a
+primeira leitura não cabe no recorte, e o envelope de memorização do `medir_cadeia.py` não
+tinha nenhum dos dois. O veto dispara em ~2 recortes em 10 mil — o bastante para toda rodada
+cair. **Ninguém rodou o instrumento depois da F106**, e é a mesma lição da F38: o botão
+desligado só aparece quando alguém aperta.
+
+Consertado, e junto entrou o `altura_de_referencia` que as duas ações passam desde a F106 e o
+`Cadeia.leitor` não passava — sem ele o veto de tamanho (ponto contra quadrado) ficava
+desligado na medição e ligado na janela. `test_memo_serve_as_candidatas_que_o_veto_geometrico_pede`
+guarda o envelope, e `test_rodar_isenta_da_trava_o_que_producao_isenta` guarda que toda
+tabela do instrumento continue medindo produção.
+
+### Onde está
+
+- `ui/main_window.py` — `FONTES_SEM_TRAVA` e a chamada em `_preencher_por_linha`.
+- `core/leitura_de_linha.py` — o parâmetro em `ler_pagina`.
+- `medir_cadeia.py` — `--sem-trava-para`, `tabela_sem_trava`, o `_Memo` com `candidatas` e
+  `predict_topk`, e o `altura_de_referencia` no `Cadeia.leitor`.
+
+Reproduzir: `python medir_cadeia.py --neural --sem-trava-para` e
+`python medir_cadeia.py --sem-trava-para`. Cobertura: `tests/test_detectar_e_preencher_neural.py`
+(4 testes da isenção, 17 no arquivo) e `tests/test_f23_medir_cadeia.py` (2 novos, 27).
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
