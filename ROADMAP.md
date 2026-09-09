@@ -13407,6 +13407,94 @@ por digitalização e de novo no próximo documento. Suíte: 1918.
 
 ---
 
+## F118 — A palavra sem uma letra de âncora arrastava o dicionário inteiro — CONCLUÍDA
+
+Exportar o *Grandmaster Preparation — Calculation* do Aagaard (475 páginas, digitalização
+sem camada de texto) parava na 6ª página do PDF, o *Foreword*. Não travada: multiplicando.
+Só acontece com o reparo de colagem ligado — a pergunta da F115 na exportação —, e por isso
+o livro inteiro sai normalmente respondendo "não" a ela.
+
+O reparo da F66/F69 apaga o que veio do box largo e **ancora no resto**: `Dmamic` vira
+`D` + máscara + `amic`, e o dicionário tem uma palavra só nesse molde. No fim do prefácio
+está `on the offer.`, e o OCR leu `0n thc 0ffcx.` — os **quatro** boxes do núcleo `ffcx`
+saíram largos. Máscara sobre a palavra inteira, âncora nenhuma.
+
+**Sem âncora o molde não estreita nada, e a busca deixa de ter fundo.** `_casa` não tem
+pedaço para comparar e aceita toda palavra daquele comprimento; e como o trecho começa em 0,
+o `_candidatos` também perde a inicial (`inicial = None`) e vai buscar no balde
+`(comprimento, None)`, que é o dicionário inteiro. Medido nessa página:
+
+| palavra lida | trechos | candidatos |
+|---|---|---:|
+| `ffcx` (de `offer.`) | `[(0, 4)]` — o núcleo inteiro | **100.310** |
+| `ffes` (de `offers`) | `[(0, 2)]` | 2.004 |
+| `Quaity` | `[(0, 1), (4, 6)]` | 40 |
+| `somc` | `[(2, 3)]` | 23 |
+| as demais da página | — | 0 a 5 |
+
+Cada candidato é cobrado uma varredura de `provar_letras`, que são `5^(n-1)` partições —
+3.125 para um trecho de seis letras. É esse produto que não termina.
+
+### O que entrou
+
+**Uma recusa, no ponto em que a máscara é decidida**, antes de `_indice_por_forma` e antes
+da prova. É a mesma régua do `MAX_TRECHOS` e do `MIN_PARA_REPARAR` levada ao extremo — "sobra
+pouca letra conhecida, o dicionário casa com qualquer coisa" —, e a diferença é que aqui não
+sobra letra nenhuma. O `MAX_TRECHOS` já dizia que nesse caso o reparo desiste de qualquer
+jeito **depois de pagar a busca**; agora desiste antes.
+
+Vale para os dois caminhos, com prova e sem: o que falta é âncora, e o comprimento da F66
+tem o mesmo nada em que se apoiar.
+
+### Medido
+
+**A trava não toca em nada do que o projeto mede.** Nas 11 páginas que `paginas_rotuladas`
+devolve, 98 palavras chegam ao reparo — passam do `MIN_PARA_REPARAR`, não estão no
+dicionário, têm box largo e cabem no `MAX_TRECHOS` — e **nenhuma delas tem o núcleo inteiro
+mascarado**. Não é
+arredondamento: a condição nova não dispara uma vez sequer no corpus rotulado, e a tabela do
+`medir_reparo.py --prova` sai igual dos dois lados.
+
+    suspeita=1.5  nota=0.5  consertadas=12  estragadas=7  intocadas=75   (antes)
+    suspeita=1.5  nota=0.5  consertadas=12  estragadas=7  intocadas=75   (depois)
+
+A coluna `estragadas` é teto e não conta — a F69 registra por quê: em três das sete páginas
+o rótulo à mão está incompleto, e reparo certo aparece ali como estrago.
+
+Na página que parava, o efeito é o que se espera de tirar 100.310 candidatos da conta:
+
+| página 6 do PDF (índice 5) | antes | depois |
+|---|---|---|
+| com reparo de colagem | não termina em 10 min | **65,1 s** |
+| sem reparo de colagem | 1,0 s | 1,0 s |
+
+Os 65,1 s que sobram continuam sendo o custo do reparo que a F115 registrou (~12×), e não o
+desta fase.
+
+**E a página sai com 0 reparos aceitos**, dos dois lados. É o número que fecha o argumento:
+nem o `ffcx` nem o `ffes` sustentam troca na prova visual, e não sustentariam mesmo que a
+busca terminasse — molde que não estreita não tem o que entregar. O trabalho que a exportação
+não conseguia terminar não estava produzindo nada.
+
+### O que fica registrado, e não entrou
+
+O `ffes` da mesma página arrasta 2.004 candidatos **com** âncora: duas letras conhecidas,
+trecho começando em 0, `inicial = None` outra vez. É bem menos que 100 mil e termina, mas é
+a mesma forma, e um teto de candidatos — "acima de N é empate, e empate manda desistir" —
+resolveria as duas. Não entrou porque seria uma régua nova sem a varredura que a escolhe,
+e este é o defeito que a `NOTA_MINIMA` documenta como caro de fazer direito. Quem for medi-lo
+tem o `medir_reparo.py --exemplos` e a distribuição de candidatos por palavra.
+
+### Onde está
+
+- `core/lexico.py` — `reparar`, a recusa antes da busca.
+
+Cobertura: `tests/test_f118_mascara_sem_ancora.py`, 6 testes — o núcleo todo mascarado
+desiste, a prova nem é consultada, o caminho sem prova desiste igual, uma âncora só basta
+(no começo ou no fim), e `reparos_da_pagina` não devolve a palavra. Suíte: 1952.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

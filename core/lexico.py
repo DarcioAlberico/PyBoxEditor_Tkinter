@@ -852,6 +852,23 @@ def reparar(simbolos: Sequence[Tuple[str, int]], largos: Set[int],
     trechos = _trechos(mascara)
     if not trechos or len(trechos) > MAX_TRECHOS:
         return None
+    # **Máscara sem âncora não é molde, é o comprimento** (F118). O método
+    # desta função é apagar o que veio do box largo e **ancorar no resto**; com
+    # o núcleo inteiro mascarado não há resto, `_casa` aceita toda palavra
+    # daquele comprimento e o "molde" deixa de estreitar coisa alguma. É a
+    # mesma razão do `MAX_TRECHOS` e do `MIN_PARA_REPARAR`, no extremo: sobra
+    # pouca letra conhecida, o dicionário casa com qualquer coisa, e o reparo
+    # ia desistir de qualquer jeito **depois de pagar a busca**.
+    #
+    # E a busca aqui não é a de sempre. Sem âncora o trecho começa em 0, o
+    # `_candidatos` perde a inicial e cai no balde `(comprimento, None)` — o
+    # dicionário inteiro naquele comprimento —, e cada candidato que sai de lá
+    # custa uma varredura de `provar_letras`. Medido no `offer.` da página 6 do
+    # Aagaard, lido `0ffcx.`: núcleo `ffcx` todo mascarado, **100.310
+    # candidatos** contra os 0 a 40 das palavras vizinhas, a 3.125 partições
+    # cada. A exportação parava ali — não travada, multiplicando.
+    if all(mascara):
+        return None
 
     forma = _indice_por_forma(lex)
     # Os boxes de **cada** trecho, e não os da palavra: é a esse pedaço de papel
