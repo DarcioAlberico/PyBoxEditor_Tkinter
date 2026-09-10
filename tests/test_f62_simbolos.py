@@ -238,7 +238,7 @@ def test_o_titulo_do_paragrafo_deixa_de_ser_letra_morta():
         with zipfile.ZipFile(exportar.para_epub(
                 paginas, os.path.join(tmp, "a.epub"))) as z:
             pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
-        assert "<h2>Chapter 1</h2>" in pagina
+        assert '<h2 id="t1-1">Chapter 1</h2>' in pagina
         assert "<p>Prosa comum.</p>" in pagina or (
             '<p class="primeira">Prosa comum.</p>' in pagina)
 

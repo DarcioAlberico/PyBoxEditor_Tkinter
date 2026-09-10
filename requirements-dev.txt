@@ -16,3 +16,7 @@ fonttools>=4.50        # só o `gerar_fonte_de_simbolos.py` (F62), que recorta a
                        # consome o recorte versionado, não o produz. A suíte
                        # também não precisa dele — a cobertura é medida com o
                        # PyMuPDF, que já está em produção.
+
+epubcheck>=5.0         # o EPUB exportado passa por ele em
+                       # tests/test_f111_arquivo.py (F111). Pede Java; sem
+                       # ele o teste é pulado, e não falha.

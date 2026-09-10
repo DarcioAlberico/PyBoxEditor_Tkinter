@@ -1882,8 +1882,9 @@ class MainWindow(tk.Frame):
                                     fonte=fonte_do_diagrama,
                                     progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
+            titulo, autor = livro.titulo_e_autor(input_pdf)
             exportar.exportar(paginas, saida, formato=formato,
-                              titulo=os.path.splitext(os.path.basename(input_pdf))[0],
+                              titulo=titulo, autor=autor,
                               diagramas="fonte" if embutir else "png",
                               corpo_pt=corpo_pt, moldura=moldura,
                               cantos=cantos, idioma=idioma)
@@ -1954,6 +1955,16 @@ class MainWindow(tk.Frame):
             linhas.append(f"Idioma: {nome} "
                           + ("(pela camada de texto do PDF)" if detectado
                              else "(informado)"))
+            # O sumário e o que ficou mudo no arquivo (F111).
+            capitulos = exportar.capitulos(paginas)
+            if capitulos:
+                linhas.append(f"Capítulos no sumário: {len(capitulos)} — "
+                              + "; ".join(t for _a, _b, t in capitulos[:4]))
+            mudos = exportar.simbolos_sem_fonte(
+                "".join(p.texto for p in paginas))
+            if mudos:
+                linhas.append(f"Símbolos que nenhuma fonte do arquivo desenha: "
+                              f"{' '.join(mudos)}")
             if de_imagem:
                 linhas.append(f"{de_imagem} página(s) eram imagem e saíram inteiras.")
             if coletor is not None:

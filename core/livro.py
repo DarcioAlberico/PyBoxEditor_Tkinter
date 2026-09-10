@@ -38,6 +38,7 @@ import io
 import re
 from array import array
 import collections
+import os
 import re
 from dataclasses import dataclass, field
 from math import isnan, nan
@@ -157,6 +158,11 @@ PASSO_POR_ALTURA = 2.4
 class Paragrafo:
     texto: str
     titulo: bool = False
+    #: O nível do título, quando `titulo` (F111): 1 é capítulo, 2 é o
+    #: cabeçalho de diagrama que a faixa marca desde a F67. Sai como `<h1>` e
+    #: `Heading 1` num, `<h2>` e `Heading 2` no outro — e é o `<h1>` que faz o
+    #: sumário do leitor ter capítulo em vez de 390 legendas.
+    nivel: int = 2
     #: Os trechos `(início, fim)` do `texto` que estão impressos em negrito
     #: (F105). Fatias do próprio `texto`, e não texto marcado: quem lê o
     #: parágrafo para escolher a fonte dos símbolos, para o léxico ou para o
@@ -1099,10 +1105,89 @@ def _juntar_no_hifen(textos: List[str], pesos: List[List[Optional[float]]],
     return juntas
 
 
+#: Quantas vezes a altura de glifo de uma linha tem de passar a da coluna para
+#: ela ser título de capítulo (F111).
+#:
+#: A altura de uma `Linha` é a mediana das caixas dela; numa linha de prosa a
+#: mediana é a minúscula, e num título em corpo maior é a maiúscula de um corpo
+#: maior — o dobro, tipicamente. O 1,7 fica abaixo disso e acima do que uma
+#: linha de notação alcança: ela é de dígito e figurina, que são altos, e mede
+#: 1,3 a 1,5 alturas de minúscula. A régua de lance é a outra metade da
+#: defesa.
+TITULO_POR_ALTURA = 1.7
+
+#: Fração da página, de cima para baixo, em que um título de capítulo começa.
+#:
+#: Medido no Yusupov: a régua da altura sozinha achava 60 "títulos", e metade
+#: era o número de página em corpo grande ou a caixa de pontuação dos
+#: exercícios ("If you scored less than 11 points…"), que é prosa em corpo
+#: maior no pé da página. O capítulo abre no alto.
+TOPO_DE_TITULO = 0.4
+
+#: Letras entre os caracteres que não são espaço, no mínimo. O `gH♗` e o
+#: `S .` que a altura pega são pedaço de diagrama e de ornamento, não título.
+LETRAS_DE_TITULO = 0.7
+
+#: A detecção de capítulo pela altura está **desligada**, e foi medida (F111).
+#:
+#: O sinal existe: no Yusupov o título tem 1,78 vezes o corpo, e a régua acha
+#: as páginas certas — Contents, Preface, Exercises, Solutions, Scoring. Mas
+#: o que ela devolve é o que o OCR lê num corpo de exibição, e isso é
+#: `S()lut1.()ns` e `Sc0r1.n`: o `o` vira `()` e o `i` vira `1.`, que é a
+#: família A da F109 em glifo grande. Com a régua de letras, sobram 20 títulos
+#: em 264 páginas e metade é `fyu scred less` — a caixa de pontuação em corpo
+#: maior. E no Aagaard o título de capítulo tem **1,27** vezes o corpo (`A
+#: sneak preview`, pela camada de texto), abaixo de qualquer régua que não
+#: inunde.
+#:
+#: A camada de texto do PDF traz os dois — o corpo em pontos e o texto limpo —
+#: e por isso o capítulo é da F110, onde ele é exato e barato. Aqui fica o
+#: mecanismo (`Paragrafo.nivel`, o `<h1>`, o sumário por capítulo) e a régua,
+#: para `medir_prosa.py --capitulos` poder refazer a tabela.
+DETECTAR_CAPITULOS = False
+
+
+def _e_titulo(linhas: Sequence[Linha], altura_de_referencia: Optional[float]
+              ) -> bool:
+    """
+    Uma linha só, alta contra a coluna, curta, de letras e sem lance (F111).
+
+    A posição na página é a outra régua, e ela fica em `extrair_pagina`
+    (`_confirmar_titulos`): aqui não se sabe a altura da página.
+    """
+    if len(linhas) != 1 or not altura_de_referencia:
+        return False
+    linha = linhas[0]
+    if linha.altura < TITULO_POR_ALTURA * altura_de_referencia:
+        return False
+    cheio = linha.texto.replace(" ", "")
+    letras = sum(c.isalpha() for c in cheio)
+    if letras < 3 or letras < LETRAS_DE_TITULO * len(cheio):
+        return False
+    return _candidato_a_cabecalho(linha.texto)
+
+
+def _confirmar_titulos(pagina: PaginaExtraida) -> None:
+    """O título de capítulo abre no alto da página; o que a altura achou
+    abaixo de `TOPO_DE_TITULO` volta a ser parágrafo."""
+    if not pagina.altura:
+        return
+    for b in pagina.blocos:
+        if (isinstance(b, Paragrafo) and b.titulo and b.nivel == 1
+                and b.topo is not None
+                and b.topo > pagina.altura * TOPO_DE_TITULO):
+            b.titulo, b.nivel = False, 2
+
+
 def _paragrafo_de(linhas: Sequence[Linha],
-                  lex: Optional["lexico.Lexico"] = None) -> Paragrafo:
+                  lex: Optional["lexico.Lexico"] = None,
+                  altura_de_referencia: Optional[float] = None) -> Paragrafo:
     """
     As linhas de um parágrafo, juntas — texto e espessuras no mesmo passo.
+
+    `altura_de_referencia` é a altura de glifo da coluna, e é o que decide se
+    a linha é **título de capítulo** (F111): a que passa de
+    `TITULO_POR_ALTURA` vezes ela sai com `titulo=True, nivel=1`.
 
     **O vetor de espessuras tem de ficar alinhado ao texto** (F105), e o espaço
     que junta duas linhas conta como caractere: sem o `nan` dele, a primeira
@@ -1153,7 +1238,9 @@ def _paragrafo_de(linhas: Sequence[Linha],
         if len(arrumado) == len(texto):
             texto = arrumado
 
-    return Paragrafo(texto, pesos=negrito.vetor(todos),
+    capitulo = DETECTAR_CAPITULOS and _e_titulo(linhas, altura_de_referencia)
+    return Paragrafo(texto, titulo=capitulo, nivel=1 if capitulo else 2,
+                     pesos=negrito.vetor(todos),
                      lacunas=negrito.vetor(vaos),
                      topo=min(l.topo for l in linhas),
                      pe=max(l.topo + l.altura for l in linhas),
@@ -1506,6 +1593,11 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
     if metricas is None:
         metricas = _metricas_por_coluna(linhas)
 
+    def referencia(grupo: Sequence[Linha]) -> Optional[float]:
+        """A altura de glifo da coluna destas linhas — a régua do título."""
+        medida = metricas.get(grupo[0].coluna)
+        return float(medida[1]) if medida else None
+
     paragrafos: List[Paragrafo] = []
     atual: List[Linha] = []
     anterior: Optional[Linha] = None
@@ -1521,12 +1613,12 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
                   and linha.topo - anterior.topo
                   > passo * (1 + SALTO_DE_PARAGRAFO))
         if atual and (recuou or saltou or trocou):
-            paragrafos.append(_paragrafo_de(atual, lex))
+            paragrafos.append(_paragrafo_de(atual, lex, referencia(atual)))
             atual = []
         atual.append(linha)
         anterior = linha
     if atual:
-        paragrafos.append(_paragrafo_de(atual, lex))
+        paragrafos.append(_paragrafo_de(atual, lex, referencia(atual)))
     return paragrafos
 
 
@@ -1969,6 +2061,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     resultado.diagramas_desenhados = sum(
         1 for b in resultado.blocos
         if isinstance(b, Figura) and b.origem == "render")
+    _confirmar_titulos(resultado)
     # **Antes do negrito, e não depois** (F115): o corte acrescenta um espaço no
     # meio do parágrafo, e é o negrito que tem de ver o texto final — ele mede
     # palavra a palavra, e uma palavra que se parte em duas passa a ser medida
@@ -1998,6 +2091,41 @@ OCORRENCIAS_DE_IDIOMA = 50
 
 #: Quantas vezes o idioma vencedor tem de bater o outro.
 VANTAGEM_DE_IDIOMA = 3.0
+
+
+def titulo_e_autor(caminho: str) -> Tuple[str, str]:
+    """
+    `(título, autor)` do livro, para o `dc:title`/`dc:creator` e o DOCX (F111).
+
+    **Os metadados do PDF vêm primeiro, e quase nunca prestam**: dos oito
+    livros do corpus, um traz os dois campos, um traz `cipun` como autor, e
+    seis não trazem nada. O nome do arquivo é a segunda fonte, e nestes
+    livros ele segue `Autor - Título`; quando não segue, o título é o nome e
+    o autor fica vazio — vazio e não `python-docx`, que é o que o DOCX
+    escrevia.
+    """
+    titulo = autor = ""
+    try:
+        doc = fitz.open(caminho)
+        try:
+            meta = doc.metadata or {}
+        finally:
+            doc.close()
+        titulo = (meta.get("title") or "").strip()
+        autor = (meta.get("author") or "").strip()
+    except Exception:                                    # noqa: BLE001
+        pass
+    # Um autor sem espaço e sem maiúscula é o `cipun` do Nunn: não é nome.
+    if autor and " " not in autor and autor.islower():
+        autor = ""
+    nome = os.path.splitext(os.path.basename(caminho))[0]
+    if not titulo:
+        antes, sep, depois = nome.partition(" - ")
+        if sep and antes.strip() and depois.strip():
+            titulo, autor = depois.strip(), autor or antes.strip()
+        else:
+            titulo = nome
+    return titulo, autor
 
 
 def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:

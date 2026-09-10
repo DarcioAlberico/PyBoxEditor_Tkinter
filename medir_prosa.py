@@ -436,6 +436,9 @@ def main(argv=None) -> int:
                     help="relê o PDF sem passar o léxico ao `livro.extrair`")
     ap.add_argument("--idioma", default=None, choices=("en", "pt"),
                     help="liga a máscara de alfabeto da F109 na releitura")
+    ap.add_argument("--capitulos", action="store_true",
+                    help="liga a detecção de capítulo pela altura (F111), "
+                         "que está desligada em produção, para medi-la")
     ap.add_argument("--exemplos", type=int, default=4)
     ap.add_argument("--salvar", default=None,
                     help="grava o texto lido, para remedir sem reler o PDF")
@@ -445,6 +448,9 @@ def main(argv=None) -> int:
     print(f"léxico: {len(lex)} palavras")
 
     if args.pdf:
+        if args.capitulos:
+            from core import livro
+            livro.DETECTAR_CAPITULOS = True
         paginas = None
         if args.paginas:
             a, _, z = args.paginas.partition("-")
@@ -472,6 +478,13 @@ def main(argv=None) -> int:
         for t, n in retirados.most_common():
             if any(c.isalpha() for c in t):
                 print(f"  {n:4d}×  {t!r}")
+        # Os títulos de capítulo que a altura achou (F111), para o olho dizer
+        # se são capítulo.
+        from core import exportar
+        titulos = exportar.capitulos(extraidas)
+        print(f"títulos de capítulo pela altura: {len(titulos)}")
+        for arquivo, _alvo, t in titulos:
+            print(f"  {arquivo[7:11]}  {t!r}")
     elif args.docx:
         texto = texto_do_docx(args.docx)
     elif args.epub:

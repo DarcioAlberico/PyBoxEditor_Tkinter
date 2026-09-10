@@ -413,7 +413,7 @@ def test_o_titulo_nao_ganha_strong():
             nome = [n for n in z.namelist() if n.endswith(".xhtml")
                     and "pagina" in n][0]
             xhtml = z.read(nome).decode("utf-8")
-    assert "<h2>Um Capitulo</h2>" in xhtml
+    assert '<h2 id="t1-1">Um Capitulo</h2>' in xhtml
     assert "<strong>" not in xhtml
 
 
