@@ -1232,7 +1232,18 @@ class BoxService:
     #: '±' a 0,17. Do outro lado do vale, a pontuação da **linha de cima** colada
     #: num glifo alto começa em 0,55 (',' e 'P') e vai a 0,79. Nada da população
     #: medida cai entre 0,25 e 0,55.
-    FOLGA_DE_DIACRITICO = 0.30
+    #:
+    #: **Era 0,30, e a página 30 do Aagaard «Calculation» caía do lado errado.**
+    #: Naquela digitalização o pingo fica a 6 px de uma haste de 18 (0,33): 36
+    #: pares de curto-sobre-alto em 0,32, o maior grupo da página, contra 27 em
+    #: 0,21 — e o próximo grupo só em 0,74. Com 0,30 o pingo do 'i' saía como
+    #: '.' mais uma haste lida como 'l' a 0,37, que caía: `1n.ssed`, `b.s`,
+    #: `on]y`; e o '?' e o '!' saíam como '.' mais um gancho derrubado, em
+    #: todo lance anotado. Com 0,40, nas 11 páginas rotuladas nada muda (F1
+    #: 94,9 nas duas), e naquela página a cadeia sozinha vai de 31,6% para
+    #: 27,3% de CER na prosa e de 20,5% para 17,0% de WER na notação. Fica no
+    #: vale, longe dos dois lados: 0,33 de um, 0,55 do outro.
+    FOLGA_DE_DIACRITICO = 0.40
 
     #: A mesma folga quando os **dois** pedaços são curtos: ':' e ';', que são
     #: dois pontos separados por meia altura de x e por isso precisam de mais

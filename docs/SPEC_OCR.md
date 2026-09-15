@@ -529,7 +529,8 @@ que devolve linhas com as palavras e as caixas delas) e, linha a linha:
    notação fica com a âncora e não paga o motor;
 3. casa o registro do motor pela geometria (`_casar_linha_ocr`) e o aceita só
    com semelhança de letras e dígitos ≥ 0,5 (`_semelhanca_de_linha`); o
-   rejeitado não é consumido;
+   rejeitado não é consumido; sem registro compatível, e havendo `ler_faixa`,
+   lê a faixa da linha sozinha (`--psm 7`) e aplica a mesma régua;
 4. funde (`_fundir_por_palavra`): token com forma de lance
    (`notacao.e_token_de_notacao`) fica; token de prosa é trocado pelas
    palavras do motor no mesmo lugar em x, com confiança ≥ 0,5 e dentro da

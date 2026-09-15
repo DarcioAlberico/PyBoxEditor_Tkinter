@@ -1978,6 +1978,10 @@ class MainWindow(tk.Frame):
                                         lambda imagem: self.ocr_service
                                         .tesseract_pagina_detalhada_conf(
                                             imagem, idioma)),
+                                    ler_faixa=(
+                                        lambda faixa: self.ocr_service
+                                        .tesseract_faixa_detalhada_conf(
+                                            faixa, idioma)),
                                     idioma_ocr=idioma,
                                     lex=self.lexico_da_sessao(),
                                     # A prova visual do reparo de colagem (F69):

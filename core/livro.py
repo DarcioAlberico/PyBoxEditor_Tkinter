@@ -52,7 +52,7 @@ from PIL import Image
 from core import (diagrama, lexico, negrito, notacao, render_diagrama,
                   vertical)
 from core.box_model import BoxEntry
-from core.leitura_de_linha import quebrar_em_linhas
+from core.leitura_de_linha import MARGEM as MARGEM_DA_FAIXA, faixa_da_linha, quebrar_em_linhas
 from core.ocr_result import RegionResult
 from core.ocr_routing import OCRRouter
 from core.services.box_service import BoxService
@@ -769,6 +769,52 @@ def _sobreposicao(a1: float, a2: float, b1: float, b2: float) -> float:
     return comum / max(1.0, min(a2 - a1, b2 - b1))
 
 
+def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
+                              detalhes, fusao: str) -> Tuple[float, bool]:
+    """`(semelhança, aceita?)` de um registro do motor para esta âncora.
+
+    A fusão por palavra tem o piso de cada palavra e só pede a semelhança; a
+    troca da linha inteira precisa do piso da linha, porque não tem outro.
+    """
+    semelhanca = _semelhanca_de_linha(ancora, texto_ocr)
+    por_palavra = fusao == "palavra" and bool(detalhes)
+    aceita = (any(char.isalpha() for char in texto_ocr)
+              and semelhanca >= SEMELHANCA_MINIMA_DA_LINHA
+              and (por_palavra or confianca_ocr >= CONFIANCA_MINIMA_DA_LINHA))
+    return semelhanca, aceita
+
+
+def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
+                       ler_faixa: Callable):
+    """Lê a faixa de uma linha só e devolve o registro em coordenadas da página.
+
+    `ler_faixa(faixa)` devolve o mesmo formato de `ler_pagina`, mas com as
+    caixas relativas à faixa, que `faixa_da_linha` recorta com `MARGEM` de
+    folga em volta: o deslocamento é o canto da faixa na página. Se o motor
+    devolver mais de uma linha para a faixa, fica a mais larga.
+    """
+    faixa = faixa_da_linha(img, linha)
+    if faixa is None:
+        return None
+    try:
+        registros = list(ler_faixa(faixa) or [])
+    except Exception:
+        # O fallback é uma melhoria opcional, como o `ler_pagina`: a falha
+        # dele não pode derrubar a página.
+        return None
+    registros = [r for r in registros if len(r) >= 3 and str(r[0] or "").strip()]
+    if not registros:
+        return None
+    registro = max(registros, key=lambda r: r[2][2] - r[2][0])
+    dx = max(0, min(b.x1 for b in linha)) - MARGEM_DA_FAIXA
+    dy = max(0, min(b.y1 for b in linha)) - MARGEM_DA_FAIXA
+    detalhes = tuple(
+        (palavra, conf, (caixa[0] + dx, caixa[1] + dy, caixa[2] + dx, caixa[3] + dy))
+        for palavra, conf, caixa in (d[:3] for d in (registro[3] if len(registro) > 3 else ()))
+        if len(caixa) >= 4)
+    return str(registro[0]).strip(), float(registro[1] or 0.0), detalhes
+
+
 def _fundir_por_palavra(texto: str, caixas: Sequence[int],
                         linha: Sequence[BoxEntry], detalhes) -> Tuple[str, dict]:
     """Monta a linha token a token: lance da âncora, prosa do motor de linha.
@@ -1198,7 +1244,8 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
                     classificar: Callable, conf_minima: float,
                     coletor: Optional[Callable] = None,
                     pagina: int = 0,
-                    marcador_glifo: Optional[Callable] = None
+                    marcador_glifo: Optional[Callable] = None,
+                    marcador_confianca: Optional[Callable] = None
                     ) -> Tuple[str, int, List[Optional[float]],
                                List[Optional[float]], List[int]]:
     """
@@ -1208,6 +1255,16 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     aqui que ele entra porque é aqui que os dois dados existem juntos, e a
     função não sabe nem precisa saber o que ele faz com eles — nem sequer se
     ele vai guardar aquele.
+
+    `marcador_confianca(indice_do_box, caractere, confiança)` recebe o mesmo
+    que o coletor, box a box, **inclusive o derrubado**. É instrumento: foi
+    por ele que se mediu, na página 30 do Aagaard, que a cadeia erra o lance
+    com confiança (mediana 1,00 nos tokens errados) — o que descartou gatear
+    uma segunda opinião pela confiança — e que o `?` e o `!` saíam como `.`
+    mais um gancho derrubado a 0,2, que é o que levou à régua do pingo
+    (`BoxService.FOLGA_DE_DIACRITICO`). Vai pelo índice do box, e não pela
+    posição no texto, porque o texto ainda vai ser aparado e `caixas` é o que
+    liga os dois.
 
     **A espessura sai daqui pelo mesmo motivo** (F105): é aqui que o recorte do
     glifo e o caractere que ele virou existem juntos, e a régua do negrito
@@ -1275,6 +1332,8 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
         # intrusos, que é como se acha erro batendo o olho.
         if char and coletor is not None:
             coletor(recorte, char, conf, pagina)
+        if marcador_confianca is not None:
+            marcador_confianca(i, notacao.normalizar_saida(char or ""), conf)
         if char and conf < conf_minima:
             char, fracos = "", fracos + 1
         if i and b.x1 - linha[i - 1].x2 > limiar:
@@ -2448,6 +2507,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    dpi_figura: int = DPI_FIGURA,
                    coletor: Optional[Callable] = None,
                    ler_pagina: Optional[Callable] = None,
+                   ler_faixa: Optional[Callable] = None,
                    idioma_ocr: str = "en",
                    fusao: str = "palavra",
                    diagramas: str = "render", coordenadas=False,
@@ -2468,6 +2528,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     do motor substituía a âncora e as figurinas eram repostas por coordenada.
     O segundo existe para o A/B medir o primeiro contra ele. Sem `ler_pagina`
     a página é lida só pela cadeia própria, que é o modo de antes dos dois.
+    `ler_faixa(faixa)` é o fallback para a linha que a passada de página não
+    devolveu: lê a faixa dela sozinha, e só dela.
 
     As figuras entram na ordem pela altura em que o diagrama está na página, e
     não todas no fim: um diagrama que fica no meio da coluna tem texto antes e
@@ -2590,44 +2652,52 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                          or (dominio == "unknown" and n > 0))
         origem = "glyph"
         texto_ocr, confianca_ocr, semelhanca = "", 0.0, None
+        detalhes_ocr: tuple = ()
         estatisticas: dict = {}
+        compativel = False
         casamento = (_casar_linha_ocr(linha, registros_ocr, usados_ocr)
                      if registros_ocr else None)
         if casamento is not None:
             indice_ocr, texto_ocr, confianca_ocr = casamento
-            semelhanca = _semelhanca_de_linha(texto, texto_ocr)
             detalhes_ocr = (registros_ocr[indice_ocr][3]
                             if len(registros_ocr[indice_ocr]) > 3 else ())
-            por_palavra = fusao == "palavra" and bool(detalhes_ocr)
-            # A fusão por palavra tem o piso de cada palavra; a troca da linha
-            # inteira precisa do piso da linha, porque não tem outro.
-            compativel = (any(char.isalpha() for char in texto_ocr)
-                          and semelhanca >= SEMELHANCA_MINIMA_DA_LINHA
-                          and (por_palavra
-                               or confianca_ocr >= CONFIANCA_MINIMA_DA_LINHA))
+            semelhanca, compativel = _compatibilidade_da_linha(
+                texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
             if quer_contexto and compativel:
                 # O registro só é consumido quando é aceito: o rejeitado pode
                 # ser a linha de baixo — o Tesseract às vezes devolve duas
                 # linhas impressas num registro só, e ele casa primeiro com a
                 # de cima, que o recusa pela semelhança.
                 usados_ocr.add(indice_ocr)
-                if por_palavra:
-                    novo_texto, estatisticas = _fundir_por_palavra(
-                        texto, caixas, linha, detalhes_ocr)
-                    origem = "fusao"
-                else:
-                    # Sem as palavras do motor (um `ler_pagina` sem
-                    # detalhes) só dá para trocar a linha inteira.
-                    novo_texto = _preservar_glifos_por_palavra(
-                        texto, texto_ocr, glifos_linha, detalhes_ocr)
-                    origem = "line"
-                if novo_texto:
-                    novo_texto = _corrigir_prosa_contextual(novo_texto, idioma_ocr)
-                    pesos, vaos = _transferir_medidas(texto, novo_texto,
-                                                       pesos, vaos)
-                    texto = novo_texto
-                else:
-                    origem = "glyph"
+        if quer_contexto and not compativel and ler_faixa is not None:
+            # A passada de página não devolveu esta linha (ou devolveu a
+            # errada): o motor lê a faixa dela sozinha. Só aqui, e não em toda
+            # linha, porque é uma chamada de processo por faixa.
+            faixa = _registro_da_faixa(img, linha, ler_faixa)
+            if faixa is not None:
+                texto_ocr, confianca_ocr, detalhes_ocr = faixa
+                semelhanca, compativel = _compatibilidade_da_linha(
+                    texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
+                estatisticas["faixa"] = True
+        if quer_contexto and compativel:
+            if fusao == "palavra" and detalhes_ocr:
+                novo_texto, contas = _fundir_por_palavra(
+                    texto, caixas, linha, detalhes_ocr)
+                estatisticas.update(contas)
+                origem = "fusao"
+            else:
+                # Sem as palavras do motor (um `ler_pagina` sem detalhes) só
+                # dá para trocar a linha inteira.
+                novo_texto = _preservar_glifos_por_palavra(
+                    texto, texto_ocr, glifos_linha, detalhes_ocr)
+                origem = "line"
+            if novo_texto:
+                novo_texto = _corrigir_prosa_contextual(novo_texto, idioma_ocr)
+                pesos, vaos = _transferir_medidas(texto, novo_texto,
+                                                   pesos, vaos)
+                texto = novo_texto
+            else:
+                origem = "glyph"
         registro = {"linha": indice_linha, "dominio": dominio,
                     "primario": decisao.primary, "motivo": decisao.reason,
                     "fonte": origem, "ancora": ancora, "linha_ocr": texto_ocr,
@@ -2905,6 +2975,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             conf_minima: float = CONF_MINIMA, dpi_figura: int = DPI_FIGURA,
             coletor: Optional[Callable] = None,
             ler_pagina: Optional[Callable] = None,
+            ler_faixa: Optional[Callable] = None,
             idioma_ocr: str = "en",
             fusao: str = "palavra",
             diagramas: str = "render", coordenadas=False,
@@ -2931,6 +3002,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         dpi=dpi, conf_minima=conf_minima,
                                         dpi_figura=dpi_figura, coletor=coletor,
                                         ler_pagina=ler_pagina,
+                                        ler_faixa=ler_faixa,
                                         idioma_ocr=idioma_ocr,
                                         fusao=fusao,
                                         diagramas=diagramas,

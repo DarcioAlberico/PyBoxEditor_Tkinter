@@ -18,6 +18,9 @@ Os três modos são os três valores de `fusao`/`ler_pagina` de `extrair_pagina`
   repostas por coordenada (`fusao="linha"`);
 - `palavra`: lance da âncora, prosa do motor, token a token (`fusao="palavra"`).
 
+Nos dois modos com motor, a linha que a passada de página não devolveu é
+lida pela faixa dela (`ler_faixa`, `--psm 7`).
+
 O Tesseract roda **uma** vez por página, e não uma por modo: a leitura é
 memorizada pelos bytes da imagem, para os modos `linha` e `palavra` comparem o
 mesmo registro. Só o interpretador do `.venv` tem o torch que o modelo pede.
@@ -43,23 +46,23 @@ from core.ocr_ab import medir_por_dominio  # noqa: E402
 MODOS = ("glifo", "linha", "palavra")
 
 
-def _leitor_memorizado(ocr_service, idioma: str):
-    """`ler_pagina` que chama o Tesseract uma vez por imagem."""
+def _leitor_memorizado(leitor):
+    """Um `ler_pagina`/`ler_faixa` que chama o Tesseract uma vez por imagem."""
     memoria: dict = {}
 
     def ler(imagem):
         chave = hashlib.sha1(imagem.tobytes()).hexdigest()
         if chave not in memoria:
-            memoria[chave] = ocr_service.tesseract_pagina_detalhada_conf(
-                imagem, idioma)
+            memoria[chave] = leitor(imagem)
         return memoria[chave]
     return ler
 
 
-def _extrair(pdf: Path, numeros, classificar, ler, idioma: str, modo: str):
+def _extrair(pdf: Path, numeros, classificar, ler, ler_faixa, idioma: str,
+             modo: str):
     kwargs = {"diagramas": "recorte", "idioma_ocr": idioma}
     if modo != "glifo":
-        kwargs.update(ler_pagina=ler,
+        kwargs.update(ler_pagina=ler, ler_faixa=ler_faixa,
                       fusao="palavra" if modo == "palavra" else "linha")
     return livro.extrair(str(pdf), classificar, paginas=numeros, **kwargs)
 
@@ -107,7 +110,11 @@ def main() -> int:
     if not service.load_predictor():
         raise RuntimeError(service.motivo_do_modelo())
     classificar = service.leitor_de_texto(args.idioma)
-    ler = _leitor_memorizado(OCRService(), args.idioma)
+    ocr_service = OCRService()
+    ler = _leitor_memorizado(
+        lambda imagem: ocr_service.tesseract_pagina_detalhada_conf(imagem, args.idioma))
+    ler_faixa = _leitor_memorizado(
+        lambda imagem: ocr_service.tesseract_faixa_detalhada_conf(imagem, args.idioma))
     numeros = [numero - 1 for numero in args.paginas]
 
     textos: dict[str, dict[int, str]] = {}
@@ -115,7 +122,8 @@ def main() -> int:
     roteamentos: dict[str, dict[int, dict]] = {}
     for modo in args.modos:
         inicio = time.time()
-        paginas = _extrair(args.pdf, numeros, classificar, ler, args.idioma, modo)
+        paginas = _extrair(args.pdf, numeros, classificar, ler, ler_faixa,
+                           args.idioma, modo)
         tempos[modo] = time.time() - inicio
         textos[modo] = {}
         roteamentos[modo] = {}

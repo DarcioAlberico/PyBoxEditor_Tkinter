@@ -240,14 +240,18 @@ def _texto_da_linha_roteirizado(ancoras):
     return falso
 
 
-def _ler_pagina_roteirizado(palavras_por_linha, classificar):
+def _ler_pagina_roteirizado(palavras_por_linha, classificar, pular=()):
     """Um registro por linha impressa, com as palavras espalhadas pela
-    largura real da linha — o que `tesseract_pagina_detalhada_conf` devolve."""
+    largura real da linha — o que `tesseract_pagina_detalhada_conf` devolve.
+    As linhas em `pular` ficam sem registro, como um cabeçalho que o
+    `--psm 3` deixou passar."""
     def ler(img):
         boxes = livro.caixas_e_diagramas(img, classificar)[0]
         registros = []
-        for palavras, linha in zip(palavras_por_linha,
-                                   livro.quebrar_em_linhas(boxes)):
+        for indice, (palavras, linha) in enumerate(zip(
+                palavras_por_linha, livro.quebrar_em_linhas(boxes))):
+            if indice in pular:
+                continue
             x1 = min(b.x1 for b in linha)
             y1 = min(b.y1 for b in linha)
             x2 = max(b.x2 for b in linha)
@@ -262,11 +266,30 @@ def _ler_pagina_roteirizado(palavras_por_linha, classificar):
     return ler
 
 
+def _ler_faixa_roteirizado(palavras, chamadas):
+    """O `tesseract_faixa_detalhada_conf` de mentira: espalha `palavras` pela
+    largura da faixa recebida, em coordenadas **da faixa**, e anota cada
+    chamada — o fallback tem de rodar só para a linha sem registro."""
+    def ler(faixa):
+        chamadas.append(faixa.shape)
+        altura, largura = faixa.shape[:2]
+        margem = livro.MARGEM_DA_FAIXA
+        util = largura - 2 * margem
+        passo = util / len(palavras)
+        detalhes = tuple(
+            (palavra, 0.95, (int(margem + i * passo), margem,
+                             int(margem + (i + 1) * passo), altura - margem))
+            for i, palavra in enumerate(palavras))
+        return [(" ".join(palavras), 0.9,
+                 (margem, margem, largura - margem, altura - margem), detalhes)]
+    return ler
+
+
 ANCORAS = ("Amaz1ngly m1ssed", "25.♖xc7! B]ack", "28.♖xf7+ ♔e6")
 PALAVRAS = (["Amazingly", "missed"], ["25.Exc7!", "Black"], ["28.Bxf7t", "He6"])
 
 
-def _extrair(monkeypatch, fusao):
+def _extrair(monkeypatch, fusao, pular=(), ler_faixa=None):
     classificar = _classificador()
     monkeypatch.setattr(livro, "_texto_da_linha",
                         _texto_da_linha_roteirizado(ANCORAS))
@@ -274,8 +297,8 @@ def _extrair(monkeypatch, fusao):
     try:
         return livro.extrair_pagina(
             doc[0], classificar, dpi=150,
-            ler_pagina=_ler_pagina_roteirizado(PALAVRAS, classificar),
-            fusao=fusao)
+            ler_pagina=_ler_pagina_roteirizado(PALAVRAS, classificar, pular),
+            ler_faixa=ler_faixa, fusao=fusao)
     finally:
         doc.close()
 
@@ -326,6 +349,82 @@ def test_modo_de_fusao_invalido_reclama_antes_de_ler():
             livro.extrair_pagina(doc[0], _classificador(), dpi=150, fusao="frase")
     finally:
         doc.close()
+
+
+def test_a_linha_sem_registro_e_lida_pela_faixa_dela(monkeypatch):
+    # A passada de página pulou a segunda linha; a faixa dela é lida sozinha,
+    # e só ela — o fallback custa uma chamada de processo por linha.
+    chamadas = []
+    pagina = _extrair(monkeypatch, "palavra", pular=(1,),
+                      ler_faixa=_ler_faixa_roteirizado(["25.Exc7!", "Black"],
+                                                       chamadas))
+
+    textos = [r["texto"] for r in pagina.roteamento]
+    assert textos == ["Amazingly missed", "25.♖xc7! Black", "28.♖xf7+ ♔e6"]
+    assert pagina.roteamento[1]["fonte"] == "fusao"
+    assert pagina.roteamento[1]["faixa"] is True
+    assert "faixa" not in pagina.roteamento[0]
+    assert len(chamadas) == 1
+
+
+def test_sem_leitor_de_faixa_a_linha_sem_registro_fica_com_a_cadeia(monkeypatch):
+    pagina = _extrair(monkeypatch, "palavra", pular=(1,))
+
+    assert pagina.roteamento[1]["texto"] == "25.♖xc7! B]ack"
+    assert pagina.roteamento[1]["fonte"] == "glyph"
+
+
+def test_a_faixa_que_falha_nao_derruba_a_pagina(monkeypatch):
+    def quebra(_faixa):
+        raise RuntimeError("tesseract ausente")
+
+    pagina = _extrair(monkeypatch, "palavra", pular=(1,), ler_faixa=quebra)
+
+    assert pagina.roteamento[1]["texto"] == "25.♖xc7! B]ack"
+
+
+def test_o_registro_da_faixa_volta_em_coordenadas_da_pagina():
+    import numpy as np
+    img = np.full((400, 600), 255, dtype=np.uint8)
+    linha = [BoxEntry("", 100, 200, 110, 230), BoxEntry("", 120, 200, 130, 230)]
+    margem = livro.MARGEM_DA_FAIXA
+
+    def ler(faixa):
+        # Uma linha curta e uma mais larga: fica a mais larga.
+        return [("x", 0.5, (margem, margem, margem + 4, margem + 10), ()),
+                ("ab cd", 0.9, (margem, margem, margem + 30, margem + 30),
+                 (("ab", 0.9, (margem, margem, margem + 10, margem + 30)),
+                  ("cd", 0.8, (margem + 20, margem, margem + 30, margem + 30))))]
+
+    texto, conf, detalhes = livro._registro_da_faixa(img, linha, ler)
+
+    assert (texto, conf) == ("ab cd", 0.9)
+    assert detalhes == (("ab", 0.9, (100, 200, 110, 230)),
+                        ("cd", 0.8, (120, 200, 130, 230)))
+    assert livro._registro_da_faixa(img, linha, lambda faixa: []) is None
+
+
+def test_o_agrupador_do_tesseract_junta_as_palavras_da_mesma_linha():
+    from core.services.ocr_service import OCRService
+    dados = {
+        "text": ["", "Amazingly", "Gashimov", "", "missed", "25.g4?"],
+        "conf": ["-1", "93", "92", "-1", "96", "73"],
+        "left": [0, 100, 200, 0, 100, 180],
+        "top": [0, 50, 50, 0, 90, 92],
+        "width": [10, 90, 80, 10, 60, 50],
+        "height": [10, 20, 20, 10, 20, 18],
+        "block_num": [1, 1, 1, 1, 1, 1],
+        "par_num": [1, 1, 1, 1, 1, 1],
+        "line_num": [1, 1, 1, 2, 2, 2],
+    }
+
+    linhas = OCRService._agrupar_dados_do_tesseract(dados)
+
+    assert [linha[0] for linha in linhas] == ["Amazingly Gashimov", "missed 25.g4?"]
+    assert linhas[0][1] == pytest.approx(0.925)
+    assert linhas[0][2] == (100, 50, 280, 70)
+    assert linhas[1][3] == (("missed", 0.96, (100, 90, 160, 110)),
+                            ("25.g4?", 0.73, (180, 92, 230, 110)))
 
 
 # ----------------------------------------------------------------------

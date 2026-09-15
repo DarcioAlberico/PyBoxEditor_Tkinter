@@ -580,6 +580,54 @@ O que sobra no modo `palavra`, token a token (25 de 295):
   `--psm 3`, e não do roteamento; fica para a OCR-15 (layout especial), junto
   com a segunda passada sobre a trama, que nesta página só produziu lixo.
 
+### Segunda passada, 2026-09-15: o pingo, o gancho e a faixa
+
+Antes de partir para a OCR-14, uma medição sobre os 14 erros da cadeia no
+lance: **de qual confiança eles são?** Se fossem de hesitação, o Tesseract
+poderia entrar como segunda opinião gateada pela confiança (a OCR-13 em
+produção); se fossem confiantes, só treino resolve. `_texto_da_linha` ganhou
+o `marcador_confianca`, e a resposta veio clara: mediana 1,00 nos tokens
+errados, igual à dos certos. A segunda opinião por confiança está descartada.
+
+Mas o mesmo instrumento mostrou o padrão: `25.g4?` saía `25.g4.` com o `.` a
+1,00 **e um box derrubado ao lado, um `'` a 0,21** — o gancho do `?`. O
+segmentador partia o glifo em dois componentes, o gancho virava apóstrofo de
+baixa confiança e caía; o mesmo com o `!`. E, olhando os vizinhos, o **pingo
+do `i` também não fundia**: `.` em y 238–242 sobre a haste em 248–266, 6 px
+numa altura mediana de 18 — 0,33 —, e `BoxService.FOLGA_DE_DIACRITICO` era
+0,30. É daí que vinham `A1nazing]y`, `1n.ssed`, `b.s`, `on]y`: a haste solta
+lida como `l` a 0,37, e derrubada.
+
+A população da página, medida (pares curto-sobre-alto alinhados em x): 8 em
+0,11, 5 em 0,16, 27 em 0,21, 7 em 0,26, **36 em 0,32** — o maior grupo, logo
+acima da régua — e o próximo grupo só em 0,74 (pontuação da linha de cima). A
+régua da F3.11 tinha sido medida nas 11 páginas rotuladas, onde o diacrítico
+vai a 0,23 e o outro lado começa em 0,55; esta digitalização cai no vale, do
+lado errado. **0,30 → 0,40**: nas 11 páginas rotuladas nada muda
+(`medir_paginas.py`, F1 94,9 nas duas, precisão 93,7 → 93,6 por
+arredondamento); na página 30 a cadeia sozinha vai de 31,6% para 27,3% de CER
+na prosa e de 20,5% para 17,0% de WER na notação — os quatro `?`/`!` voltam.
+
+E o cabeçalho que o Tesseract não leu (8 erros): a passada de página com
+`--psm 3` pula linhas inteiras, e para essas a produção passa a ler **a faixa
+da linha** (`OCRService.tesseract_faixa_detalhada_conf`, `--psm 7`,
+`ler_faixa` em `extrair_pagina`), só para a linha sem registro compatível —
+uma chamada de processo por faixa, nunca por página. O registro volta em
+coordenadas da página e entra na mesma fusão.
+
+| modo | CER prosa | WER prosa | CER notação | WER notação | CER total | s |
+|---|---:|---:|---:|---:|---:|---:|
+| `glifo` (só a cadeia) | 27,32% | 55,07% | 9,83% | 17,05% | 21,59% | 1,6 |
+| `linha` (modo anterior) | 1,73% | 4,35% | 15,06% | 36,36% | 6,10% | 4,9 |
+| `palavra` (novo, padrão) | **1,33%** | **2,90%** | **4,60%** | **11,36%** | **2,40%** | 2,9 |
+
+A página está abaixo da meta inicial do roadmap (CER < 3%, WER < 8%). Dos 16
+tokens que sobram: 10 são da cadeia no lance, com confiança — o ponto que se
+funde ao vizinho (`25♖xc7!`, `26♕g5`, `57..`), `⩲` por `±`, `e`/`c`, o `gxh5`
+lido como um box só (`a6`), `1–0` lido `1`; 3 são do Tesseract na prosa
+(`[n`, `Bur`, `'The`); 2 são uma marca de digitalização na margem da linha
+do cabeçalho; 1 é a vírgula depois de `58.♘xc4?`.
+
 ### Próximo passo
 
 Conferir a referência da página 30 contra o livro impresso (a releitura foi
@@ -587,4 +635,5 @@ sobre o scan) e, se mudar, refazer a tabela
 (`python scripts/ab_ocr_livro.py "<pdf>" --paginas 30`). Depois, ampliar a
 referência para páginas de outros livros — a do Yusupov de duas colunas e a
 do Nunn com tabela — antes da OCR-14, para a métrica por domínio ter mais de
-uma página atrás dela.
+uma página atrás dela. Os 10 erros da cadeia no lance são o caso de uso da
+OCR-14: são confiantes, e a métrica agora os separa da prosa.

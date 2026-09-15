@@ -115,12 +115,43 @@ def test_pingo_do_i_continua_fundindo():
     assert _funde(haste, pingo) == [pingo], "o pingo do 'i' deixou de fundir"
 
 
-@pytest.mark.parametrize("folga", [0, 3, 5, 6])
+@pytest.mark.parametrize("folga", [0, 3, 5, 6, 9, 11])
 def test_pingo_funde_ate_o_limite_medido(folga):
-    """A folga do diacrítico medida vai a 5 px (0,23 mediana); a régua é 6,6."""
+    """A folga do diacrítico medida vai a 5 px (0,23 mediana) nas páginas
+    rotuladas e a 0,33 na página 30 do Aagaard «Calculation»; a régua é 0,40
+    da mediana — 11,6 px aqui."""
     haste = BoxEntry("i", 100, 300, 106, 330)
     pingo = BoxEntry("", 99, 300 - folga - 6, 106, 300 - folga)
     assert _funde(haste, pingo) == [pingo], f"folga de {folga} px deveria fundir"
+
+
+def test_o_pingo_e_o_gancho_da_digitalizacao_do_aagaard_fundem():
+    """Coordenadas reais da página 30 do «Calculation»: o pingo do 'i' em
+    y 238–242 sobre a haste em 248–266, e o gancho do '?' em 238–256 sobre o
+    ponto em 262–266 — folga de 6 px numa mediana de 18 (0,33). Com a régua
+    em 0,30 os dois ficavam separados, e a haste solta virava 'l' de baixa
+    confiança e caía: `1n.ssed`, `b.s`, e todo '?' de lance saía '.'."""
+    corpo = [BoxEntry("x", 40 * i, 500, 40 * i + 12, 518) for i in range(30)]
+    haste = BoxEntry("", 546, 248, 552, 266)
+    pingo = BoxEntry("", 546, 238, 550, 242)
+    gancho = BoxEntry("", 1624, 238, 1632, 256)
+    ponto = BoxEntry("", 1624, 262, 1628, 266)
+    saida = _merge(corpo + [haste, pingo, gancho, ponto])
+    assert _dentro(_dono_de(saida, haste), pingo), "o pingo do 'i' ficou solto"
+    assert _dentro(_dono_de(saida, gancho), ponto), "o '?' saiu em dois boxes"
+
+
+def test_a_pontuacao_da_linha_de_cima_continua_fora_com_a_regua_nova():
+    """O outro lado do vale: 0,55 nas páginas rotuladas, 0,74 na página 30 do
+    Aagaard. Um ponto a 0,5 mediana de um glifo alto não pode entrar."""
+    corpo = [BoxEntry("x", 40 * i, 500, 40 * i + 12, 518) for i in range(30)]
+    alto = BoxEntry("", 990, 1592, 1024, 1630)
+    ponto = BoxEntry("", 1014, 1572, 1018, 1578)          # folga 14 px = 0,78
+    saida = _merge(corpo + [alto, ponto])
+    assert not _dentro(_dono_de(saida, alto), ponto)
+    ponto_perto = BoxEntry("", 1014, 1579, 1018, 1583)    # folga 9 px = 0,5
+    saida = _merge(corpo + [alto, ponto_perto])
+    assert not _dentro(_dono_de(saida, alto), ponto_perto)
 
 
 def test_dois_pontos_e_ponto_e_virgula_continuam_fundindo():

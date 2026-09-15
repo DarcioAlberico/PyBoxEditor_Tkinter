@@ -135,6 +135,90 @@ class OCRService:
             "por": "por",
         }.get(str(idioma or "en").lower(), str(idioma or "eng"))
 
+    def _linhas_do_tesseract(self, imagem_np: np.ndarray, idioma: str,
+                             psm: int) -> list[tuple]:
+        """`[(texto, confiança, caixa, detalhes)]`, uma linha do Tesseract por
+        item, com `detalhes` sendo as palavras dela como `(texto, confiança,
+        caixa)`. É o formato que `core.livro` casa com as linhas dele; o `psm`
+        diz se a imagem é a página (3) ou a faixa de uma linha só (7)."""
+        import pytesseract
+
+        self._configurar_tesseract(pytesseract)
+        imagem = np.asarray(imagem_np)
+        if imagem.size == 0:
+            return []
+        if imagem.ndim == 3:
+            imagem = self._cinza(imagem)
+        imagem = np.ascontiguousarray(imagem, dtype=np.uint8)
+        try:
+            dados = pytesseract.image_to_data(
+                Image.fromarray(imagem),
+                lang=self._idioma_tesseract(idioma),
+                config=f"--psm {psm} -c preserve_interword_spaces=1",
+                output_type=pytesseract.Output.DICT,
+            )
+        except Exception:
+            return []
+        return self._agrupar_dados_do_tesseract(dados)
+
+    @staticmethod
+    def _agrupar_dados_do_tesseract(registros) -> list[tuple]:
+        grupos = {}
+        for i, bruto in enumerate(registros.get("text", [])):
+            texto = str(bruto or "").strip()
+            if not texto:
+                continue
+            try:
+                confianca = max(0.0, min(1.0,
+                                         float(registros["conf"][i]) / 100.0))
+            except (KeyError, TypeError, ValueError, IndexError):
+                confianca = 0.0
+            try:
+                x = int(registros["left"][i])
+                y = int(registros["top"][i])
+                w = int(registros["width"][i])
+                h = int(registros["height"][i])
+            except (KeyError, TypeError, ValueError, IndexError):
+                continue
+            chave = tuple(
+                int(registros.get(nome, [0])[i])
+                for nome in ("block_num", "par_num", "line_num")
+            )
+            item = grupos.setdefault(
+                chave, {"palavras": [], "confs": [], "caixas": [],
+                        "detalhes": []})
+            item["palavras"].append(texto)
+            item["confs"].append(confianca)
+            caixa = (x, y, x + max(1, w), y + max(1, h))
+            item["caixas"].append(caixa)
+            item["detalhes"].append((texto, confianca, caixa))
+
+        linhas = []
+        for item in grupos.values():
+            caixas = item["caixas"]
+            x1 = min(c[0] for c in caixas)
+            y1 = min(c[1] for c in caixas)
+            x2 = max(c[2] for c in caixas)
+            y2 = max(c[3] for c in caixas)
+            confs = item["confs"]
+            linhas.append((" ".join(item["palavras"]),
+                           sum(confs) / len(confs), (x1, y1, x2, y2),
+                           tuple(item["detalhes"])))
+        return sorted(linhas, key=lambda item: (item[2][1], item[2][0]))
+
+    def tesseract_faixa_detalhada_conf(
+        self, faixa_np: np.ndarray, idioma: str = "en"
+    ) -> list[tuple]:
+        """Reconhece a faixa de **uma** linha, no mesmo formato da página.
+
+        É o fallback da fusão por palavra para a linha que a passada de página
+        não devolveu — o `--psm 3` às vezes pula um cabeçalho em negrito
+        inteiro. Custa uma chamada de processo por linha (F114: ~140 ms), e
+        por isso só roda para essas linhas, nunca para a página. As caixas
+        são relativas à faixa; quem chama desloca.
+        """
+        return self._linhas_do_tesseract(faixa_np, idioma, psm=7)
+
     def tesseract_pagina_detalhada_conf(
         self, pagina_np: np.ndarray, idioma: str = "en",
         _segunda_passada: bool = True
@@ -146,71 +230,12 @@ class OCRService:
         coordenadas permitem que ``core.livro`` use o contexto da palavra sem
         perder a segmentação e a ordem de leitura que o programa já calculou.
         """
-        import pytesseract
-
-        self._configurar_tesseract(pytesseract)
+        linhas = self._linhas_do_tesseract(pagina_np, idioma, psm=3)
         imagem = np.asarray(pagina_np)
-        if imagem.size == 0:
-            return []
         if imagem.ndim == 3:
             imagem = self._cinza(imagem)
         imagem = np.ascontiguousarray(imagem, dtype=np.uint8)
-        try:
-            dados = pytesseract.image_to_data(
-                Image.fromarray(imagem),
-                lang=self._idioma_tesseract(idioma),
-                config="--psm 3 -c preserve_interword_spaces=1",
-                output_type=pytesseract.Output.DICT,
-            )
-        except Exception:
-            return []
-
-        def agrupar(registros):
-            grupos = {}
-            for i, bruto in enumerate(registros.get("text", [])):
-                texto = str(bruto or "").strip()
-                if not texto:
-                    continue
-                try:
-                    confianca = max(0.0, min(1.0,
-                                             float(registros["conf"][i]) / 100.0))
-                except (KeyError, TypeError, ValueError, IndexError):
-                    confianca = 0.0
-                try:
-                    x = int(registros["left"][i])
-                    y = int(registros["top"][i])
-                    w = int(registros["width"][i])
-                    h = int(registros["height"][i])
-                except (KeyError, TypeError, ValueError, IndexError):
-                    continue
-                chave = tuple(
-                    int(registros.get(nome, [0])[i])
-                    for nome in ("block_num", "par_num", "line_num")
-                )
-                item = grupos.setdefault(
-                    chave, {"palavras": [], "confs": [], "caixas": [],
-                            "detalhes": []})
-                item["palavras"].append(texto)
-                item["confs"].append(confianca)
-                caixa = (x, y, x + max(1, w), y + max(1, h))
-                item["caixas"].append(caixa)
-                item["detalhes"].append((texto, confianca, caixa))
-
-            linhas = []
-            for item in grupos.values():
-                caixas = item["caixas"]
-                x1 = min(c[0] for c in caixas)
-                y1 = min(c[1] for c in caixas)
-                x2 = max(c[2] for c in caixas)
-                y2 = max(c[3] for c in caixas)
-                confs = item["confs"]
-                linhas.append((" ".join(item["palavras"]),
-                               sum(confs) / len(confs), (x1, y1, x2, y2),
-                               tuple(item["detalhes"])))
-            return sorted(linhas, key=lambda item: (item[2][1], item[2][0]))
-
-        linhas = agrupar(dados)
-        if _segunda_passada:
+        if _segunda_passada and imagem.size:
             alternativas = self._ocr_de_recuperacao_da_trama(imagem, idioma)
             if alternativas:
                 def sobrepoe(a, b):
