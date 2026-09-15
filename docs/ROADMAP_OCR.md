@@ -530,7 +530,8 @@ a linha inteira pela do Tesseract e repunha as figurinas por coordenada:
   lados (traço, aspa, `†`→`+`).
 - `scripts/ab_ocr_livro.py`: os três modos sobre as mesmas páginas, com o
   Tesseract rodando uma vez por página; grava texto e roteamento por modo e
-  imprime a tabela contra `preview_ocr/referencia/pNNN.txt`.
+  imprime a tabela contra `--referencia <pasta do livro>/pNNN.txt`
+  (`preview_ocr/referencia/<livro>/`).
 
 ### O A/B da página 30
 
@@ -628,12 +629,88 @@ lido como um box só (`a6`), `1–0` lido `1`; 3 são do Tesseract na prosa
 (`[n`, `Bur`, `'The`); 2 são uma marca de digitalização na margem da linha
 do cabeçalho; 1 é a vírgula depois de `58.♘xc4?`.
 
+### A segunda página: Yusupov, «Chess Evolution 1», p. 34 (duas colunas)
+
+`preview_ocr/referencia/yusupov_chess_evolution_1/p034.txt`, transcrita da
+imagem em 2026-09-15: «Solutions» em duas colunas, cabeçalhos em negativo
+(branco sobre preto), 127 tokens de prosa e 119 de notação. As referências
+passaram a ficar numa pasta por livro (`--referencia`). A página foi
+escolhida para ver se a régua do pingo e a semelhança de linha eram desta
+digitalização ou gerais — e o que ela trouxe foi outra coisa: **a primeira
+rodada deu 106% de CER**, porque as duas colunas saíram intercaladas.
+
+O que a página exigiu, em ordem de descoberta:
+
+1. **A calha apagada pela mobília.** O que a F70 deixou em aberto na letra —
+   "o título de duas linhas sobre a calha ainda a apaga": aqui são o título
+   «Solutions» em cima e o número da página centrado embaixo, duas linhas
+   cruzando a calha contra uma tolerada. A linha de mobília — compacta
+   (tinta em < 30% da largura) **e** centrada no texto — deixa de entrar na
+   projeção (`BoxService._e_mobilia`). A primeira versão tirava toda linha
+   curta e abriu calha falsa no sumário do «Calculation» (linhas de ponta a
+   ponta com pouca tinta) e numa página do Seirawan (títulos à esquerda) —
+   os dois são cobertos pela regra final. Medido em amostras de 12 páginas de
+   8 livros: os de coluna única não mudam (Darcy Lima 0/13, Calculation
+   0/13, Seirawan 2/12), os de duas colunas ganham (Chess Evolution 1 8 → 10
+   de 11, Yusupov Complete 11 → 12 de 12), e nas 11 páginas rotuladas nada
+   muda. A banda de `_linhas` é julgada pelo seu maior grupo de caixas
+   (`_nucleo_da_banda`): a orelha girada do capítulo, na mesma altura do
+   título e a 800 px dele, não o tira da mobília.
+2. **O título centrado saía partido**: `Solu` no fim da coluna da esquerda,
+   `tions` no começo da direita. A linha de mobília que cruza a calha é um
+   elemento transversal de `sort_boxes_reading_order`: sai inteira, no lugar
+   dela.
+3. **O número de lance partido do lance**: `1 .♘f6!`, `1 ...♕xe2`,
+   `1 1.♕g7`. O `1` em negrito deste livro tem a tinta estreita e o avanço
+   largo, e o vão até o ponto (8–12 px) passa da régua do espaço (6–8 px).
+   Lexicalmente não há dúvida: `_colar_numero_de_lance` tira o espaço nos
+   quatro vetores (texto, pesos, lacunas, caixas). `201 2 .` não cola: o
+   ponto precisa de lance depois.
+4. **O cabeçalho em negativo**: o Tesseract lê a tarja como está e devolve
+   `].Bolbochan` a 0,4 e `W.Steinit`. A linha com boxes `negativo` ignora o
+   registro da página e vai para a faixa dela **invertida no miolo** (a
+   margem que `faixa_da_linha` põe em volta fica branca — invertida, virava
+   moldura preta). Sai `].Bolbochan — L.Pachman` a 0,82, `Em.Lasker —
+   W.Steinitz` a 0,87.
+5. **As lacunas do lance.** Os quatro erros de notação que sobravam eram o
+   mesmo fenômeno: o `–` de `+–` a 0,40–0,44 (três vezes) e a ligadura `ex`
+   de `exf4` a 0,43, derrubados por `CONF_MINIMA`. O box derrubado é a
+   evidência de que há um glifo ali, e o Tesseract leu os quatro certos.
+   `_preencher_lacunas_do_lance` alinha o lance à palavra do motor com a
+   figurina e a lacuna como curingas de um ou dois caracteres
+   (`_alinhar_lance`, programação dinâmica; no empate a letra vai para a
+   figurina, não para a lacuna ao lado), aceita na lacuna só o alfabeto do
+   lance — figurina não, lixo não — e só se o lance inteiro continuar com
+   forma de lance (`26...g16` + `¢xh6` → `26...g1h6` é recusado). A linha só
+   de notação, que não paga o motor, passa a usar o registro que a página
+   já tem para isto, e só para isto (`so_lacunas`), quando tem box
+   derrubado. O traço do motor vira o da cadeia (`–`).
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Aagaard p. 30 | `glifo` | 27,32% | 55,07% | 9,83% | 17,05% | 21,59% |
+| | `linha` | 1,73% | 4,35% | 15,06% | 36,36% | 6,10% |
+| | `palavra` | **1,33%** | **2,90%** | **4,60%** | **11,36%** | **2,40%** |
+| Yusupov p. 34 | `glifo` | 7,30% | 18,11% | 2,56% | 12,61% | 4,81% |
+| | `linha` | 1,99% | 3,15% | 4,06% | 14,29% | 3,08% |
+| | `palavra` | **0,50%** | **2,36%** | **0,75%** | **4,20%** | **0,63%** |
+
+A régua do pingo (0,40) e a semelhança de linha (0,5) valeram na segunda
+página sem ajuste — a primeira rodada do Yusupov, ainda com as colunas
+intercaladas, já tinha a fusão certa linha a linha. Dos 10 tokens que sobram
+no Yusupov: 6 são a orelha girada do capítulo (lida como `♕ ♕ ♕ ⩲`) e o
+número da página; 2 são a primeira letra em negrito lida pelo Tesseract
+(`].Bolbochan`, `§.Tarrasch`); 2 são o `–` de `+–` que o motor também não
+leu. No Aagaard nada mudou — os 16 de antes, com o cabeçalho e o `gxh5` da
+cadeia.
+
 ### Próximo passo
 
-Conferir a referência da página 30 contra o livro impresso (a releitura foi
-sobre o scan) e, se mudar, refazer a tabela
-(`python scripts/ab_ocr_livro.py "<pdf>" --paginas 30`). Depois, ampliar a
-referência para páginas de outros livros — a do Yusupov de duas colunas e a
-do Nunn com tabela — antes da OCR-14, para a métrica por domínio ter mais de
-uma página atrás dela. Os 10 erros da cadeia no lance são o caso de uso da
-OCR-14: são confiantes, e a métrica agora os separa da prosa.
+Conferir as duas referências contra o livro impresso (as releituras foram
+sobre o scan). Depois, a página do Nunn com tabela (F72) e uma página de
+prosa com diagrama do Yusupov (o capítulo, com o painel de conteúdo sobre a
+trama) — são os dois layouts que o A/B ainda não viu. A orelha girada do
+capítulo, que sai como lixo (`♕ ♕ ♕ ⩲`) no fim da coluna, é assunto da
+detecção de texto girado (F8.1): quatro letras não formam pilha para ela.
+Os erros confiantes da cadeia no lance (`25♖xc7!`, `⩲` por `±`, `e`/`c`)
+continuam sendo o caso de uso da OCR-14.

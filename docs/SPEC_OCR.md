@@ -523,18 +523,26 @@ de proteção: nenhuma melhoria de prosa pode quebrar esse resultado.
 uma vez pelo motor contextual (`OCRService.tesseract_pagina_detalhada_conf`,
 que devolve linhas com as palavras e as caixas delas) e, linha a linha:
 
-1. lê a âncora pela cadeia própria (`_texto_da_linha`), um item por box;
+1. lê a âncora pela cadeia própria (`_texto_da_linha`), um item por box, e
+   cola o número de lance partido do lance por espaço falso
+   (`_colar_numero_de_lance`: `1 .♘f6!` → `1.♘f6!`);
 2. classifica o domínio da linha pelos tokens da âncora
    (`_dominio_da_linha`) e pede a decisão ao `OCRRouter` — a linha só de
-   notação fica com a âncora e não paga o motor;
+   notação fica com a âncora e não paga o motor; com box derrubado, ela usa o
+   registro que a página já tem só para preencher lacunas de lance;
 3. casa o registro do motor pela geometria (`_casar_linha_ocr`) e o aceita só
    com semelhança de letras e dígitos ≥ 0,5 (`_semelhanca_de_linha`); o
    rejeitado não é consumido; sem registro compatível, e havendo `ler_faixa`,
-   lê a faixa da linha sozinha (`--psm 7`) e aplica a mesma régua;
+   lê a faixa da linha sozinha (`--psm 7`) e aplica a mesma régua; a linha em
+   negativo vai direto para a faixa, invertida no miolo;
 4. funde (`_fundir_por_palavra`): token com forma de lance
-   (`notacao.e_token_de_notacao`) fica; token de prosa é trocado pelas
-   palavras do motor no mesmo lugar em x, com confiança ≥ 0,5 e dentro da
-   faixa vertical da linha; a palavra do motor que toca um lance é do lance;
+   (`notacao.e_token_de_notacao`) fica, com os boxes derrubados dentro dele
+   (ou encostados a ele) preenchidos pelo que o motor leu ali, se couber no
+   alfabeto do lance e o lance continuar com forma de lance
+   (`_preencher_lacunas_do_lance`, alinhamento com figurina e lacuna como
+   curingas); token de prosa é trocado pelas palavras do motor no mesmo
+   lugar em x, com confiança ≥ 0,5 e dentro da faixa vertical da linha; a
+   palavra do motor que toca um lance é do lance;
 5. corrige a prosa (`_corrigir_prosa_contextual`) pulando o lance;
 6. registra em `PaginaExtraida.roteamento` domínio, leitor principal, motivo,
    fonte do texto (`glyph`/`fusao`/`line`), âncora, linha do motor,

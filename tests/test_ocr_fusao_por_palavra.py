@@ -466,3 +466,157 @@ def test_o_erro_vai_para_o_dominio_do_token_da_referencia():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ----------------------------------------------------------------------
+# A segunda página (Yusupov, Chess Evolution 1, p. 34): número partido,
+# cabeçalho em negativo e as lacunas do lance
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("antes, depois", [
+    ("for: 1 .NUMf6! Qe7", "for: 1.NUMf6! Qe7"),
+    ("If 1 ...Qxe2 then", "If 1...Qxe2 then"),
+    ("Ke8 1 1.Qg7+-", "Ke8 11.Qg7+-"),
+    ("get 1 point", "get 1 point"),
+    ("Gibraltar 201 2 .", "Gibraltar 201 2 ."),
+    ("move 40 . then", "move 40 . then"),
+])
+def test_o_numero_de_lance_partido_do_lance_e_colado(antes, depois):
+    # O `1` em negrito do Chess Evolution 1 tem avanço largo, e o vão até o
+    # ponto passa da régua do espaço. Os quatro vetores encolhem juntos.
+    antes = antes.replace("NUM", "\u2658")
+    depois = depois.replace("NUM", "\u2658")
+    pesos = [float(i) for i in range(len(antes))]
+    texto, novos_pesos, lacunas, caixas = livro._colar_numero_de_lance(
+        antes, pesos, list(pesos), list(range(len(antes))))
+    assert texto == depois
+    assert len(novos_pesos) == len(lacunas) == len(caixas) == len(texto)
+    if texto != antes:
+        # O que saiu foi só o espaço; o resto continua alinhado ao texto.
+        for indice, char in enumerate(texto):
+            assert antes[caixas[indice]] == char
+
+
+def test_o_alinhamento_do_lance_trata_figurina_e_lacuna_como_curinga():
+    # O Tesseract escreve a figurina como uma ou duas letras, e a lacuna é o
+    # que se quer ler dele.
+    assert livro._alinhar_lance(list("3.\u2655h4+") + ["\0"], "3.Wfh4+\u2014") == ["\u2014"]
+    assert livro._alinhar_lance(list("1...") + ["\0"] + list("f4"), "1...exf4") == ["ex"]
+    # A palavra que não é este lance não alinha: mais de um quinto de edições.
+    assert livro._alinhar_lance(list("3.\u2655h4+") + ["\0"], "Amazingly") is None
+
+
+def _linha_com_lacuna(texto: str, derrubado: str, posicao: int):
+    """Boxes lado a lado para `texto`, mais um box derrubado (sem caractere)
+    inserido na posição `posicao` da linha. Devolve (boxes, caixas)."""
+    boxes, caixas = [], []
+    x = 100
+    indice_box = 0
+    for k, c in enumerate(texto):
+        if k == posicao:
+            boxes.append(BoxEntry("", x, 200, x + 10, 230))     # o derrubado
+            x += 12
+            indice_box += 1
+        boxes.append(BoxEntry("", x, 200, x + 10, 230))
+        caixas.append(indice_box)
+        indice_box += 1
+        x += 12
+    if posicao >= len(texto):
+        boxes.append(BoxEntry("", x, 200, x + 10, 230))
+    return boxes, caixas
+
+
+def test_a_lacuna_do_lance_e_preenchida_pelo_motor():
+    # `+\u2013`: o traço a 0,40 caiu; o box dele encosta no `+`, e o Tesseract
+    # leu `3.Wfh4+\u2014`. Entra como o traço da cadeia.
+    boxes, caixas = _linha_com_lacuna("3.\u2655h4+", "\u2013", posicao=6)
+    detalhes = (("3.Wfh4+\u2014", 0.3, (100, 200, 200, 230)),)
+    texto, contas = livro._fundir_por_palavra("3.\u2655h4+", caixas, boxes, detalhes,
+                                              so_lacunas=True)
+    assert texto == "3.\u2655h4+\u2013"
+    assert contas["lacunas_preenchidas"] == 1
+
+    # `exf4`: a ligadura `\u2657x` a 0,43 caiu no meio; o Tesseract leu `1...exf4`.
+    boxes, caixas = _linha_com_lacuna("1...f4", "ex", posicao=4)
+    detalhes = (("1...exf4", 0.6, (100, 200, 200, 230)),)
+    texto, _contas = livro._fundir_por_palavra("1...f4", caixas, boxes, detalhes,
+                                               so_lacunas=True)
+    assert texto == "1...exf4"
+
+
+def test_a_lacuna_nao_recebe_lixo_nem_desfaz_a_forma_do_lance():
+    boxes, caixas = _linha_com_lacuna("26...g16", "E", posicao=7)
+    # O motor leu `\u00a2xh6`: o `h` cabe no alfabeto, mas `26...g1h6` não é lance.
+    detalhes = (("26...\u00a2xh6", 0.4, (100, 200, 200, 230)),)
+    texto, contas = livro._fundir_por_palavra("26...g16", caixas, boxes, detalhes,
+                                              so_lacunas=True)
+    assert texto == "26...g16"
+    assert contas["lacunas_preenchidas"] == 0
+    # E a palavra fraca de prosa continua fora, mesmo com `so_lacunas`.
+    boxes, caixas = _linha_de_boxes("B]ack")
+    detalhes = (("Black", 0.95, (100, 200, 150, 230)),)
+    texto, _contas = livro._fundir_por_palavra("B]ack", caixas, boxes, detalhes,
+                                               so_lacunas=True)
+    assert texto == "B]ack"
+
+
+def test_a_linha_so_de_lances_com_box_derrubado_pede_a_lacuna_ao_motor(monkeypatch):
+    # A terceira linha da página sintética é só notação; aqui ela perde um
+    # box (o traço de `+\u2013`), e o registro da página traz o lance inteiro.
+    chamadas = []
+    ancoras = ("Amaz1ngly m1ssed", "25.\u2656xc7! B]ack", "28.\u2656xf7+ \u2654e6")
+
+    def falso(img, linha, classificar, conf_minima, coletor=None, pagina=0,
+              marcador_glifo=None, marcador_confianca=None):
+        texto = ancoras[len(chamadas)]
+        chamadas.append(texto)
+        n = len(linha)
+        if texto.startswith("28."):
+            # O último box da linha é o derrubado: nenhum caractere aponta para ele.
+            caixas = [-1 if c == " " else min(n - 2, i * (n - 1) // len(texto))
+                      for i, c in enumerate(texto)]
+            return texto, 1, [None] * len(texto), [None] * len(texto), caixas
+        caixas = [-1 if c == " " else min(n - 1, i * n // len(texto))
+                  for i, c in enumerate(texto)]
+        return texto, 0, [None] * len(texto), [None] * len(texto), caixas
+
+    classificar = _classificador()
+    monkeypatch.setattr(livro, "_texto_da_linha", falso)
+    palavras = (["Amazingly", "missed"], ["25.Exc7!", "Black"],
+                ["28.Bxf7t", "He6+\u2014"])
+    doc = _pagina(("aaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", "cccccccccccccc"))
+    try:
+        pagina = livro.extrair_pagina(
+            doc[0], classificar, dpi=150,
+            ler_pagina=_ler_pagina_roteirizado(palavras, classificar))
+    finally:
+        doc.close()
+
+    registro = pagina.roteamento[2]
+    assert registro["dominio"] == "notation"
+    assert registro["fonte"] == "lacunas"
+    assert registro["texto"] == "28.\u2656xf7+ \u2654e6+\u2013"
+    assert registro["lacunas_preenchidas"] == 1
+
+
+def test_a_faixa_em_negativo_e_invertida_so_no_miolo():
+    import numpy as np
+    img = np.full((400, 600), 255, dtype=np.uint8)
+    img[195:235, 90:140] = 0                         # a tarja preta
+    img[205:225, 100:130] = 255                      # as letras brancas
+    linha = [BoxEntry("", 100, 200, 110, 230, negativo=True),
+             BoxEntry("", 120, 200, 130, 230, negativo=True)]
+    recebidas = []
+
+    def ler(faixa):
+        recebidas.append(faixa.copy())
+        return [("ab", 0.9, (8, 8, 38, 38), (("ab", 0.9, (8, 8, 38, 38)),))]
+
+    livro._registro_da_faixa(img, linha, ler)
+    faixa = recebidas[0]
+    margem = livro.MARGEM_DA_FAIXA
+    assert faixa[:margem].min() == 255, "a margem tem de continuar branca"
+    miolo = faixa[margem:-margem, margem:-margem]
+    assert miolo[0, 0] == 255, "o fundo da tarja virou branco"
+    assert miolo[10, 5] == 0, "as letras viraram pretas"
+    assert img[200, 100] == 0, "a imagem da página não pode ser alterada"

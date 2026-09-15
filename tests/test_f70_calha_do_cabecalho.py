@@ -82,8 +82,13 @@ def test_uma_letra_do_cabecalho_apagava_a_calha():
     """
     Fixa o defeito, e não o comportamento: se a régua mudar de forma, é este
     teste que diz contra o que a de hoje está sendo comparada.
+
+    O box do cabeçalho corrente, sozinho e centrado, hoje nem entra na
+    projeção — é mobília (ver `test_a_mobilia_da_pagina_nao_apaga_a_calha`).
+    O que exibe o defeito de então é uma linha larga cruzando a calha: sem
+    tolerância, um box dela em cima da calha tem de apagá-la.
     """
-    boxes = _duas_colunas() + _cabecalho()
+    boxes = _duas_colunas() + _linha(200, -40, 40, rotulo="t_")
     with _sem_tolerancia():
         assert len(BoxService.detectar_colunas(boxes)) == 1, \
             "sem tolerância, um box no meio da calha tem de apagá-la"
@@ -105,16 +110,54 @@ def test_a_pagina_sem_cabecalho_continua_de_duas_colunas():
 # Os limites da tolerância
 # ----------------------------------------------------------------------
 
-def test_duas_linhas_atravessadas_ainda_apagam():
+def test_duas_linhas_largas_atravessadas_ainda_apagam():
     """
     A tolerância é de **uma** linha, e este é o teste que a mantém apertada.
 
-    Duas linhas cruzando a calha é o título de duas linhas, e ali a régua volta
-    a dizer coluna única — ver "o que fica em aberto" da F70.
+    Duas linhas **largas** cruzando a calha — um título de duas linhas que
+    ocupa a página de lado a lado — ainda dizem coluna única. O que deixou de
+    apagar a calha foi a mobília (ver abaixo), e não uma tolerância maior.
     """
-    boxes = (_duas_colunas() + _cabecalho()
-             + _cabecalho(y=-80, rotulo="cab2"))
-    assert len(BoxService.detectar_colunas(boxes)) == 1
+    larga = _linha(200, -40, 40, rotulo="t1_")          # 200..997, cruza a calha
+    larga2 = _linha(200, -80, 40, rotulo="t2_")
+    assert len(BoxService.detectar_colunas(_duas_colunas() + larga)) == 2
+    assert len(BoxService.detectar_colunas(_duas_colunas() + larga + larga2)) == 1
+
+
+def test_a_mobilia_da_pagina_nao_apaga_a_calha():
+    """
+    O que a F70 deixou em aberto — "o título de duas linhas sobre a calha
+    ainda a apaga" —, na forma em que a página 34 do Chess Evolution 1 o
+    trouxe: o título «Solutions» em cima e o número da página centrado
+    embaixo. São duas linhas cruzando a calha contra uma tolerada, e a página
+    de duas colunas saía intercalada. A mobília — compacta e centrada — não
+    entra na projeção.
+    """
+    titulo = _cabecalho(y=-80, rotulo="tit")
+    numero = _cabecalho(y=20 * 30 + 40, rotulo="num")
+    colunas = BoxService.detectar_colunas(_duas_colunas() + titulo + numero)
+    assert len(colunas) == 2, f"a mobília apagou a calha: {colunas}"
+    # E com o cabeçalho corrente por cima das duas, que é o caso da F70.
+    boxes = _duas_colunas() + titulo + numero + _cabecalho()
+    assert len(BoxService.detectar_colunas(boxes)) == 2
+
+
+def test_o_que_e_mobilia_e_o_que_nao_e():
+    """
+    A primeira versão tirava da projeção toda linha curta, e abriu calha falsa
+    no sumário do «Calculation» (título à esquerda, número à direita: pouca
+    tinta, mas de ponta a ponta) e numa página do Seirawan com títulos
+    encostados à esquerda. Só a linha compacta **e** centrada é mobília.
+    """
+    x_min, x_max = 0, 1000
+    centrada_curta = _linha(440, 0, 6)                    # 440..557, no meio
+    sumario = _linha(0, 0, 8) + [BoxEntry("7", 960, 0, 977, 22)]
+    titulo_a_esquerda = _linha(0, 0, 6)
+    larga_centrada = _linha(200, 0, 30)                  # 200..597
+    assert BoxService._e_mobilia(centrada_curta, x_min, x_max)
+    assert not BoxService._e_mobilia(sumario, x_min, x_max)
+    assert not BoxService._e_mobilia(titulo_a_esquerda, x_min, x_max)
+    assert not BoxService._e_mobilia(larga_centrada, x_min, x_max)
 
 
 def test_a_pagina_curta_nao_tolera_nada():
@@ -124,12 +167,16 @@ def test_a_pagina_curta_nao_tolera_nada():
     terceira faixa no vão entre palavras que calham de se alinhar. Abaixo de
     `LINHAS_PARA_TOLERAR` vale a régua de antes.
     """
-    curta = _duas_colunas(linhas=5) + _cabecalho()
+    curta = _duas_colunas(linhas=5) + _linha(200, -40, 40, rotulo="t_")
     assert len(BoxService.detectar_colunas(curta)) == 1, \
         "página de 6 bandas não pode desprezar uma delas"
 
     assert len(BoxService.detectar_colunas(_duas_colunas(linhas=5))) == 2, \
-        "sem o cabeçalho, a calha da página curta continua sendo calha"
+        "sem a linha atravessada, a calha da página curta continua sendo calha"
+    # A mobília não é tolerância: o cabeçalho centrado fica fora da projeção
+    # em qualquer página, curta ou não.
+    assert len(BoxService.detectar_colunas(
+        _duas_colunas(linhas=5) + _cabecalho())) == 2
 
 
 def test_o_piso_esta_entre_o_recorte_e_a_pagina_de_prosa():
@@ -215,6 +262,40 @@ def test_a_ordem_de_leitura_deixa_de_intercalar():
     lados = [c[0] for c in saida if c and c[0] in "ed"]
     saltos = sum(1 for a, b in zip(lados, lados[1:]) if a != b)
     assert saltos == 1, f"a leitura pulou de coluna {saltos} vezes, e não 1"
+
+
+def test_o_titulo_centrado_sobre_a_calha_sai_inteiro_e_antes():
+    """
+    «Solutions», centrado sobre as duas colunas da página 34 do Chess
+    Evolution 1: letra a letra, nenhuma cruza a calha, mas a linha cruza. Saía
+    partido — `Solu` no fim da esquerda, `tions` no começo da direita. A linha
+    de mobília que cruza a calha é um elemento transversal: sai inteira, no
+    lugar dela, antes do que está abaixo.
+    """
+    titulo = _linha(MEIO_DA_CALHA - 90, -60, 9, rotulo="t")   # 9 letras, 180 px
+    saida = [b.char for b in BoxService.sort_boxes_reading_order(
+        _duas_colunas() + titulo)]
+    assert saida[:9] == [f"t{i}" for i in range(9)], saida[:12]
+    lados = [c[0] for c in saida if c and c[0] in "ed"]
+    assert sum(1 for a, b in zip(lados, lados[1:]) if a != b) == 1
+
+
+def test_a_orelha_na_margem_nao_tira_o_titulo_da_mobilia():
+    """
+    A banda de `_linhas` junta ao título as letras da orelha do capítulo, lá
+    na margem direita, na mesma altura. Julgada pela banda inteira, a linha
+    deixava de ser compacta; julgada pelo maior grupo, o título continua sendo
+    mobília e a orelha vai junto no elemento.
+    """
+    titulo = _linha(MEIO_DA_CALHA - 90, -60, 9, rotulo="t")
+    orelha = [BoxEntry("o", INICIO_DA_DIREITA + 32 * 20 + 40, -55, INICIO_DA_DIREITA + 32 * 20 + 52, -35)]
+    banda = titulo + orelha
+    x_min, x_max = 0, INICIO_DA_DIREITA + 32 * 20 + 52
+    assert [b.char for b in BoxService._nucleo_da_banda(banda)] == [f"t{i}" for i in range(9)]
+    assert BoxService._e_mobilia(banda, x_min, x_max)
+    saida = [b.char for b in BoxService.sort_boxes_reading_order(
+        _duas_colunas() + banda)]
+    assert saida[:10] == [f"t{i}" for i in range(9)] + ["o"]
 
 
 if __name__ == "__main__":

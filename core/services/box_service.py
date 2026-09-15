@@ -878,6 +878,64 @@ class BoxService:
     #: (32 de 35), então o ponto é uma.
     LINHAS_NA_CALHA = 1
 
+    #: A mobília da página não entra na projeção da calha: a linha **compacta**
+    #: — a tinta dela, de ponta a ponta, ocupa menos de `MOBILIA_LARGURA` da
+    #: largura do texto — e **centrada** — o centro dela a menos de
+    #: `MOBILIA_DESVIO` do centro do texto. É a resposta ao que a F70 deixou
+    #: em aberto, "o título de duas linhas sobre a calha ainda a apaga": na
+    #: página 34 do Chess Evolution 1 são o título «Solutions» em cima (12% da
+    #: largura) e o número da página centrado embaixo (2%), duas linhas de
+    #: mobília cruzando a calha contra uma tolerada, e a página de duas colunas
+    #: saía intercalada.
+    #:
+    #: **Só a mobília, e não toda linha curta.** A primeira versão tirava da
+    #: projeção toda linha com menos de 30% de tinta, e abriu calha falsa em
+    #: duas páginas de coluna única: o sumário do «Calculation», cujas linhas
+    #: têm o título à esquerda e o número à direita (pouca tinta, mas de ponta
+    #: a ponta), e uma página do Seirawan com títulos encostados à esquerda —
+    #: tiradas elas, os vãos entre as palavras das poucas linhas que sobravam
+    #: viravam calha. A linha do sumário não é compacta e o título do Seirawan
+    #: não é centrado, e os dois continuam contando. A página só de mobília não
+    #: abre calha: sem linha na projeção o vão começa em zero, e vão que
+    #: encosta na margem não é calha.
+    MOBILIA_LARGURA = 0.30
+    MOBILIA_DESVIO = 0.10
+    #: Vão, em larguras medianas de caractere da banda, que separa dois
+    #: grupos de caixas dentro dela. A banda de `_linhas` junta o que está na
+    #: mesma altura: o título «Solutions» e, na mesma banda, as letras da
+    #: orelha do capítulo lá na margem direita, a 800 px. Julgar a banda pelo
+    #: seu maior grupo é o que deixa o título ser mobília apesar da orelha —
+    #: e deixa a linha do sumário (título à esquerda, número à direita) ser
+    #: julgada pelo título, que não é centrado.
+    MOBILIA_VAO_ENTRE_GRUPOS = 4.0
+
+    @staticmethod
+    def _nucleo_da_banda(linha: List[BoxEntry]) -> List[BoxEntry]:
+        """O maior grupo de caixas da banda, cortada nos vãos largos."""
+        caixas = sorted(linha, key=lambda b: b.x1)
+        larguras = sorted(b.x2 - b.x1 for b in caixas)
+        folga = (larguras[len(larguras) // 2] or 1) * BoxService.MOBILIA_VAO_ENTRE_GRUPOS
+        grupos: List[List[BoxEntry]] = [[caixas[0]]]
+        for b in caixas[1:]:
+            if b.x1 - max(c.x2 for c in grupos[-1]) > folga:
+                grupos.append([b])
+            else:
+                grupos[-1].append(b)
+        return max(grupos, key=len)
+
+    @staticmethod
+    def _e_mobilia(linha: List[BoxEntry], x_min: int, x_max: int) -> bool:
+        """Linha compacta e centrada no texto — título corrente, número de
+        página, título de seção centrado. Julgada pelo maior grupo de caixas
+        da banda (`_nucleo_da_banda`)."""
+        nucleo = BoxService._nucleo_da_banda(linha)
+        largura = max(1, x_max - x_min)
+        inicio = min(b.x1 for b in nucleo)
+        fim = max(b.x2 for b in nucleo)
+        centrada = abs((inicio + fim) / 2 - (x_min + x_max) / 2) \
+            < largura * BoxService.MOBILIA_DESVIO
+        return centrada and (fim - inicio) < largura * BoxService.MOBILIA_LARGURA
+
     #: A partir de quantas linhas a página pode desprezar uma delas na calha.
     #:
     #: **Uma linha de cinco é 20% da página, e aí a tolerância inventa calha.**
@@ -956,7 +1014,11 @@ class BoxService:
         linhas = BoxService._linhas(boxes)
         tolerado = (BoxService.LINHAS_NA_CALHA
                     if len(linhas) >= BoxService.LINHAS_PARA_TOLERAR else 0)
-        livre = BoxService._linhas_por_x(linhas, x_min, largura) <= tolerado
+        # A tolerância continua contada sobre todas as linhas; só a projeção
+        # deixa a mobília de fora. Ver `MOBILIA_LARGURA`.
+        contadas = [linha for linha in linhas
+                    if not BoxService._e_mobilia(linha, x_min, x_max)]
+        livre = BoxService._linhas_por_x(contadas, x_min, largura) <= tolerado
 
         calha_automatica = calha_minima is None
         if calha_minima is None:
@@ -1174,22 +1236,47 @@ class BoxService:
         def bandas_cobertas(b):
             return sum(1 for x1, x2 in colunas if b.x1 <= x2 and b.x2 >= x1)
 
-        transversais = sorted((b for b in boxes if bandas_cobertas(b) > 1),
-                              key=lambda b: b.y1)
-        ids_transversais = set(id(b) for b in transversais)
+        # Cada elemento transversal é uma lista de caixas: o box largo que
+        # cruza a calha, sozinho, ou **a linha de mobília que a cruza** — o
+        # título «Solutions» centrado sobre as duas colunas, que é letra a
+        # letra e nenhuma letra cruza a calha, mas a linha cruza. Sem isto o
+        # título saía partido: `Solu` no fim da coluna da esquerda e `tions`
+        # no começo da direita. Ver `_e_mobilia`.
+        x_min = min(b.x1 for b in boxes)
+        x_max = max(b.x2 for b in boxes)
+        elementos: List[List[BoxEntry]] = [
+            [b] for b in boxes if bandas_cobertas(b) > 1]
+        ids_transversais = set(id(b) for e in elementos for b in e)
+
+        def da_coluna(b: BoxEntry) -> int:
+            cx = (b.x1 + b.x2) / 2
+            return next((i for i, (x1, x2) in enumerate(colunas)
+                         if x1 <= cx <= x2), -1)
+
+        for banda in BoxService._linhas(boxes):
+            if any(id(b) in ids_transversais for b in banda):
+                continue
+            nucleo = BoxService._nucleo_da_banda(banda)
+            if (len({da_coluna(b) for b in nucleo}) > 1
+                    and BoxService._e_mobilia(banda, x_min, x_max)):
+                elementos.append(sorted(banda, key=lambda b: b.x1))
+                ids_transversais.update(id(b) for b in banda)
+
+        elementos.sort(key=lambda e: min(b.y1 for b in e))
         restantes = [b for b in boxes if id(b) not in ids_transversais]
 
-        if not transversais:
+        if not elementos:
             return BoxService._por_colunas(restantes, colunas)
 
         saida = []
-        for t in transversais:
-            acima = [b for b in restantes if b.y2 <= t.y1]
+        for elemento in elementos:
+            topo = min(b.y1 for b in elemento)
+            acima = [b for b in restantes if b.y2 <= topo]
             if acima:
                 ids = set(id(b) for b in acima)
                 restantes = [b for b in restantes if id(b) not in ids]
                 saida.extend(BoxService._por_colunas(acima, colunas))
-            saida.append(t)
+            saida.extend(elemento)
 
         saida.extend(BoxService._por_colunas(restantes, colunas))
         return saida

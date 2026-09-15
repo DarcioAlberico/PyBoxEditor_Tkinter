@@ -728,6 +728,35 @@ def _dominio_da_linha(texto: str) -> str:
     return "unknown"
 
 
+#: Um número de lance partido do lance por um espaço falso: `1 .♘f6!`,
+#: `1 ...♕xe2`, `1 1.♕g7`. O `1` em negrito do Chess Evolution 1 tem a tinta
+#: estreita e o avanço largo, e o vão até o ponto (8–12 px) passa da régua
+#: do espaço (6–8 px) — geometricamente é espaço; lexicalmente, um inteiro
+#: solto seguido de ponto e lance (ou de dígitos, ponto e lance) só pode ser
+#: número de lance. O ponto tem de ter algo depois: `2012 .` partido em
+#: `201 2 .` com um respingo lido como ponto não é `2.`.
+RE_NUMERO_PARTIDO = re.compile(r"(?<!\S)(\d{1,2}) (?=(?:\d{1,2})?\.{1,3}\S)")
+
+
+def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
+                           lacunas: List[Optional[float]], caixas: List[int]):
+    """Tira o espaço falso entre o número de lance e o lance, nos quatro
+    vetores ao mesmo tempo — o espaço é um item deles, com box `-1`."""
+    posicoes = [m.end(1) for m in RE_NUMERO_PARTIDO.finditer(texto)
+                if len(m.group(1)) + len(re.match(r"\d*", texto[m.end():]).group(0)) <= 3]
+    if not posicoes:
+        return texto, pesos, lacunas, caixas
+    saida, pesos, lacunas, caixas = list(texto), list(pesos), list(lacunas), list(caixas)
+    for posicao in reversed(posicoes):
+        if saida[posicao] != " ":
+            continue
+        del saida[posicao]
+        for vetor in (pesos, lacunas, caixas):
+            if posicao < len(vetor):
+                del vetor[posicao]
+    return "".join(saida), pesos, lacunas, caixas
+
+
 def _semelhanca_de_linha(ancora: str, linha: str) -> float:
     """Quanto as duas leituras concordam, olhando só letras e dígitos.
 
@@ -796,6 +825,16 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
     faixa = faixa_da_linha(img, linha)
     if faixa is None:
         return None
+    if any(getattr(b, "negativo", False) for b in linha):
+        # O cabeçalho em negativo — branco sobre preto — o motor lê mal como
+        # está (`].Bolbochan` a 0,4, `W.Steinit`); invertido, é texto comum.
+        # A cadeia própria já inverte o box; aqui se inverte o miolo da faixa,
+        # e só ele: a margem que `faixa_da_linha` põe em volta é branca, e
+        # invertida viraria uma moldura preta em volta do texto.
+        faixa = faixa.copy()
+        miolo = faixa[MARGEM_DA_FAIXA:-MARGEM_DA_FAIXA,
+                      MARGEM_DA_FAIXA:-MARGEM_DA_FAIXA]
+        miolo[...] = 255 - miolo
     try:
         registros = list(ler_faixa(faixa) or [])
     except Exception:
@@ -815,8 +854,130 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
     return str(registro[0]).strip(), float(registro[1] or 0.0), detalhes
 
 
+#: O que pode entrar num lance vindo do motor de linha: letra de casa ou de
+#: peça em SAN, dígito, captura, promoção, xeque, mate, anotação e avaliação.
+#: Figurina não — o motor não a tem —, e letra fora disto é lixo dele.
+_ALFABETO_DO_LANCE = frozenset("abcdefgh12345678xKQRBNO+#!?=-–—.")
+#: O traço que o motor escreve vira o da cadeia — o `–` de `+–`, que é o que o
+#: livro imprime; o Tesseract devolve `—` ou `-` conforme o humor.
+_TRACOS_DO_MOTOR = {"—": "–", "-": "–"}
+
+
+def _alinhar_lance(ancora: Sequence[str], palavra: str) -> Optional[List[str]]:
+    """Alinha os itens da âncora de um lance à palavra do motor, e devolve o
+    que o motor leu em cada lacuna.
+
+    `ancora` é a lista de itens do token: um caractere por item, `"\\0"` na
+    lacuna (o box que a cadeia derrubou) e a figurina como está. A figurina e
+    a lacuna são curingas de um ou dois caracteres do motor — o Tesseract
+    escreve a figurina como uma ou duas letras (`Wf` para ♕) e a lacuna pode
+    ser uma ligadura (`ex`). Programação dinâmica: troca, inserção e remoção
+    custam 2; a figurina casa de graça; a lacuna que recebe algo custa 1 e a
+    vazia (o motor também não viu) custa 2 — assim, no empate, a letra do
+    motor vai para a figurina, e não para a lacuna ao lado dela. Devolve
+    `None` quando a palavra não é esta — mais de um quinto de edições fora
+    das lacunas.
+    """
+    n, m = len(ancora), len(palavra)
+    INF = 10 ** 6
+    custo = [[INF] * (m + 1) for _ in range(n + 1)]
+    origem: List[List[Optional[Tuple[int, int]]]] = [[None] * (m + 1) for _ in range(n + 1)]
+    custo[0][0] = 0
+    for j in range(1, m + 1):
+        custo[0][j] = 2 * j
+        origem[0][j] = (0, j - 1)
+    for i in range(1, n + 1):
+        item = ancora[i - 1]
+        lacuna = item == "\0"
+        curinga = lacuna or item in GLIFOS_DE_XADREZ
+        consumo = 1 if lacuna else 0
+        for j in range(0, m + 1):
+            melhor, de = custo[i - 1][j] + 2, (i - 1, j)          # remoção
+            if j and custo[i][j - 1] + 2 < melhor:                # inserção
+                melhor, de = custo[i][j - 1] + 2, (i, j - 1)
+            if j:
+                troca = consumo if curinga else (0 if palavra[j - 1] == item else 2)
+                if custo[i - 1][j - 1] + troca < melhor:
+                    melhor, de = custo[i - 1][j - 1] + troca, (i - 1, j - 1)
+            if curinga and j >= 2 and custo[i - 1][j - 2] + consumo < melhor:
+                melhor, de = custo[i - 1][j - 2] + consumo, (i - 1, j - 2)
+            custo[i][j] = melhor
+            origem[i][j] = de
+    edicoes_fora = 0
+    lidas: List[str] = []
+    i, j = n, m
+    while i or j:
+        pi, pj = origem[i][j]
+        if pi == i - 1 and i:
+            item = ancora[i - 1]
+            trecho = palavra[pj:j]
+            if item == "\0":
+                lidas.append(trecho)
+            elif item not in GLIFOS_DE_XADREZ and trecho != item:
+                edicoes_fora += 1
+        elif pi == i:
+            edicoes_fora += 1
+        i, j = pi, pj
+    lidas.reverse()
+    if edicoes_fora > max(1, len(ancora) // 5):
+        return None
+    return lidas
+
+
+def _preencher_lacunas_do_lance(token: str, indices: Sequence[int],
+                                linha: Sequence[BoxEntry], caixas_usadas: set,
+                                palavra: str) -> Optional[str]:
+    """O lance com os boxes derrubados preenchidos pelo motor de linha.
+
+    A cadeia derruba o caractere abaixo de `CONF_MINIMA`, e no lance isso é
+    sistemático em dois lugares medidos: o `–` de `+–` (0,40–0,44 no Chess
+    Evolution 1) e a ligadura `ex` de `exf4` (0,43). O box derrubado é a
+    evidência de que há um glifo ali; o que ele é, o motor de linha diz
+    melhor que a cadeia hesitando — e só entra o que cabe no alfabeto do
+    lance, e só se o lance inteiro continuar com forma de lance.
+    """
+    if not palavra or not indices:
+        return None
+    primeiro, ultimo = min(indices), max(indices)
+    larguras = sorted(b.x2 - b.x1 for b in linha) or [1]
+    encostado = larguras[len(larguras) // 2] * 0.6
+    derrubados = [j for j in range(primeiro, ultimo + 1) if j not in caixas_usadas]
+    # A lacuna encostada ao token, de um lado ou do outro, também é dele:
+    # o `–` de `+–` vem depois do último caractere lido.
+    for j in (primeiro - 1, ultimo + 1):
+        if (0 <= j < len(linha) and j not in caixas_usadas
+                and (linha[j].x1 - linha[j - 1].x2 if j > primeiro
+                     else linha[j + 1].x1 - linha[j].x2) < encostado):
+            derrubados.append(j)
+    if not derrubados:
+        return None
+    itens: List[str] = []
+    por_box = {}
+    for posicao, indice in enumerate(indices):
+        por_box.setdefault(indice, []).append(token[posicao])
+    ordem = sorted(set(indices) | set(derrubados))
+    for j in ordem:
+        itens.extend(por_box.get(j, ["\0"]))
+    lidas = _alinhar_lance(itens, palavra)
+    if lidas is None or not any(lidas):
+        return None
+    if any(c not in _ALFABETO_DO_LANCE for lida in lidas for c in lida):
+        return None
+    saida: List[str] = []
+    k = 0
+    for item in itens:
+        if item == "\0":
+            saida.append("".join(_TRACOS_DO_MOTOR.get(c, c) for c in lidas[k]))
+            k += 1
+        else:
+            saida.append(item)
+    novo = "".join(saida)
+    return novo if novo != token and _e_token_de_notacao(novo) else None
+
+
 def _fundir_por_palavra(texto: str, caixas: Sequence[int],
-                        linha: Sequence[BoxEntry], detalhes) -> Tuple[str, dict]:
+                        linha: Sequence[BoxEntry], detalhes, *,
+                        so_lacunas: bool = False) -> Tuple[str, dict]:
     """Monta a linha token a token: lance da âncora, prosa do motor de linha.
 
     `texto` e `caixas` são os de `_texto_da_linha` — o caractere e o box de
@@ -830,10 +991,19 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
     que o motor leu sem a figurina, e a que está fora da faixa vertical da
     linha, porque um registro do Tesseract às vezes traz duas linhas impressas
     dentro de uma.
+
+    O lance fica com a âncora, mas **as lacunas dele são preenchidas pelo
+    motor** (`_preencher_lacunas_do_lance`): o box derrubado pela confiança
+    dentro do lance, ou encostado a ele, recebe o que o motor leu ali, se
+    couber no alfabeto do lance. Para isso vale a palavra fraca do motor —
+    o lance sem figurina sai dele a 0,3 —, que para a prosa fica de fora.
+    Com `so_lacunas` é só isto que acontece: é o que a linha só de notação
+    pede ao motor, e nada mais.
     """
     y_topo = min(b.y1 for b in linha)
     y_base = max(b.y2 for b in linha)
     palavras = []
+    todas = []
     fora_da_faixa = fracas = 0
     for detalhe in detalhes:
         if len(detalhe) < 3:
@@ -846,30 +1016,45 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
         if _sobreposicao(y_topo, y_base, y1, y2) < SOBREPOSICAO_MINIMA_DE_PALAVRA:
             fora_da_faixa += 1
             continue
+        todas.append((x1, x2, palavra))
         if float(detalhe[1] or 0.0) < CONFIANCA_MINIMA_DA_PALAVRA:
             fracas += 1
             continue
         palavras.append((x1, x2, palavra))
     palavras.sort()
+    todas.sort()
+    if so_lacunas:
+        palavras = []
     estatisticas = {"tokens_da_ancora": 0, "palavras_do_motor": 0,
                     "palavras_fora_da_faixa": fora_da_faixa,
-                    "palavras_fracas": fracas}
-    if not palavras:
+                    "palavras_fracas": fracas, "lacunas_preenchidas": 0}
+    if not todas:
         return texto, estatisticas
 
+    caixas_usadas = {c for c in caixas if c >= 0}
     tokens = []
     for token in re.finditer(r"\S+", texto):
-        indices = {caixas[k] for k in range(token.start(), token.end())
-                   if k < len(caixas) and 0 <= caixas[k] < len(linha)}
-        if not indices:
+        ordem = [caixas[k] for k in range(token.start(), token.end())
+                 if k < len(caixas) and 0 <= caixas[k] < len(linha)]
+        if not ordem:
             continue
-        x1 = min(linha[i].x1 for i in indices)
-        x2 = max(linha[i].x2 for i in indices)
+        x1 = min(linha[i].x1 for i in ordem)
+        x2 = max(linha[i].x2 for i in ordem)
         sobrepostas = [j for j, (px1, px2, _p) in enumerate(palavras)
                        if _sobreposicao(x1, x2, px1, px2)
                        >= SOBREPOSICAO_MINIMA_DE_PALAVRA]
-        tokens.append((x1, token.group(0), sobrepostas,
-                       _e_token_de_notacao(token.group(0))))
+        texto_token = token.group(0)
+        e_lance = _e_token_de_notacao(texto_token)
+        if e_lance:
+            vizinhas = "".join(p for px1, px2, p in todas
+                               if _sobreposicao(x1, x2, px1, px2)
+                               >= SOBREPOSICAO_MINIMA_DE_PALAVRA)
+            preenchido = _preencher_lacunas_do_lance(
+                texto_token, ordem, linha, caixas_usadas, vizinhas)
+            if preenchido is not None:
+                texto_token = preenchido
+                estatisticas["lacunas_preenchidas"] += 1
+        tokens.append((x1, texto_token, sobrepostas, e_lance))
 
     itens = []
     consumida_por: dict = {}
@@ -2635,6 +2820,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             lambda posicao, centro_x, glifo: glifos_linha.append(
                 (posicao, centro_x, glifo)))
         fracos += n
+        texto, pesos, vaos, caixas = _colar_numero_de_lance(texto, pesos, vaos, caixas)
         ancora = texto
         # O roteador da OCR-11 decide pelo domínio da âncora: a linha só de
         # lances fica com a cadeia própria e nem paga o motor; a de prosa ou
@@ -2650,20 +2836,30 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                   max(b.x2 for b in linha), max(b.y2 for b in linha))))
         quer_contexto = (decisao.primary == "line"
                          or (dominio == "unknown" and n > 0))
+        # A linha só de lances não troca nada pelo motor, mas o box que a
+        # cadeia derrubou dentro de um lance é preenchido pelo que o motor
+        # leu ali (`_fundir_por_palavra(so_lacunas=True)`) — só quando há
+        # box derrubado, e só com o registro que a página já tem.
+        so_lacunas = (not quer_contexto and dominio == "notation" and n > 0
+                      and fusao == "palavra")
         origem = "glyph"
         texto_ocr, confianca_ocr, semelhanca = "", 0.0, None
         detalhes_ocr: tuple = ()
         estatisticas: dict = {}
         compativel = False
+        # A linha em negativo não usa o registro da página: o motor leu a
+        # faixa preta como estava, e o que saiu é fraco ou errado. Ela vai
+        # direto para a faixa invertida, abaixo.
+        negativa = any(getattr(b, "negativo", False) for b in linha)
         casamento = (_casar_linha_ocr(linha, registros_ocr, usados_ocr)
-                     if registros_ocr else None)
+                     if registros_ocr and not negativa else None)
         if casamento is not None:
             indice_ocr, texto_ocr, confianca_ocr = casamento
             detalhes_ocr = (registros_ocr[indice_ocr][3]
                             if len(registros_ocr[indice_ocr]) > 3 else ())
             semelhanca, compativel = _compatibilidade_da_linha(
                 texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
-            if quer_contexto and compativel:
+            if (quer_contexto or so_lacunas) and compativel:
                 # O registro só é consumido quando é aceito: o rejeitado pode
                 # ser a linha de baixo — o Tesseract às vezes devolve duas
                 # linhas impressas num registro só, e ele casa primeiro com a
@@ -2679,7 +2875,15 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 semelhanca, compativel = _compatibilidade_da_linha(
                     texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
                 estatisticas["faixa"] = True
-        if quer_contexto and compativel:
+        if so_lacunas and compativel and detalhes_ocr:
+            novo_texto, contas = _fundir_por_palavra(
+                texto, caixas, linha, detalhes_ocr, so_lacunas=True)
+            estatisticas.update(contas)
+            if novo_texto and novo_texto != texto:
+                pesos, vaos = _transferir_medidas(texto, novo_texto, pesos, vaos)
+                texto = novo_texto
+                origem = "lacunas"
+        elif quer_contexto and compativel:
             if fusao == "palavra" and detalhes_ocr:
                 novo_texto, contas = _fundir_por_palavra(
                     texto, caixas, linha, detalhes_ocr)

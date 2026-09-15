@@ -1,13 +1,29 @@
 Referências para o A/B de OCR do livro (scripts/ab_ocr_livro.py).
 
-Um arquivo por página, pNNN.txt, com NNN o número visível da página (base 1),
-parágrafos separados por linha em branco, figurinas como o programa as
-escreve (♔♕♖♗♘) e o xeque como "+". Traço, aspa e "†" são dobrados antes de
-comparar (ocr_ab.normalizar_tipografia), então a forma exata deles não conta.
+Uma pasta por livro, e dentro dela um arquivo por página, pNNN.txt, com NNN
+o número da página no PDF (base 1, o que o leitor de PDF mostra — não o
+número impresso). Parágrafos separados por linha em branco, na ordem de
+leitura (numa página de duas colunas, a coluna da esquerda inteira e depois
+a da direita), figurinas como o programa as escreve (♔♕♖♗♘), o xeque como
+"+" e a avaliação colada ao lance ("6.♘e5++-" para o impresso "6.♘e5†+-").
+Traço, aspa e "†" são dobrados antes de comparar
+(ocr_ab.normalizar_tipografia), então a forma exata deles não conta.
 
-p030.txt foi transcrita da imagem da página em 2026-09-15 e relida no mesmo
-dia em tiras a 220 dpi (900 dpi nos símbolos), com uma correção: 26.♘g3± no
-lugar de 26.♘g3⩲. Nos dois pontos que o scan deixa ambíguos (58...♕e1 e
-27.♘e5) a lógica dos lances decide: e1→g3 e e5→f7 são movimentos possíveis,
-c1→g3 e c5→f7 não. Conferência contra o livro impresso ainda em aberto. A
-página 31 é só diagramas e não tem referência.
+    python scripts/ab_ocr_livro.py "<pdf>" --paginas 30 \
+        --referencia preview_ocr/referencia/aagaard_calculation
+
+aagaard_calculation/p030.txt — Aagaard, «Grandmaster Preparation:
+Calculation», página 30 do PDF. Transcrita da imagem em 2026-09-15 e relida
+no mesmo dia em tiras a 220 dpi (900 dpi nos símbolos), com uma correção:
+26.♘g3± no lugar de 26.♘g3⩲. Nos dois pontos que o scan deixa ambíguos
+(58...♕e1 e 27.♘e5) a lógica dos lances decide: e1→g3 e e5→f7 são
+movimentos possíveis, c1→g3 e c5→f7 não. A página 31 é só diagramas e não
+tem referência.
+
+yusupov_chess_evolution_1/p034.txt — Yusupov, «Chess Evolution 1», página
+34 do PDF (impressa como 33): «Solutions», duas colunas, cabeçalhos em
+negativo (branco sobre preto). Transcrita da imagem em 2026-09-15 em tiras
+a 200 dpi por coluna. O texto girado da orelha do capítulo, na margem
+direita, ficou de fora de propósito.
+
+Conferência das duas contra o livro impresso ainda em aberto.
