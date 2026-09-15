@@ -790,8 +790,15 @@ e a marca `-see`.
 ### Próximo passo
 
 Conferir as três referências contra o livro impresso. Depois, as páginas de
-capítulo do Chess Evolution 1 (18, 46): primeiro entender por que a
-segmentação perde a prosa inteira (é o `MAX_CONTORNOS_DE_TEXTO`? a
-binarização da página com o painel?), medindo antes de mexer. Em paralelo,
-as células da tabela pela fusão. A orelha girada do capítulo (`♕ ♕ ♕ ⩲`) é
-assunto da F8.1, e os erros confiantes da cadeia no lance, da OCR-14.
+capítulo do Chess Evolution 1 (18, 46), e a medição já diz por onde: a
+binária de segmentação da página 46 tem 5.724 componentes com **altura
+mediana de 2 px** — os pontos do painel sobre a trama —, e a escala de texto
+sai **6** (a prosa tem 30). Com a escala em 6 tudo que é letra vira bloco
+para o descarte (`FATOR_NAO_TEXTO` × 6 = 24 px), e sobram 4 boxes antes do
+descarte, 23 depois. Só na metade direita, sem o painel, Otsu dá 949
+componentes: a prosa está lá. O passo é a estimativa de escala ignorar a
+nuvem de pontos (é o que `preprocess.escala_de_texto` promete "pesando por
+tinta", e aqui não entrega), medindo nas 11 páginas rotuladas antes de
+mexer. Em paralelo, as células da tabela pela fusão. A orelha girada do
+capítulo (`♕ ♕ ♕ ⩲`) é assunto da F8.1, e os erros confiantes da cadeia no
+lance, da OCR-14.
