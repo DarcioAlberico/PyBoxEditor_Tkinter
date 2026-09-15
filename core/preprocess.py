@@ -11,13 +11,58 @@ importado por ninguém e caiu na F5.1 (`git show 6a4b7a1:core/opencv_autobox.py`
 Ele já tinha a lógica melhor que a em uso.
 """
 
-from typing import Tuple
+from dataclasses import dataclass, field
+from typing import Any, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
 
 
 METODOS = ("auto", "otsu", "adaptive", "fixed")
+
+
+@dataclass(frozen=True)
+class PreprocessConfig:
+    """Configuração do gerador de variantes de uma página."""
+
+    target_dpi: int = 300
+    source_dpi: int = 0
+    deskew: bool = True
+    max_angle: float = 15.0
+    denoise: bool = True
+    illumination: bool = True
+    methods: tuple[str, ...] = ("auto", "adaptive", "otsu")
+
+    def __post_init__(self) -> None:
+        if self.target_dpi <= 0:
+            raise ValueError("target_dpi deve ser positivo")
+        invalidos = set(self.methods) - set(METODOS)
+        if invalidos:
+            raise ValueError(f"métodos inválidos: {sorted(invalidos)}")
+
+
+@dataclass
+class PageEvidence:
+    """Evidências usadas para escolher a variante mais promissora."""
+
+    ink_fraction: float
+    plausible_ink: bool
+    components: int
+    median_height: float
+
+
+@dataclass
+class ImageVariant:
+    """Imagem candidata e as evidências que justificaram sua seleção."""
+
+    name: str
+    image: np.ndarray
+    binary: np.ndarray
+    angle: float = 0.0
+    method: str = "auto"
+    score: float = 0.0
+    evidence: Optional[PageEvidence] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _cinza(img: np.ndarray) -> np.ndarray:
@@ -304,3 +349,150 @@ def preparar_pagina(img: np.ndarray, method: str = "auto",
         binaria = denoise(binaria)
 
     return binaria, angulo
+
+
+def normalizar_iluminacao(img: np.ndarray, tamanho_fundo: int = 51) -> np.ndarray:
+    """Remove variações lentas de iluminação preservando a tinta.
+
+    A estimativa do fundo é obtida por um blur gaussiano grande e a imagem é
+    corrigida por divisão. O tamanho é sempre ímpar e limitado para que páginas
+    pequenas não produzam uma janela inválida.
+    """
+    cinza = _cinza(img)
+    if cinza.size == 0:
+        return cinza.copy()
+    lado = max(3, int(tamanho_fundo) | 1)
+    limite = min(cinza.shape[:2])
+    if limite < 3:
+        return cinza.copy()
+    lado = min(lado, limite if limite % 2 else limite - 1)
+    fundo = cv2.GaussianBlur(cinza, (lado, lado), 0).astype(np.float32)
+    corrigida = cinza.astype(np.float32) * 190.0 / np.maximum(fundo, 1.0)
+    return np.clip(corrigida, 0, 255).astype(np.uint8)
+
+
+def corrigir_perspectiva(img: np.ndarray,
+                         pontos: Optional[Sequence[Sequence[float]]] = None
+                         ) -> np.ndarray:
+    """Retifica um quadrilátero, quando seus quatro cantos forem conhecidos.
+
+    Sem pontos, a função é deliberadamente um no-op: detectar bordas da página
+    automaticamente sem confiança pode cortar diagramas e margens. A detecção
+    automática de cantos pertence à fase de layout.
+    """
+    if pontos is None:
+        return img
+    if len(pontos) != 4:
+        raise ValueError("perspectiva exige exatamente quatro pontos")
+    src = np.asarray(pontos, dtype=np.float32)
+    if src.shape != (4, 2):
+        raise ValueError("pontos devem ter formato 4x2")
+    largura = int(max(np.linalg.norm(src[1] - src[0]),
+                      np.linalg.norm(src[2] - src[3])))
+    altura = int(max(np.linalg.norm(src[3] - src[0]),
+                     np.linalg.norm(src[2] - src[1])))
+    if largura < 2 or altura < 2:
+        raise ValueError("quadrilátero degenerado")
+    destino = np.array([[0, 0], [largura - 1, 0],
+                        [largura - 1, altura - 1], [0, altura - 1]],
+                       dtype=np.float32)
+    matriz = cv2.getPerspectiveTransform(src, destino)
+    return cv2.warpPerspective(img, matriz, (largura, altura),
+                               flags=cv2.INTER_CUBIC,
+                               borderMode=cv2.BORDER_REPLICATE)
+
+
+def evidencias(img_bin: np.ndarray) -> PageEvidence:
+    """Extrai sinais baratos e independentes do reconhecedor."""
+    if img_bin.size == 0:
+        return PageEvidence(0.0, False, 0, 0.0)
+    n, _labels, stats, _centros = cv2.connectedComponentsWithStats(
+        img_bin, connectivity=8)
+    alturas = stats[1:, cv2.CC_STAT_HEIGHT] if n > 1 else np.array([])
+    positivas = alturas[alturas > 0]
+    mediana = float(np.median(positivas)) if len(positivas) else 0.0
+    return PageEvidence(fracao_de_tinta(img_bin), tinta_plausivel(img_bin),
+                        max(0, n - 1), mediana)
+
+
+def pontuar_evidencias(ev: PageEvidence) -> float:
+    """Pontua uma máscara sem favorecer páginas excessivamente fragmentadas."""
+    if not ev.plausible_ink:
+        return -1.0
+    # O pico fica no centro da faixa plausível. O termo de componentes evita
+    # aceitar uma nuvem de ruído que por acaso tenha fração de tinta adequada.
+    centro = sum(TINTA_PLAUSIVEL) / 2
+    faixa = (TINTA_PLAUSIVEL[1] - TINTA_PLAUSIVEL[0]) / 2
+    tinta = max(0.0, 1.0 - abs(ev.ink_fraction - centro) / faixa)
+    componentes = min(1.0, ev.components / 20_000) if ev.components else 0.0
+    altura = min(1.0, ev.median_height / 10.0) if ev.median_height else 0.0
+    return 0.55 * tinta + 0.30 * componentes + 0.15 * altura
+
+
+def gerar_variantes(img: np.ndarray, config: Optional[PreprocessConfig] = None,
+                    pontos_perspectiva: Optional[Sequence[Sequence[float]]] = None
+                    ) -> List[ImageVariant]:
+    """Gera variantes controladas, sem executar OCR.
+
+    Todas as variantes mantêm a mesma orientação e resolução. A transformação
+    geométrica ocorre antes da binarização para não criar degraus artificiais.
+    """
+    config = config or PreprocessConfig()
+    if not isinstance(img, np.ndarray) or img.size == 0:
+        raise ValueError("imagem precisa ser um ndarray não vazio")
+    normalizada = normalize_dpi(img, config.source_dpi, config.target_dpi)
+    normalizada = corrigir_perspectiva(normalizada, pontos_perspectiva)
+    if config.deskew:
+        alinhada, angulo = deskew(normalizada, config.max_angle)
+    else:
+        alinhada, angulo = normalizada, 0.0
+    cinza = _cinza(alinhada)
+    variantes: List[ImageVariant] = []
+    fontes = [("base", cinza)]
+    if config.illumination:
+        fontes.append(("illumination", normalizar_iluminacao(cinza)))
+    for nome, fonte in fontes:
+        for metodo in config.methods:
+            binaria = binarize(fonte, metodo)
+            if config.denoise:
+                binaria = denoise(binaria)
+            ev = evidencias(binaria)
+            variantes.append(ImageVariant(
+                name=f"{nome}_{metodo}", image=fonte, binary=binaria,
+                angle=angulo, method=metodo, score=pontuar_evidencias(ev),
+                evidence=ev,
+                metadata={"target_dpi": config.target_dpi,
+                          "source_dpi": config.source_dpi,
+                          "illumination": nome == "illumination"},
+            ))
+    return variantes
+
+
+def selecionar_variante(variantes: Sequence[ImageVariant]) -> ImageVariant:
+    """Seleciona a variante por score, preservando a ordem em caso de empate."""
+    if not variantes:
+        raise ValueError("nenhuma variante disponível")
+    return max(variantes, key=lambda variante: variante.score)
+
+
+def preparar_adaptativo(img: np.ndarray, config: Optional[PreprocessConfig] = None,
+                        pontos_perspectiva: Optional[Sequence[Sequence[float]]] = None,
+                        trace: Any = None) -> ImageVariant:
+    """Atalho do pipeline adaptativo: gera, pontua e escolhe uma variante."""
+    variantes = gerar_variantes(img, config, pontos_perspectiva)
+    if trace is not None:
+        trace.event("preprocess_start", variants=len(variantes),
+                    target_dpi=(config or PreprocessConfig()).target_dpi)
+        for indice, variante in enumerate(variantes):
+            ev = variante.evidence
+            trace.event("variant", index=indice, variant_name=variante.name,
+                        method=variante.method, angle=variante.angle,
+                        score=variante.score,
+                        evidence=(vars(ev) if ev is not None else None))
+            trace.save_image(f"variants/{indice:02d}_{variante.name}.png",
+                             variante.binary)
+    escolhida = selecionar_variante(variantes)
+    if trace is not None:
+        trace.event("variant_selected", variant_name=escolhida.name,
+                    score=escolhida.score, angle=escolhida.angle)
+    return escolhida

@@ -474,8 +474,8 @@ class _App:
     #: `Seguir` é a primeira das duas perguntas de coordenada (F95): "como no
     #: livro?". Só quem responde não é perguntado em seguida se quer ou não
     #: quer para o livro inteiro, e é essa segunda que `Coordenadas` responde.
-    PADRAO = {"Redesenhar": True, "Seguir": False, "Coordenadas": False,
-              "Guardar": False}
+    PADRAO = {"Inteiro": True, "Redesenhar": True, "Seguir": False,
+              "Coordenadas": False, "Guardar": False}
 
     def __init__(self, entrada, saida, coletar=False, respostas=None,
                  diagrama=("SkakNew-Diagram", "simples", "reto", 16.0)):
@@ -485,7 +485,8 @@ class _App:
 
         self.originais = (filedialog.askopenfilename,
                           filedialog.asksaveasfilename,
-                          messagebox.askyesno, messagebox.showinfo,
+                          messagebox.askyesno, messagebox.askyesnocancel,
+                          messagebox.showinfo,
                           messagebox.showerror)
         self.avisos = []
         self.erros = []
@@ -493,6 +494,7 @@ class _App:
         filedialog.askopenfilename = lambda *a, **k: entrada
         filedialog.asksaveasfilename = lambda *a, **k: saida
         messagebox.askyesno = self._responder
+        messagebox.askyesnocancel = self._responder
         messagebox.showinfo = lambda t, m="", *a, **k: self.avisos.append(m)
         messagebox.showerror = lambda t, m="", *a, **k: self.erros.append(m)
 
@@ -549,7 +551,7 @@ class _App:
     def __exit__(self, *a):
         from tkinter import filedialog, messagebox
         (filedialog.askopenfilename, filedialog.asksaveasfilename,
-         messagebox.askyesno, messagebox.showinfo,
+         messagebox.askyesno, messagebox.askyesnocancel, messagebox.showinfo,
          messagebox.showerror) = self.originais
         try:
             self.win.task.shutdown()

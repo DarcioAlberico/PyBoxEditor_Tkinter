@@ -481,10 +481,11 @@ def _sobrepoe(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]
     return inter / max(1, uniao)
 
 
-def _quadrado_grande(l: int, a: int, minimo: float) -> bool:
+def _quadrado_grande(largura: int, altura: int, minimo: float) -> bool:
     """As duas provas de forma que um tabuleiro tem de passar."""
-    l, a = max(1, l), max(1, a)
-    return l >= minimo and a >= minimo and max(l / a, a / l) <= TOLERANCIA_QUADRADO
+    largura, altura = max(1, largura), max(1, altura)
+    return (largura >= minimo and altura >= minimo
+            and max(largura / altura, altura / largura) <= TOLERANCIA_QUADRADO)
 
 
 def _aninhados(imagem, binaria, minimo: float,
@@ -517,16 +518,17 @@ def _aninhados(imagem, binaria, minimo: float,
 
     novos: List[Tuple[int, int, int, int]] = []
     for contorno in contornos:
-        x, y, l, a = cv2.boundingRect(contorno)
-        if not _quadrado_grande(l, a, minimo):
+        x, y, largura, altura = cv2.boundingRect(contorno)
+        if not _quadrado_grande(largura, altura, minimo):
             continue
-        if cv2.contourArea(contorno) < PISO_DO_PREENCHIMENTO * l * a:
+        if cv2.contourArea(contorno) < PISO_DO_PREENCHIMENTO * largura * altura:
             continue
-        caixa = (x, y, x + l, y + a)
+        caixa = (x, y, x + largura, y + altura)
         if any(_sobrepoe(caixa, outra) > SOBREPOSICAO_DE_REPETIDO
                for outra in list(achados) + novos):
             continue
-        if pontuacao_de_tabuleiro(arr[y:y + a, x:x + l]) < PISO_DO_XADREZ:
+        if pontuacao_de_tabuleiro(
+                arr[y:y + altura, x:x + largura]) < PISO_DO_XADREZ:
             continue
         novos.append(caixa)
     return novos
@@ -811,13 +813,13 @@ def _marcas_da_banda(faixa, escala: float) -> List[BoxEntry]:
         binaria, 8)
     saida = []
     for i in range(1, quantas):
-        x, y, l, a = medidas[i][:4]
-        if not (MARCA_MINIMA * escala <= a <= MARCA_MAXIMA * escala):
+        x, y, largura, altura = medidas[i][:4]
+        if not (MARCA_MINIMA * escala <= altura <= MARCA_MAXIMA * escala):
             continue
-        if not (0.10 * escala <= l <= MARCA_MAXIMA * escala):
+        if not (0.10 * escala <= largura <= MARCA_MAXIMA * escala):
             continue
         saida.append(BoxEntry("", int(ox + x), int(oy + y),
-                              int(ox + x + l), int(oy + y + a)))
+                              int(ox + x + largura), int(oy + y + altura)))
     return saida
 
 
@@ -964,8 +966,10 @@ def ler_rotulos(imagem, caixa: Tuple[int, int, int, int],
     # Um livro imprime as letras só embaixo, outro em cima e embaixo; e há quem
     # imprima os números dos dois lados. Basta um de cada eixo, e o de baixo e o
     # da esquerda são os que todo livro que rotula traz.
-    colunas = next((texto(l) for l in ("abaixo", "acima") if l in por_lado), "")
-    filas = next((texto(l) for l in ("esquerda", "direita") if l in por_lado), "")
+    colunas = next((texto(lado) for lado in ("abaixo", "acima")
+                    if lado in por_lado), "")
+    filas = next((texto(lado) for lado in ("esquerda", "direita")
+                  if lado in por_lado), "")
     return Rotulos(tuple(lados), colunas, filas,
                    _orientacao_dos_rotulos(colunas, filas))
 

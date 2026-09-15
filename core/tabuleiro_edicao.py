@@ -34,7 +34,7 @@ aviso passa a dizer que vieram de quem editou. En passant continua fora: não
 está no diagrama e não é dedutível dele.
 """
 
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 import chess
 
@@ -208,7 +208,8 @@ class TabuleiroEdicao:
     def definir_roque(self, direitos: str) -> bool:
         """Fixa os direitos de roque, limitados ao que a posição comporta."""
         possiveis = self.roques_possiveis()
-        novo = "".join(l for l in "KQkq" if l in direitos and l in possiveis)
+        novo = "".join(letra for letra in "KQkq"
+                        if letra in direitos and letra in possiveis)
         if novo == self.roque:
             return False
         self.roque = novo

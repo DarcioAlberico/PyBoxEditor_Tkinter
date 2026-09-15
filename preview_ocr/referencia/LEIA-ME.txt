@@ -1,0 +1,10 @@
+Referências para o A/B de OCR do livro (scripts/ab_ocr_livro.py).
+
+Um arquivo por página, pNNN.txt, com NNN o número visível da página (base 1),
+parágrafos separados por linha em branco, figurinas como o programa as
+escreve (♔♕♖♗♘) e o xeque como "+". Traço, aspa e "†" são dobrados antes de
+comparar (ocr_ab.normalizar_tipografia), então a forma exata deles não conta.
+
+p030.txt foi transcrita da imagem da página em 2026-09-15 e AINDA NÃO FOI
+REVISADA por uma segunda pessoa: confira contra o impresso antes de tomar os
+números como definitivos. A página 31 é só diagramas e não tem referência.

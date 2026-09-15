@@ -26,7 +26,7 @@ partir da base** da imagem. `carregar_box` converte para o topo, que é o que o
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from core import formato_box
 from core.box_model import BoxEntry

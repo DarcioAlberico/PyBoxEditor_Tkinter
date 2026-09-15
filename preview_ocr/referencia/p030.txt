@@ -1,0 +1,16 @@
+8. Gashimov – Navara, Wijk aan Zee 2012
+25.♖xc7! Amazingly Gashimov missed his chance and only drew on move 40 after: 25.g4? ♖g6 26.♘g3⩲ 25...♕xc7 The objectively best defence of 25...♕d6 loses slowly to almost anything. 26.♕g5 g6 Perhaps Gashimov's chess blindness was related to 26...♖g6 27.♕xg6!. 27.♕xh6 gxh5 28.♕g5+ Black is mated.
+
+9. El Debs – Valhondo Morales, Gibraltar 2012
+The unprotected knight on c6 is a target. 18.♗g3 ♕h6 19.g5! ♕xg5 20.f4 ♕g4 21.♗xc6± White won on move 68, although some difficulties persists here.
+
+10. Brandenburg – Grover, Wijk aan Zee 2012
+This game was drawn after a comedy of errors. In reply to 57...♖xc4? White could have taken with the pawn and been winning, but instead played 58.♘xc4?, allowing 58...♕e1! 59.♕xd5 ♕g3+ 60.♔g1 with perpetual check.
+
+But Black could have won with the immediate 57...♕e1! with the point 58.♖xd4 ♕g3+ 59.♔h1 ♘e3 and White is mated.
+
+11. B. Smith – Laznicka, Philadelphia 2010
+After 27...♔e6? the game was massively unclear. Black won on move 47 after mutual failings. But at this point Black missed the chance to win the game with: 27...♕c2! with the very strong threat of ...♗c3+. I suspect he was too focused on king safety! A possible line could be: 28.♖xf7+ ♔e6 29.♖b4!? ♗c3+ 30.♔f1 ♕d1+ 31.♔g2 ♕d2+ and Black wins a piece.
+
+12. Baklan – Getz, Reykjavik 2011
+White was able to ruin the black position with a simple move: 26.h6! ♖f6 26...gxh6 27.♘e5 just wins. White will play ♕xh6 shortly. 26...♖f7 27.♖xf7 ♔xf7 28.♗xf5! wins for White. The h-pawn proves itself useful in the line: 28...exf5 29.♘g5+ ♔f8 30.hxg7+ and wins. Finally, 26...g6 27.♖g7+ ♔h8 28.♕a7 is just mate. 27.♖xg7+ ♔h8 28.♘e5 ♘g6 29.♘f7+ ♗xf7 30.♖xf7 ♖g8 31.♕a7 ♘e7 32.♗e4 fxe4 33.♖xe7 ♖xg2+ 34.♔xg2 e3+ 35.♔h3 1–0

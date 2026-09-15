@@ -269,7 +269,7 @@ def texto_do_relatorio(av_val: Avaliacao, idx_to_char: Dict[int, str],
     escassas = int(((av_val.totais > 0) & (av_val.totais < 5)).sum())
     if escassas and avaliadas:
         a(f"  ATENÇÃO: {escassas} das {avaliadas} classes avaliadas têm menos de")
-        a(f"  5 amostras de validação. Uma única amostra que muda de lado mexe")
+        a("  5 amostras de validação. Uma única amostra que muda de lado mexe")
         a(f"  {100.0 / avaliadas:.2f} ponto(s) no recall macro — compare com cuidado.")
     if av_teste is not None and not np.isnan(av_teste.acuracia):
         a("")

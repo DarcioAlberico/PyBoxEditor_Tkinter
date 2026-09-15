@@ -220,7 +220,7 @@ class DialogoDiagrama:
                              ("k", "pretas O-O"), ("q", "pretas O-O-O")):
             var = tk.BooleanVar(value=False)
             c = ttk.Checkbutton(roque, text=texto, variable=var,
-                                command=lambda l=letra: self._mudar_roque(l))
+                                command=lambda valor=letra: self._mudar_roque(valor))
             c.pack(anchor="w")
             self.vars_roque[letra] = var
             self.checks_roque[letra] = c

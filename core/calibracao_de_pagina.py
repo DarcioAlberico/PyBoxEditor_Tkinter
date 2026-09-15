@@ -23,7 +23,7 @@ possível.
 
 import glob
 import os
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -164,7 +164,7 @@ def ajustar(model, meta: Dict, device, criterio: str = "ece",
             "nenhuma página rotulada encontrada em "
             + " ou ".join(PASTAS_DE_IMAGEM))
 
-    logits = np.concatenate([l for _n, l, _m in paginas])
+    logits = np.concatenate([logits_pagina for _n, logits_pagina, _m in paginas])
     mascaras = np.concatenate([m for _n, _l, m in paginas])
     T = calibracao.ajustar_temperatura(logits, mascaras, criterio=criterio,
                                        limites=LIMITES)

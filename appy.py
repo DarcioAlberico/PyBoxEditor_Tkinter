@@ -5,6 +5,8 @@ from ui.main_window import MainWindow
 import traceback
 from tkinter import messagebox
 
+from config.paths import crash_log_path, ensure_data_dir
+
 #: Tamanho desejado da janela. Não é imposto: ver `_geometria_que_cabe`.
 LARGURA_DESEJADA, ALTURA_DESEJADA = 1600, 900
 
@@ -48,12 +50,15 @@ def main():
         root.mainloop()
     except Exception as e:
         err_msg = traceback.format_exc()
-        with open("crash_log.txt", "w") as f:
+        caminho_log = ensure_data_dir() / crash_log_path().name
+        with open(caminho_log, "w", encoding="utf-8") as f:
             f.write(err_msg)
         # Senta que lá vem a história... se o root não foi criado, messagebox precisa de um
         try:
-            messagebox.showerror("Erro Fatal", f"Ocorreu um erro:\n{e}\n\nVerifique crash_log.txt")
-        except:
+            messagebox.showerror(
+                "Erro Fatal", f"Ocorreu um erro:\n{e}\n\nVerifique {caminho_log}"
+            )
+        except Exception:
             # Fallback se o tk não estiver inicializado
             print(err_msg)
 

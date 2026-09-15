@@ -2,7 +2,6 @@
 from .box_service import BoxService
 from .ocr_service import OCRService, preprocess_for_easyocr
 from .pdf_service import PDFService
-from .learning_service import LearningService
 
 __all__ = [
     "BoxService",
@@ -11,3 +10,12 @@ __all__ = [
     "PDFService",
     "LearningService",
 ]
+
+
+def __getattr__(name):
+    """Carrega o serviço de ML somente quando ele for realmente utilizado."""
+    if name == "LearningService":
+        from .learning_service import LearningService
+
+        return LearningService
+    raise AttributeError(name)

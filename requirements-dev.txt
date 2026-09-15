@@ -6,7 +6,7 @@
 # Separado porque o requirements.txt é declaradamente só de produção, e quem
 # instala o aplicativo não precisa rodar a suíte.
 
--r requirements.txt
+-e .[dev,tools,docx,ocr,ml]
 
 pytest>=8.0            # a suíte inteira; `pytest` na raiz, ver pytest.ini
 
@@ -20,3 +20,5 @@ fonttools>=4.50        # só o `gerar_fonte_de_simbolos.py` (F62), que recorta a
 epubcheck>=5.0         # o EPUB exportado passa por ele em
                        # tests/test_f111_arquivo.py (F111). Pede Java; sem
                        # ele o teste é pulado, e não falha.
+
+build>=1.2             # validação do wheel de release

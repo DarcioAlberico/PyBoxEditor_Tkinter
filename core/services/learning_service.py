@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import cv2
 import numpy as np
@@ -9,7 +11,6 @@ from PIL import Image
 from core import alfabeto, proporcao, vertical
 from core.box_model import BoxEntry
 from core.learner import CharacterLearner, char_to_folder
-from core.neural_trainer import NeuralTrainer, NeuralPredictor
 
 
 class DatasetInvalido(RuntimeError):
@@ -47,7 +48,7 @@ class LearningService:
         self.meta_path = meta_path
 
         self._learner: Optional[CharacterLearner] = None
-        self._predictor: Optional[NeuralPredictor] = None
+        self._predictor = None
 
     # ------------------------------------------------------------------
     # Learner (k-NN)
@@ -99,6 +100,8 @@ class LearningService:
     def load_predictor(self) -> bool:
         """Carrega o modelo neural (lazy). Retorna True se conseguiu."""
         if self._predictor is None:
+            from core.neural_trainer import NeuralPredictor
+
             self._predictor = NeuralPredictor(self.model_path, self.meta_path)
         if getattr(self._predictor, "loaded", False):
             return True
@@ -290,6 +293,8 @@ class LearningService:
                 graves = [p for p in self.validar_dados() if p.grave]
             if graves:
                 raise DatasetInvalido(graves)
+
+        from core.neural_trainer import NeuralTrainer
 
         trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
         ok = trainer.train(epochs=epochs, callback=callback,

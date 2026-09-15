@@ -36,7 +36,7 @@ desenho:
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import chess
 
@@ -163,7 +163,7 @@ class Analise:
     dessincronizou: int = 0
 
     def contar(self, situacao: str) -> int:
-        return sum(1 for l in self.lances if l.situacao == situacao)
+        return sum(1 for lance in self.lances if lance.situacao == situacao)
 
     def resumo(self) -> str:
         if not self.lances:
@@ -341,6 +341,58 @@ def parece_lance(texto: str) -> bool:
     if limpo.upper().replace("0", "O") in ("O-O", "O-O-O"):
         return True
     return limpo[0] in INICIAIS and bool(RE_CASA.search(limpo))
+
+
+# ----------------------------------------------------------------------
+# O token que é notação — a peneira estrita, para o roteamento por domínio
+# ----------------------------------------------------------------------
+
+GLIFOS_DE_XADREZ = frozenset(FIGURINAS) | frozenset("♙♟")
+_PECAS_SAN = "KQRBN" + "".join(sorted(GLIFOS_DE_XADREZ))
+#: Um lance de SAN, com número de lance, promoção, xeque e avaliação
+#: opcionais. É mais estrito que `parece_lance`, e tem de ser: aquele aceita
+#: `a1]d` (o `and` lido pela cadeia com `1]` no lugar do `n`), porque só pede
+#: uma casa e uma inicial plausível — e serve para não deixar prosa derrubar o
+#: tabuleiro, onde errar para o lado do lance é barato. No roteamento errar
+#: para esse lado custa a palavra: `a1]d` ficaria com a cadeia, e o motor de
+#: linha lê `and`. Aqui, depois da casa só cabe o que o SAN admite.
+RE_LANCE_ESTRITO = re.compile(
+    r"^(?:\d{1,3}\.(?:\.\.)?)?"
+    r"(?:[" + _PECAS_SAN + r"]?[a-h]?[1-8]?x?[a-h][1-8](?:=[" + _PECAS_SAN + r"])?"
+    r"|[O0]-[O0](?:-[O0])?)"
+    r"[+#]?[!?]{0,2}[±∓⩱⩲=∞]?$")
+#: O número do lance — `25.` ou `25...` —, sozinho ou colado ao que vem
+#: depois. Colado, o resto é lance mesmo quando a cadeia o leu torto
+#: (`26...g16` para `26...gxh6`): o número é a evidência mais forte que a
+#: linha tem, e o motor de linha lê o mesmo lugar pior (`26...¢xh6`). Sem o
+#: `$`, e sem deixar `2012.` passar: são no máximo três dígitos.
+RE_NUMERO_DE_LANCE = re.compile(r"^\d{1,3}\.(?:\.\.)?")
+#: Avaliação ou anotação solta: `±`, `+-`, `!?`, `⩲`.
+RE_SINAL_DE_AVALIACAO = re.compile(r"^[+\-±∓⩱⩲=∞!?#□■△▼]+$")
+#: O resultado da partida, com qualquer dos traços que a impressão usa.
+RE_RESULTADO = re.compile(r"^(?:1[-–—]0|0[-–—]1|½[-–—]½|1/2[-–—]1/2)$")
+_PONTUACAO_DE_BORDA = ",;:.)(\"'“”‘’"
+
+
+def e_token_de_notacao(token: str) -> bool:
+    """Tem a forma de lance, de número de lance ou de sinal de avaliação?
+
+    É o que separa, dentro de uma linha mista, o que fica com a cadeia própria
+    do que vai para o motor de linha (`livro._fundir_por_palavra`), e o que o
+    A/B usa para medir prosa e notação cada uma por si. A figurina decide
+    sozinha: só a cadeia própria a escreve, e onde ela está o token é lance.
+    """
+    if not token:
+        return False
+    if any(c in GLIFOS_DE_XADREZ for c in token):
+        return True
+    if RE_NUMERO_DE_LANCE.match(token) or RE_SINAL_DE_AVALIACAO.match(token):
+        return True
+    nucleo = token.strip(_PONTUACAO_DE_BORDA)
+    if not nucleo:
+        return False
+    return (RE_LANCE_ESTRITO.match(nucleo) is not None
+            or RE_RESULTADO.match(nucleo) is not None)
 
 
 def _fatiar(palavra: Palavra) -> List[Pedaco]:

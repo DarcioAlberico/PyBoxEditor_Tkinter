@@ -2,7 +2,7 @@ import itertools
 
 import cv2
 import numpy as np
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 from PIL import Image
 
 from core import negativo, preprocess, trama, vertical
@@ -19,7 +19,9 @@ class BoxService:
                               method: str = "auto",
                               separar_colados="auto",
                               descartar_nao_texto: bool = True,
-                              arbitro=None) -> List[BoxEntry]:
+                              arbitro=None,
+                              binaria: Optional[np.ndarray] = None
+                              ) -> List[BoxEntry]:
         """
         Gera boxes automaticamente a partir de uma imagem PIL (grayscale).
 
@@ -41,7 +43,8 @@ class BoxService:
             False            nunca separa
         """
         boxes, th, escala, img_cv = BoxService.boxes_antes_do_descarte(
-            image, threshold=threshold, method=method, arbitro=arbitro)
+            image, threshold=threshold, method=method, arbitro=arbitro,
+            binaria_inicial=binaria)
         # Depois do merge, não antes: medido, o box do diagrama absorve os
         # respingos em volta dele (borda serrilhada, legenda encostada), e
         # descartá-lo depois leva esse lixo junto. Descartando antes, os
@@ -82,9 +85,37 @@ class BoxService:
     MAX_CONTORNOS_DE_TEXTO = 20000
 
     @staticmethod
+    def binaria_para_segmentacao(img_cv: np.ndarray, threshold: int = 180,
+                                 method: str = "auto",
+                                 max_contornos: Optional[int] = None
+                                 ) -> np.ndarray:
+        """Produz a máscara usada por todas as passadas de segmentação.
+
+        A abertura 2x2 é uma recuperação específica para scans com trama:
+        só entra quando a máscara original passa do limite de componentes.
+        Assim, páginas normais preservam exatamente a binarização anterior.
+        """
+        th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
+        th = preprocess.remover_textura(img_cv, th)
+        if max_contornos is None:
+            return th
+
+        contornos, _ = cv2.findContours(
+            th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if len(contornos) <= max_contornos:
+            return th
+
+        limpa = cv2.morphologyEx(
+            th, cv2.MORPH_OPEN, np.ones((2, 2), dtype=np.uint8))
+        contornos_limpos, _ = cv2.findContours(
+            limpa, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return limpa if len(contornos_limpos) <= max_contornos else th
+
+    @staticmethod
     def boxes_antes_do_descarte(image: Image.Image, threshold: int = 180,
                                 method: str = "auto", arbitro=None,
-                                max_contornos: Optional[int] = None
+                                max_contornos: Optional[int] = None,
+                                binaria_inicial: Optional[np.ndarray] = None
                                 ) -> Tuple[List[BoxEntry], np.ndarray, int, np.ndarray]:
         """
         As caixas no estágio anterior ao descarte da F1.8, com `th`, escala e a
@@ -117,11 +148,18 @@ class BoxService:
         chamadores de hoje recebem.
         """
         img_cv = np.array(image)
-        th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
+        if binaria_inicial is None:
+            th = BoxService.binaria_para_segmentacao(
+                img_cv, threshold=threshold, method=method,
+                max_contornos=max_contornos)
+        else:
+            th = np.asarray(binaria_inicial)
+            if th.ndim == 3:
+                th = cv2.cvtColor(th, cv2.COLOR_RGB2GRAY)
+            th = np.where(th > 0, 255, 0).astype(np.uint8)
         # A trama de meio-tom sai antes de qualquer coisa medir caractere: ela
         # é 95,8% dos contornos da página 18 do Yusupov e envenena toda régua
         # relativa do pipeline.
-        th = preprocess.remover_textura(img_cv, th)
         escala = preprocess.escala_de_texto(th)
 
         contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -134,7 +172,26 @@ class BoxService:
             boxes.append(BoxEntry("", x, y, x + w, y + h))
 
         if max_contornos is not None and len(boxes) > max_contornos:
-            return [], th, escala, img_cv
+            # Scans com meio-tom podem produzir centenas de milhares de
+            # componentes de 1 px mesmo depois da remoção de textura. Antes
+            # de desistir e transformar a página inteira em figura, elimina
+            # partículas que não sobrevivem a um kernel 2x2. Em 300 dpi isso
+            # preserva os traços das letras e reduz a página 9 do Yusupov de
+            # 200.943 para cerca de 1.900 componentes.
+            th_limpa = cv2.morphologyEx(
+                th, cv2.MORPH_OPEN, np.ones((2, 2), dtype=np.uint8))
+            contornos_limpos, _ = cv2.findContours(
+                th_limpa, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if len(contornos_limpos) <= max_contornos:
+                th = th_limpa
+                escala = preprocess.escala_de_texto(th)
+                boxes = []
+                for c in contornos_limpos:
+                    x, y, w, h = cv2.boundingRect(c)
+                    if w >= 2 and h >= 2:
+                        boxes.append(BoxEntry("", x, y, x + w, y + h))
+            else:
+                return [], th, escala, img_cv
 
         boxes.sort(key=lambda b: (b.y1, b.x1))
         # Antes de tudo o que mede caractere: a tarja preta é um box só, e os
@@ -901,6 +958,7 @@ class BoxService:
                     if len(linhas) >= BoxService.LINHAS_PARA_TOLERAR else 0)
         livre = BoxService._linhas_por_x(linhas, x_min, largura) <= tolerado
 
+        calha_automatica = calha_minima is None
         if calha_minima is None:
             larguras = sorted(b.x2 - b.x1 for b in boxes)
             mediana = larguras[len(larguras) // 2] or 1
@@ -924,6 +982,27 @@ class BoxService:
                         and i - inicio >= calha_minima):
                     cortes.append((inicio, i))
                 inicio = None
+
+        if (not cortes and calha_automatica
+                and len(linhas) >= BoxService.LINHAS_PARA_TOLERAR):
+            # Páginas escaneadas podem ter duas colunas legítimas separadas
+            # por menos de uma largura de caractere. Só relaxa a régua quando
+            # há linhas suficientes para confirmar uma calha real.
+            larguras = sorted(b.x2 - b.x1 for b in boxes)
+            mediana = larguras[len(larguras) // 2] or 1
+            calha_adaptada = max(int(mediana * 0.55),
+                                 int(largura * 0.006), 4)
+            if calha_adaptada < calha_minima:
+                inicio = None
+                for i, vago in enumerate(livre):
+                    if vago:
+                        if inicio is None:
+                            inicio = i
+                    else:
+                        if (inicio is not None and inicio > 0
+                                and i - inicio >= calha_adaptada):
+                            cortes.append((inicio, i))
+                        inicio = None
 
         if not cortes:
             return [(x_min, x_max)]

@@ -387,7 +387,8 @@ class NeuralTrainer:
         """
         dataset = CharDataset(self.data_dir, augment=True)
         if len(dataset) == 0:
-            if callback: callback("Nenhum dado encontrado para treinamento.")
+            if callback:
+                callback("Nenhum dado encontrado para treinamento.")
             return False
 
         num_classes = len(dataset.label_map)

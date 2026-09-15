@@ -505,6 +505,37 @@ def test_com_trava_a_linha_manda_onde_a_cadeia_nao_soube():
         "o box trocado tem que dizer que foi a linha"
 
 
+def test_politica_neural_recusa_troca_quando_linha_tem_menor_confianca():
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.40), "b": ("6", 0.40)}
+
+    saida = ldl.ler_pagina(
+        pagina, [linha], ler_faixa=lambda t: ("ab", 0.30),
+        ler_caractere=_ler_char_falso(tabela, "neural"),
+        conf_maxima_para_trocar=0.70,
+        exigir_confianca_linha=True,
+    )
+    assert "".join(ch for _b, ch, _c, _f in saida) == "a6"
+    assert all(f == "neural" for *_r, f in saida)
+
+
+def test_politica_neural_usa_limites_de_confianca_independentes():
+    pagina = np.full((60, 80), 200, dtype=np.uint8)
+    linha = _boxes("ab")
+    tabela = {"a": ("a", 0.60), "b": ("6", 0.60)}
+
+    saida = ldl.ler_pagina(
+        pagina, [linha], ler_faixa=lambda t: ("ab", 0.80),
+        ler_caractere=_ler_char_falso(tabela, "neural"),
+        conf_maxima_para_trocar=0.70,
+        exigir_confianca_linha=True,
+        confianca_linha_minima=0.85,
+        confianca_ancora_maxima=0.70,
+    )
+    assert "".join(ch for _b, ch, _c, _f in saida) == "a6"
+
+
 def test_a_fonte_da_ancora_sobrevive_quando_a_linha_so_confirma():
     """
     O box que a rede acertou continua dizendo `neural`. Que a linha tenha

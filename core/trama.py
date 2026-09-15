@@ -44,7 +44,7 @@ A cobertura por células diria o mesmo com margem estreita (99,9% no painel
 contra 82%–91% nos diagramas) e não é usada por isso.
 """
 
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 import cv2
 import numpy as np

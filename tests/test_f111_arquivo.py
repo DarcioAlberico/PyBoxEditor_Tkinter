@@ -173,6 +173,7 @@ def test_sem_capitulo_o_nav_cai_para_as_paginas():
 
 def test_os_metadados_de_acessibilidade_estao_no_opf():
     opf = _opf(_epub())
+    assert 'schema: http://schema.org/' in opf
     for propriedade in ("schema:accessMode", "schema:accessModeSufficient",
                         "schema:accessibilityFeature",
                         "schema:accessibilityHazard",
@@ -285,6 +286,11 @@ def test_o_desenho_de_pagina_e_de_livro():
     assert normal.font.name == exportar.FONTE_DO_TEXTO
     assert round(doc.sections[0].left_margin.cm, 1) == exportar.MARGEM_DA_PAGINA_CM
     assert 'w:lang w:val="en"' in _parte(_docx(), "word/styles.xml")
+
+
+def test_o_idioma_tambem_chega_aos_estilos_de_titulo():
+    styles = _parte(_docx(idioma="pt"), "word/styles.xml")
+    assert styles.count('w:lang w:val="pt"') >= 3
 
 
 def test_o_primeiro_paragrafo_depois_da_figura_sai_sem_recuo():

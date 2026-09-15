@@ -32,6 +32,7 @@ condição é a palavra **não** estar no dicionário.
 
 import gzip
 import os
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -43,8 +44,9 @@ from core import notacao
 # a troca entre elas está medida (ROADMAP F9.1, medida 3): só o idioma dá 58,5% de
 # recall com 12,1% de alarme falso; com os nomes, 53,8% e 5,8%. Nome próprio baixa
 # o alarme e esconde erro, e quem escolhe é o perfil do livro.
-CAMINHO_PADRAO = os.path.join("assets", "lexico", "en.txt.gz")
-CAMINHO_NOMES = os.path.join("assets", "lexico", "nomes.txt.gz")
+_RAIZ_PROJETO = Path(__file__).resolve().parent.parent
+CAMINHO_PADRAO = str(_RAIZ_PROJETO / "assets" / "lexico" / "en.txt.gz")
+CAMINHO_NOMES = str(_RAIZ_PROJETO / "assets" / "lexico" / "nomes.txt.gz")
 
 # Pontuação que cerca palavra e não faz parte dela. O apóstrofo tipográfico entra
 # porque é o que estes livros usam ("Black's").

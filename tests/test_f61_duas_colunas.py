@@ -72,6 +72,12 @@ def test_a_calha_estreita_do_nunn_e_achada():
     assert len(colunas) == 2, f"a calha de 19 px não foi vista: {colunas}"
 
 
+def test_a_calha_de_menos_de_uma_largura_e_achada_em_pagina_densa():
+    """Scans do Yusupov podem deixar somente 13 px entre as colunas."""
+    colunas = BoxService.detectar_colunas(_duas_colunas(calha=13))
+    assert len(colunas) == 2, f"a calha de 13 px não foi vista: {colunas}"
+
+
 def test_a_regua_de_antes_nao_achava():
     """
     Fixa o número que abriu a fase, e não o comportamento: se um dia a régua

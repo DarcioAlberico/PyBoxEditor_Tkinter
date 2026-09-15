@@ -8,22 +8,22 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from PIL import Image
 
-from core import (coleta, exportar, formato_box, leitura_de_linha, lexico,
-                  livro, nags, proporcao, vertical)
-from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao,
-                                      substitute_chess_glyphs)
+from core import (coleta, exportar, formato_box, leitura_de_linha,
+                  lexico, livro, nags, proporcao, vertical)
+from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao)
 from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
 from core.mapa_glifos import corrigir_mapeamento
 from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import contar_paginas_com_texto, gerar_pdf_pesquisavel
-from core.box_model import SEM_MARGEM, BoxEntry
+from core.box_model import SEM_MARGEM
 from core.services.box_service import BoxService, faixas_de_linha
 from core.services.ocr_service import OCRService
 from core.services.pdf_service import DPI_PADRAO, PDFService
 from core.services.learning_service import LearningService
-from core.services.history_service import HistoryManager
 from core.services.document_service import DocumentSession, _GravadorAssincrono
-from core.services.task_service import BackgroundTask
+from core.services.document_controller import DocumentController
+from core.services.navigation_controller import NavigationController
+from core.services.task_controller import TaskController
 
 from ui.canvas_view import CanvasView
 from ui.dialogo_diagrama import DialogoDiagrama
@@ -336,15 +336,50 @@ class MainWindow(tk.Frame):
     # toa; alto demais perde trabalho num travamento. 25 é ~meia linha de texto.
     AUTOSAVE_A_CADA = 25
 
+    @property
+    def session(self):
+        return self.document_controller.session
+
+    @session.setter
+    def session(self, value):
+        self.document_controller.session = value
+
+    @property
+    def boxes(self):
+        return self.document_controller.boxes
+
+    @boxes.setter
+    def boxes(self, value):
+        self.document_controller.boxes = value
+
+    @property
+    def selected_index(self):
+        return self.document_controller.selected_index
+
+    @selected_index.setter
+    def selected_index(self, value):
+        self.document_controller.selected_index = value
+
+    @property
+    def current_pdf_page(self):
+        return self.document_controller.page
+
+    @current_pdf_page.setter
+    def current_pdf_page(self, value):
+        self.document_controller.page = int(value)
+        if hasattr(self, "navigation") and self.navigation.page_count:
+            self.navigation.current_page = int(value)
+
+    @property
+    def history(self):
+        return self.document_controller.history
+
     def __init__(self, parent):
         super().__init__(parent)
 
         self.parent = parent
         self.image = None          # PIL.Image
         self.image_path = None
-        self.boxes = []            # lista de BoxEntry da página atual
-        self.selected_index = -1
-        self.current_pdf_page = 0
 
         # Índices dos boxes visíveis na lista. Com filtro ativo a lista deixa
         # de mapear 1:1 com self.boxes, e toda seleção precisa passar por aqui.
@@ -382,17 +417,21 @@ class MainWindow(tk.Frame):
 
         # Documento aberto: guarda os boxes de todas as páginas visitadas
         # e o que ainda não foi gravado em disco.
-        self.session = None
+        self.document_controller = DocumentController(
+            autosave_writer=self._gravador,
+            max_history=50,
+            on_autosave=self._autosave_threshold_reached,
+        )
+        self.navigation = NavigationController()
 
         # Services
         self.box_service = BoxService()
         self.ocr_service = OCRService()
         self.pdf_service = PDFService()
         self.learning_service = LearningService()
-        self.history = HistoryManager(max_history=50)
 
         # Trabalho pesado roda em thread separada; a UI só lê a fila.
-        self.task = BackgroundTask(self)
+        self.task = TaskController(self)
 
         self._build_layout()
         self._build_menu()
@@ -406,6 +445,11 @@ class MainWindow(tk.Frame):
     # Documento: estado sujo, título e confirmações
     # -------------------------------------------------------
 
+    def _autosave_threshold_reached(self):
+        self._mudancas_desde_autosave += 1
+        if self._mudancas_desde_autosave >= self.AUTOSAVE_A_CADA:
+            self._gravar_rascunho()
+
     def _commit_change(self):
         """
         Registra uma mutação dos boxes: snapshot para undo + marca a página
@@ -414,21 +458,13 @@ class MainWindow(tk.Frame):
         Ponto único de entrada — todo lugar que altera self.boxes chama isto
         em vez de history.snapshot() direto.
         """
-        self.history.snapshot(self.boxes, self.selected_index)
-        if self.session is not None:
-            self.session.store(self.current_pdf_page, self.boxes)
-            self.session.mark_dirty(self.current_pdf_page)
-
-            self._mudancas_desde_autosave += 1
-            if self._mudancas_desde_autosave >= self.AUTOSAVE_A_CADA:
-                self._gravar_rascunho()
+        self.document_controller.commit()
         self._update_title()
 
     def _sync_session(self):
         """Reassocia self.boxes à página atual sem marcá-la como suja.
         Usado após undo/redo, que reatribuem a lista."""
-        if self.session is not None:
-            self.session.store(self.current_pdf_page, self.boxes)
+        self.document_controller.store_current()
 
     def _update_title(self):
         base = "PyBoxEditor"
@@ -480,7 +516,7 @@ class MainWindow(tk.Frame):
         if self.session is None:
             return
         self._mudancas_desde_autosave = 0
-        if self.session.autosave(self._gravador):
+        if self.document_controller.autosave():
             erro = self._gravador.ultimo_erro
             if erro is not None:
                 self.status.set(f"Falha ao gravar rascunho: {erro}")
@@ -898,6 +934,7 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Gerar boxes (OpenCV)", command=self.generate_boxes_opencv)
         m_tools.add_command(label="Preencher caracteres (OCR)", command=self.auto_fill_characters)
         m_tools.add_command(label="Preencher caracteres (EasyOCR)", command=self.auto_fill_characters_easyocr)
+        m_tools.add_command(label="Preencher caracteres (PaddleOCR)", command=self.auto_fill_characters_paddleocr)
         m_tools.add_command(label="Preencher caracteres (EasyOCR por linha)",
                             command=self.auto_fill_characters_linha)
         m_tools.add_separator()
@@ -936,7 +973,9 @@ class MainWindow(tk.Frame):
         m_tools.add_command(label="Excluir box selecionado", accelerator="Del",
                             command=self.delete_selected_box)
         m_tools.add_separator()
-        m_tools.add_command(label="Substituir Glifos de Xadrez em PDF (Texto)...", command=self.substitute_chess_glyphs_action)
+        m_tools.add_command(
+            label="Substituir Glifos de Xadrez em PDF (Texto)...",
+            command=self.substitute_chess_glyphs_action)
         m_tools.add_command(label="Gerar PDF Pesquisável (OCR)...",
                             command=self.gerar_pdf_pesquisavel_action)
         m_tools.add_command(label="Substituir Glifos em PDF Escaneado (Neural)...",
@@ -1199,7 +1238,8 @@ class MainWindow(tk.Frame):
 
         self.pdf_service.close()
 
-        self.session = DocumentSession(path, num_pages=1, is_pdf=False)
+        self.session = self.document_controller.open(path, num_pages=1, is_pdf=False)
+        self.navigation.reset(1)
         self._esquecer_lexico()
         self.current_pdf_page = 0
         self._mudancas_desde_autosave = 0
@@ -1280,8 +1320,10 @@ class MainWindow(tk.Frame):
 
         # A sessão nova precisa existir antes de carregar a página, e a página
         # atual não deve ser arquivada na sessão nova (ela é do documento antigo).
-        self.session = DocumentSession(path, num_pages=num_pages, is_pdf=True,
-                                       dpi=DPI_PADRAO)
+        self.session = self.document_controller.open(
+            path, num_pages=num_pages, is_pdf=True, dpi=DPI_PADRAO
+        )
+        self.navigation.reset(num_pages)
         self._esquecer_lexico()
         self.boxes = []
         self.current_pdf_page = 0
@@ -1303,6 +1345,12 @@ class MainWindow(tk.Frame):
             # e a leitura natural é que virar a página está quebrado.
             self.status.set("Aguarde a operação em andamento para virar a página.")
             return
+
+        if self.session is not None:
+            try:
+                self.navigation.target(page_index)
+            except IndexError:
+                return
 
         # Arquivar o trabalho da página que sai é rápido e acontece já, antes de
         # qualquer coisa poder dar errado.
@@ -1330,6 +1378,7 @@ class MainWindow(tk.Frame):
             self.boxes = (self.session.boxes_for(page_index)
                           if self.session is not None else [])
             self.selected_index = -1
+            self.navigation.go_to(page_index)
 
             # O histórico é por página: um Ctrl+Z logo após virar a página não
             # deve despejar os boxes da página anterior sobre a atual.
@@ -1347,11 +1396,11 @@ class MainWindow(tk.Frame):
     def prev_page(self):
         # Não mexer em current_pdf_page aqui: _load_pdf_page usa o valor atual
         # para arquivar o trabalho da página que está saindo.
-        if self.current_pdf_page > 0:
+        if self.navigation.can_previous:
             self._load_pdf_page(self.current_pdf_page - 1)
 
     def next_page(self):
-        if self.current_pdf_page < self.pdf_service.num_pages - 1:
+        if self.navigation.can_next:
             self._load_pdf_page(self.current_pdf_page + 1)
 
     def ir_para_pagina(self, numero=None):
@@ -1705,6 +1754,58 @@ class MainWindow(tk.Frame):
                     f"{erro}\n\nDigite um número, ou deixe o campo em branco "
                     "para não ter teto.")
 
+    def _perguntar_intervalo_de_exportacao(self, caminho_pdf):
+        """Pergunta se a exportação é do livro inteiro ou de um intervalo.
+
+        Devolve ``None`` para o livro inteiro, a lista de índices (base 0)
+        para um intervalo, ou ``CANCELADO``. Ler o número de páginas pode
+        falhar num PDF corrompido; nesse caso a exportação não começa.
+        """
+        from tkinter import simpledialog
+        import fitz
+        import re
+
+        try:
+            documento = fitz.open(caminho_pdf)
+            total = len(documento)
+            documento.close()
+        except Exception as erro:
+            messagebox.showerror(
+                "Exportar livro",
+                f"Não foi possível ler o número de páginas do PDF:\n{erro}")
+            return self.CANCELADO
+
+        escolha = messagebox.askyesnocancel(
+            "Modo de exportação",
+            "Deseja informar um intervalo de páginas?\n\n"
+            f"Sim: escolher páginas entre 1 e {total}.\n"
+            f"Não: exportar o livro inteiro ({total} página(s)).\n"
+            "Cancelar: desistir da exportação.")
+        if escolha is None:
+            return self.CANCELADO
+        if not escolha:
+            return None
+
+        digitado = ""
+        while True:
+            digitado = simpledialog.askstring(
+                "Intervalo de páginas",
+                f"Informe o intervalo de páginas (1 a {total}), por exemplo: 12-30.",
+                initialvalue=digitado)
+            if digitado is None:
+                return self.CANCELADO
+            correspondencia = re.fullmatch(
+                r"\s*(\d+)\s*(?:-|–|—|a)\s*(\d+)\s*",
+                digitado, flags=re.IGNORECASE)
+            if correspondencia:
+                inicio, fim = map(int, correspondencia.groups())
+                if 1 <= inicio <= fim <= total:
+                    return list(range(inicio - 1, fim))
+            messagebox.showwarning(
+                "Intervalo de páginas",
+                f"Intervalo inválido. Use dois números entre 1 e {total}, "
+                "por exemplo, 12-30.")
+
     #: Costura de teste, como a do `DIALOGO_DIAGRAMA`.
     DIALOGO_DO_DIAGRAMA = DialogoDoDiagrama
 
@@ -1726,6 +1827,10 @@ class MainWindow(tk.Frame):
             filetypes=[("Arquivos PDF", "*.pdf")]
         )
         if not input_pdf:
+            return
+
+        paginas = self._perguntar_intervalo_de_exportacao(input_pdf)
+        if paginas is self.CANCELADO:
             return
 
         saida = filedialog.asksaveasfilename(
@@ -1865,9 +1970,15 @@ class MainWindow(tk.Frame):
                 h.raise_if_cancelled()
                 h.progress(atual, total, f"página {atual}/{total}")
 
-            paginas = livro.extrair(input_pdf,
+            paginas_extraidas = livro.extrair(input_pdf,
                                     self.learning_service.leitor_de_texto(idioma),
+                                    paginas=paginas,
                                     coletor=coletor,
+                                    ler_pagina=(
+                                        lambda imagem: self.ocr_service
+                                        .tesseract_pagina_detalhada_conf(
+                                            imagem, idioma)),
+                                    idioma_ocr=idioma,
                                     lex=self.lexico_da_sessao(),
                                     # A prova visual do reparo de colagem (F69):
                                     # é ela que autoriza trocar `Dmamic` por
@@ -1883,14 +1994,14 @@ class MainWindow(tk.Frame):
                                     progress_callback=progresso)
             h.log("Escrevendo o arquivo...")
             titulo, autor = livro.titulo_e_autor(input_pdf)
-            exportar.exportar(paginas, saida, formato=formato,
+            exportar.exportar(paginas_extraidas, saida, formato=formato,
                               titulo=titulo, autor=autor,
                               diagramas="fonte" if embutir else "png",
                               corpo_pt=corpo_pt, moldura=moldura,
                               cantos=cantos, idioma=idioma)
             if coletor is not None:
                 coletor.gravar_indice()
-            return paginas, coletor
+            return paginas_extraidas, coletor
 
         def concluir(resultado):
             paginas, coletor = resultado
@@ -1967,10 +2078,21 @@ class MainWindow(tk.Frame):
                               f"{' '.join(mudos)}")
             if de_imagem:
                 linhas.append(f"{de_imagem} página(s) eram imagem e saíram inteiras.")
+            # **Quem leu cada linha tem de aparecer**, pela mesma razão do
+            # reparo: a prosa que veio do Tesseract é a que se confere de outro
+            # jeito. O lance fica sempre com a cadeia própria, mesmo na linha
+            # fundida — é o roteamento por palavra de `livro.extrair_pagina`.
+            fontes = collections.Counter(r["fonte"] for p in paginas
+                                         for r in p.roteamento if r["texto"])
+            if fontes:
+                fundidas = fontes.get("fusao", 0) + fontes.get("line", 0)
+                linhas.append(f"Linhas lidas: {fontes.get('glyph', 0)} só pela "
+                              f"cadeia própria, {fundidas} com a prosa do "
+                              f"Tesseract e os lances da cadeia.")
             if coletor is not None:
                 linhas += ["", f"Para revisão: {coletor.resumo()}",
                            f"em {os.path.abspath(coletor.pasta)}"]
-            linhas += ["", "O texto veio só do nosso OCR — a camada de texto do "
+            linhas += ["", "O texto veio do nosso OCR — a camada de texto do "
                        "PDF foi ignorada.", f"Arquivo salvo em:\n{saida}"]
             messagebox.showinfo("Livro exportado", "\n".join(linhas))
 
@@ -2387,6 +2509,21 @@ class MainWindow(tk.Frame):
         if self.boxes:
             self.auto_fill_characters_easyocr()
 
+    def auto_fill_characters_paddleocr(self):
+        """Preenche os boxes atuais com o reconhecedor opcional PaddleOCR."""
+        def preparar(h):
+            def classificar(justo, _com_faixa):
+                ch, c = self.ocr_service.paddleocr_ocr_conf(justo)
+                return (ch, "paddleocr" if ch else "vazio", c)
+            return classificar
+
+        self._preencher_boxes(
+            "OCR (PaddleOCR)", preparar,
+            lambda fontes, n: (f"Processados: {n} boxes.\n"
+                               f"Caracteres preenchidos: "
+                               f"{fontes.get('paddleocr', 0)}"),
+        )
+
     def auto_fill_characters_linha(self):
         """
         Lê a linha inteira, e não o caractere (F17).
@@ -2428,7 +2565,10 @@ class MainWindow(tk.Frame):
             pagina, replace(b, y1=topo, y2=base))
 
     def _preencher_por_linha(self, titulo, preparar, resumo,
-                             conf_maxima_para_trocar=None):
+                             conf_maxima_para_trocar=None,
+                             exigir_confianca_linha=False,
+                             confianca_linha_minima=None,
+                             confianca_ancora_maxima=None):
         """
         Como `_preencher_boxes`, mas o laço é por **linha** e não por box.
 
@@ -2480,6 +2620,9 @@ class MainWindow(tk.Frame):
                 # A trava não segura o box que o EasyOCR respondeu (F116): a
                 # confiança dele é plana, e a linha acerta mais que ele ali.
                 fontes_sem_trava=FONTES_SEM_TRAVA,
+                exigir_confianca_linha=exigir_confianca_linha,
+                confianca_linha_minima=confianca_linha_minima,
+                confianca_ancora_maxima=confianca_ancora_maxima,
                 cancelado=lambda: h.cancelled,
                 progresso=lambda i, n: h.progress(i, n, f"linha {i}/{n}"),
                 ao_falhar=lambda b, e: falhas.append(f"{type(e).__name__}: {e}"),
@@ -3645,24 +3788,20 @@ class MainWindow(tk.Frame):
         return "break"
 
     def _perform_undo(self):
-        if not hasattr(self, 'history'):
+        if not hasattr(self, 'document_controller'):
             return
-        boxes, sel = self.history.undo()
-        if boxes is not None:
-            self.boxes = boxes
-            self.selected_index = sel
-            self._sync_session()
+        if self.document_controller.undo():
+            self.boxes = self.document_controller.boxes
+            self.selected_index = self.document_controller.selected_index
             self.update_sidebar()
             self.update_canvas()
 
     def _perform_redo(self):
-        if not hasattr(self, 'history'):
+        if not hasattr(self, 'document_controller'):
             return
-        boxes, sel = self.history.redo()
-        if boxes is not None:
-            self.boxes = boxes
-            self.selected_index = sel
-            self._sync_session()
+        if self.document_controller.redo():
+            self.boxes = self.document_controller.boxes
+            self.selected_index = self.document_controller.selected_index
             self.update_sidebar()
             self.update_canvas()
 
@@ -4183,12 +4322,13 @@ class MainWindow(tk.Frame):
             return
 
         linhas = [analise.resumo(), ""]
-        duvidosos = [l for l in analise.lances if l.situacao != "legal"]
+        duvidosos = [lance for lance in analise.lances
+                     if lance.situacao != "legal"]
         if duvidosos:
             linhas.append("Lances que não fecham com a posição:")
-            for l in duvidosos[:14]:
-                alvo = f" -> {l.correto}" if l.correto else ""
-                linhas.append(f"  {l.texto}{alvo}   ({l.situacao})")
+            for lance in duvidosos[:14]:
+                alvo = f" -> {lance.correto}" if lance.correto else ""
+                linhas.append(f"  {lance.texto}{alvo}   ({lance.situacao})")
             if len(duvidosos) > 14:
                 linhas.append(f"  ... e mais {len(duvidosos) - 14}")
             linhas.append("")

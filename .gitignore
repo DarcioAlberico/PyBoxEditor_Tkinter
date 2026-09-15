@@ -7,6 +7,9 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
+dist/
 
 # IDE
 .idea/
@@ -85,3 +88,11 @@ test_chess_out.pdf
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Saídas do A/B de OCR do livro (scripts/ab_ocr_livro.py); a referência
+# revisada em preview_ocr/referencia/ fica versionada.
+preview_ocr/ab/
+preview_ocr/*.docx
+preview_ocr/*.epub
+preview_ocr/*/*.docx
+preview_ocr/*/*.epub

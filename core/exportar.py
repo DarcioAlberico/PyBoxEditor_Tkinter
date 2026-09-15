@@ -18,6 +18,7 @@ arquivo que o Word recusa abrir sem dizer por quê. Ali a dependência
 import datetime
 import html
 import os
+import tempfile
 import time
 import uuid
 import zipfile
@@ -695,8 +696,15 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     # O `ibooks:specified-fonts` é o que faz o Apple Books respeitar a fonte
     # embutida em vez de trocá-la pela do leitor. Sem ele o tabuleiro sai como
     # `rmblkans` lá, e só lá — que é o pior tipo de defeito de formato.
-    prefixo = (' prefix="ibooks: http://vocabulary.itunes.apple.com/rdf/ibooks/'
-               'vocabulary-extensions-1.0/"' if fontes_no_zip else "")
+    # EPUB Accessibility uses the schema.org vocabulary in `property` values.
+    # The value is still legal XML without a declaration (it is an attribute
+    # string), but readers and accessibility checkers cannot resolve the
+    # vocabulary reliably unless the package declares the prefix explicitly.
+    prefixos = ['schema: http://schema.org/']
+    if fontes_no_zip:
+        prefixos.append('ibooks: http://vocabulary.itunes.apple.com/rdf/ibooks/'
+                        'vocabulary-extensions-1.0/')
+    prefixo = f' prefix="{" ".join(prefixos)}"'
     ibooks = ('<meta property="ibooks:specified-fonts">true</meta>\n'
               if fontes_no_zip else "")
 
@@ -757,15 +765,34 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     pasta = os.path.dirname(os.path.abspath(caminho))
     if pasta:
         os.makedirs(pasta, exist_ok=True)
-    with zipfile.ZipFile(caminho, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip",
-                   compress_type=zipfile.ZIP_STORED)
-        z.writestr("META-INF/container.xml", _CONTAINER)
-        z.writestr("OEBPS/content.opf", opf)
-        z.writestr("OEBPS/nav.xhtml", nav)
-        z.writestr("OEBPS/estilo.css", css)
-        for nome, dados in arquivos:
-            z.writestr(nome, dados)
+    # Write beside the destination and publish only after the ZIP is closed.
+    # A cancelled export, a full disk, or a missing font must not replace a
+    # previously valid book with a partial archive.
+    fd, temporario = tempfile.mkstemp(prefix=".epub-", suffix=".tmp",
+                                      dir=pasta)
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(temporario, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip",
+                       compress_type=zipfile.ZIP_STORED)
+            z.writestr("META-INF/container.xml", _CONTAINER)
+            z.writestr("OEBPS/content.opf", opf)
+            z.writestr("OEBPS/nav.xhtml", nav)
+            z.writestr("OEBPS/estilo.css", css)
+            for nome, dados in arquivos:
+                z.writestr(nome, dados)
+        # Reading the central directory catches a surprising class of write
+        # failures before the old destination is replaced.
+        with zipfile.ZipFile(temporario) as z:
+            if z.testzip() is not None:
+                raise zipfile.BadZipFile("EPUB temporário contém entrada inválida")
+        os.replace(temporario, caminho)
+    except Exception:
+        try:
+            os.unlink(temporario)
+        except OSError:
+            pass
+        raise
     return caminho
 
 
@@ -1150,6 +1177,12 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     doc = Document()
     _propriedades_do_docx(doc, titulo, autor)
     _idioma_do_estilo(doc.styles["Normal"], idioma)
+    # Heading styles do not consistently inherit language metadata across Word
+    # versions. Set them explicitly so chapter headings and diagram labels are
+    # spell-checked and voiced in the book's language too.
+    for nome in ("Heading 1", "Heading 2"):
+        if nome in doc.styles:
+            _idioma_do_estilo(doc.styles[nome], idioma)
     _desenho_da_pagina(doc)
 
     def separador():
@@ -1268,17 +1301,34 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     pasta = os.path.dirname(os.path.abspath(caminho))
     if pasta:
         os.makedirs(pasta, exist_ok=True)
-    doc.save(caminho)
+    # Font embedding is a second ZIP rewrite. Keep both stages off the public
+    # path so a failure cannot destroy an existing DOCX.
+    fd, temporario = tempfile.mkstemp(prefix=".docx-", suffix=".tmp",
+                                      dir=pasta)
+    os.close(fd)
+    try:
+        doc.save(temporario)
 
-    embutir = {}
-    if usadas:
-        from core import render_diagrama
-        embutir = {nome: render_diagrama.carregar(nome).arquivo
-                   for nome in usadas}
-    if recurso:
-        embutir[recurso[0]] = recurso[1]
-    if embutir:
-        _embutir_fontes_no_docx(caminho, embutir)
+        embutir = {}
+        if usadas:
+            from core import render_diagrama
+            embutir = {nome: render_diagrama.carregar(nome).arquivo
+                       for nome in usadas}
+        if recurso:
+            embutir[recurso[0]] = recurso[1]
+        if embutir:
+            _embutir_fontes_no_docx(temporario, embutir)
+        # python-docx can reopen the final package and catches malformed OOXML
+        # produced by a future embedding change before publication.
+        from docx import Document as _Document
+        _Document(temporario)  # opening validates the OOXML package
+        os.replace(temporario, caminho)
+    except Exception:
+        try:
+            os.unlink(temporario)
+        except OSError:
+            pass
+        raise
     return caminho
 
 

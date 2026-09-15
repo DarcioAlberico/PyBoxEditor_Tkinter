@@ -396,7 +396,7 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
                 # Registrado, não descartado em silêncio: é a heurística com
                 # mais chance de errar, e sem isto um diagrama tratado como
                 # texto (ou o contrário) não deixa rastro nenhum.
-                spans = sum(len(l.get("spans", [])) for l in block.get("lines", []))
+                spans = sum(len(line.get("spans", [])) for line in block.get("lines", []))
                 rel.diagramas_ignorados.append((page_num, spans))
                 continue
 

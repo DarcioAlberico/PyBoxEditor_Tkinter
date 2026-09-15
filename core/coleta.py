@@ -478,7 +478,7 @@ class Coletor:
     @property
     def linhas(self) -> List[dict]:
         """As linhas do índice, na ordem das classes. Só o que está em disco."""
-        return [l for reserva in self._reservatorio.values() for l in reserva]
+        return [linha for reserva in self._reservatorio.values() for linha in reserva]
 
     @property
     def total(self) -> int:

@@ -253,8 +253,10 @@ class CanvasView(tk.Canvas):
         bh = y2 - y1
         
         # Evita divisão por zero
-        if bw < 1: bw = 1
-        if bh < 1: bh = 1
+        if bw < 1:
+            bw = 1
+        if bh < 1:
+            bh = 1
 
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
@@ -564,7 +566,8 @@ class CanvasView(tk.Canvas):
                 
                 # 2. Box de preview do caractere abaixo
                 char_text = b.char
-                if not char_text: char_text = "?"
+                if not char_text:
+                    char_text = "?"
                 
                 # Posicao: abaixo do box, centralizado horizontalmente
                 # Tamanho fixo ou baseado no texto? Fixo eh mais limpo.

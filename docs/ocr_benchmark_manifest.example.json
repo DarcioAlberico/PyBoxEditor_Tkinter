@@ -1,0 +1,15 @@
+{
+  "name": "ocr-baseline",
+  "version": "1.0",
+  "pages": [
+    {
+      "id": "livro-p001",
+      "image": "pages/livro-p001.png",
+      "reference": "ground_truth/livro-p001.json",
+      "prediction": "predictions/current/livro-p001.json",
+      "document": "livro",
+      "split": "test",
+      "difficulty": "clean_body"
+    }
+  ]
+}

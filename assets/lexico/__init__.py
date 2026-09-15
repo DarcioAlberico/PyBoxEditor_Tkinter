@@ -1,0 +1,2 @@
+"""Dicionários compactados do editor."""
+

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install project and development tools
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,tools,docx,ocr,ml]"
+
+      - name: Compile Python modules
+        run: python -m compileall -q appy.py core ui config scripts
+
+      - name: Lint
+        run: python -m ruff check core ui appy.py config scripts
+
+      - name: Collect tests
+        run: python -m pytest --collect-only -q
+
+      - name: Build wheel
+        run: python -m build --wheel --no-isolation
+
+      - name: Check packaged resources
+        shell: bash
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          wheel = next(Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+          required = {
+              "assets/fonts/NotoSansSymbols2-Regular.ttf",
+              "assets/lexico/en.txt.gz",
+              "core/dados/diagrama_modelo.pth",
+          }
+          missing = required - names
+          if missing:
+              raise SystemExit(f"recursos ausentes no wheel: {sorted(missing)}")
+          PY
+
+      - name: Run deterministic tests
+        run: python -m pytest -q -m "not gui"

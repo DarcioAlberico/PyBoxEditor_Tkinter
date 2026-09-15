@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from config.paths import settings_path
+
 
 class Settings:
     """
@@ -9,8 +11,7 @@ class Settings:
     """
     def __init__(self, path: str | None = None):
         if path is None:
-            base = Path(__file__).resolve().parent
-            self.path = base / "settings.json"
+            self.path = settings_path()
         else:
             self.path = Path(path)
 
@@ -28,7 +29,12 @@ class Settings:
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+        temporario = self.path.with_name(self.path.name + ".tmp")
+        temporario.write_text(
+            json.dumps(self.data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        temporario.replace(self.path)
 
     def get(self, key: str, default=None):
         return self.data.get(key, default)

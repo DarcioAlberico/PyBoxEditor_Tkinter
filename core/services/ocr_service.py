@@ -1,10 +1,11 @@
 import cv2
+import json
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
 from PIL import Image
 
-from core import alfabeto, proporcao
+from core import alfabeto, preprocess, proporcao
 from core.box_model import SEM_MARGEM
 
 
@@ -60,10 +61,28 @@ class OCRService:
         # Um reader por (idiomas, gpu). Era um só, guardado sem chave: a segunda
         # chamada com outro idioma recebia calada o reader da primeira.
         self._readers = {}
+        self._paddle_readers = {}
 
     # ------------------------------------------------------------------
     # Tesseract
     # ------------------------------------------------------------------
+    @staticmethod
+    def _configurar_tesseract(pytesseract) -> None:
+        """Localiza o executável no Windows quando ele não está no PATH."""
+        import os
+
+        atual = getattr(pytesseract.pytesseract, "tesseract_cmd", "")
+        if atual and os.path.exists(atual):
+            return
+        candidatos = (
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        )
+        for caminho in candidatos:
+            if os.path.exists(caminho):
+                pytesseract.pytesseract.tesseract_cmd = caminho
+                return
+
     def tesseract_ocr(self, crop: Image.Image, whitelist: Optional[str] = None) -> str:
         """Roda Tesseract num recorte PIL. Retorna string (pode ser vazia)."""
         return self.tesseract_ocr_conf(crop, whitelist)[0]
@@ -77,6 +96,8 @@ class OCRService:
         O Tesseract reporta -1 quando não classificou nada; nesse caso vale 0.
         """
         import pytesseract
+
+        self._configurar_tesseract(pytesseract)
 
         config = "--psm 10"
         if whitelist:
@@ -103,6 +124,164 @@ class OCRService:
         if not melhor:
             return "", 0.0
         return melhor, max(0.0, melhor_conf) / 100.0
+
+    @staticmethod
+    def _idioma_tesseract(idioma: str = "en") -> str:
+        """Converte o idioma curto do aplicativo para o pacote do Tesseract."""
+        return {
+            "en": "eng",
+            "pt": "por",
+            "eng": "eng",
+            "por": "por",
+        }.get(str(idioma or "en").lower(), str(idioma or "eng"))
+
+    def tesseract_pagina_detalhada_conf(
+        self, pagina_np: np.ndarray, idioma: str = "en",
+        _segunda_passada: bool = True
+    ) -> list[tuple]:
+        """Reconhece uma página inteira e devolve linhas com suas coordenadas.
+
+        A chamada única por página é importante: iniciar o Tesseract uma vez
+        para cada glifo ou linha torna um livro impraticavelmente lento. As
+        coordenadas permitem que ``core.livro`` use o contexto da palavra sem
+        perder a segmentação e a ordem de leitura que o programa já calculou.
+        """
+        import pytesseract
+
+        self._configurar_tesseract(pytesseract)
+        imagem = np.asarray(pagina_np)
+        if imagem.size == 0:
+            return []
+        if imagem.ndim == 3:
+            imagem = self._cinza(imagem)
+        imagem = np.ascontiguousarray(imagem, dtype=np.uint8)
+        try:
+            dados = pytesseract.image_to_data(
+                Image.fromarray(imagem),
+                lang=self._idioma_tesseract(idioma),
+                config="--psm 3 -c preserve_interword_spaces=1",
+                output_type=pytesseract.Output.DICT,
+            )
+        except Exception:
+            return []
+
+        def agrupar(registros):
+            grupos = {}
+            for i, bruto in enumerate(registros.get("text", [])):
+                texto = str(bruto or "").strip()
+                if not texto:
+                    continue
+                try:
+                    confianca = max(0.0, min(1.0,
+                                             float(registros["conf"][i]) / 100.0))
+                except (KeyError, TypeError, ValueError, IndexError):
+                    confianca = 0.0
+                try:
+                    x = int(registros["left"][i])
+                    y = int(registros["top"][i])
+                    w = int(registros["width"][i])
+                    h = int(registros["height"][i])
+                except (KeyError, TypeError, ValueError, IndexError):
+                    continue
+                chave = tuple(
+                    int(registros.get(nome, [0])[i])
+                    for nome in ("block_num", "par_num", "line_num")
+                )
+                item = grupos.setdefault(
+                    chave, {"palavras": [], "confs": [], "caixas": [],
+                            "detalhes": []})
+                item["palavras"].append(texto)
+                item["confs"].append(confianca)
+                caixa = (x, y, x + max(1, w), y + max(1, h))
+                item["caixas"].append(caixa)
+                item["detalhes"].append((texto, confianca, caixa))
+
+            linhas = []
+            for item in grupos.values():
+                caixas = item["caixas"]
+                x1 = min(c[0] for c in caixas)
+                y1 = min(c[1] for c in caixas)
+                x2 = max(c[2] for c in caixas)
+                y2 = max(c[3] for c in caixas)
+                confs = item["confs"]
+                linhas.append((" ".join(item["palavras"]),
+                               sum(confs) / len(confs), (x1, y1, x2, y2),
+                               tuple(item["detalhes"])))
+            return sorted(linhas, key=lambda item: (item[2][1], item[2][0]))
+
+        linhas = agrupar(dados)
+        if _segunda_passada:
+            alternativas = self._ocr_de_recuperacao_da_trama(imagem, idioma)
+            if alternativas:
+                def sobrepoe(a, b):
+                    horizontal = min(a[2], b[2]) - max(a[0], b[0])
+                    vertical = min(a[3], b[3]) - max(a[1], b[1])
+                    return horizontal > 0 and vertical > 0
+
+                linhas.extend(
+                    linha for linha in alternativas
+                    if not any(sobrepoe(linha[2], atual[2])
+                               for atual in linhas))
+                linhas.sort(key=lambda item: (item[2][1], item[2][0]))
+        return linhas
+
+    def _ocr_de_recuperacao_da_trama(self, imagem: np.ndarray,
+                                     idioma: str) -> list[tuple]:
+        """Segunda leitura do scan quando o fundo pontilhado oculta texto.
+
+        A primeira passada continua sendo a fonte preferida. Só se ativa para
+        páginas com mais de 20 mil componentes após Otsu; nesses scans, remover
+        componentes muito pequenos antes do Tesseract recupera textos impressos
+        sobre a textura sem piorar páginas limpas.
+        """
+        mascara = preprocess.binarize(imagem, "otsu")
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(
+            mascara, connectivity=8)
+        if n <= 20000:
+            return []
+
+        limpa = np.zeros_like(mascara)
+        for i in range(1, n):
+            if stats[i, cv2.CC_STAT_AREA] >= 8:
+                limpa[labels == i] = 255
+        recuperada = 255 - limpa
+        # O PSM de página inteira ainda pode ignorar a coluna texturizada por
+        # considerá-la um fundo. Lê-la como uma página independente preserva as
+        # linhas e as coordenadas; o recorte cobre a coluna esquerda típica
+        # destes livros e um pouco de margem, sem entrar no corpo da direita.
+        largura = recuperada.shape[1]
+        x1, x2 = min(80, largura // 4), max(1, int(largura * 0.47))
+        coluna = self.tesseract_pagina_detalhada_conf(
+            recuperada[:, x1:x2], idioma, _segunda_passada=False)
+
+        def deslocar(registro):
+            texto, conf, caixa, detalhes = registro
+            x_a, y_a, x_b, y_b = caixa
+            nova_caixa = (x_a + x1, y_a, x_b + x1, y_b)
+            novos_detalhes = tuple(
+                (palavra, palavra_conf,
+                 (a + x1, b, c + x1, d))
+                for palavra, palavra_conf, (a, b, c, d) in detalhes)
+            return texto, conf, nova_caixa, novos_detalhes
+
+        return [deslocar(registro) for registro in coluna]
+
+    def tesseract_pagina_conf(
+        self, pagina_np: np.ndarray, idioma: str = "en"
+    ) -> list[Tuple[str, float, Tuple[int, int, int, int]]]:
+        """Versão compatível: linhas sem os detalhes internos das palavras."""
+        return [registro[:3]
+                for registro in self.tesseract_pagina_detalhada_conf(pagina_np, idioma)]
+
+    def tesseract_linha_conf(
+        self, faixa_np: np.ndarray, idioma: str = "en"
+    ) -> Tuple[str, float]:
+        """Reconhece uma faixa isolada; mantido para ferramentas e testes."""
+        pagina = self.tesseract_pagina_conf(faixa_np, idioma)
+        if not pagina:
+            return "", 0.0
+        texto, conf, _caixa = max(pagina, key=lambda item: item[2][2] - item[2][0])
+        return texto, conf
 
     # ------------------------------------------------------------------
     # EasyOCR
@@ -235,6 +414,132 @@ class OCRService:
         confs = [float(r[2]) for r in resultados if len(r) > 2]
         conf = min(confs) if confs else 0.0
         return texto, max(0.0, min(1.0, conf))
+
+    # ------------------------------------------------------------------
+    # PaddleOCR
+    # ------------------------------------------------------------------
+    def _init_paddleocr(self, language: str = "en", gpu: bool = False):
+        """Inicializa e cacheia o reconhecedor do PaddleOCR.
+
+        O import é tardio porque PaddleOCR é opcional e pesado. A integração
+        usa o módulo de reconhecimento, sem detector: o editor já possui o
+        recorte exato do box e rodar detecção novamente só acrescentaria custo
+        e uma segunda fonte de coordenadas.
+        """
+        chave = (str(language or "en"), bool(gpu))
+        model = self._paddle_readers.get(chave)
+        if model is not None:
+            return model
+
+        # PaddleOCR 3.x pode importar ModelScope, que por sua vez carrega
+        # Torch. No Windows, carregar as DLLs do Paddle antes das DLLs do Torch
+        # produz WinError 127; pré-carregar Torch mantém os dois backends no
+        # mesmo processo. Torch continua opcional para quem só usa PaddleOCR.
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            pass
+        try:
+            from paddleocr import TextRecognition
+        except ModuleNotFoundError as exc:
+            modulo = exc.name or "paddleocr"
+            raise RuntimeError(
+                "PaddleOCR não está disponível neste interpretador "
+                f"(módulo ausente: {modulo}). Instale com: "
+                "python -m pip install -e \".[paddle]\""
+            ) from exc
+
+        kwargs = {"engine": "paddle"}
+        if gpu:
+            kwargs["device"] = "gpu:0"
+        try:
+            model = TextRecognition(**kwargs)
+        except TypeError:
+            # Compatibilidade com versões que ainda não aceitam `engine` ou
+            # `device`; a API 3.x documenta ambos, mas o fallback mantém o
+            # backend utilizável em instalações 2.x.
+            kwargs.pop("device", None)
+            kwargs.pop("engine", None)
+            model = TextRecognition(**kwargs)
+        self._paddle_readers[chave] = model
+        return model
+
+    @staticmethod
+    def _resultado_paddle(resultado) -> Tuple[str, float]:
+        """Extrai texto/confiança das respostas 2.x e 3.x do PaddleOCR."""
+        if resultado is None:
+            return "", 0.0
+
+        # API 3.x: objeto com `json` ou dicionário dentro da chave `res`.
+        dados = getattr(resultado, "json", None)
+        if callable(dados):
+            dados = dados()
+        if dados is None and isinstance(resultado, dict):
+            dados = resultado
+        if isinstance(dados, str):
+            try:
+                dados = json.loads(dados)
+            except (TypeError, ValueError):
+                dados = None
+        if isinstance(dados, dict):
+            dados = dados.get("res", dados)
+            texto = dados.get("rec_text", dados.get("text", dados.get("rec_texts", "")))
+            confianca = dados.get(
+                "rec_score", dados.get("score", dados.get("rec_scores", 0.0))
+            )
+            # TextRecognition 3.x usa listas, mesmo quando recebe um único
+            # recorte. Não indexar diretamente antes de conferir o tamanho:
+            # uma resposta vazia é válida e deve virar OCR não resolvido.
+            if isinstance(texto, (list, tuple, np.ndarray)):
+                texto = texto[0] if len(texto) else ""
+            if isinstance(confianca, (list, tuple, np.ndarray)):
+                confianca = confianca[0] if len(confianca) else 0.0
+            try:
+                return str(texto or "").strip()[:1], max(0.0, min(1.0, float(confianca)))
+            except (TypeError, ValueError):
+                return str(texto or "").strip()[:1], 0.0
+
+        # API 2.x: [[box, (texto, confiança)], ...].
+        if isinstance(resultado, (list, tuple)) and resultado:
+            item = resultado[0]
+            if isinstance(item, (list, tuple)) and len(item) > 1:
+                leitura = item[1]
+                if isinstance(leitura, (list, tuple)) and leitura:
+                    texto = str(leitura[0] or "").strip()
+                    try:
+                        confianca = float(leitura[1]) if len(leitura) > 1 else 0.0
+                    except (TypeError, ValueError):
+                        confianca = 0.0
+                    return texto[:1], max(0.0, min(1.0, confianca))
+        return "", 0.0
+
+    def paddleocr_ocr(self, crop_np: np.ndarray, language: str = "en",
+                      gpu: bool = False) -> str:
+        return self.paddleocr_ocr_conf(crop_np, language, gpu)[0]
+
+    def paddleocr_ocr_conf(self, crop_np: np.ndarray, language: str = "en",
+                           gpu: bool = False) -> Tuple[str, float]:
+        """Reconhece um box já segmentado usando o módulo TextRecognition."""
+        model = self._init_paddleocr(language, gpu)
+        imagem = np.asarray(crop_np)
+        if imagem.ndim == 2:
+            imagem = cv2.cvtColor(imagem, cv2.COLOR_GRAY2BGR)
+        elif imagem.ndim == 3 and imagem.shape[2] == 4:
+            imagem = cv2.cvtColor(imagem, cv2.COLOR_BGRA2BGR)
+        try:
+            try:
+                resultados = model.predict(input=imagem, batch_size=1)
+            except TypeError:
+                resultados = model.predict(imagem)
+        except (IndexError, KeyError, TypeError, ValueError):
+            # Um recorte vazio/incompatível não pode abortar o preenchimento da
+            # página inteira; os outros boxes continuam sendo processados.
+            return "", 0.0
+        try:
+            primeiro = next(iter(resultados))
+        except StopIteration:
+            return "", 0.0
+        return self._resultado_paddle(primeiro)
 
     # ------------------------------------------------------------------
     # Neural (Custom CNN)

@@ -36,10 +36,10 @@ o lugar da figura.
 
 import io
 import re
+from difflib import SequenceMatcher
 from array import array
 import collections
 import os
-import re
 from dataclasses import dataclass, field
 from math import isnan, nan
 from typing import Callable, List, Optional, Sequence, Tuple, Union
@@ -53,6 +53,8 @@ from core import (diagrama, lexico, negrito, notacao, render_diagrama,
                   vertical)
 from core.box_model import BoxEntry
 from core.leitura_de_linha import quebrar_em_linhas
+from core.ocr_result import RegionResult
+from core.ocr_routing import OCRRouter
 from core.services.box_service import BoxService
 
 
@@ -322,6 +324,12 @@ class PaginaExtraida:
     #: decide — e guardado como texto, e não como número, para o relatório do
     #: fim da exportação poder dizer **o que** foi retirado.
     cabecalhos: List[str] = field(default_factory=list)
+    #: Uma entrada por linha lida, com o domínio, o leitor principal que o
+    #: `OCRRouter` escolheu, quem escreveu o texto e as duas leituras — a
+    #: âncora da cadeia própria e a linha do motor contextual. É o registro
+    #: que a OCR-11 pede ("registrar decisão de roteamento e motivo"), e é o
+    #: que `scripts/ab_ocr_livro.py` lê para medir prosa e notação em separado.
+    roteamento: List[dict] = field(default_factory=list)
 
     @property
     def texto(self) -> str:
@@ -485,8 +493,15 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     parágrafo é *negativo* ali, e nenhuma régua de salto pega isso.
     """
     pil = Image.fromarray(img)
+    # A mesma máscara limpa precisa alimentar as duas passadas. Sem isso a
+    # primeira passava pelo limite de componentes, mas a geração real de texto
+    # refazia a binarização original e voltava a analisar centenas de milhares
+    # de partículas da trama.
+    binaria_inicial = BoxService.binaria_para_segmentacao(
+        img, max_contornos=BoxService.MAX_CONTORNOS_DE_TEXTO)
     antes, th, escala, _cinza = BoxService.boxes_antes_do_descarte(
-        pil, max_contornos=BoxService.MAX_CONTORNOS_DE_TEXTO)
+        pil, max_contornos=BoxService.MAX_CONTORNOS_DE_TEXTO,
+        binaria_inicial=binaria_inicial)
     escala = escala or 1
     if not antes:
         # Página que é imagem, não texto. Sai inteira como figura: ler caractere
@@ -505,7 +520,8 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
                                              imagem=img, binaria=th)]
 
     minima = MIN_AREA_GLIFO * escala * escala
-    todas = BoxService.generate_boxes_opencv(pil, arbitro=classificar)
+    todas = BoxService.generate_boxes_opencv(
+        pil, arbitro=classificar, binaria=binaria_inicial)
 
     # O que a margem come é justamente o que a F60 foi buscar: os rótulos das
     # casas, que não fazem falta, e o cabeçalho do exercício, que faz.
@@ -631,10 +647,558 @@ def _celulas_de_ornamento(respingos: Sequence[BoxEntry], escala: float) -> set:
 # que é onde a regra é usada pelos quatro caminhos de reconhecimento.
 
 
+GLIFOS_DE_XADREZ = frozenset("♔♕♖♗♘♙♚♛♜♝♞♟")
+_VOCABULARIO_OCR = {}
+_ERROS_OCR_FREQUENTES = {
+    # Confusões recorrentes desta fonte no Tesseract latino. São formas
+    # improváveis em prosa inglesa e, ao contrário de um corretor genérico,
+    # não alteram nomes próprios nem palavras já legítimas.
+    "che": "the",
+    "buc": "but",
+    "wuld": "would",
+    "poinc": "point",
+    "beauciful": "beautiful",
+    "alchough": "although",
+    "acurate": "accurate",
+    "afrer": "after",
+    "ambitius": "ambitious",
+    "payers": "players",
+    "havc": "have",
+    "afcr": "after",
+    "chis": "this",
+    "ic": "it",
+    "rhe": "the",
+    "arc": "are",
+    "macerial": "material",
+    "attempc": "attempt",
+    "bese": "best",
+    "whice": "white",
+    "whie": "white",
+    "whitc": "white",
+    "chen": "then",
+    "pointe": "point",
+    "befence": "defence",
+    "defcnce": "defence",
+    "activatcs": "activates",
+    "consolation": "consolation",
+    "haper": "chapter",
+}
+
+
+# ----------------------------------------------------------------------
+# Roteamento por domínio, palavra a palavra (OCR-11 e OCR-12 em produção)
+# ----------------------------------------------------------------------
+#
+# A F114 mediu os dois leitores nas faixas destes livros: a cadeia própria
+# acerta 97,6% dos boxes, e o melhor motor de linha, 88,4% — e a diferença é a
+# figurina, que o modelo latino do Tesseract não tem e **omite**. Na prosa a
+# conta inverte: `1n.ssed b.s cbance` contra `missed his chance`. Só que a
+# linha destes livros é mista — `25.♖xc7! Amazingly Gashimov missed his
+# chance` —, então a escolha não é por linha: é por palavra. O lance fica com
+# a cadeia própria, que é a autoridade geométrica (um item por box); a palavra
+# de prosa fica com o motor de linha, que tem contexto. Quem decide o que é
+# lance é a forma do token da âncora — `notacao.e_token_de_notacao` —, e a
+# decisão de cada linha fica registrada em `PaginaExtraida.roteamento`, que é
+# o que `scripts/ab_ocr_livro.py` lê.
+
+_e_token_de_notacao = notacao.e_token_de_notacao
+
+#: O domínio de uma linha, pelo que a âncora tem dentro. Cada um vira um tipo
+#: de região do `OCRRouter`, que é quem diz qual leitor é o principal: a linha
+#: só de lances nem paga o motor contextual, e a de prosa (ou mista) o paga e
+#: funde palavra a palavra.
+TIPO_DE_REGIAO_POR_DOMINIO = {"notation": "notation", "prose": "body",
+                              "mixed": "body", "unknown": "unknown"}
+
+
+def _dominio_da_linha(texto: str) -> str:
+    """`notation`, `prose`, `mixed` ou `unknown`, contando os tokens."""
+    lances = palavras = 0
+    for token in str(texto or "").split():
+        if _e_token_de_notacao(token):
+            lances += 1
+        elif sum(c.isalpha() for c in token) >= 2:
+            palavras += 1
+    if lances and not palavras:
+        return "notation"
+    if palavras and not lances:
+        return "prose"
+    if lances and palavras:
+        return "mixed"
+    return "unknown"
+
+
+def _semelhanca_de_linha(ancora: str, linha: str) -> float:
+    """Quanto as duas leituras concordam, olhando só letras e dígitos.
+
+    A figurina fica de fora porque o motor de linha não a tem; o espaço, porque
+    a cadeia própria e o Tesseract o abrem em lugares diferentes. O que sobra é
+    o que os dois leem, e é o suficiente para separar a mesma linha lida duas
+    vezes (0,7–0,9) da linha errada (abaixo de 0,4).
+    """
+    def nucleo(texto: str) -> str:
+        return "".join(c for c in str(texto or "").casefold() if c.isalnum())
+    a, b = nucleo(ancora), nucleo(linha)
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+#: Abaixo desta semelhança o registro do motor não é esta linha: é a vizinha,
+#: ou o lixo da segunda passada sobre a trama, e a âncora fica como está.
+SEMELHANCA_MINIMA_DA_LINHA = 0.5
+#: Abaixo deste piso a linha inteira do motor não tem evidência suficiente
+#: para sobrescrever a leitura que conserva os glifos (modo `linha`). É baixo
+#: o bastante para aceitar linhas mistas, e recusa as dominadas por diagrama.
+CONFIANCA_MINIMA_DA_LINHA = 0.45
+#: O piso da palavra, no modo `palavra`. Medido na página 30 do Aagaard: a
+#: palavra de prosa do Tesseract fica em 0,95 de mediana, e o lance que ele
+#: lê sem a figurina (`27.Eg7t`, `Hh8`) fica em 0,0–0,4 — e é ele que puxa a
+#: média da linha para baixo de `CONFIANCA_MINIMA_DA_LINHA` e escondia o
+#: `is just mate` que estava certo no meio dos lances.
+CONFIANCA_MINIMA_DA_PALAVRA = 0.5
+#: Fração da palavra mais estreita que precisa coincidir, em x, para a
+#: palavra do motor e o token da âncora serem a mesma coisa impressa.
+SOBREPOSICAO_MINIMA_DE_PALAVRA = 0.5
+
+
+def _sobreposicao(a1: float, a2: float, b1: float, b2: float) -> float:
+    comum = min(a2, b2) - max(a1, b1)
+    if comum <= 0:
+        return 0.0
+    return comum / max(1.0, min(a2 - a1, b2 - b1))
+
+
+def _fundir_por_palavra(texto: str, caixas: Sequence[int],
+                        linha: Sequence[BoxEntry], detalhes) -> Tuple[str, dict]:
+    """Monta a linha token a token: lance da âncora, prosa do motor de linha.
+
+    `texto` e `caixas` são os de `_texto_da_linha` — o caractere e o box de
+    onde ele saiu —, e `detalhes` são as palavras do motor com as caixas delas,
+    `(texto, confiança, (x1, y1, x2, y2))`. A caminhada é pela âncora, que é
+    quem tem um item por box: cada token dela ou tem forma de lance e fica, ou
+    é trocado pelas palavras do motor que ocupam o mesmo lugar em x. A palavra
+    do motor que não coincide com token nenhum entra no lugar dela — é o
+    caractere que a confiança derrubou, e que o motor ainda leu. Duas ficam
+    de fora: a que está abaixo de `CONFIANCA_MINIMA_DA_PALAVRA`, que é o lance
+    que o motor leu sem a figurina, e a que está fora da faixa vertical da
+    linha, porque um registro do Tesseract às vezes traz duas linhas impressas
+    dentro de uma.
+    """
+    y_topo = min(b.y1 for b in linha)
+    y_base = max(b.y2 for b in linha)
+    palavras = []
+    fora_da_faixa = fracas = 0
+    for detalhe in detalhes:
+        if len(detalhe) < 3:
+            continue
+        palavra = str(detalhe[0] or "").strip()
+        caixa = detalhe[2]
+        if not palavra or len(caixa) < 4:
+            continue
+        x1, y1, x2, y2 = (float(v) for v in caixa[:4])
+        if _sobreposicao(y_topo, y_base, y1, y2) < SOBREPOSICAO_MINIMA_DE_PALAVRA:
+            fora_da_faixa += 1
+            continue
+        if float(detalhe[1] or 0.0) < CONFIANCA_MINIMA_DA_PALAVRA:
+            fracas += 1
+            continue
+        palavras.append((x1, x2, palavra))
+    palavras.sort()
+    estatisticas = {"tokens_da_ancora": 0, "palavras_do_motor": 0,
+                    "palavras_fora_da_faixa": fora_da_faixa,
+                    "palavras_fracas": fracas}
+    if not palavras:
+        return texto, estatisticas
+
+    tokens = []
+    for token in re.finditer(r"\S+", texto):
+        indices = {caixas[k] for k in range(token.start(), token.end())
+                   if k < len(caixas) and 0 <= caixas[k] < len(linha)}
+        if not indices:
+            continue
+        x1 = min(linha[i].x1 for i in indices)
+        x2 = max(linha[i].x2 for i in indices)
+        sobrepostas = [j for j, (px1, px2, _p) in enumerate(palavras)
+                       if _sobreposicao(x1, x2, px1, px2)
+                       >= SOBREPOSICAO_MINIMA_DE_PALAVRA]
+        tokens.append((x1, token.group(0), sobrepostas,
+                       _e_token_de_notacao(token.group(0))))
+
+    itens = []
+    consumida_por: dict = {}
+    # A palavra do motor que toca um lance é do lance, antes de qualquer
+    # prosa olhar para ela: o Tesseract às vezes cola os dois (`after:25.g4?`),
+    # e usá-la na prosa escreveria o lance duas vezes.
+    for _x1, _token, sobrepostas, e_lance in tokens:
+        if e_lance:
+            for j in sobrepostas:
+                consumida_por.setdefault(j, "ancora")
+    for x1, token, sobrepostas, e_lance in tokens:
+        if e_lance:
+            itens.append((x1, token))
+            estatisticas["tokens_da_ancora"] += 1
+            continue
+        novas = [j for j in sobrepostas if j not in consumida_por]
+        if novas:
+            for j in novas:
+                itens.append((palavras[j][0], palavras[j][2]))
+                consumida_por[j] = "motor"
+            estatisticas["palavras_do_motor"] += len(novas)
+        elif not sobrepostas or all(consumida_por[j] == "ancora"
+                                    for j in sobrepostas):
+            # Sem palavra do motor neste lugar — ou a que havia foi para um
+            # lance vizinho —, a âncora é o que existe.
+            itens.append((x1, token))
+            estatisticas["tokens_da_ancora"] += 1
+        # Todas consumidas por um token de prosa anterior: é a segunda metade
+        # de uma palavra que o motor leu inteira, e ela já saiu.
+    for j, (px1, _px2, palavra) in enumerate(palavras):
+        if j not in consumida_por:
+            itens.append((px1, palavra))
+            estatisticas["palavras_do_motor"] += 1
+    itens.sort(key=lambda item: item[0])
+    return " ".join(texto_item for _x, texto_item in itens), estatisticas
+
+
+def _casar_linha_ocr(linha: Sequence[BoxEntry], registros, usados: set[int]):
+    """Encontra a linha do OCR de página que cobre os mesmos boxes.
+
+    O detector interno continua sendo a autoridade sobre a geometria. O OCR de
+    contexto só fornece a palavra e, por isso, a associação exige interseção
+    vertical e horizontal. Isso evita que uma linha da coluna vizinha seja
+    aplicada silenciosamente, algo especialmente importante em livros de duas
+    colunas.
+    """
+    if not linha:
+        return None
+    x1 = min(b.x1 for b in linha)
+    y1 = min(b.y1 for b in linha)
+    x2 = max(b.x2 for b in linha)
+    y2 = max(b.y2 for b in linha)
+    largura = max(1, x2 - x1)
+    altura = max(1, y2 - y1)
+    melhor = None
+    melhor_pontuacao = -1.0
+    for indice, registro in enumerate(registros):
+        if indice in usados or len(registro) < 3:
+            continue
+        _texto, confianca, caixa = registro[:3]
+        if len(caixa) < 4:
+            continue
+        rx1, ry1, rx2, ry2 = caixa[:4]
+        ix = max(0, min(x2, rx2) - max(x1, rx1))
+        iy = max(0, min(y2, ry2) - max(y1, ry1))
+        if iy < 0.25 * altura or ix < 0.10 * largura:
+            continue
+        cobertura_x = ix / largura
+        cobertura_y = iy / altura
+        distancia = abs((rx1 + rx2) / 2 - (x1 + x2) / 2) / largura
+        pontuacao = 2.0 * cobertura_y + cobertura_x - 0.15 * distancia
+        if pontuacao > melhor_pontuacao:
+            melhor_pontuacao = pontuacao
+            melhor = (indice, str(_texto or "").strip(), float(confianca or 0.0))
+    return melhor
+
+
+_PALAVRAS_CURTAS_OCR = frozenset(
+    "a an and as at be by do for he if in is it no of on or so the to we".split()
+)
+
+
+def _parece_fragmento_ocr(linha: Sequence[BoxEntry], texto: str,
+                          registros) -> bool:
+    """Identifica sobra curta do detector interno coberta por uma linha OCR.
+
+    Em fontes ornamentadas uma única linha como ``Solutions`` pode ser
+    quebrada pelo detector de glifos em ``S0l``/``u``/``tl0ns``. O registro do
+    Tesseract já cobre a faixa inteira, mas o contrato de uso único deixa as
+    sobras no fallback neural. Palavras curtas reais e lances continuam
+    protegidos por listas/réguas explícitas.
+    """
+    valor = str(texto or "").strip()
+    if not valor or len(valor) > 5 or valor.casefold() in _PALAVRAS_CURTAS_OCR:
+        return False
+    if (any(char in GLIFOS_DE_XADREZ for char in valor)
+            or re.search(r"[a-h][1-8]", valor, re.IGNORECASE)):
+        return False
+    return _casar_linha_ocr(linha, registros, set()) is not None
+
+
+def _preservar_glifos_de_xadrez(texto_base: str, texto_contextual: str) -> str:
+    """Põe os glifos reconhecidos pela rede especializada na prosa contextual.
+
+    Tesseract é muito forte em letras, mas não possui as peças Unicode do
+    livro no seu modelo latino: normalmente escreve ``Q``/``B``/``N`` no lugar
+    delas. A posição relativa na linha é estável o bastante para substituir o
+    caractere correspondente, sem trocar a frase inteira pelo OCR de glifo.
+    """
+    contextual = str(texto_contextual or "").strip()
+    base = str(texto_base or "")
+    # A CNN de glifos pode confundir uma letra maiúscula com uma peça quando
+    # ela aparece isolada (por exemplo, ``♔idy`` para ``Saidy``). Só levamos a
+    # peça para a prosa contextual quando o mesmo token tem a forma de uma
+    # jogada: uma casa de xadrez, um número de lance ou uma promoção.
+    pecas = []
+    deslocamento = 0
+    for token in re.findall(r"\S+", base):
+        tem_casa = bool(re.search(r"[a-h][1-8]", token, re.IGNORECASE))
+        tem_lance = bool(re.search(r"\d", token))
+        if tem_casa or tem_lance:
+            for indice, char in enumerate(token):
+                if char in GLIFOS_DE_XADREZ:
+                    pecas.append((deslocamento + indice, char))
+        deslocamento += len(token)
+    if not pecas or not contextual:
+        return contextual
+    posicoes = [indice for indice, char in enumerate(contextual) if not char.isspace()]
+    if not posicoes:
+        return contextual
+    saida = list(contextual)
+    total_base = max(1, len(base.replace(" ", "")) - 1)
+    total_contexto = len(posicoes) - 1
+    anteriores = set()
+    for indice, char in pecas:
+        alvo = round(indice * total_contexto / total_base)
+        alvo = max(0, min(total_contexto, alvo))
+        # Mantém a ordem mesmo quando duas peças caem no mesmo ponto devido a
+        # uma leitura contextual mais curta.
+        while alvo in anteriores and alvo < total_contexto:
+            alvo += 1
+        anteriores.add(alvo)
+        saida[posicoes[alvo]] = char
+    return "".join(saida)
+
+
+def _preservar_glifos_por_palavra(
+        texto_base: str, texto_contextual: str,
+        glifos: Sequence[Tuple[int, float, str]], detalhes=()) -> str:
+    """Mescla as peças internas na palavra contextual correspondente.
+
+    A versão antiga distribuía todos os glifos pela linha inteira. Isso era
+    frágil: uma diferença de uma palavra no Tesseract deslocava todas as
+    peças seguintes para outra palavra. Aqui a coordenada horizontal do box
+    especializado escolhe primeiro a palavra do OCR contextual e só então a
+    posição relativa dentro dela.
+
+    ``glifos`` contém posição no texto interno, centro X na página e caractere.
+    ``detalhes`` é a sequência opcional de palavras do Tesseract, no formato
+    ``(texto, confiança, (x1, y1, x2, y2))``. A coordenada escolhe a palavra e
+    a posição dentro do box escolhe o caractere. Sem detalhes, conservamos o
+    algoritmo antigo para manter compatibilidade com leitores externos.
+    """
+    if not detalhes:
+        return _preservar_glifos_de_xadrez(texto_base, texto_contextual)
+    contextual = str(texto_contextual or "").strip()
+    if not contextual or not glifos:
+        return contextual
+
+    # Só peças dentro de tokens que têm evidência de nota ou lance entram na
+    # mescla. Sem esta guarda, uma classificação isolada de uma letra comum
+    # (por exemplo, o S de ``Saidy``) poderia virar uma peça Unicode.
+    tokens_base = list(re.finditer(r"\S+", str(texto_base or "")))
+    glifos_validos = []
+    for posicao, centro_x, glifo in glifos:
+        token = next((achado for achado in tokens_base
+                      if achado.start() <= posicao < achado.end()), None)
+        if token is None:
+            continue
+        palavra = token.group(0)
+        if (re.search(r"[a-h][1-8]", palavra, re.IGNORECASE)
+                or re.search(r"\d", palavra)):
+            glifos_validos.append((float(centro_x), glifo, posicao))
+    if not glifos_validos:
+        return contextual
+
+    palavras = []
+    cursor = 0
+    for detalhe in detalhes:
+        if len(detalhe) < 3:
+            continue
+        palavra = str(detalhe[0] or "").strip()
+        caixa = detalhe[2]
+        if not palavra or len(caixa) < 4:
+            continue
+        inicio = contextual.find(palavra, cursor)
+        if inicio < 0:
+            # O Tesseract pode devolver uma palavra com pontuação diferente;
+            # a ordem ainda é útil, então não força uma posição inexistente.
+            inicio = cursor
+        fim = min(len(contextual), inicio + len(palavra))
+        palavras.append((inicio, fim, palavra, tuple(float(v) for v in caixa[:4])))
+        cursor = fim
+    if not palavras:
+        return contextual
+
+    saida = list(contextual)
+    ocupados = set()
+    for centro_x, glifo, posicao in glifos_validos:
+        candidatos = []
+        for indice, (inicio, fim, palavra, caixa) in enumerate(palavras):
+            x1, _y1, x2, _y2 = caixa
+            largura = max(1.0, x2 - x1)
+            distancia = 0.0 if x1 <= centro_x <= x2 else min(
+                abs(centro_x - x1), abs(centro_x - x2)) / largura
+            # Uma peça não pode saltar para uma coluna muito distante. A
+            # tolerância cobre pequenas diferenças entre os boxes internos e
+            # o box de palavra do Tesseract, sem atravessar a coluna vizinha.
+            if distancia <= 1.25:
+                candidatos.append((distancia, indice, inicio, fim, palavra, caixa))
+        if not candidatos:
+            continue
+        escolhido_candidato = min(candidatos)
+        _distancia, indice, inicio, fim, palavra, caixa = escolhido_candidato
+        # O detector interno às vezes não abre espaço entre ``35...`` e a
+        # jogada seguinte, enquanto o Tesseract abre. Nessa fronteira o box da
+        # peça pode ainda tocar o token puramente numérico; se há um token à
+        # direita próximo, ele é a jogada correta e não o número do lance.
+        if (re.fullmatch(r"\d+[.]*", palavra)
+                and posicao > 0
+                and str(texto_base)[posicao - 1] in ".0123456789"):
+            a_direita = [item for item in candidatos if item[2] > inicio
+                         and item[2] <= fim + 60]
+            if a_direita:
+                escolhido_candidato = min(
+                    a_direita, key=lambda item: (item[2] - inicio, item[0]))
+                _distancia, indice, inicio, fim, palavra, caixa = \
+                    escolhido_candidato
+        x1, _y1, x2, _y2 = caixa
+        alvos = [i for i in range(inicio, fim)
+                 if not contextual[i].isspace()]
+        if not alvos:
+            continue
+        # A posição relativa no box da palavra escolhe o caractere. O índice
+        # usa também pontuação: em ``37...@h8`` o ``@`` é a leitura contextual
+        # da peça e, em ``35.Qh2``, a peça está depois de ``35.``. Usar apenas
+        # letras/números deslocaria ambos os casos. ``floor`` modela as faixas
+        # de cada caractere melhor que ``round`` para o pequeno box de uma peça
+        # no início de ``Wh5t``.
+        x1, _y1, x2, _y2 = caixa
+        proporcao = max(0.0, min(0.999999,
+                                 (centro_x - x1) / max(1.0, x2 - x1)))
+        inicio_promocao = palavra.rfind("=")
+        if inicio_promocao >= 0:
+            depois_do_igual = [item for item in alvos
+                               if item > inicio + inicio_promocao]
+            alvo = depois_do_igual[0] if depois_do_igual else alvos[-1]
+        else:
+            alvo = alvos[int(proporcao * len(alvos))]
+        # Duas caixas internas podem cair no mesmo caractere em uma palavra
+        # curta (``Qh5+``). Procura a posição vizinha antes de desistir.
+        ordem = sorted(alvos, key=lambda item: abs(item - alvo))
+        escolhido = next((item for item in ordem if item not in ocupados), None)
+        if escolhido is None:
+            continue
+        saida[escolhido] = glifo
+        ocupados.add(escolhido)
+    return "".join(saida)
+
+
+def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
+                               fuzzy: bool = True) -> str:
+    """Corrige erros tipográficos claros usando um vocabulário de frequência.
+
+    Não é um corretor livre: só atua em palavras minúsculas, com pelo menos
+    três letras, quando a alternativa comum tem similaridade alta e frequência
+    muito maior. Assim nomes de jogadores, cabeçalhos e notação continuam
+    sendo responsabilidade do OCR especializado.
+    """
+    if not texto:
+        return texto
+    # A trama da coluna de conteúdo faz o Tesseract devolver marcas de
+    # verificação como ``¥``/replacement-character. Elas não são texto e não
+    # podem contaminar a prosa depois que a linha contextual foi escolhida.
+    texto = (str(texto).replace("\ufffd", "")
+             .replace("\xa5", "")
+             .replace("�", ""))
+    if not re.search(r"\d", texto):
+        # ``=`` e ``~`` soltos são resíduos da mesma textura; preservamos ``=``
+        # quando a linha contém lances, onde ele pode ser promoção.
+        texto = re.sub(r"(?<!\w)[=~|]+(?!\w)", " ", texto)
+    texto = re.sub(r"\bof['’]a\b", "of a", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    chave_idioma = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
+    # As trocas diretas são conhecimento desta fonte, não do vocabulário: elas
+    # valem mesmo sem `wordfreq`/`rapidfuzz` instalados. Só a busca aproximada
+    # depende dos dois, e sem eles ela é desligada em silêncio, como qualquer
+    # outra melhoria opcional do caminho de livro.
+    vocabulario = _VOCABULARIO_OCR.get(chave_idioma) if fuzzy else None
+    if fuzzy and vocabulario is None:
+        try:
+            from wordfreq import top_n_list
+            vocabulario = top_n_list(chave_idioma, 100000)
+        except Exception:
+            vocabulario = []
+        _VOCABULARIO_OCR[chave_idioma] = vocabulario
+    if vocabulario:
+        try:
+            from rapidfuzz import fuzz, process
+            from wordfreq import zipf_frequency
+        except Exception:
+            vocabulario = []
+
+    def corrigir(match: re.Match[str]) -> str:
+        palavra = match.group(0)
+        direta = _ERROS_OCR_FREQUENTES.get(palavra.casefold())
+        if direta is not None:
+            if palavra.isupper():
+                return direta.upper()
+            return direta.capitalize() if palavra[:1].isupper() else direta
+        if (not vocabulario or len(palavra) < 3 or palavra.isupper()
+                or palavra[:1].isupper() or not palavra.islower()):
+            return palavra
+        candidatos = process.extract(palavra, vocabulario, scorer=fuzz.ratio,
+                                     limit=3, score_cutoff=74)
+        if not candidatos:
+            return palavra
+        melhor, similaridade, _ = candidatos[0]
+        if (melhor == palavra
+                or similaridade < 74
+                or zipf_frequency(melhor, chave_idioma) < 4.0
+                or zipf_frequency(melhor, chave_idioma)
+                <= zipf_frequency(palavra, chave_idioma) + 0.3):
+            return palavra
+        # Ambiguidade lexical: não escolhe entre duas palavras igualmente
+        # próximas, pois isso seria pior que deixar a revisão sinalizar a forma.
+        if (len(candidatos) > 1 and candidatos[1][1] == similaridade
+                and zipf_frequency(candidatos[1][0], chave_idioma) >= 4.0):
+            return palavra
+        return melhor
+
+    # O lance não passa pelo corretor. Ele corria sobre a linha inteira, e a
+    # busca aproximada trocava `axb4` por `ab4` e `cxd5` por `cd5`: são três
+    # letras, minúsculas, e `ab4` não está no vocabulário, mas `ab` está.
+    return " ".join(token if _e_token_de_notacao(token)
+                    else re.sub(r"[A-Za-zÀ-ÿ]+", corrigir, token)
+                    for token in texto.split(" "))
+
+
+def _transferir_medidas(texto_antigo: str, texto_novo: str,
+                        pesos: Sequence[Optional[float]],
+                        lacunas: Sequence[Optional[float]]):
+    """Alinha negrito/lacunas ao texto que ganhou contexto de palavra."""
+    novos_pesos: List[Optional[float]] = [None] * len(texto_novo)
+    novas_lacunas: List[Optional[float]] = [None] * len(texto_novo)
+    matcher = SequenceMatcher(None, texto_antigo, texto_novo, autojunk=False)
+    for _tag, inicio_a, fim_a, inicio_n, fim_n in matcher.get_opcodes():
+        if inicio_a >= fim_a or inicio_n >= fim_n:
+            continue
+        for indice_novo in range(inicio_n, fim_n):
+            proporcao = (indice_novo - inicio_n) / max(1, fim_n - inicio_n)
+            indice_antigo = min(fim_a - 1,
+                                inicio_a + int(proporcao * (fim_a - inicio_a)))
+            if indice_antigo < len(pesos):
+                novos_pesos[indice_novo] = pesos[indice_antigo]
+            if indice_antigo < len(lacunas):
+                novas_lacunas[indice_novo] = lacunas[indice_antigo]
+    return novos_pesos, novas_lacunas
+
+
 def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
                     classificar: Callable, conf_minima: float,
                     coletor: Optional[Callable] = None,
-                    pagina: int = 0
+                    pagina: int = 0,
+                    marcador_glifo: Optional[Callable] = None
                     ) -> Tuple[str, int, List[Optional[float]],
                                List[Optional[float]], List[int]]:
     """
@@ -731,6 +1295,12 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
             pendente = False
         vao = (None if i == 0 or saltou
                else (b.x1 - linha[i - 1].x2) / largura)
+        if marcador_glifo is not None:
+            inicio_saida = len("".join(partes))
+            for deslocamento, simbolo in enumerate(saida):
+                if simbolo in GLIFOS_DE_XADREZ:
+                    marcador_glifo(inicio_saida + deslocamento,
+                                   (b.x1 + b.x2) / 2.0, simbolo)
         partes.append(saida)
         # Um por caractere **do que saiu**, e não do que entrou: um sinônimo de
         # saída pode ter mais de um caractere. É o que mantém as listas
@@ -1005,6 +1575,12 @@ class Linha:
     #: faltou um espaço, e vem do mesmo lugar e pelo mesmo motivo que `pesos`:
     #: é aqui que o box e o caractere que ele virou existem lado a lado.
     lacunas: Optional[List[Optional[float]]] = None
+    #: O domínio que `_dominio_da_linha` viu na âncora, e quem escreveu o
+    #: `texto`: `glyph` (a cadeia própria), `fusao` (lance da âncora, prosa do
+    #: motor) ou `line` (a linha do motor com as figurinas repostas). É o que o
+    #: A/B separa para medir prosa e notação cada uma por si.
+    dominio: str = "prose"
+    fonte: str = "glyph"
 
 
 def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
@@ -1031,14 +1607,14 @@ def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
     produz na virada de coluna.
     """
     por_coluna = {}
-    for l in linhas:
-        por_coluna.setdefault(l.coluna, []).append(l)
+    for linha in linhas:
+        por_coluna.setdefault(linha.coluna, []).append(linha)
 
     metricas, vaos_da_pagina = {}, []
     for coluna, desta in por_coluna.items():
-        esquerdas = sorted(l.esquerda for l in desta)
-        alturas = sorted(l.altura for l in desta)
-        topos = sorted(l.topo for l in desta)
+        esquerdas = sorted(linha.esquerda for linha in desta)
+        alturas = sorted(linha.altura for linha in desta)
+        topos = sorted(linha.topo for linha in desta)
         vaos = sorted(b - a for a, b in zip(topos, topos[1:]) if b > a)
         vaos_da_pagina.extend(vaos)
         metricas[coluna] = (esquerdas[len(esquerdas) // 2],
@@ -1206,11 +1782,11 @@ def _paragrafo_de(linhas: Sequence[Linha],
     à parte — ver lá. É a mesma separação que a F105 faz com o negrito: o que dá
     para medir na página mede-se aqui, e o que precisa de tudo espera.
     """
-    textos = [l.texto for l in linhas]
-    pesos = [list(l.pesos) if l.pesos is not None else [None] * len(l.texto)
-             for l in linhas]
-    lacunas = [list(l.lacunas) if l.lacunas is not None
-               else [None] * len(l.texto) for l in linhas]
+    textos = [linha.texto for linha in linhas]
+    pesos = [list(linha.pesos) if linha.pesos is not None else [None] * len(linha.texto)
+             for linha in linhas]
+    lacunas = [list(linha.lacunas) if linha.lacunas is not None
+               else [None] * len(linha.texto) for linha in linhas]
     juntas = _juntar_no_hifen(textos, pesos, lacunas, lex)
 
     partes: List[str] = []
@@ -1242,8 +1818,8 @@ def _paragrafo_de(linhas: Sequence[Linha],
     return Paragrafo(texto, titulo=capitulo, nivel=1 if capitulo else 2,
                      pesos=negrito.vetor(todos),
                      lacunas=negrito.vetor(vaos),
-                     topo=min(l.topo for l in linhas),
-                     pe=max(l.topo + l.altura for l in linhas),
+                      topo=min(linha.topo for linha in linhas),
+                      pe=max(linha.topo + linha.altura for linha in linhas),
                      inicios=inicios)
 
 
@@ -1719,6 +2295,9 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
 #: exatamente o que este módulo exportava antes.
 MODOS_DE_DIAGRAMA = ("render", "recorte")
 
+#: Como a leitura do motor contextual entra na linha. Ver `extrair_pagina`.
+MODOS_DE_FUSAO = ("palavra", "linha")
+
 #: O terceiro valor de `coordenadas`: as que o livro imprimiu (F95).
 #:
 #: Não é o padrão da API — quem chamava com `True` ou `False` continua tendo o
@@ -1738,6 +2317,49 @@ def _quer_coordenadas(escolha, d: Diagrama) -> bool:
     if escolha == COMO_NO_LIVRO:
         return d.rotulos.presentes
     return bool(escolha)
+
+
+def _leitura_estavel_do_diagrama(img: np.ndarray, d: Diagrama,
+                                 leitura: "diagrama.Leitura"):
+    """Recupera uma leitura boa que perdeu o porteiro por uma borda de scan.
+
+    Em páginas com trama, a divisão de uma casa pode cair um ou dois pixels
+    fora do tabuleiro e derrubar a confiança de uma única peça/casa vazia.
+    Não basta baixar o porteiro: isso aceitaria tabuleiros errados. Aqui a
+    leitura original precisa ser plausível, ficar próxima do corte e produzir
+    exatamente o mesmo FEN em duas pequenas expansões da borda.
+    """
+    if not leitura.plausivel:
+        return None
+
+    pecas = [c.confianca for c in leitura.casas if c.simbolo]
+    ocupacoes = [c.confianca_ocupacao for c in leitura.casas]
+    if not pecas or min(min(pecas), min(ocupacoes)) < 0.85:
+        return None
+
+    x1, y1, x2, y2 = d.tabuleiro
+    delta = max(1, min(4, int(round(min(x2 - x1, y2 - y1) * 0.004))))
+    candidatos = [leitura]
+    forma = img.shape[:2]
+    for sinal in (-1, 1):
+        margem = sinal * delta
+        caixa = (max(0, x1 + margem), max(0, y1 + margem),
+                 min(forma[1], x2 - margem), min(forma[0], y2 - margem))
+        alternativa = diagrama.ler(
+            img, caixa, orientacao=d.rotulos.orientacao or "branca")
+        if alternativa.plausivel:
+            candidatos.append(alternativa)
+
+    mesmo_fen = [c for c in candidatos if c.fen() == leitura.fen()]
+    if len(mesmo_fen) < 3:
+        return None
+
+    def firmeza(c):
+        pecas = [p.confianca for p in c.casas if p.simbolo]
+        return min(min(pecas, default=0.0),
+                   min((p.confianca_ocupacao for p in c.casas), default=0.0))
+
+    return max(mesmo_fen, key=firmeza)
 
 
 def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
@@ -1771,6 +2393,14 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
             leitura = diagrama.ler(img, d.tabuleiro,
                                    orientacao=d.rotulos.orientacao or "branca")
             passa, aviso = diagrama.confiavel(leitura)
+            if not passa:
+                # A borda da digitalização pode deslocar a divisão de uma casa
+                # sem alterar a posição. Só aceita a recuperação se as duas
+                # expansões repetirem a mesma posição legal.
+                estavel = _leitura_estavel_do_diagrama(img, d, leitura)
+                if estavel is not None:
+                    leitura = estavel
+                    passa, aviso = True, ""
             if passa:
                 fen = leitura.fen()
                 png, larg, alt = render_diagrama.desenhar(
@@ -1817,6 +2447,9 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    dpi: int = 300, conf_minima: float = CONF_MINIMA,
                    dpi_figura: int = DPI_FIGURA,
                    coletor: Optional[Callable] = None,
+                   ler_pagina: Optional[Callable] = None,
+                   idioma_ocr: str = "en",
+                   fusao: str = "palavra",
                    diagramas: str = "render", coordenadas=False,
                    fonte: str = render_diagrama.FONTE_PADRAO,
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
@@ -1827,6 +2460,14 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
+
+    `ler_pagina(img)` é o motor contextual — o Tesseract de página inteira,
+    uma chamada por página —, e `fusao` diz como a leitura dele entra na
+    linha: `"palavra"` (o padrão) guarda o lance da âncora e toma a prosa do
+    motor, token a token; `"linha"` é o modo anterior, em que a linha inteira
+    do motor substituía a âncora e as figurinas eram repostas por coordenada.
+    O segundo existe para o A/B medir o primeiro contra ele. Sem `ler_pagina`
+    a página é lida só pela cadeia própria, que é o modo de antes dos dois.
 
     As figuras entram na ordem pela altura em que o diagrama está na página, e
     não todas no fim: um diagrama que fica no meio da coluna tem texto antes e
@@ -1863,6 +2504,9 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     if coordenadas not in (True, False, COMO_NO_LIVRO):
         raise ValueError(f"coordenadas inválidas: {coordenadas!r} "
                          f"(use True, False ou {COMO_NO_LIVRO!r})")
+    if fusao not in MODOS_DE_FUSAO:
+        raise ValueError(f"modo de fusão inválido: {fusao!r} "
+                         f"(use um de {MODOS_DE_FUSAO})")
 
     img = _pagina_cinza(page, dpi)
     boxes, tabuleiros, _escala, respingos, colunas = caixas_e_diagramas(
@@ -1889,6 +2533,20 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         if largos:
             provar = BoxService.prova_de_reparo(img, boxes, probabilidade)
 
+    # O Tesseract (ou outro motor contextual) é chamado uma vez por página,
+    # nunca uma vez por caractere. O resultado traz coordenadas e fica restrito
+    # à linha que realmente cobre os boxes internos.
+    registros_ocr = []
+    if ler_pagina is not None:
+        try:
+            registros_ocr = list(ler_pagina(img) or [])
+        except Exception:
+            # O OCR contextual é uma melhoria opcional: se o executável ou o
+            # idioma não estiver instalado, a rede especializada continua
+            # produzindo o livro normalmente.
+            registros_ocr = []
+    usados_ocr: set[int] = set()
+
     fracos = reparos = 0
     # A tabela sai da página antes das linhas: as células dela não são linhas de
     # prosa, e deixá-las virar parágrafo é o defeito que a F72 fecha.
@@ -1906,11 +2564,85 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         # coluna única também abaixo dela.
 
     medidas: List[Linha] = []
-    for linha in quebrar_em_linhas(boxes):
+    roteador = OCRRouter()
+    roteamento: List[dict] = []
+    for indice_linha, linha in enumerate(quebrar_em_linhas(boxes)):
+        glifos_linha: List[Tuple[int, float, str]] = []
         texto, n, pesos, vaos, caixas = _texto_da_linha(
-            img, linha, classificar, conf_minima, coletor, numero)
+            img, linha, classificar, conf_minima, coletor, numero,
+            lambda posicao, centro_x, glifo: glifos_linha.append(
+                (posicao, centro_x, glifo)))
         fracos += n
-        if provar is not None and texto:
+        ancora = texto
+        # O roteador da OCR-11 decide pelo domínio da âncora: a linha só de
+        # lances fica com a cadeia própria e nem paga o motor; a de prosa ou
+        # mista vai para a fusão. A de domínio desconhecido só paga o motor
+        # quando a âncora está fraca — perdeu caractere por confiança —, que é
+        # a regra do `HybridOCRPipeline` para o mesmo caso.
+        dominio = _dominio_da_linha(texto)
+        decisao = roteador.decide(RegionResult(
+            id=f"p{numero}-l{indice_linha}",
+            type=TIPO_DE_REGIAO_POR_DOMINIO[dominio], order=indice_linha,
+            confidence=1.0,
+            bbox=(min(b.x1 for b in linha), min(b.y1 for b in linha),
+                  max(b.x2 for b in linha), max(b.y2 for b in linha))))
+        quer_contexto = (decisao.primary == "line"
+                         or (dominio == "unknown" and n > 0))
+        origem = "glyph"
+        texto_ocr, confianca_ocr, semelhanca = "", 0.0, None
+        estatisticas: dict = {}
+        casamento = (_casar_linha_ocr(linha, registros_ocr, usados_ocr)
+                     if registros_ocr else None)
+        if casamento is not None:
+            indice_ocr, texto_ocr, confianca_ocr = casamento
+            semelhanca = _semelhanca_de_linha(texto, texto_ocr)
+            detalhes_ocr = (registros_ocr[indice_ocr][3]
+                            if len(registros_ocr[indice_ocr]) > 3 else ())
+            por_palavra = fusao == "palavra" and bool(detalhes_ocr)
+            # A fusão por palavra tem o piso de cada palavra; a troca da linha
+            # inteira precisa do piso da linha, porque não tem outro.
+            compativel = (any(char.isalpha() for char in texto_ocr)
+                          and semelhanca >= SEMELHANCA_MINIMA_DA_LINHA
+                          and (por_palavra
+                               or confianca_ocr >= CONFIANCA_MINIMA_DA_LINHA))
+            if quer_contexto and compativel:
+                # O registro só é consumido quando é aceito: o rejeitado pode
+                # ser a linha de baixo — o Tesseract às vezes devolve duas
+                # linhas impressas num registro só, e ele casa primeiro com a
+                # de cima, que o recusa pela semelhança.
+                usados_ocr.add(indice_ocr)
+                if por_palavra:
+                    novo_texto, estatisticas = _fundir_por_palavra(
+                        texto, caixas, linha, detalhes_ocr)
+                    origem = "fusao"
+                else:
+                    # Sem as palavras do motor (um `ler_pagina` sem
+                    # detalhes) só dá para trocar a linha inteira.
+                    novo_texto = _preservar_glifos_por_palavra(
+                        texto, texto_ocr, glifos_linha, detalhes_ocr)
+                    origem = "line"
+                if novo_texto:
+                    novo_texto = _corrigir_prosa_contextual(novo_texto, idioma_ocr)
+                    pesos, vaos = _transferir_medidas(texto, novo_texto,
+                                                       pesos, vaos)
+                    texto = novo_texto
+                else:
+                    origem = "glyph"
+        registro = {"linha": indice_linha, "dominio": dominio,
+                    "primario": decisao.primary, "motivo": decisao.reason,
+                    "fonte": origem, "ancora": ancora, "linha_ocr": texto_ocr,
+                    "confianca_ocr": confianca_ocr, "semelhanca": semelhanca,
+                    "descartados": n, **estatisticas}
+        if origem == "glyph":
+            # A sobra curta do detector que o motor já cobriu inteira não vira
+            # linha. E a linha que ficou com a cadeia própria recebe só as
+            # trocas diretas — a de notação, nem essas: é o caminho de antes.
+            if _parece_fragmento_ocr(linha, texto, registros_ocr):
+                roteamento.append({**registro, "fragmento": True, "texto": ""})
+                continue
+            if dominio != "notation":
+                texto = _corrigir_prosa_contextual(texto, idioma_ocr, fuzzy=False)
+        if provar is not None and texto and origem == "glyph":
             # O índice do box passa a ser o da **página**, que é onde a régua do
             # box largo e a prova visual falam (`boxes_largos`,
             # `prova_de_reparo`); o `_texto_da_linha` só conhece a linha.
@@ -1928,6 +2660,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         # `juntar_hifenizadas` precisa das duas metades ao mesmo tempo. Ver
         # `_paragrafo_de`, que faz os três reparos com os dois vetores ao lado,
         # um passo acima.
+        roteamento.append({**registro, "texto": texto})
         if texto:
             medidas.append(Linha(
                 topo=min(b.y1 for b in linha),
@@ -1936,13 +2669,14 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 texto=texto,
                 coluna=_coluna_de((min(b.x1 for b in linha)
                                    + max(b.x2 for b in linha)) / 2, colunas),
-                pesos=pesos, lacunas=vaos))
+                pesos=pesos, lacunas=vaos, dominio=dominio, fonte=origem))
 
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
                                descartados_por_confianca=fracos,
                                colunas=len(colunas), reparos=reparos,
-                               altura=int(img.shape[0]))
+                               altura=int(img.shape[0]),
+                               roteamento=roteamento)
 
     def figura(d: Diagrama) -> List[Bloco]:
         """
@@ -2157,7 +2891,12 @@ def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:
         doc.close()
     if sum(conta.values()) < OCORRENCIAS_DE_IDIOMA:
         return None
-    (primeiro, n1), (_segundo, n2) = (conta.most_common(2) + [("", 0)])[:2]
+    # Um PDF escaneado pode não ter nenhuma palavra reconhecível. Ainda assim
+    # a detecção precisa devolver ``None`` para que a UI pergunte o idioma,
+    # em vez de tentar desempacotar uma lista curta e levantar IndexError.
+    (primeiro, n1), (_segundo, n2) = (
+        conta.most_common(2) + [("", 0), ("", 0)]
+    )[:2]
     return primeiro if n1 >= VANTAGEM_DE_IDIOMA * max(1, n2) else None
 
 
@@ -2165,6 +2904,9 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             paginas: Optional[Sequence[int]] = None,
             conf_minima: float = CONF_MINIMA, dpi_figura: int = DPI_FIGURA,
             coletor: Optional[Callable] = None,
+            ler_pagina: Optional[Callable] = None,
+            idioma_ocr: str = "en",
+            fusao: str = "palavra",
             diagramas: str = "render", coordenadas=False,
             fonte: str = render_diagrama.FONTE_PADRAO,
             lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
@@ -2188,6 +2930,9 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             saida.append(extrair_pagina(doc[numero], classificar, numero=numero,
                                         dpi=dpi, conf_minima=conf_minima,
                                         dpi_figura=dpi_figura, coletor=coletor,
+                                        ler_pagina=ler_pagina,
+                                        idioma_ocr=idioma_ocr,
+                                        fusao=fusao,
                                         diagramas=diagramas,
                                         coordenadas=coordenadas, fonte=fonte,
                                         lado_do_diagrama=lado_do_diagrama,

@@ -160,7 +160,15 @@ def _sem_paginas_rotuladas(monkeypatch):
     relata — que é exatamente o estado de quem nunca rotulou uma. Quem quiser o
     outro lado devolve `paginas_rotuladas` no próprio teste.
     """
-    from core import calibracao_de_pagina
+    try:
+        from core import calibracao_de_pagina
+    except ModuleNotFoundError as erro:
+        # O núcleo sem ML continua testável sem instalar Torch. Os testes que
+        # precisam dele importam a dependência explicitamente e falham/ são
+        # selecionados pelo ambiente completo de desenvolvimento.
+        if erro.name != "torch":
+            raise
+        return
 
     monkeypatch.setattr(calibracao_de_pagina, "paginas_rotuladas",
                         lambda *a, **k: [])

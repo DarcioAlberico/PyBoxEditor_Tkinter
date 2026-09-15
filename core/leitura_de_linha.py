@@ -394,6 +394,9 @@ def ler_pagina(
     progresso: Optional[Callable[[int, int], None]] = None,
     ao_falhar: Optional[Callable[[BoxEntry, Exception], None]] = None,
     fontes_sem_trava: Optional[Container[str]] = None,
+    exigir_confianca_linha: bool = False,
+    confianca_linha_minima: Optional[float] = None,
+    confianca_ancora_maxima: Optional[float] = None,
 ) -> List[Tuple[BoxEntry, str, float, str]]:
     """
     `(box, char, confiança, fonte)` para cada box de `linhas`, em ordem.
@@ -474,7 +477,15 @@ def ler_pagina(
                        and cf >= conf_maxima_para_trocar
                        and not (fontes_sem_trava is not None
                                 and fonte in fontes_sem_trava))
-            trocou = bool(texto) and not travado and sugerido != antes
+            evidencias_compativeis = (
+                (not exigir_confianca_linha or conf_linha >= cf)
+                and (confianca_linha_minima is None
+                     or conf_linha >= confianca_linha_minima)
+                and (confianca_ancora_maxima is None
+                     or cf <= confianca_ancora_maxima)
+            )
+            trocou = (bool(texto) and not travado and sugerido != antes
+                      and evidencias_compativeis)
             ch = sugerido if trocou else antes
             if not ch:
                 saida.append((b, "", 0.0, "vazio"))

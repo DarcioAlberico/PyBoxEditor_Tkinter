@@ -544,7 +544,6 @@ def separar_por_diagrama(caminhos: Sequence[str],
     nomes = list(grupos)
     np.random.default_rng(semente).shuffle(nomes)
     quantos = max(1, int(round(len(nomes) * fracao)))
-    teste = {n for n in nomes[:quantos]}
     return ([i for n in nomes[quantos:] for i in grupos[n]],
             [i for n in nomes[:quantos] for i in grupos[n]])
 
