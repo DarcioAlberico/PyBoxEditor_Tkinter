@@ -1765,6 +1765,19 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
     if len(filas) < 2 or len(colunas) < 2:
         return None
 
+    # **O que está dentro do retângulo da tabela é da tabela**, marcado ou
+    # não. A marca vem de `trama.glifos`, que só aceita componente com altura
+    # de caractere (`ALTURA_GLIFO`): os dois pontos e as reticências das
+    # células da página 236 do Nunn ficam abaixo dela, não recebem a marca e
+    # sobravam na página — saíam depois da tabela como linhas de `: : :` e
+    # `... ... ...`, e as células saíam `W Win (1 ♖e1!)` sem o `:` e sem o
+    # `1...`. Uma moldura por página, então o retângulo é a régua.
+    x1, y1, x2, y2 = regiao
+    de_moldura = [b for b in boxes
+                  if getattr(b, "moldura", False)
+                  or (x1 <= (b.x1 + b.x2) / 2 <= x2
+                      and y1 <= (b.y1 + b.y2) / 2 <= y2)]
+
     matriz: List[List[str]] = []
     usados: List[BoxEntry] = []
     fracos = 0

@@ -26,4 +26,15 @@ negativo (branco sobre preto). Transcrita da imagem em 2026-09-15 em tiras
 a 200 dpi por coluna. O texto girado da orelha do capítulo, na margem
 direita, ficou de fora de propósito.
 
-Conferência das duas contra o livro impresso ainda em aberto.
+nunn_secrets_of_rook_endings/p237.txt — Nunn, «Secrets of Rook Endings»,
+página 237 do PDF (impressa como 236): o cabeçalho corrente, a legenda e a
+tabela de seis filas (F72) na largura da página, e duas colunas embaixo, a da
+direita com um diagrama e duas linhas. Transcrita da imagem em 2026-09-15 em
+tiras a 230 dpi (500 dpi nas dúvidas). A tabela está fila a fila, com as
+células na ordem da esquerda para a direita e o texto de cada célula na ordem
+das linhas dela; o cabeçalho de colunas vem como uma fila sem a primeira
+célula (vazia). O impresso tem «W: Win: (1 ♖c1!)» com dois-pontos depois de
+«Win», e assim ficou. A legenda do diagrama («399a =/=») entra antes das duas
+linhas da coluna da direita, que é onde o programa a põe.
+
+Conferência das três contra o livro impresso ainda em aberto.

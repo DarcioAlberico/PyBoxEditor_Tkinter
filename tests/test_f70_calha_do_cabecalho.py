@@ -114,14 +114,37 @@ def test_duas_linhas_largas_atravessadas_ainda_apagam():
     """
     A tolerância é de **uma** linha, e este é o teste que a mantém apertada.
 
-    Duas linhas **largas** cruzando a calha — um título de duas linhas que
-    ocupa a página de lado a lado — ainda dizem coluna única. O que deixou de
-    apagar a calha foi a mobília (ver abaixo), e não uma tolerância maior.
+    Duas linhas **largas** cruzando a calha — prosa de lado a lado, encostada
+    à esquerda, no meio das colunas — ainda dizem coluna única. O que deixou
+    de apagar a calha foi a mobília (ver abaixo), e não uma tolerância maior.
     """
-    larga = _linha(200, -40, 40, rotulo="t1_")          # 200..997, cruza a calha
-    larga2 = _linha(200, -80, 40, rotulo="t2_")
+    larga = _linha(0, 305, 45, rotulo="t1_")            # 0..897, cruza a calha
+    larga2 = _linha(0, 335, 45, rotulo="t2_")
     assert len(BoxService.detectar_colunas(_duas_colunas() + larga)) == 2
     assert len(BoxService.detectar_colunas(_duas_colunas() + larga + larga2)) == 1
+
+
+def test_a_linha_larga_centrada_na_margem_e_mobilia():
+    """
+    O cabeçalho corrente de lado a lado e a legenda da tabela da página 236
+    do Nunn: duas linhas largas, centradas, na margem de cima, **isoladas**
+    das colunas por mais de um passo e meio de linha. Cruzam a calha e não a
+    apagam — e saem inteiras, antes das colunas.
+    """
+    cabecalho = _linha(MEIO_DA_CALHA - 300, -270, 30, rotulo="c")  # 600 px, centrado
+    legenda = _linha(MEIO_DA_CALHA - 300, -190, 30, rotulo="l")
+    boxes = _duas_colunas() + cabecalho + legenda
+    assert len(BoxService.detectar_colunas(boxes)) == 2
+    # Encostadas às colunas, no passo das linhas, são texto e contam: as duas
+    # últimas linhas de uma página de duas colunas são exatamente isso.
+    coladas = (_duas_colunas() + _linha(MEIO_DA_CALHA - 300, -60, 30, rotulo="c")
+               + _linha(MEIO_DA_CALHA - 300, -30, 30, rotulo="l"))
+    assert len(BoxService.detectar_colunas(coladas)) == 1
+    saida = [b.char for b in BoxService.sort_boxes_reading_order(boxes)]
+    assert saida[:30] == [f"c{i}" for i in range(30)]
+    assert saida[30:60] == [f"l{i}" for i in range(30)]
+    lados = [c[0] for c in saida if c and c[0] in "ed"]
+    assert sum(1 for a, b in zip(lados, lados[1:]) if a != b) == 1
 
 
 def test_a_mobilia_da_pagina_nao_apaga_a_calha():
@@ -173,10 +196,12 @@ def test_a_pagina_curta_nao_tolera_nada():
 
     assert len(BoxService.detectar_colunas(_duas_colunas(linhas=5))) == 2, \
         "sem a linha atravessada, a calha da página curta continua sendo calha"
-    # A mobília não é tolerância: o cabeçalho centrado fica fora da projeção
-    # em qualquer página, curta ou não.
+    # E a mobília também não sai da projeção numa página curta: com menos de
+    # `LINHAS_PARA_TOLERAR` linhas contadas conta-se tudo, que é o lado seguro
+    # — a folha de rosto do Seirawan, toda de mobília, abria calha nos vãos
+    # entre as palavras das duas linhas que sobravam.
     assert len(BoxService.detectar_colunas(
-        _duas_colunas(linhas=5) + _cabecalho())) == 2
+        _duas_colunas(linhas=5) + _cabecalho())) == 1
 
 
 def test_o_piso_esta_entre_o_recorte_e_a_pagina_de_prosa():
@@ -301,3 +326,78 @@ def test_a_orelha_na_margem_nao_tira_o_titulo_da_mobilia():
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ----------------------------------------------------------------------
+# A página 236 do Nunn: a tabela, o filete e a coluna de duas linhas
+# ----------------------------------------------------------------------
+
+def test_a_tabela_nao_entra_na_projecao_da_calha():
+    """
+    As caixas de dentro da moldura são lidas célula a célula; na projeção
+    eram treze linhas atravessando a calha de lado a lado, e a página de duas
+    colunas embaixo da tabela saía intercalada.
+    """
+    tabela = []
+    for i in range(6):
+        for b in _linha(100, -400 + i * 40, 55, rotulo=f"t{i}_"):    # 100..1197
+            b.moldura = True
+            tabela.append(b)
+    boxes = _duas_colunas() + tabela
+    assert len(BoxService.detectar_colunas(boxes)) == 2
+    # E na ordem de leitura a tabela é um elemento só, no lugar dela.
+    saida = [b.char for b in BoxService.sort_boxes_reading_order(boxes)]
+    assert saida[:55 * 6] == [b.char for b in tabela]
+    lados = [c[0] for c in saida if c and c[0] in "ed"]
+    assert sum(1 for a, b in zip(lados, lados[1:]) if a != b) == 1
+
+
+def test_tudo_dentro_do_retangulo_da_moldura_e_da_moldura():
+    """`trama.glifos` só marca o componente com altura de caractere; os dois
+    pontos e as réguas da tabela ficavam sem a marca e sobravam na página."""
+    marcado = BoxEntry("a", 100, 100, 120, 130, moldura=True)
+    marcado2 = BoxEntry("b", 500, 400, 520, 430, moldura=True)
+    ponto = BoxEntry(".", 300, 250, 305, 255)
+    fora = BoxEntry("c", 700, 250, 720, 280)
+    saida = BoxService._marcar_o_miolo_da_moldura([marcado, ponto, fora, marcado2])
+    assert ponto.moldura and not fora.moldura
+    assert saida == [marcado, ponto, fora, marcado2]
+
+
+def test_o_filete_da_tabela_e_descartado_e_o_travessao_nao():
+    """A régua dupla do topo da tabela do Nunn sai como um box de 937×49 px;
+    o eixo baixo o deixava passar, e ele era lido como `T` cruzando a calha."""
+    escala = 29
+    texto = [BoxEntry("x", 40 * i, 500, 40 * i + 20, 500 + escala) for i in range(30)]
+    filete = BoxEntry("", 155, 326, 155 + 937, 326 + 49)
+    travessao = BoxEntry("—", 300, 600, 300 + 4 * escala - 1, 610)
+    saida = BoxService.descartar_blocos_nao_texto(texto + [filete, travessao], escala=escala)
+    assert filete not in saida
+    assert travessao in saida
+
+
+def test_o_vao_que_e_metade_da_calha_nao_e_calha():
+    """
+    Onde a coluna tem duas linhas — a da direita da página 236 do Nunn, que é
+    um diagrama e duas linhas —, um espaço entre palavras alinhado nas duas
+    passa pela tolerância e abria um terceiro corte ao lado da calha.
+    """
+    calha = 60
+    direita = LARGURA_DA_COLUNA + calha
+    boxes = []
+    for i in range(20):
+        boxes += _linha(0, i * 30, 32, rotulo=f"e{i}_")
+    # Duas linhas à direita, com um vão de 22 px no mesmo x nas duas.
+    for i in (18, 19):
+        boxes += _linha(direita, i * 30, 10, rotulo=f"d{i}_")
+        boxes += _linha(direita + 10 * 20 + 22, i * 30, 20, rotulo=f"d{i}b_")
+    colunas = BoxService.detectar_colunas(boxes)
+    assert len(colunas) == 2, colunas
+    assert colunas[1][0] >= direita - 1
+
+
+def test_as_bandas_isoladas_sao_as_que_estao_longe_das_vizinhas():
+    linhas = [_linha(0, y, 10) for y in (-300, -200, 0, 30, 60, 90)]
+    isoladas = BoxService._bandas_isoladas(linhas)
+    assert isoladas == {id(linhas[0]), id(linhas[1])}
+    assert BoxService._bandas_isoladas(linhas[:2]) == set()

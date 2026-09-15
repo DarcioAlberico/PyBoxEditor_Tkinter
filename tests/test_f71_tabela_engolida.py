@@ -170,3 +170,38 @@ def test_a_tabela_deixa_de_sumir_da_pagina():
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ----------------------------------------------------------------------
+# A célula fechada (página 236 do Nunn, segunda vez)
+# ----------------------------------------------------------------------
+
+def test_o_glifo_dentro_da_celula_fechada_sai():
+    """
+    Dentro da tabela cada célula é um retângulo fechado pelas réguas, e com
+    `RETR_EXTERNAL` o que está dentro dele era contorno filho e não saía: a
+    coluna do meio da tabela vinha vazia em quatro das seis filas. O
+    caractere não toca a régua, então é componente próprio.
+    """
+    img = np.full((400, 600), 245, np.uint8)
+    # A moldura fechada de uma célula, e um glifo do tamanho de um caractere
+    # dentro dela, sem tocar a régua.
+    cv2.rectangle(img, (100, 100), (400, 300), 0, 3)
+    cv2.rectangle(img, (200, 180), (220, 210), 0, -1)
+    bloco = _bloco(600, 400)
+    dentro = trama.glifos(trama.binarizar_bloco(img, bloco, ESCALA), bloco, ESCALA)
+    assert any(b.x1 <= 200 and b.x2 >= 220 and b.y1 <= 180 and b.y2 >= 210
+               for b in dentro), "o glifo de dentro da célula fechada não saiu"
+    # E a régua da célula não vira glifo: cai pela altura.
+    assert not any(b.y2 - b.y1 > ESCALA * trama.ALTURA_GLIFO[1] for b in dentro)
+
+
+def test_a_pontuacao_da_celula_passa_pelo_piso():
+    """
+    Os dois pontos de `W: Win` e as reticências de `1...♖h2!` têm 5 px numa
+    escala de 29 — 0,17 —, e o piso de 0,35 os deixava na página, fora da
+    tabela, como linhas de `: : :`. O ponto da trama tem 2 px e continua fora.
+    """
+    escala = 29
+    assert escala * trama.ALTURA_GLIFO[0] <= 5
+    assert escala * trama.ALTURA_GLIFO[0] > 2

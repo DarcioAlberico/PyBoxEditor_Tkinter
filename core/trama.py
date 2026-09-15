@@ -71,7 +71,14 @@ TAMANHO_MINIMO = 4.0
 #: Faixa de altura, em escalas de texto da página, para um componente de dentro
 #: do bloco ser caractere. Larga porque o painel mistura corpo grande ("19") com
 #: corpo pequeno ("Maximum number of points is 22").
-ALTURA_GLIFO = (0.35, 2.5)
+#:
+#: **O piso era 0,35 e deixava a pontuação da tabela de fora.** Dentro das
+#: células fechadas da tabela da página 236 do Nunn, os dois pontos de
+#: `W: Win`, o `!` e as reticências de `1...♖h2!` têm 5 px numa escala de 29
+#: (0,17), e saíam `W Win(1 ♖h2)`. Com 0,15 entram; o pingo do `i` também, e
+#: no painel de pontuação do Yusupov (Complete, p. 20) `p1nts` vira `pints`.
+#: O ponto da trama continua fora: tem 2 px, e a escala nunca é menor que 13.
+ALTURA_GLIFO = (0.15, 2.5)
 
 #: Quantos caracteres fazem o bloco valer a substituição. Três é o mesmo mínimo
 #: da F10, e pelo mesmo motivo: para *decidir*, um punhado basta.
@@ -174,17 +181,25 @@ def glifos(local: np.ndarray, bloco: BoxEntry, escala: int) -> List[BoxEntry]:
         return []
 
     piso, teto = escala * ALTURA_GLIFO[0], escala * ALTURA_GLIFO[1]
-    contornos, _ = cv2.findContours(local, cv2.RETR_EXTERNAL,
-                                    cv2.CHAIN_APPROX_SIMPLE)
+    # **Componentes conexos, e não contornos externos.** Dentro da tabela da
+    # página 236 do Nunn cada célula é um retângulo fechado pelas réguas, e
+    # com `RETR_EXTERNAL` o que está dentro dele é contorno filho e não sai —
+    # a coluna do meio da tabela vinha vazia em quatro das seis filas, e as
+    # outras só saíam porque a régua delas estava partida na binarização. É o
+    # mesmo mecanismo da F71, uma moldura para dentro. O caractere não toca a
+    # régua, então é componente próprio; a régua, com as vizinhas, é um
+    # componente grande, e cai pela altura como o tabuleiro cai.
+    total, _rotulos, medidas, _centros = cv2.connectedComponentsWithStats(
+        local, connectivity=8)
     # A mesma margem que o `binarizar_bloco` tirou, devolvida às coordenadas.
     m = _margem(escala)
     saida = []
-    for c in contornos:
-        x, y, w, h = cv2.boundingRect(c)
+    for x, y, w, h, _area in medidas[1:]:
         if not (piso <= h <= teto) or w > teto * 3:
             continue
-        saida.append(BoxEntry("", bloco.x1 + m + x, bloco.y1 + m + y,
-                              bloco.x1 + m + x + w, bloco.y1 + m + y + h))
+        saida.append(BoxEntry("", bloco.x1 + m + int(x), bloco.y1 + m + int(y),
+                              bloco.x1 + m + int(x) + int(w),
+                              bloco.y1 + m + int(y) + int(h)))
     return saida
 
 

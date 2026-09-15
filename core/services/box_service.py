@@ -207,7 +207,34 @@ class BoxService:
         # caracteres saía como 7 caixas (F8.1). Quem sai daqui marcado fica
         # fora dele.
         boxes, _pilhas = vertical.aplicar(img_cv, boxes, arbitro)
-        return BoxService.merge_vertical_boxes(boxes), th, escala, img_cv
+        return (BoxService._marcar_o_miolo_da_moldura(
+            BoxService.merge_vertical_boxes(boxes)), th, escala, img_cv)
+
+    @staticmethod
+    def _marcar_o_miolo_da_moldura(boxes: List[BoxEntry]) -> List[BoxEntry]:
+        """Tudo que está dentro do retângulo da moldura é da moldura.
+
+        `trama.glifos` só marca o componente com altura de caractere; os dois
+        pontos, as reticências e os pedaços das réguas da tabela ficam sem a
+        marca, e na página 236 do Nunn eram seis bandas atravessando a calha
+        de lado a lado — a página de duas colunas embaixo da tabela saía
+        intercalada, e a pontuação das células saía depois da tabela como
+        linhas de `: : :`. Uma moldura por página (F72), então o retângulo
+        envolvente das caixas marcadas é a régua.
+        """
+        de_moldura = [b for b in boxes if getattr(b, "moldura", False)]
+        if not de_moldura:
+            return boxes
+        x1 = min(b.x1 for b in de_moldura)
+        y1 = min(b.y1 for b in de_moldura)
+        x2 = max(b.x2 for b in de_moldura)
+        y2 = max(b.y2 for b in de_moldura)
+        for b in boxes:
+            if (not getattr(b, "moldura", False)
+                    and x1 <= (b.x1 + b.x2) / 2 <= x2
+                    and y1 <= (b.y1 + b.y2) / 2 <= y2):
+                b.moldura = True
+        return boxes
 
     # Abaixo disto a linha tem amostra pequena demais para uma mediana confiável
     # (número de página, cabeçalho de uma palavra) e volta a usar a da página.
@@ -216,6 +243,15 @@ class BoxService:
     # Múltiplo da altura mediana de caractere acima do qual um contorno deixa de
     # ser texto. Precisa valer nos DOIS eixos: um travessão é largo e legítimo.
     FATOR_NAO_TEXTO = 4.0
+    # Múltiplo da altura mediana de caractere a partir do qual um contorno
+    # **baixo** é filete, e não texto: a régua dupla do topo da tabela da
+    # página 236 do Nunn sai como dois boxes de 937×49 px, e o eixo baixo os
+    # deixava passar. Depois eram lidos como `T` e cruzavam a calha inteira,
+    # dois contra uma linha tolerada. O travessão mais longo do material tem 4
+    # alturas; um filete de mesa tem trinta. Vale só depois de `negativo` e
+    # `trama` terem trocado tarja e moldura pelos caracteres de dentro, que é
+    # a ordem de `boxes_antes_do_descarte`.
+    FATOR_FILETE = 10.0
     # Com poucos boxes a mediana não é confiável (uma página que é só diagrama
     # teria "altura mediana de caractere" do tamanho do diagrama).
     MIN_BOXES_PARA_DESCARTE = 20
@@ -262,9 +298,11 @@ class BoxService:
             alturas = sorted(b.y2 - b.y1 for b in boxes)
             escala = alturas[len(alturas) // 2]
         limite = (escala or 1) * fator
+        filete = (escala or 1) * BoxService.FATOR_FILETE
 
         return [b for b in boxes
-                if (b.y2 - b.y1) <= limite or (b.x2 - b.x1) <= limite]
+                if ((b.y2 - b.y1) <= limite or (b.x2 - b.x1) <= limite)
+                and (b.x2 - b.x1) <= filete]
 
     @staticmethod
     def _largura_de_referencia(boxes: List[BoxEntry]) -> dict:
@@ -908,6 +946,15 @@ class BoxService:
     #: e deixa a linha do sumário (título à esquerda, número à direita) ser
     #: julgada pelo título, que não é centrado.
     MOBILIA_VAO_ENTRE_GRUPOS = 4.0
+    #: Fração da altura do bloco de texto, em cima e embaixo, onde a linha
+    #: **centrada** é mobília mesmo sendo larga: o cabeçalho corrente
+    #: (`236   SECRETS OF ROOK ENDINGS`) e a legenda da tabela da página 236 do
+    #: Nunn, de lado a lado sobre as duas colunas, são duas linhas cruzando a
+    #: calha contra uma tolerada. No miolo da página a linha larga centrada é
+    #: a prosa justificada de coluna única, e continua contando; nas margens
+    #: a coluna de texto começa e acaba encostada à esquerda, e a linha
+    #: centrada ali é a mobília. É a mesma margem de `livro.MARGEM_DE_PAGINA`.
+    MOBILIA_MARGEM = 0.12
 
     @staticmethod
     def _nucleo_da_banda(linha: List[BoxEntry]) -> List[BoxEntry]:
@@ -923,18 +970,67 @@ class BoxService:
                 grupos[-1].append(b)
         return max(grupos, key=len)
 
+    #: A banda larga da margem só é mobília quando está **isolada**: a folga
+    #: até a banda vizinha mais próxima é maior que isto vezes o passo mediano
+    #: entre bandas. O cabeçalho corrente fica a três passos da primeira linha
+    #: e a legenda da tabela a dois; as duas últimas linhas de uma página de
+    #: duas colunas — juntas numa banda larga e centrada, na margem de baixo —
+    #: estão a um passo da linha de cima, e são texto: tirá-las da projeção
+    #: apagava a única prova de que a coluna da direita existia, na página em
+    #: que ela tem duas linhas e um diagrama.
+    MOBILIA_ISOLAMENTO = 1.5
+
+    #: Um corte só vale se a largura dele vezes isto alcança a do maior corte
+    #: da página. Ver o comentário em `detectar_colunas`.
+    CALHA_FRACAO_DA_MAIOR = 2
+
     @staticmethod
-    def _e_mobilia(linha: List[BoxEntry], x_min: int, x_max: int) -> bool:
-        """Linha compacta e centrada no texto — título corrente, número de
-        página, título de seção centrado. Julgada pelo maior grupo de caixas
-        da banda (`_nucleo_da_banda`)."""
+    def _bandas_isoladas(linhas: List[List[BoxEntry]]) -> set:
+        """Os `id` das bandas cuja folga até a vizinha mais próxima passa de
+        `MOBILIA_ISOLAMENTO` passos medianos."""
+        if len(linhas) < 3:
+            return set()
+        faixas = sorted(((min(b.y1 for b in banda), max(b.y2 for b in banda), id(banda))
+                         for banda in linhas), key=lambda f: f[0])
+        passos = sorted(b[0] - a[0] for a, b in zip(faixas, faixas[1:]) if b[0] > a[0])
+        if not passos:
+            return set()
+        passo = passos[len(passos) // 2]
+        isoladas = set()
+        for k, (topo, base, ident) in enumerate(faixas):
+            folga_acima = topo - faixas[k - 1][1] if k else None
+            folga_abaixo = faixas[k + 1][0] - base if k + 1 < len(faixas) else None
+            vizinhas = [f for f in (folga_acima, folga_abaixo) if f is not None]
+            if vizinhas and min(vizinhas) > passo * BoxService.MOBILIA_ISOLAMENTO:
+                isoladas.add(ident)
+        return isoladas
+
+    @staticmethod
+    def _e_mobilia(linha: List[BoxEntry], x_min: int, x_max: int,
+                   y_min: Optional[int] = None, y_max: Optional[int] = None,
+                   isolada: bool = False) -> bool:
+        """Linha centrada no texto que é compacta — título corrente, número de
+        página, título de seção — ou que está na margem de cima ou de baixo
+        do bloco (`MOBILIA_MARGEM`) **e isolada** das vizinhas, como o
+        cabeçalho corrente e a legenda de uma tabela. Julgada pelo maior grupo
+        de caixas da banda (`_nucleo_da_banda`). Sem `y_min`/`y_max` só vale
+        a compacta."""
         nucleo = BoxService._nucleo_da_banda(linha)
         largura = max(1, x_max - x_min)
         inicio = min(b.x1 for b in nucleo)
         fim = max(b.x2 for b in nucleo)
         centrada = abs((inicio + fim) / 2 - (x_min + x_max) / 2) \
             < largura * BoxService.MOBILIA_DESVIO
-        return centrada and (fim - inicio) < largura * BoxService.MOBILIA_LARGURA
+        if not centrada:
+            return False
+        if (fim - inicio) < largura * BoxService.MOBILIA_LARGURA:
+            return True
+        if y_min is None or y_max is None or not isolada:
+            return False
+        margem = (y_max - y_min) * BoxService.MOBILIA_MARGEM
+        topo = min(b.y1 for b in nucleo)
+        base = max(b.y2 for b in nucleo)
+        return base <= y_min + margem or topo >= y_max - margem
 
     #: A partir de quantas linhas a página pode desprezar uma delas na calha.
     #:
@@ -1005,6 +1101,16 @@ class BoxService:
         if not boxes:
             return []
 
+        # **A tabela não entra na projeção.** As caixas de dentro de uma
+        # moldura (F71) são lidas célula a célula, por `livro._tabela_da_pagina`;
+        # na projeção elas são treze linhas atravessando a calha — a tabela da
+        # página 236 do Nunn ocupa a largura inteira — e a página de duas
+        # colunas embaixo dela saía intercalada. Quando tudo é moldura, fica
+        # tudo: alguma projeção tem de haver.
+        sem_moldura = [b for b in boxes if not getattr(b, "moldura", False)]
+        if sem_moldura:
+            boxes = sem_moldura
+
         x_min = min(b.x1 for b in boxes)
         x_max = max(b.x2 for b in boxes)
         largura = x_max - x_min
@@ -1016,8 +1122,18 @@ class BoxService:
                     if len(linhas) >= BoxService.LINHAS_PARA_TOLERAR else 0)
         # A tolerância continua contada sobre todas as linhas; só a projeção
         # deixa a mobília de fora. Ver `MOBILIA_LARGURA`.
+        y_min = min(b.y1 for b in boxes)
+        y_max = max(b.y2 for b in boxes)
+        isoladas = BoxService._bandas_isoladas(linhas)
         contadas = [linha for linha in linhas
-                    if not BoxService._e_mobilia(linha, x_min, x_max)]
+                    if not BoxService._e_mobilia(linha, x_min, x_max, y_min, y_max,
+                                                 isolada=id(linha) in isoladas)]
+        if len(contadas) < BoxService.LINHAS_PARA_TOLERAR:
+            # Poucas linhas na projeção não provam nada: a folha de rosto do
+            # Seirawan, toda de mobília, ficava com duas ou três linhas
+            # contadas e os vãos entre as palavras delas viravam calha. Com
+            # menos que o piso da F70, conta-se tudo, como antes.
+            contadas = linhas
         livre = BoxService._linhas_por_x(contadas, x_min, largura) <= tolerado
 
         calha_automatica = calha_minima is None
@@ -1068,6 +1184,16 @@ class BoxService:
 
         if not cortes:
             return [(x_min, x_max)]
+
+        # **O vão que é metade da calha não é calha.** Onde a coluna tem duas
+        # linhas — a da direita da página 236 do Nunn, que é um diagrama e
+        # duas linhas —, um espaço entre palavras alinhado nas duas passa pela
+        # tolerância e abre um terceiro corte de 13 px ao lado da calha de
+        # 100. As calhas de uma página têm a mesma largura; o espaço entre
+        # palavras tem a metade da menor delas, ou menos.
+        maior = max(fim - ini for ini, fim in cortes)
+        cortes = [(ini, fim) for ini, fim in cortes
+                  if (fim - ini) * BoxService.CALHA_FRACAO_DA_MAIOR >= maior]
 
         faixas = []
         anterior = 0
@@ -1244,21 +1370,42 @@ class BoxService:
         # no começo da direita. Ver `_e_mobilia`.
         x_min = min(b.x1 for b in boxes)
         x_max = max(b.x2 for b in boxes)
+        y_min = min(b.y1 for b in boxes)
+        y_max = max(b.y2 for b in boxes)
         elementos: List[List[BoxEntry]] = [
             [b] for b in boxes if bandas_cobertas(b) > 1]
         ids_transversais = set(id(b) for e in elementos for b in e)
 
-        def da_coluna(b: BoxEntry) -> int:
-            cx = (b.x1 + b.x2) / 2
-            return next((i for i, (x1, x2) in enumerate(colunas)
-                         if x1 <= cx <= x2), -1)
+        # A tabela é um elemento só: as caixas de dentro da moldura (F71) saem
+        # juntas, linha a linha, no lugar dela — e não repartidas pelas
+        # colunas, que `detectar_colunas` achou sem contar com elas.
+        de_moldura = [b for b in boxes if getattr(b, "moldura", False)
+                      and id(b) not in ids_transversais]
+        if de_moldura:
+            elementos.append(BoxService._agrupar_em_linhas(de_moldura))
+            ids_transversais.update(id(b) for b in de_moldura)
 
-        for banda in BoxService._linhas(boxes):
+        # A linha cruza a calha quando tem caixa **dentro** dela. A banda que
+        # junta a linha da esquerda e a da direita, na mesma altura, também é
+        # larga e centrada — mas não tem caixa nenhuma na calha, que é o que
+        # a define; tratá-la como transversal intercalaria as duas colunas de
+        # volta, linha a linha.
+        calhas = [(colunas[i][1], colunas[i + 1][0])
+                  for i in range(len(colunas) - 1)]
+
+        def cruza_a_calha(caixas) -> bool:
+            return any(b.x1 < fim and b.x2 > inicio
+                       for b in caixas for inicio, fim in calhas)
+
+        bandas = BoxService._linhas(boxes)
+        isoladas = BoxService._bandas_isoladas(bandas)
+        for banda in bandas:
             if any(id(b) in ids_transversais for b in banda):
                 continue
             nucleo = BoxService._nucleo_da_banda(banda)
-            if (len({da_coluna(b) for b in nucleo}) > 1
-                    and BoxService._e_mobilia(banda, x_min, x_max)):
+            if (cruza_a_calha(nucleo)
+                    and BoxService._e_mobilia(banda, x_min, x_max, y_min, y_max,
+                                              isolada=id(banda) in isoladas)):
                 elementos.append(sorted(banda, key=lambda b: b.x1))
                 ids_transversais.update(id(b) for b in banda)
 

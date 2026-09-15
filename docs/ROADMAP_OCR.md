@@ -704,13 +704,94 @@ número da página; 2 são a primeira letra em negrito lida pelo Tesseract
 leu. No Aagaard nada mudou — os 16 de antes, com o cabeçalho e o `gxh5` da
 cadeia.
 
+### A terceira página: Nunn, «Secrets of Rook Endings», p. 237 do PDF (impressa 236) — a tabela
+
+`preview_ocr/referencia/nunn_secrets_of_rook_endings/p237.txt`, transcrita
+da imagem em 2026-09-15: o cabeçalho corrente, a legenda e a tabela de seis
+filas da F72 ocupando a largura da página, e embaixo duas colunas de prosa
+densa de notação, a da direita com um diagrama e duas linhas. 165 tokens de
+prosa e 73 de notação. A primeira rodada deu **47% de CER**, e o que a página
+exigiu, em ordem:
+
+1. **A tabela apagava a calha.** As caixas de dentro da moldura (F71) eram
+   treze linhas atravessando a calha na projeção, e as duas colunas de baixo
+   saíam intercaladas. `detectar_colunas` deixa de contar as caixas
+   `moldura`, e na ordem de leitura elas são um elemento só, no lugar da
+   tabela. E **tudo que está dentro do retângulo da moldura é da moldura**
+   (`_marcar_o_miolo_da_moldura`): `trama.glifos` só marca o componente com
+   altura de caractere, e os dois pontos, as reticências e os pedaços das
+   réguas ficavam sem a marca — saíam depois da tabela como linhas de
+   `: : :`, e as células saíam `W Win(1 ♖e1!)`.
+2. **O filete.** A régua dupla do topo da tabela saía como dois boxes de
+   937×49 px: baixos, passavam pelo descarte de bloco, eram lidos como `T` e
+   cruzavam a calha inteira. `FATOR_FILETE`: contorno mais largo que dez
+   alturas de caractere não é texto, depois de `negativo` e `trama` terem
+   aberto tarja e moldura. Nas 11 páginas rotuladas nada muda (F1 94,9).
+3. **O cabeçalho corrente e a legenda da tabela**, de lado a lado sobre as
+   colunas: duas linhas largas cruzando a calha. Não são compactas; são
+   **centradas nas margens** do bloco de texto (12%, a mesma de
+   `livro.MARGEM_DE_PAGINA`) e **isoladas** das vizinhas por mais de um
+   passo e meio de linha — as duas últimas linhas de uma página de duas
+   colunas também são uma banda larga e centrada na margem de baixo, mas
+   estão a um passo da linha de cima, e são texto. A primeira versão tentou
+   "a linha larga que é minoria é separador", e é insustentável: a banda que
+   junta as duas colunas na mesma altura também é larga, e a calha do Nunn
+   (3,3 larguras) fica abaixo do vão que separa grupos.
+4. **O vão que é metade da calha não é calha.** Onde a coluna tem duas linhas,
+   um espaço entre palavras alinhado nas duas passa pela tolerância e abria
+   um terceiro corte de 13 px ao lado da calha de 100; `CALHA_FRACAO_DA_MAIOR`
+   descarta o corte que não chega à metade do maior. Nas amostras dos 8
+   livros isto só tirou faixas espúrias (Chess Evolution 1 p48 3 → 2, p92
+   4 → 2, p114 3 → 2; Complete p438 4 → 2).
+5. **A célula fechada.** Dentro da tabela cada célula é um retângulo fechado
+   pelas réguas, e `trama.glifos` usava `RETR_EXTERNAL`: o que está dentro é
+   contorno filho e não saía — a coluna do meio vinha vazia em quatro das seis
+   filas, e as outras só saíam porque a régua delas estava partida na
+   binarização. É a F71 uma moldura para dentro. Componentes conexos no
+   lugar de contornos; a régua cai pela altura como o tabuleiro cai. E o
+   piso de `ALTURA_GLIFO` desce de 0,35 para 0,15: a pontuação das células
+   tem 5 px em 29 (0,17), e o ponto da trama tem 2. No painel de pontuação
+   do Yusupov Complete (p. 20) o pingo do `i` passa a entrar (`p1nts` →
+   `pints`); nas páginas 18 e 19 nada muda.
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Nunn p. 237 (primeira rodada) | `palavra` | 43,30% | 43,03% | 52,78% | 43,84% | 47,36% |
+| Nunn p. 237 | `glifo` | 20,47% | 24,85% | 21,31% | 26,03% | 20,83% |
+| | `linha` | 18,66% | 18,79% | 25,18% | 38,36% | 21,45% |
+| | `palavra` | **16,49%** | **16,36%** | **19,85%** | **26,03%** | **17,93%** |
+| Aagaard p. 30 | `palavra` | 1,33% | 2,90% | 4,60% | 11,36% | 2,40% |
+| Yusupov p. 34 | `palavra` | 0,50% | 2,36% | 0,75% | 3,36% | 0,63% |
+
+As duas primeiras páginas não mudaram. Dos 46 tokens que sobram no Nunn, 40
+são da tabela — e a tabela é lida **só pela cadeia própria**, célula a
+célula (`_tabela_da_pagina`), sem a fusão: `W:Win(1` por `W: Win (1` (a
+régua do espaço numa célula de poucos boxes), `W:W1n` (o `i`), a fila de
+cabeçalho `W♔d1 W♔c1 W♔b1`, que está num bloco à parte, baixo demais para
+`trama.candidatos` (91 px contra o piso de 116), e os dois `*`, que a cadeia
+não tem. Fora da tabela sobram 6: o `W` lido `w`, `1..♖b2?`, `♖e8 !` partido
+e a marca `-see`.
+
+### O que ficou de fora, e por quê
+
+- **As células da tabela não passam pela fusão.** O Tesseract da página lê
+  as células com as caixas das palavras; ligar `_tabela_da_pagina` ao mesmo
+  laço de linha de `extrair_pagina` é o passo que tira a maior parte dos 40.
+- **A fila de cabeçalho da tabela** está num bloco de 937×91 px que
+  `trama.candidatos` recusa por baixo (piso de 4 escalas). Abrir blocos
+  baixos e largos é o que a resolve — com a peneira do filete logo atrás.
+- **As páginas de capítulo do Chess Evolution 1 (18, 46) saem como lixo**
+  (`⯹⯹♖= . :. . .`, 912 «caracteres» na 18; 9 na 46, sem a prosa) — **e já
+  saíam assim em HEAD**, conferido num worktree limpo com o mesmo modelo. O
+  painel de conteúdo sobre a trama envenena a segmentação da página inteira;
+  é o layout "prosa com diagrama do Yusupov" que o A/B ia ver a seguir, e é
+  um defeito anterior a esta fase, do tamanho de uma fase.
+
 ### Próximo passo
 
-Conferir as duas referências contra o livro impresso (as releituras foram
-sobre o scan). Depois, a página do Nunn com tabela (F72) e uma página de
-prosa com diagrama do Yusupov (o capítulo, com o painel de conteúdo sobre a
-trama) — são os dois layouts que o A/B ainda não viu. A orelha girada do
-capítulo, que sai como lixo (`♕ ♕ ♕ ⩲`) no fim da coluna, é assunto da
-detecção de texto girado (F8.1): quatro letras não formam pilha para ela.
-Os erros confiantes da cadeia no lance (`25♖xc7!`, `⩲` por `±`, `e`/`c`)
-continuam sendo o caso de uso da OCR-14.
+Conferir as três referências contra o livro impresso. Depois, as páginas de
+capítulo do Chess Evolution 1 (18, 46): primeiro entender por que a
+segmentação perde a prosa inteira (é o `MAX_CONTORNOS_DE_TEXTO`? a
+binarização da página com o painel?), medindo antes de mexer. Em paralelo,
+as células da tabela pela fusão. A orelha girada do capítulo (`♕ ♕ ♕ ⩲`) é
+assunto da F8.1, e os erros confiantes da cadeia no lance, da OCR-14.

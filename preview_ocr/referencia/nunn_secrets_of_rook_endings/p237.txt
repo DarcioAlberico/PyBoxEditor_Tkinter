@@ -1,0 +1,25 @@
+236 SECRETS OF ROOK ENDINGS
+
+In all cases W♖g1, ♙c3 and B♔h7: W=White to play B=Black to play
+
+W♔d1 W♔c1 W♔b1
+B♖h2 W: Win (1 ♖e1!) B: Draw (1...♖a2!) W: Draw B: Draw (1...♔h6/h8) W: Draw B: Draw (1...♔h6/h8/♖d2/e2)
+B♖f2 W: Win (1 ♖e1!) B: Draw (1...♖a2!) W: Win (1 ♖d1!) B: Draw (1...♖h2!) W: Win: (1 ♖c1!) B: Draw (1...♖d2/e2/h2)
+B♖e2 B: Draw (1...♖a2!) W: Win (1 ♖d1!) B: Draw (1...♖h2!) W: Draw B: Draw (1...♔h6/h8/♖d2/h2)
+B♖d2 * B: Draw (1...♖h2!) W: Draw B: Draw (1...♔h6/h8/♖e2/h2)
+B♖b2 W: Win (1 ♖e1!) B: Draw (1...♖h2!) *
+B♖a2 W: Draw W: Win (1 ♖d1!) B: Draw (1...♖d2/e2/h2)
+
+the b-file, winning as in diagram 392) draws after 5 ♖b5 ♖a2! or 5 ♔c2 ♔e5.
+
+W2) 1 ♖b8 ♔g5 2 ♖b2 ♖a1+ 3 ♔c2 ♔f5 draws comfortably.
+
+W3) 1 ♔d1 (D) and now:
+
+W3a) 1...♖b2? (1...♖f2? 2 ♖e8! is similar) 2 ♖e8! ♔g4 3 ♖e2! ♖b8 4 ♔c2! (now we see why Black's rook has to be on the a-file; without the check on a2, Black cannot stop White establishing a decisive cut-off) ♔f3 (4...♖a8 5 ♖e5 ♔f4 6 ♖b5 wins) 5 ♖e5 ♔f4 6 ♖d5! ♔e4 7 c4! and wins.
+
+W3b) 1...♔h6 (1...♔h4 is also a draw; Black's rook is already on the best square and should not be moved)
+
+399a =/=
+
+2 ♖e8 ♔g6 3 ♖e2 ♖a8 4 ♔c1 ♔f6 (not 4...♔f7? 5 ♔b2! and wins – see diagram
