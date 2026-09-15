@@ -535,30 +535,37 @@ a linha inteira pela do Tesseract e repunha as figurinas por coordenada:
 ### O A/B da página 30
 
 Referência: `preview_ocr/referencia/p030.txt`, transcrita da imagem em
-2026-09-15 e **ainda por revisar** (207 tokens de prosa, 88 de notação). A
-página 31 é só diagramas e não entra.
+2026-09-15 e relida no mesmo dia em tiras a 220 dpi (900 dpi nos símbolos),
+com uma correção — `26.♘g3±`, e não `⩲`, que era o que a cadeia tinha lido e
+eu tinha seguido. Nos dois pontos que o scan deixa ambíguos (`58...♕e1`,
+`27.♘e5`) a lógica dos lances decide: `e1→g3` e `e5→f7` são movimentos
+possíveis, `c1→g3` e `c5→f7` não. A conferência contra o livro impresso
+continua em aberto. São 207 tokens de prosa e 88 de notação; a página 31 é
+só diagramas e não entra.
 
 | modo | CER prosa | WER prosa | CER notação | WER notação | CER total | s |
 |---|---:|---:|---:|---:|---:|---:|
-| `glifo` (só a cadeia) | 31,60% | 61,84% | 10,46% | 19,32% | 24,67% | 1,7 |
+| `glifo` (só a cadeia) | 31,60% | 61,84% | 10,67% | 20,45% | 24,74% | 1,7 |
 | `linha` (modo anterior) | 5,71% | 6,28% | 17,15% | 38,64% | 9,46% | 4,5 |
-| `palavra` (novo, padrão) | **5,30%** | **4,83%** | **7,32%** | **15,91%** | **5,96%** | 3,2 |
+| `palavra` (novo, padrão) | **5,30%** | **4,83%** | **7,53%** | **17,05%** | **6,03%** | 3,2 |
 
 O modo `palavra` ganha nas cinco colunas. Na notação ele ganha até da cadeia
 sozinha, o que parece errado e não é: os tokens da notação são os mesmos nos
 dois, e a diferença é a prosa vizinha — no modo `glifo` a palavra partida
 (`20] 2`) e o lixo inserido caem no alinhamento como erro do token de trás.
 
-O que sobra no modo `palavra`, token a token (28 de 295):
+O que sobra no modo `palavra`, token a token (25 de 295):
 
-- 12 são da cadeia própria, no lance: `25♖xc7!` sem o ponto, `25.g4.` por
-  `25.g4?`, `gxh5` lido `a6`, `♕e1`/`♘e5` lidos `♕c1`/`♘c5`, `1–0` lido `1`.
-  É o assunto da OCR-14 (dados e treino), e a métrica agora o separa.
+- 14 são da cadeia própria, no lance: `25♖xc7!` sem o ponto, `25.g4.` por
+  `25.g4?`, `⩲` por `±`, `gxh5` lido `a6`, `♕e1`/`♘e5` lidos `♕c1`/`♘c5`,
+  `26...g16` por `26...gxh6`, `1–0` lido `1`. É o assunto da OCR-14 (dados e
+  treino), e a métrica agora o separa.
 - 8 são de uma linha só, o cabeçalho `9. El Debs – Valhondo Morales,
   Gibraltar 2012`, para o qual o Tesseract não devolveu registro na primeira
   passada; a segunda deu lixo, a semelhança o recusou, e a linha ficou com a
-  cadeia (`Bl Ibet Valhndo Morales' Gibra]tar 201 2`).
-- o resto é do Tesseract na prosa: `[n` por `In`, `Bur` por `But`, `'The`.
+  cadeia (`Bl Ibet Valhndo Morales' Gibra]tar 201 2`) — sete de prosa e o
+  traço entre os nomes, que a peneira conta como sinal.
+- 3 são do Tesseract na prosa: `[n` por `In`, `Bur` por `But`, `'The`.
 
 ### O que ficou de fora, e por quê
 
@@ -575,7 +582,8 @@ O que sobra no modo `palavra`, token a token (28 de 295):
 
 ### Próximo passo
 
-Revisar a referência da página 30 contra o impresso e refazer a tabela
+Conferir a referência da página 30 contra o livro impresso (a releitura foi
+sobre o scan) e, se mudar, refazer a tabela
 (`python scripts/ab_ocr_livro.py "<pdf>" --paginas 30`). Depois, ampliar a
 referência para páginas de outros livros — a do Yusupov de duas colunas e a
 do Nunn com tabela — antes da OCR-14, para a métrica por domínio ter mais de
