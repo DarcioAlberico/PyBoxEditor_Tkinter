@@ -293,15 +293,16 @@ ANCORAS = ("Amaz1ngly m1ssed", "25.♖xc7! B]ack", "28.♖xf7+ ♔e6")
 PALAVRAS = (["Amazingly", "missed"], ["25.Exc7!", "Black"], ["28.Bxf7t", "He6"])
 
 
-def _extrair(monkeypatch, fusao, pular=(), ler_faixa=None):
+def _extrair(monkeypatch, fusao, pular=(), ler_faixa=None,
+             ancoras=ANCORAS, palavras=PALAVRAS):
     classificar = _classificador()
     monkeypatch.setattr(livro, "_texto_da_linha",
-                        _texto_da_linha_roteirizado(ANCORAS))
+                        _texto_da_linha_roteirizado(ancoras))
     doc = _pagina(("aaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", "cccccccccccccc"))
     try:
         return livro.extrair_pagina(
             doc[0], classificar, dpi=150,
-            ler_pagina=_ler_pagina_roteirizado(PALAVRAS, classificar, pular),
+            ler_pagina=_ler_pagina_roteirizado(palavras, classificar, pular),
             ler_faixa=ler_faixa, fusao=fusao)
     finally:
         doc.close()
@@ -400,12 +401,12 @@ def test_o_registro_da_faixa_volta_em_coordenadas_da_pagina():
                  (("ab", 0.9, (margem, margem, margem + 10, margem + 30)),
                   ("cd", 0.8, (margem + 20, margem, margem + 30, margem + 30))))]
 
-    texto, conf, detalhes = livro._registro_da_faixa(img, linha, ler)
+    texto, conf, detalhes, trama = livro._registro_da_faixa(img, linha, ler)
 
     # A faixa começa `FOLGA_DA_FAIXA_EM_LARGURAS` boxes medianos antes do
     # primeiro box (10 px de largura mediana), mais a margem.
     folga = int(10 * livro.FOLGA_DA_FAIXA_EM_LARGURAS)
-    assert (texto, conf) == ("ab cd", 0.9)
+    assert (texto, conf, trama) == ("ab cd", 0.9, False)
     assert detalhes == (("ab", 0.9, (100 - folga, 200, 110 - folga, 230)),
                         ("cd", 0.8, (120 - folga, 200, 130 - folga, 230)))
     assert livro._registro_da_faixa(img, linha, lambda faixa: []) is None
@@ -648,20 +649,25 @@ def test_a_faixa_sobre_trama_e_limpa_para_o_motor():
         recebidas.append(faixa.copy())
         return [("ab", 0.9, (8, 8, 38, 38), (("ab", 0.9, (8, 8, 38, 38)),))]
 
-    livro._registro_da_faixa(img, linha, ler)
+    registro = livro._registro_da_faixa(img, linha, ler)
     faixa = recebidas[0]
     margem = livro.MARGEM_DA_FAIXA
     miolo = faixa[margem:-margem, margem:-margem]
     assert (miolo == 40).sum() == 0, "a trama tinha de sair"
     assert miolo.min() == 0, "as letras tinham de ficar"
     assert set(np.unique(miolo)) <= {0, 255}, "a faixa limpa é binária"
+    # E o registro diz que a faixa estava sobre trama — é o que a fusão usa.
+    assert registro[3] is True
+    assert livro._linha_sobre_trama(img, linha) is True
     # Sem trama, a faixa fica como está — cinza e tudo.
     limpa = np.full((400, 600), 255, dtype=np.uint8)
     limpa[205:225, 100:110] = 30
     limpa[205:225, 120:130] = 30
     recebidas.clear()
-    livro._registro_da_faixa(limpa, linha, ler)
+    registro = livro._registro_da_faixa(limpa, linha, ler)
     assert recebidas[0].min() == 30, "sem trama a faixa não é binarizada"
+    assert registro[3] is False
+    assert livro._linha_sobre_trama(limpa, linha) is False
 
 
 @pytest.mark.parametrize("antes, depois", [
@@ -677,3 +683,134 @@ def test_o_l_solto_na_frente_do_lance_e_o_um(antes, depois):
         antes, [None] * len(antes), [None] * len(antes), list(range(len(antes))))
     assert texto == depois
     assert len(pesos) == len(lacunas) == len(caixas) == len(texto)
+
+
+# ----------------------------------------------------------------------
+# A linha sobre trama: a figurina no ponto, e o motor lendo a faixa limpa
+# ----------------------------------------------------------------------
+
+def _detalhes(*pares, x0=100, largura=10):
+    """Palavras do motor lado a lado, `(texto, confiança)` cada uma."""
+    detalhes, x = [], x0
+    for palavra, conf in pares:
+        detalhes.append((palavra, conf, (x, 200, x + largura * len(palavra), 230)))
+        x += largura * (len(palavra) + 1)
+    return tuple(detalhes)
+
+
+#: O que o Tesseract devolveu para as faixas limpas do painel do Chess
+#: Evolution 1 (p. 47): a palavra impressa a 0,94–0,96, o lixo da trama a
+#: 0,00–0,39, e o `¥` da marca de verificação no meio, sem letra.
+PAINEL = (("¥", 0.75), ("Two", 0.94), ("methods", 0.96), ("Bee", 0.2))
+LIXO_DA_TRAMA = (("SEE", 0.13), ("EE", 0.25), ("ER", 0.32), ("I", 0.09), ("ST", 0.29))
+
+
+def test_o_motor_le_a_trama_quando_as_palavras_confiantes_carregam_a_faixa():
+    assert livro._motor_le_a_trama(_detalhes(*PAINEL))
+    assert not livro._motor_le_a_trama(_detalhes(*LIXO_DA_TRAMA))
+    # Uma letra confiante não carrega nada, e metade das letras é o piso.
+    assert not livro._motor_le_a_trama(_detalhes(("I", 0.9)))
+    assert not livro._motor_le_a_trama(_detalhes(("an", 0.9), ("Seeks", 0.3)))
+    assert not livro._motor_le_a_trama(())
+
+
+def test_a_faixa_sobre_trama_e_aceita_pelo_motor_e_nao_pela_semelhanca():
+    # A cadeia lê `T♕ eas` onde está impresso `Two methods`: a semelhança
+    # não passa de 0,35, e nunca passaria — a âncora sobre trama não é
+    # evidência. O motor lendo a faixa limpa é.
+    ancora, linha_ocr, detalhes = "T♕ eas", "¥ Two methods Bee", _detalhes(*PAINEL)
+    semelhanca, sem_trama = livro._compatibilidade_da_linha(
+        ancora, linha_ocr, 0.71, detalhes, "palavra")
+    _sem, com_trama = livro._compatibilidade_da_linha(
+        ancora, linha_ocr, 0.71, detalhes, "palavra", trama=True)
+    assert semelhanca < livro.SEMELHANCA_MINIMA_DA_LINHA
+    assert not sem_trama and com_trama
+    # O lixo da trama continua de fora; e o modo `linha` não tem a régua,
+    # porque ele trocaria a linha inteira — `Bee` junto.
+    assert not livro._compatibilidade_da_linha(
+        "", "SEE EE ER I ST", 0.2, _detalhes(*LIXO_DA_TRAMA), "palavra", trama=True)[1]
+    assert not livro._compatibilidade_da_linha(
+        ancora, linha_ocr, 0.71, detalhes, "linha", trama=True)[1]
+
+
+@pytest.mark.parametrize("token, sem_casa", [
+    ("T♕", True), ("ex♕fange", True), ("♕", True), ("♘xe", True),
+    ("♘e4", False), ("25.♖xc7!", False), ("2.♘", False), ("e8=♕", False),
+    ("Two", False), ("", False),
+])
+def test_o_lance_sem_casa_e_a_figurina_sem_casa_nem_numero(token, sem_casa):
+    assert livro._lance_sem_casa(token) is sem_casa
+
+
+def test_sobre_trama_o_lance_sem_casa_vai_para_o_motor():
+    ancora = "T♕ eas"
+    boxes, caixas = _linha_de_boxes(ancora)
+    detalhes = _palavras_do_motor("Two methods", ancora)
+
+    com_trama, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes,
+                                                  trama=True)
+    sem_trama, _contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes)
+
+    assert com_trama == "Two methods"
+    assert contas["lances_sem_casa"] == 1
+    # Fora da trama a figurina é da cadeia, que é a única que a escreve.
+    assert sem_trama == "T♕ methods"
+
+
+def test_sobre_trama_o_lance_com_casa_e_o_sem_palavra_do_motor_ficam():
+    ancora = "25.♖xc7! B]ack"
+    boxes, caixas = _linha_de_boxes(ancora)
+    detalhes = _palavras_do_motor("25.Exc7!  Black", ancora)
+    texto, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes,
+                                              trama=True)
+    assert texto == "25.♖xc7! Black"
+    assert "lances_sem_casa" not in contas
+
+    # O motor não leu nada sobre o `T♕`: a âncora é o que existe.
+    ancora = "T♕ eas"
+    boxes, caixas = _linha_de_boxes(ancora)
+    detalhes = _palavras_do_motor("   methods", ancora)
+    texto, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes,
+                                              trama=True)
+    assert texto == "T♕ methods"
+    assert "lances_sem_casa" not in contas
+
+
+def test_a_linha_sobre_trama_lida_pela_faixa_troca_a_figurina_pelo_motor(monkeypatch):
+    # A passada de página pulou a linha do painel; a faixa dela é lida
+    # limpa, e o registro diz que estava sobre trama.
+    monkeypatch.setattr(livro, "_limpar_faixa_de_trama",
+                        lambda faixa, linha: (faixa, True))
+    chamadas = []
+    pagina = _extrair(monkeypatch, "palavra", pular=(1,),
+                      ancoras=("Amaz1ngly m1ssed", "T♕ eas", "28.♖xf7+ ♔e6"),
+                      ler_faixa=_ler_faixa_roteirizado(["Two", "methods"], chamadas))
+
+    registro = pagina.roteamento[1]
+    assert registro["texto"] == "Two methods"
+    assert registro["fonte"] == "fusao"
+    assert registro["trama"] is True and registro["faixa"] is True
+    assert registro["semelhanca"] < livro.SEMELHANCA_MINIMA_DA_LINHA
+    assert registro["lances_sem_casa"] == 1
+    assert "trama" not in pagina.roteamento[0]
+
+
+def test_a_linha_sobre_trama_com_registro_da_pagina_mede_a_trama_por_conta(monkeypatch):
+    # O registro veio da passada de página e passou pela semelhança; a trama
+    # é medida na linha, e só porque a âncora tem a figurina sem casa.
+    medidas = []
+
+    def sobre_trama(img, linha):
+        medidas.append(len(linha))
+        return True
+    monkeypatch.setattr(livro, "_linha_sobre_trama", sobre_trama)
+    pagina = _extrair(monkeypatch, "palavra",
+                      ancoras=("Amaz1ngly m1ssed", "ex♕fange fiees", "28.♖xf7+ ♔e6"),
+                      palavras=(["Amazingly", "missed"], ["exchange", "pieces"],
+                                ["28.Bxf7t", "He6"]))
+
+    assert pagina.roteamento[1]["texto"] == "exchange pieces"
+    assert pagina.roteamento[1]["trama"] is True
+    assert pagina.roteamento[1]["lances_sem_casa"] == 1
+    assert len(medidas) == 1, "só a linha com lance sem casa paga a medição"
+    assert "trama" not in pagina.roteamento[0]

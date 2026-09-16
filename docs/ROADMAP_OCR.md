@@ -855,12 +855,84 @@ título `CHAPTER 5` sai `CHAPTER )` —, e os outros são o `Diagram 5-1` do
 lado do tabuleiro, `opponent,s` (o Tesseract dá 0,0 de confiança à palavra
 com apóstrofo curvo) e o número da página.
 
+### O painel sobre a trama, pelo motor: a âncora sobre meio-tom não é evidência
+
+Data: 2026-09-15, a rodada seguinte. Dos 21 tokens que sobravam na p. 47, 15
+eram o painel, e o roteamento gravado mostrou que não era **uma** trava, e
+sim duas, em linhas diferentes:
+
+- `T♕ eas` (impresso `Two methods`): a faixa limpa saiu do motor como `¥ Two
+  methods Bee`, com `Two` a 0,94 e `methods` a 0,96 — e foi **rejeitada pela
+  semelhança**, 0,35, antes de chegar à fusão. `🗸 H f0ee an` (`How to force
+  an`; `How`, `to`, `force`, `an` a 0,95–0,96) idem, a 0,48. A semelhança
+  compara letras e dígitos da âncora com os do motor, e a âncora sobre trama
+  não tem letras que prestem: nunca ia passar.
+- `ex♕fange fiees` (`exchange of pieces`): o registro da página passou (0,79),
+  mas `ex♕fange` tem figurina, figurina é lance, e o lance fica com a âncora —
+  com o motor lendo `exchange` a 0,70 no mesmo lugar.
+
+O lixo que o motor devolve para as faixas de trama sem texto, medido na
+mesma página, fica em 0,00–0,39 (`ER`, `oe`, `Seeks`, `SEE EE ER I ST`,
+`‘AURIS`); o `¥` da marca de verificação no meio (0,62–0,75), sem letra. A
+palavra impressa sai a 0,69 (`Contents`, `exchange`, `pieces.`) ou a
+0,94–0,96. É a distância que a régua nova usa:
+
+1. **O registro da faixa diz se ela estava sobre trama** (quarto item de
+   `_registro_da_faixa`, o que `_limpar_faixa_de_trama` decidiu), e com isso
+   `_compatibilidade_da_linha` deixa de pedir semelhança: aceita quando as
+   palavras do motor a `CONFIANCA_DA_PALAVRA_NA_TRAMA` (0,8) carregam metade
+   das letras da linha, duas no mínimo (`_motor_le_a_trama`). **Só para o
+   registro da faixa**, que foi lida desta linha e de mais nenhuma; o
+   registro da passada de página pode ser a linha vizinha, e continua sendo
+   a semelhança que o pega — a linha 6 casou primeiro com o `exchange of
+   pieces` da linha de baixo (0,26), e é assim que tem de ser. E só no modo
+   `palavra`: o `linha` trocaria a linha inteira, `Bee` junto.
+2. **Sobre trama, o lance sem casa vai para o motor como prosa**
+   (`_lance_sem_casa` em `_fundir_por_palavra`): o token com figurina, sem
+   `[a-h][1-8]` e sem número de lance na frente. Depois de
+   `_preencher_lacunas_do_lance`, para o `♘xe` com o `4` derrubado ganhar a
+   casa e continuar lance; e só quando o motor leu alguma coisa ali. O lance
+   com casa é da âncora, trama ou não, e fora da trama nada muda — a figurina
+   solta na prosa é da cadeia, que é a única que a escreve. Quando o registro
+   veio da página (o caso do `ex♕fange`), a trama é medida na linha
+   (`_linha_sobre_trama`, 0,3–1 ms), e só se a âncora tem um token desses.
+3. **A régua da trama na faixa era relativa, e o Nunn a desmentiu.** A
+   primeira rodada com a régua nova levou a p. 237 de 17,93% para 19,27%: a
+   fila da tabela feita de filetes (`ll`, dois boxes de 177 px) passava por
+   trama — "minúsculo" era menos de um quarto da altura mediana dos boxes, 44
+   px, e as letras da fila (30 px) contavam como ponto, 97 de 102 — e a faixa
+   limpa saía do motor como `| BEd2 | * B: Draw |`, aceita pela régua 1 e
+   escrita em cima da tabela. O ponto de trama tem tamanho físico, e a página
+   já o tem (`BoxService.TRAMA_ALTURA_PX`, menos de 4 px nos dois eixos):
+   `_binaria_da_trama` passa a contar esse. Nas faixas do painel as duas
+   réguas contam quase o mesmo (545 e 557; 1.225 e 1.239; 1.289 e 1.328) e o
+   veredito não muda em nenhuma; na fila do Nunn a absoluta conta 0.
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Yusupov p. 47 (rodada anterior) | `palavra` | 4,65% | 7,92% | 0,00% | 0,00% | 3,99% |
+| Yusupov p. 47 | `glifo` | 21,36% | 35,85% | 0,48% | 2,33% | 18,40% |
+| | `linha` | 4,73% | 7,92% | 2,39% | 9,30% | 4,40% |
+| | `palavra` | **2,92%** | **5,66%** | **0,00%** | **0,00%** | **2,50%** |
+| Aagaard p. 30 | `palavra` | 1,33% | 2,90% | 4,60% | 11,36% | 2,40% |
+| Yusupov p. 34 | `palavra` | 0,66% | 2,34% | 0,76% | 3,39% | 0,71% |
+| Nunn p. 237 | `palavra` | 16,49% | 16,36% | 19,85% | 26,03% | 17,93% |
+
+As outras três páginas não mudaram um centésimo (o Nunn, depois da régua 3),
+nem os modos `glifo` e `linha`; `medir_paginas.py` não passa por `livro.py`,
+e as 11 rotuladas não mudam por construção. O painel agora sai `Two methods
+🗸 How to force an exchange of pieces. - Combining both methods:`. Dos 15
+tokens que sobram na p. 47: o `✓` (que o programa escreve `🗸` ou perde, e
+conta como diferença nas três linhas), o `.`, o `-` e o `:` que o motor cola
+às palavras do painel a 0,69–0,84 (é a trama, e o motor a lê como
+pontuação), `CHAPTER )` (o `5` do título), as três linhas `:` e o `Diagram
+5-1` do lado do tabuleiro que a cadeia perde, `opponent,s`, `A.Yusupv`, `]`,
+`-` e o número da página.
+
 ### Próximo passo
 
-Conferir as quatro referências contra o livro impresso. O painel sobre a
-trama ainda pede uma coisa: a figurina que a cadeia vê no ponto de trama
-(`T♕`) vira lance e não passa pelo motor — a linha sobre trama, com o motor
-lendo a faixa limpa a 0,8, devia poder trocar o lance da âncora quando ele
-não tem casa. Em paralelo, as células da tabela do Nunn pela fusão. A orelha
-girada do capítulo é assunto da F8.1, e os erros confiantes da cadeia no
-lance, da OCR-14.
+Conferir as quatro referências contra o livro impresso. As células da tabela
+do Nunn pela fusão (`_tabela_da_pagina` no mesmo laço de linha de
+`extrair_pagina`), que é onde está a maior parte dos 40 tokens da p. 237. A
+orelha girada do capítulo é assunto da F8.1, e os erros confiantes da cadeia
+no lance, da OCR-14.

@@ -809,18 +809,55 @@ def _sobreposicao(a1: float, a2: float, b1: float, b2: float) -> float:
     return comum / max(1.0, min(a2 - a1, b2 - b1))
 
 
+#: A palavra do motor que vale como leitura da faixa sobre trama. Medido no
+#: painel do Chess Evolution 1 (p. 47), com a faixa limpa: a palavra impressa
+#: sai a 0,94–0,96 (`Two`, `methods`, `How`, `force`) e o lixo da trama a
+#: 0,00–0,39 (`ER`, `oe`, `SEE EE ER I ST`, `‘AURIS`). O `¥` da marca de
+#: verificação fica no meio (0,62–0,75), e não tem letra.
+CONFIANCA_DA_PALAVRA_NA_TRAMA = 0.8
+
+
+def _motor_le_a_trama(detalhes) -> bool:
+    """As palavras do motor a `CONFIANCA_DA_PALAVRA_NA_TRAMA` carregam a faixa?
+
+    Metade das letras, ao menos, e duas no mínimo: `¥ Two methods Bee` tem
+    10 letras confiantes em 13, e `SEE EE ER I ST` nenhuma.
+    """
+    confiantes = total = 0
+    for detalhe in detalhes or ():
+        if len(detalhe) < 2:
+            continue
+        letras = sum(c.isalpha() for c in str(detalhe[0] or ""))
+        total += letras
+        if float(detalhe[1] or 0.0) >= CONFIANCA_DA_PALAVRA_NA_TRAMA:
+            confiantes += letras
+    return confiantes >= 2 and confiantes * 2 >= total
+
+
 def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
-                              detalhes, fusao: str) -> Tuple[float, bool]:
+                              detalhes, fusao: str, *,
+                              trama: bool = False) -> Tuple[float, bool]:
     """`(semelhança, aceita?)` de um registro do motor para esta âncora.
 
     A fusão por palavra tem o piso de cada palavra e só pede a semelhança; a
     troca da linha inteira precisa do piso da linha, porque não tem outro.
+
+    Com `trama`, o registro é o da faixa desta linha lida sobre meio-tom, e
+    a semelhança deixa de decidir: a âncora sobre trama não é evidência de
+    nada — a cadeia lê `T♕ eas` onde está impresso `Two methods` (0,35 de
+    semelhança), e `🗸 H f0ee an` para `How to force an` (0,48). O que decide
+    é o motor lendo a faixa limpa com confiança (`_motor_le_a_trama`). Só
+    vale para a faixa, e nunca para o registro da passada de página: aquele
+    pode ser a linha vizinha, e é a semelhança que o pega.
     """
     semelhanca = _semelhanca_de_linha(ancora, texto_ocr)
     por_palavra = fusao == "palavra" and bool(detalhes)
-    aceita = (any(char.isalpha() for char in texto_ocr)
+    tem_letra = any(char.isalpha() for char in texto_ocr)
+    aceita = (tem_letra
               and semelhanca >= SEMELHANCA_MINIMA_DA_LINHA
               and (por_palavra or confianca_ocr >= CONFIANCA_MINIMA_DA_LINHA))
+    if not aceita and trama and por_palavra and tem_letra:
+        aceita = _motor_le_a_trama(detalhes)
     return semelhanca, aceita
 
 
@@ -830,14 +867,57 @@ def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
 #: motor ainda vê o que está impresso. Três é o que uma sílaba mede; a coluna
 #: vizinha fica a mais que isso.
 FOLGA_DA_FAIXA_EM_LARGURAS = 3.0
-#: A faixa está sobre trama quando os componentes minúsculos (menos de um
-#: quarto da altura mediana dos boxes) são mais que isto vezes os outros.
-#: Na faixa do painel do Chess Evolution 1 são dezenas por letra.
+#: A faixa está sobre trama quando os pontos — o componente com menos de
+#: `BoxService.TRAMA_ALTURA_PX` nos dois eixos, o mesmo ponto que a página
+#: tira da binária — são mais que isto vezes os outros componentes. Na faixa
+#: do painel do Chess Evolution 1 são dezenas por letra (545 pontos para 15
+#: letras). **Era relativo à altura mediana dos boxes** (um quarto dela), e
+#: a linha feita de filetes da tabela do Nunn (p. 237) o desmentiu: o box
+#: mediano é o filete de 177 px, um quarto é 44, e as letras da fila (30 px)
+#: passavam por ponto — 97 de 102 —, e a fila inteira por trama. O ponto tem
+#: tamanho físico, e é o da página: nas faixas do painel as duas réguas
+#: contam quase o mesmo (545 e 557; 1.225 e 1.239).
 TRAMA_NA_FAIXA = 3.0
 
 
-def _limpar_faixa_de_trama(faixa: np.ndarray, linha: Sequence[BoxEntry]) -> np.ndarray:
-    """Otsu e abertura 2×2 no miolo da faixa, se ela está sobre trama.
+def _binaria_da_trama(miolo: np.ndarray):
+    """`(binária, sobre trama?)` do miolo de uma faixa — Otsu, e a conta dos
+    pontos contra os outros componentes (`TRAMA_NA_FAIXA`)."""
+    import cv2
+
+    if miolo.size == 0:
+        return None, False
+    _, binaria = cv2.threshold(miolo, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    total, _rotulos, medidas, _c = cv2.connectedComponentsWithStats(binaria, connectivity=8)
+    if total <= 1:
+        return binaria, False
+    lado = BoxService.TRAMA_ALTURA_PX
+    pontos = int(((medidas[1:, cv2.CC_STAT_HEIGHT] < lado)
+                  & (medidas[1:, cv2.CC_STAT_WIDTH] < lado)).sum())
+    outros = total - 1 - pontos
+    return binaria, pontos >= TRAMA_NA_FAIXA * max(1, outros)
+
+
+def _linha_sobre_trama(img: np.ndarray, linha: Sequence[BoxEntry]) -> bool:
+    """A linha está impressa sobre meio-tom? A mesma conta da faixa que vai
+    para o motor, na faixa dos boxes — é o que a fusão pergunta quando o
+    registro veio da passada de página, e não da faixa."""
+    if not linha:
+        return False
+    topo = max(0, min(b.y1 for b in linha))
+    base = min(img.shape[0], max(b.y2 for b in linha))
+    x1 = max(0, min(b.x1 for b in linha))
+    x2 = min(img.shape[1], max(b.x2 for b in linha))
+    if base <= topo or x2 <= x1:
+        return False
+    _binaria, trama = _binaria_da_trama(img[topo:base, x1:x2])
+    return trama
+
+
+def _limpar_faixa_de_trama(faixa: np.ndarray, linha: Sequence[BoxEntry]
+                           ) -> Tuple[np.ndarray, bool]:
+    """Otsu e abertura 2×2 no miolo da faixa, se ela está sobre trama; e se
+    está — a fusão trata a linha sobre trama de outro jeito.
 
     O painel de conteúdo do capítulo (Chess Evolution 1, p. 47) é texto sobre
     meio-tom, e o Tesseract lê a faixa cinza como `v Combisnag bod: medi` a
@@ -848,23 +928,13 @@ def _limpar_faixa_de_trama(faixa: np.ndarray, linha: Sequence[BoxEntry]) -> np.n
     import cv2
 
     m = MARGEM_DA_FAIXA
-    miolo = faixa[m:-m, m:-m]
-    if miolo.size == 0:
-        return faixa
-    _, binaria = cv2.threshold(miolo, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    total, _rotulos, medidas, _c = cv2.connectedComponentsWithStats(binaria, connectivity=8)
-    if total <= 1:
-        return faixa
-    alturas = sorted(b.y2 - b.y1 for b in linha)
-    piso = max(2, alturas[len(alturas) // 2] * 0.25)
-    minusculos = int((medidas[1:, cv2.CC_STAT_HEIGHT] < piso).sum())
-    outros = total - 1 - minusculos
-    if minusculos < TRAMA_NA_FAIXA * max(1, outros):
-        return faixa
+    binaria, trama = _binaria_da_trama(faixa[m:-m, m:-m])
+    if not trama:
+        return faixa, False
     tinta = cv2.morphologyEx(binaria, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
     limpa = faixa.copy()
     limpa[m:-m, m:-m] = 255 - tinta
-    return limpa
+    return limpa, True
 
 
 def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
@@ -876,6 +946,10 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
     faixa é a de `faixa_da_linha` — os boxes com `MARGEM` em volta —, alargada
     por `FOLGA_DA_FAIXA_EM_LARGURAS` para os dois lados. Se o motor devolver
     mais de uma linha para a faixa, fica a mais larga.
+
+    Devolve `(texto, confiança, palavras, sobre trama?)`: o quarto é se a
+    faixa foi limpa de meio-tom antes de ir ao motor (`_limpar_faixa_de_trama`),
+    que é o que autoriza a fusão a confiar no motor contra a âncora.
     """
     if not linha:
         return None
@@ -902,8 +976,9 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
         # moldura preta em volta do texto.
         miolo = faixa[m:-m, m:-m]
         miolo[...] = 255 - miolo
+        trama = False
     else:
-        faixa = _limpar_faixa_de_trama(faixa, linha)
+        faixa, trama = _limpar_faixa_de_trama(faixa, linha)
     try:
         registros = list(ler_faixa(faixa) or [])
     except Exception:
@@ -920,7 +995,7 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
         (palavra, conf, (caixa[0] + dx, caixa[1] + dy, caixa[2] + dx, caixa[3] + dy))
         for palavra, conf, caixa in (d[:3] for d in (registro[3] if len(registro) > 3 else ()))
         if len(caixa) >= 4)
-    return str(registro[0]).strip(), float(registro[1] or 0.0), detalhes
+    return str(registro[0]).strip(), float(registro[1] or 0.0), detalhes, trama
 
 
 #: O que pode entrar num lance vindo do motor de linha: letra de casa ou de
@@ -1044,9 +1119,22 @@ def _preencher_lacunas_do_lance(token: str, indices: Sequence[int],
     return novo if novo != token and _e_token_de_notacao(novo) else None
 
 
+def _lance_sem_casa(token: str) -> bool:
+    """O token que é lance só pela figurina: sem casa e sem número de lance.
+
+    `T♕`, `ex♕fange`, `♕` — a figurina que a cadeia vê num ponto de trama.
+    O lance de verdade tem casa (`♘e4`), ou é o número dele (`2.♘` com a
+    casa derrubada, que `_preencher_lacunas_do_lance` completa).
+    """
+    return (any(c in GLIFOS_DE_XADREZ for c in token)
+            and notacao.RE_CASA.search(token) is None
+            and not token[:1].isdigit())
+
+
 def _fundir_por_palavra(texto: str, caixas: Sequence[int],
                         linha: Sequence[BoxEntry], detalhes, *,
-                        so_lacunas: bool = False) -> Tuple[str, dict]:
+                        so_lacunas: bool = False,
+                        trama: bool = False) -> Tuple[str, dict]:
     """Monta a linha token a token: lance da âncora, prosa do motor de linha.
 
     `texto` e `caixas` são os de `_texto_da_linha` — o caractere e o box de
@@ -1068,6 +1156,14 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
     o lance sem figurina sai dele a 0,3 —, que para a prosa fica de fora.
     Com `so_lacunas` é só isto que acontece: é o que a linha só de notação
     pede ao motor, e nada mais.
+
+    Com `trama` a linha está sobre meio-tom, e **o lance sem casa vai para o
+    motor como prosa** (`_lance_sem_casa`): a figurina ali é o que a cadeia
+    fez de um ponto de trama — `T♕` para `Two`, `ex♕fange` para `exchange`
+    —, e como lance ela ficava com a âncora e nunca passava pelo motor, que
+    lê a faixa limpa a 0,7–0,96. O lance com casa continua sendo da âncora,
+    trama ou não. Fora da trama nada muda: a figurina solta na prosa (`the
+    ♘ is strong`) é da cadeia, que é a única que a escreve.
     """
     y_topo = min(b.y1 for b in linha)
     y_base = max(b.y2 for b in linha)
@@ -1123,6 +1219,14 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
             if preenchido is not None:
                 texto_token = preenchido
                 estatisticas["lacunas_preenchidas"] += 1
+            # Depois de preencher: o `♘xe` com o `4` derrubado ganha a casa
+            # e continua lance. O que não ganhou, sobre trama, é prosa — e
+            # só quando o motor leu alguma coisa ali; sem palavra do motor
+            # a âncora é o que existe, de qualquer jeito.
+            if trama and sobrepostas and _lance_sem_casa(texto_token):
+                e_lance = False
+                estatisticas["lances_sem_casa"] = (
+                    estatisticas.get("lances_sem_casa", 0) + 1)
         tokens.append((x1, texto_token, sobrepostas, e_lance))
 
     itens = []
@@ -2928,7 +3032,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         texto_ocr, confianca_ocr, semelhanca = "", 0.0, None
         detalhes_ocr: tuple = ()
         estatisticas: dict = {}
-        compativel = False
+        compativel = trama = False
         # A linha em negativo não usa o registro da página: o motor leu a
         # faixa preta como estava, e o que saiu é fraco ou errado. Ela vai
         # direto para a faixa invertida, abaixo.
@@ -2953,10 +3057,19 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             # linha, porque é uma chamada de processo por faixa.
             faixa = _registro_da_faixa(img, linha, ler_faixa)
             if faixa is not None:
-                texto_ocr, confianca_ocr, detalhes_ocr = faixa
+                texto_ocr, confianca_ocr, detalhes_ocr, trama = faixa
                 semelhanca, compativel = _compatibilidade_da_linha(
-                    texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
+                    texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao,
+                    trama=trama)
                 estatisticas["faixa"] = True
+        elif (quer_contexto and compativel and fusao == "palavra"
+                and any(_lance_sem_casa(t) for t in texto.split())):
+            # O registro veio da passada de página, e a âncora tem a figurina
+            # sem casa: se a linha está sobre trama, ela é um ponto — e é a
+            # única coisa que a trama muda na fusão, então só se mede aqui.
+            trama = _linha_sobre_trama(img, linha)
+        if trama:
+            estatisticas["trama"] = True
         if so_lacunas and compativel and detalhes_ocr:
             novo_texto, contas = _fundir_por_palavra(
                 texto, caixas, linha, detalhes_ocr, so_lacunas=True)
@@ -2968,7 +3081,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         elif quer_contexto and compativel:
             if fusao == "palavra" and detalhes_ocr:
                 novo_texto, contas = _fundir_por_palavra(
-                    texto, caixas, linha, detalhes_ocr)
+                    texto, caixas, linha, detalhes_ocr, trama=trama)
                 estatisticas.update(contas)
                 origem = "fusao"
             else:
