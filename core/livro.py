@@ -52,7 +52,7 @@ from PIL import Image
 from core import (diagrama, lexico, negrito, notacao, render_diagrama,
                   vertical)
 from core.box_model import BoxEntry
-from core.leitura_de_linha import MARGEM as MARGEM_DA_FAIXA, faixa_da_linha, quebrar_em_linhas
+from core.leitura_de_linha import MARGEM as MARGEM_DA_FAIXA, quebrar_em_linhas
 from core.ocr_result import RegionResult
 from core.ocr_routing import OCRRouter
 from core.services.box_service import BoxService
@@ -735,25 +735,36 @@ def _dominio_da_linha(texto: str) -> str:
 #: solto seguido de ponto e lance (ou de dígitos, ponto e lance) só pode ser
 #: número de lance. O ponto tem de ter algo depois: `2012 .` partido em
 #: `201 2 .` com um respingo lido como ponto não é `2.`.
-RE_NUMERO_PARTIDO = re.compile(r"(?<!\S)(\d{1,2}) (?=(?:\d{1,2})?\.{1,3}\S)")
+#:
+#: O `l` e o `I` entram como dígito: a cadeia lê o `1` do Chess Evolution 1
+#: como `l` (`l ...♘g4!`, `1 l .♘xf4+`), e um `l` solto na frente de
+#: reticências e lance não é letra. Sai como `1`.
+RE_NUMERO_PARTIDO = re.compile(r"(?<!\S)([0-9lI]{1,2}) (?=(?:[0-9lI]{1,2})?\.{1,3}\S)")
 
 
 def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
                            lacunas: List[Optional[float]], caixas: List[int]):
     """Tira o espaço falso entre o número de lance e o lance, nos quatro
-    vetores ao mesmo tempo — o espaço é um item deles, com box `-1`."""
-    posicoes = [m.end(1) for m in RE_NUMERO_PARTIDO.finditer(texto)
-                if len(m.group(1)) + len(re.match(r"\d*", texto[m.end():]).group(0)) <= 3]
-    if not posicoes:
-        return texto, pesos, lacunas, caixas
+    vetores ao mesmo tempo — o espaço é um item deles, com box `-1`. Roda
+    até estabilizar, porque `1 l .♘xf4+` cola em dois passos."""
     saida, pesos, lacunas, caixas = list(texto), list(pesos), list(lacunas), list(caixas)
-    for posicao in reversed(posicoes):
-        if saida[posicao] != " ":
-            continue
-        del saida[posicao]
-        for vetor in (pesos, lacunas, caixas):
-            if posicao < len(vetor):
-                del vetor[posicao]
+    for _passo in range(3):
+        atual = "".join(saida)
+        achados = [m for m in RE_NUMERO_PARTIDO.finditer(atual)
+                   if len(m.group(1)) + len(re.match(r"[0-9lI]*", atual[m.end():]).group(0)) <= 3]
+        if not achados:
+            break
+        for m in reversed(achados):
+            posicao = m.end(1)
+            if saida[posicao] != " ":
+                continue
+            del saida[posicao]
+            for vetor in (pesos, lacunas, caixas):
+                if posicao < len(vetor):
+                    del vetor[posicao]
+            for k in range(m.start(1), m.end(1)):
+                if saida[k] in "lI":
+                    saida[k] = "1"
     return "".join(saida), pesos, lacunas, caixas
 
 
@@ -813,28 +824,86 @@ def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
     return semelhanca, aceita
 
 
+#: A faixa da linha, para o motor, cresce até isto em larguras medianas de
+#: box para cada lado, além dos boxes: onde a cadeia perdeu o fim da linha
+#: — `Combining both meth`, os três boxes de `ods` derrubados na trama —, o
+#: motor ainda vê o que está impresso. Três é o que uma sílaba mede; a coluna
+#: vizinha fica a mais que isso.
+FOLGA_DA_FAIXA_EM_LARGURAS = 3.0
+#: A faixa está sobre trama quando os componentes minúsculos (menos de um
+#: quarto da altura mediana dos boxes) são mais que isto vezes os outros.
+#: Na faixa do painel do Chess Evolution 1 são dezenas por letra.
+TRAMA_NA_FAIXA = 3.0
+
+
+def _limpar_faixa_de_trama(faixa: np.ndarray, linha: Sequence[BoxEntry]) -> np.ndarray:
+    """Otsu e abertura 2×2 no miolo da faixa, se ela está sobre trama.
+
+    O painel de conteúdo do capítulo (Chess Evolution 1, p. 47) é texto sobre
+    meio-tom, e o Tesseract lê a faixa cinza como `v Combisnag bod: medi` a
+    0,14. Binarizada e sem o ponto isolado, `¥ Combining both meth` a 0,83.
+    A faixa limpa continua sendo texto para o motor; a que não tem trama
+    fica como está, porque a abertura come a serifa fina.
+    """
+    import cv2
+
+    m = MARGEM_DA_FAIXA
+    miolo = faixa[m:-m, m:-m]
+    if miolo.size == 0:
+        return faixa
+    _, binaria = cv2.threshold(miolo, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    total, _rotulos, medidas, _c = cv2.connectedComponentsWithStats(binaria, connectivity=8)
+    if total <= 1:
+        return faixa
+    alturas = sorted(b.y2 - b.y1 for b in linha)
+    piso = max(2, alturas[len(alturas) // 2] * 0.25)
+    minusculos = int((medidas[1:, cv2.CC_STAT_HEIGHT] < piso).sum())
+    outros = total - 1 - minusculos
+    if minusculos < TRAMA_NA_FAIXA * max(1, outros):
+        return faixa
+    tinta = cv2.morphologyEx(binaria, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+    limpa = faixa.copy()
+    limpa[m:-m, m:-m] = 255 - tinta
+    return limpa
+
+
 def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
                        ler_faixa: Callable):
     """Lê a faixa de uma linha só e devolve o registro em coordenadas da página.
 
     `ler_faixa(faixa)` devolve o mesmo formato de `ler_pagina`, mas com as
-    caixas relativas à faixa, que `faixa_da_linha` recorta com `MARGEM` de
-    folga em volta: o deslocamento é o canto da faixa na página. Se o motor
-    devolver mais de uma linha para a faixa, fica a mais larga.
+    caixas relativas à faixa: o deslocamento é o canto da faixa na página. A
+    faixa é a de `faixa_da_linha` — os boxes com `MARGEM` em volta —, alargada
+    por `FOLGA_DA_FAIXA_EM_LARGURAS` para os dois lados. Se o motor devolver
+    mais de uma linha para a faixa, fica a mais larga.
     """
-    faixa = faixa_da_linha(img, linha)
-    if faixa is None:
+    if not linha:
         return None
-    if any(getattr(b, "negativo", False) for b in linha):
+    negativa = any(getattr(b, "negativo", False) for b in linha)
+    larguras = sorted(b.x2 - b.x1 for b in linha)
+    # A tarja em negativo não ganha folga: os boxes da cadeia já a delimitam,
+    # e a folga traria a sombra da borda dela, que invertida vira `| |`.
+    folga = (0 if negativa
+             else int(larguras[len(larguras) // 2] * FOLGA_DA_FAIXA_EM_LARGURAS))
+    topo = max(0, min(b.y1 for b in linha))
+    base = min(img.shape[0], max(b.y2 for b in linha))
+    x1 = max(0, min(b.x1 for b in linha) - folga)
+    x2 = min(img.shape[1], max(b.x2 for b in linha) + folga)
+    if base <= topo or x2 <= x1:
+        return None
+    m = MARGEM_DA_FAIXA
+    faixa = np.pad(img[topo:base, x1:x2], ((m, m), (m, m)), mode="constant",
+                   constant_values=255)
+    if negativa:
         # O cabeçalho em negativo — branco sobre preto — o motor lê mal como
         # está (`].Bolbochan` a 0,4, `W.Steinit`); invertido, é texto comum.
         # A cadeia própria já inverte o box; aqui se inverte o miolo da faixa,
-        # e só ele: a margem que `faixa_da_linha` põe em volta é branca, e
-        # invertida viraria uma moldura preta em volta do texto.
-        faixa = faixa.copy()
-        miolo = faixa[MARGEM_DA_FAIXA:-MARGEM_DA_FAIXA,
-                      MARGEM_DA_FAIXA:-MARGEM_DA_FAIXA]
+        # e só ele: a margem em volta é branca, e invertida viraria uma
+        # moldura preta em volta do texto.
+        miolo = faixa[m:-m, m:-m]
         miolo[...] = 255 - miolo
+    else:
+        faixa = _limpar_faixa_de_trama(faixa, linha)
     try:
         registros = list(ler_faixa(faixa) or [])
     except Exception:
@@ -845,8 +914,8 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
     if not registros:
         return None
     registro = max(registros, key=lambda r: r[2][2] - r[2][0])
-    dx = max(0, min(b.x1 for b in linha)) - MARGEM_DA_FAIXA
-    dy = max(0, min(b.y1 for b in linha)) - MARGEM_DA_FAIXA
+    dx = x1 - m
+    dy = topo - m
     detalhes = tuple(
         (palavra, conf, (caixa[0] + dx, caixa[1] + dy, caixa[2] + dx, caixa[3] + dy))
         for palavra, conf, caixa in (d[:3] for d in (registro[3] if len(registro) > 3 else ()))

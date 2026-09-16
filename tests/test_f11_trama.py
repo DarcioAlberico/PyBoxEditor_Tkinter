@@ -325,3 +325,57 @@ def test_o_diagrama_continua_sendo_um_bloco_descartado():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ----------------------------------------------------------------------
+# O ponto escuro (Chess Evolution 1, p. 47), segunda vez
+# ----------------------------------------------------------------------
+
+def test_o_ponto_escuro_sai_da_binaria_quando_domina_a_pagina():
+    """
+    O painel do capítulo é meio-tom escuro demais para `remover_textura`:
+    130 mil componentes, 97% pontos. Com eles a mediana das alturas dos boxes
+    cai para 2 px e o pingo do `i` deixa de fundir na prosa inteira. O ponto
+    de menos de 4 px nos dois eixos sai; o pingo, a vírgula e a letra ficam.
+    """
+    rng = np.random.default_rng(3)
+    th = np.zeros((600, 800), np.uint8)
+    pontos = rng.random((300, 400)) < 0.03          # a nuvem, à esquerda
+    th[100:400, 50:450][pontos] = 255
+    th[200:230, 500:510] = 255                       # uma haste de letra
+    th[192:197, 500:505] = 255                       # o pingo, 5 px
+    th[300:305, 600:605] = 255                       # um ponto final, 5 px
+    limpa = BoxService._tirar_o_ponto_escuro(th)
+    assert limpa[200:230, 500:510].all(), "a haste tinha de ficar"
+    assert limpa[192:197, 500:505].all(), "o pingo de 5 px tinha de ficar"
+    assert limpa[300:305, 600:605].all(), "o ponto final tinha de ficar"
+    # Dois pontos vizinhos formam um componente de 4 px, e esse fica: o que
+    # se cobra é a nuvem, não cada ponto.
+    assert limpa[100:400, 50:450].sum() < 0.02 * th[100:400, 50:450].sum(), \
+        "a nuvem tinha de sair"
+
+
+def test_a_pagina_limpa_nao_e_tocada():
+    th = np.zeros((600, 800), np.uint8)
+    for k in range(40):
+        th[100:130, 50 + 20 * k:60 + 20 * k] = 255
+    th[92:95, 52:55] = 255                           # um único ponto de 3 px
+    assert np.array_equal(BoxService._tirar_o_ponto_escuro(th), th)
+
+
+def test_a_mediana_do_merge_peneira_o_ponto_pela_escala():
+    """Com a escala em mãos, a mediana das alturas ignora o box de menos de
+    um quarto dela — e o pingo a 0,26 da haste volta a fundir na página em
+    que os pontos são a maioria dos boxes."""
+    boxes = [BoxEntry("", 40 * i, 500, 40 * i + 12, 519) for i in range(20)]
+    haste = BoxEntry("", 900, 500, 906, 519)
+    pingo = BoxEntry("", 900, 490, 905, 494)          # folga 6 px = 0,32 da haste
+    pontos = [BoxEntry("", 1000 + 3 * i, 300 + 3 * (i % 7), 1002 + 3 * i, 302 + 3 * (i % 7))
+              for i in range(200)]
+    entrada = sorted(boxes + [pingo, haste] + pontos, key=lambda b: (b.y1, b.x1))
+    sem = BoxService.merge_vertical_boxes(list(entrada))
+    com = BoxService.merge_vertical_boxes(list(entrada), escala=19)
+    def fundiu(saida):
+        return any(b.y1 <= 490 and b.y2 >= 519 and b.x1 <= 900 <= b.x2 for b in saida)
+    assert not fundiu(sem), "sem escala a mediana é o ponto, e o pingo fica solto"
+    assert fundiu(com), "com a escala o pingo funde"

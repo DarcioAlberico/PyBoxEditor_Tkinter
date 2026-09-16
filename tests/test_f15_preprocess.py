@@ -467,7 +467,9 @@ def test_descarte_acontece_depois_do_merge():
     # tabuleiro é o que o descarte joga fora. A propriedade é a mesma; o que
     # mudou é onde ela se lê.
     antes = inspect.getsource(BoxService.boxes_antes_do_descarte)
-    assert "merge_vertical_boxes(boxes)" in antes, \
+    # Pelo nome, como abaixo: a chamada ganhou `escala` quando a mediana do
+    # merge passou a peneirar o ponto de trama.
+    assert "merge_vertical_boxes(boxes" in antes, \
         "o merge saiu do estágio que termina antes do descarte"
 
     fonte = inspect.getsource(BoxService.generate_boxes_opencv)

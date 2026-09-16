@@ -31,7 +31,7 @@ from core.ocr_ab import alinhar_tokens, medir_por_dominio, normalizar_tipografia
 
 @pytest.mark.parametrize("token", [
     "25.", "25...", "25.♖xc7!", "exf5", "a6", "O-O", "O-O-O+", "♕d1+", "e8=♕",
-    "±", "!?", "26♕g5", "26...g16", "57..♖xc4?", "28.♖xf7+", "hxg7+", "(25.g4?)",
+    "±", "!?", "26♕g5", "57..♖xc4?", "28.♖xf7+", "hxg7+", "(25.g4?)",
     "Nf3", "Bxc6±", "1-0", "1–0", "40.",
 ])
 def test_o_token_com_forma_de_lance_e_notacao(token):
@@ -41,6 +41,10 @@ def test_o_token_com_forma_de_lance_e_notacao(token):
 @pytest.mark.parametrize("token", [
     "and", "a1]d", "2012", "2012.", "40", "Wh6", "Gashimov", "b.s", "move",
     "be", "The", "ab", "a", "I", "Debs", "check.", "68,", "h-pawn", "",
+    # O pingo do `i` que não fundiu vira `1.`, e a palavra não é lance: ela
+    # tem de ir para o motor, que a lê certa. (`26...g16`, o lance lido torto,
+    # paga o preço e também vai — era o único caso do outro lado.)
+    "1.s", "1.n", "1.mportant", "1.z1.n", "26...g16",
 ])
 def test_a_palavra_de_prosa_nao_e_notacao(token):
     # `a1]d` é o caso que `notacao.parece_lance` aceita e este não pode: é o
@@ -398,9 +402,12 @@ def test_o_registro_da_faixa_volta_em_coordenadas_da_pagina():
 
     texto, conf, detalhes = livro._registro_da_faixa(img, linha, ler)
 
+    # A faixa começa `FOLGA_DA_FAIXA_EM_LARGURAS` boxes medianos antes do
+    # primeiro box (10 px de largura mediana), mais a margem.
+    folga = int(10 * livro.FOLGA_DA_FAIXA_EM_LARGURAS)
     assert (texto, conf) == ("ab cd", 0.9)
-    assert detalhes == (("ab", 0.9, (100, 200, 110, 230)),
-                        ("cd", 0.8, (120, 200, 130, 230)))
+    assert detalhes == (("ab", 0.9, (100 - folga, 200, 110 - folga, 230)),
+                        ("cd", 0.8, (120 - folga, 200, 130 - folga, 230)))
     assert livro._registro_da_faixa(img, linha, lambda faixa: []) is None
 
 
@@ -617,6 +624,56 @@ def test_a_faixa_em_negativo_e_invertida_so_no_miolo():
     margem = livro.MARGEM_DA_FAIXA
     assert faixa[:margem].min() == 255, "a margem tem de continuar branca"
     miolo = faixa[margem:-margem, margem:-margem]
+    # A tarja não ganha a folga dos lados: a faixa é a dos boxes, 100–130, e
+    # o miolo inteiro é invertido.
+    assert miolo.shape[1] == 30, "a tarja em negativo não tem folga"
     assert miolo[0, 0] == 255, "o fundo da tarja virou branco"
     assert miolo[10, 5] == 0, "as letras viraram pretas"
     assert img[200, 100] == 0, "a imagem da página não pode ser alterada"
+
+
+def test_a_faixa_sobre_trama_e_limpa_para_o_motor():
+    import numpy as np
+    rng = np.random.default_rng(7)
+    img = np.full((400, 600), 255, dtype=np.uint8)
+    # Uma nuvem de pontos escuros de 1 px (a trama) em volta de duas letras.
+    pontos = rng.random((60, 200)) < 0.08
+    img[190:250, 80:280][pontos] = 40
+    img[205:225, 100:110] = 0                        # a letra
+    img[205:225, 120:130] = 0
+    linha = [BoxEntry("", 100, 200, 110, 230), BoxEntry("", 120, 200, 130, 230)]
+    recebidas = []
+
+    def ler(faixa):
+        recebidas.append(faixa.copy())
+        return [("ab", 0.9, (8, 8, 38, 38), (("ab", 0.9, (8, 8, 38, 38)),))]
+
+    livro._registro_da_faixa(img, linha, ler)
+    faixa = recebidas[0]
+    margem = livro.MARGEM_DA_FAIXA
+    miolo = faixa[margem:-margem, margem:-margem]
+    assert (miolo == 40).sum() == 0, "a trama tinha de sair"
+    assert miolo.min() == 0, "as letras tinham de ficar"
+    assert set(np.unique(miolo)) <= {0, 255}, "a faixa limpa é binária"
+    # Sem trama, a faixa fica como está — cinza e tudo.
+    limpa = np.full((400, 600), 255, dtype=np.uint8)
+    limpa[205:225, 100:110] = 30
+    limpa[205:225, 120:130] = 30
+    recebidas.clear()
+    livro._registro_da_faixa(limpa, linha, ler)
+    assert recebidas[0].min() == 30, "sem trama a faixa não é binarizada"
+
+
+@pytest.mark.parametrize("antes, depois", [
+    ("l ...Ng4! is", "1...Ng4! is"),
+    ("10.c6 Qxf4 1 l .Nxf4+)", "10.c6 Qxf4 11.Nxf4+)"),
+    ("I like it", "I like it"),
+    ("all . the", "all . the"),
+])
+def test_o_l_solto_na_frente_do_lance_e_o_um(antes, depois):
+    # A cadeia lê o `1` do Chess Evolution 1 como `l`; na frente de reticências
+    # e lance ele é número, e sai como `1`. Cola em dois passos: `1 l .`.
+    texto, pesos, lacunas, caixas = livro._colar_numero_de_lance(
+        antes, [None] * len(antes), [None] * len(antes), list(range(len(antes))))
+    assert texto == depois
+    assert len(pesos) == len(lacunas) == len(caixas) == len(texto)

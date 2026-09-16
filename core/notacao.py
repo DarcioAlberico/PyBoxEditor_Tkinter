@@ -361,12 +361,15 @@ RE_LANCE_ESTRITO = re.compile(
     r"(?:[" + _PECAS_SAN + r"]?[a-h]?[1-8]?x?[a-h][1-8](?:=[" + _PECAS_SAN + r"])?"
     r"|[O0]-[O0](?:-[O0])?)"
     r"[+#]?[!?]{0,2}[±∓⩱⩲=∞]?$")
-#: O número do lance — `25.` ou `25...` —, sozinho ou colado ao que vem
-#: depois. Colado, o resto é lance mesmo quando a cadeia o leu torto
-#: (`26...g16` para `26...gxh6`): o número é a evidência mais forte que a
-#: linha tem, e o motor de linha lê o mesmo lugar pior (`26...¢xh6`). Sem o
-#: `$`, e sem deixar `2012.` passar: são no máximo três dígitos.
-RE_NUMERO_DE_LANCE = re.compile(r"^\d{1,3}\.(?:\.\.)?")
+#: O número do lance sozinho — `25.` ou `25...` —, com o lance no token
+#: seguinte. Colado ao lance, é `RE_LANCE_ESTRITO` que decide.
+#:
+#: **Era sem o `$`**, para `26...g16` (o `26...gxh6` lido torto pela cadeia)
+#: ficar com a cadeia, e custou caro: na página 47 do Chess Evolution 1 o
+#: pingo do `i` que não fundiu vira `1.` — `1.s used`, `1.n active`,
+#: `1.mportant`, `Real 1.z1.n` — e cada uma dessas palavras passava por
+#: lance e ficava com a cadeia em vez de ir para o motor, que as lê certas.
+RE_NUMERO_DE_LANCE = re.compile(r"^\d{1,3}\.(?:\.\.)?$")
 #: Avaliação ou anotação solta: `±`, `+-`, `!?`, `⩲`.
 RE_SINAL_DE_AVALIACAO = re.compile(r"^[+\-±∓⩱⩲=∞!?#□■△▼]+$")
 #: O resultado da partida, com qualquer dos traços que a impressão usa.

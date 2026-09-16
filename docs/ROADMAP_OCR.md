@@ -780,25 +780,87 @@ e a marca `-see`.
 - **A fila de cabeçalho da tabela** está num bloco de 937×91 px que
   `trama.candidatos` recusa por baixo (piso de 4 escalas). Abrir blocos
   baixos e largos é o que a resolve — com a peneira do filete logo atrás.
-- **As páginas de capítulo do Chess Evolution 1 (18, 46) saem como lixo**
-  (`⯹⯹♖= . :. . .`, 912 «caracteres» na 18; 9 na 46, sem a prosa) — **e já
-  saíam assim em HEAD**, conferido num worktree limpo com o mesmo modelo. O
-  painel de conteúdo sobre a trama envenena a segmentação da página inteira;
-  é o layout "prosa com diagrama do Yusupov" que o A/B ia ver a seguir, e é
-  um defeito anterior a esta fase, do tamanho de uma fase.
+- **As páginas com painel sobre trama do Chess Evolution 1 saíam como
+  lixo** (a 18, «Scoring»: `⯹⯹♖= . :. . .`, 912 «caracteres») — e já saíam
+  assim em HEAD. *Corrigido na rodada seguinte, abaixo.* (A página 46, que
+  aqui foi citada junto, é a fotografia do autor: os 9 caracteres dela são a
+  legenda, e estão certos.)
+
+### A quarta página: Yusupov, «Chess Evolution 1», p. 47 do PDF (impressa 46) — o capítulo, com o painel sobre a trama
+
+`preview_ocr/referencia/yusupov_chess_evolution_1/p047.txt`, transcrita da
+imagem em 2026-09-15: o painel de conteúdo do capítulo sobre meio-tom
+(«CHAPTER 5», «Contents», três itens com ✓), o diagrama 5-1, e a coluna de
+prosa com o título do capítulo, quatro parágrafos e o começo da partida. 265
+tokens de prosa e 43 de notação. O diagnóstico anterior estava na página
+errada — a 46 do PDF é a fotografia do autor —, mas o mecanismo que ele
+descrevia é real, e é o desta página: **a binária tem 130 mil componentes,
+97% deles o meio-tom do painel** (ponto de 2–3 px), escuro demais para
+`remover_textura`, que só tira o ponto claro. A abertura 2×2 da página com
+contorno demais deixava 9 mil, 75% ainda ponto. Primeira rodada, modo por
+palavra: 12,58% de CER total, com a prosa em 12,77%.
+
+O que a página exigiu, em ordem:
+
+1. **A mediana do merge envenenada.** `merge_vertical_boxes` mede a folga do
+   pingo em medianas de altura de box, e a mediana dos 8 mil boxes era 2 px
+   (o piso de 10 a segurava em 10): a folga do pingo virava 4 px onde o
+   pingo do `i` da prosa está a 5, e nenhum `i` fundia — `1.s used`,
+   `1.mportant`, `Real 1.z1.n`. A escala por tinta (30) não pode substituir
+   a mediana: ela mede o corpo do texto onde a mediana mede a altura de x,
+   e as folgas foram medidas nesta — trocada, o pingo da linha de cima
+   passava a caber (Yusupov p. 34: 0,63% → 2,84%). O que a escala faz é
+   **peneirar**: o box com menos de um quarto dela sai da população, e a
+   mediana volta a 19 (`ALTURA_MINIMA_NA_MEDIANA`). E o bloco — diagrama,
+   painel — deixa de receber diacrítico: com a folga maior, os rótulos
+   `a`–`h` e `1`–`8` entravam no retângulo do tabuleiro e deslocavam as 64
+   casas (`test_do_pdf_ao_desenho_sem_nenhum_dublê` pegou).
+2. **O ponto escuro sai da binária** quando é mais de 70% dos componentes
+   (`_tirar_o_ponto_escuro`): o componente com menos de 4 px nos dois eixos,
+   e só ele — sem erosão, ao contrário da abertura; o pingo, a vírgula e o
+   ponto final têm 5 px ou mais a 300 dpi. A cadeia sozinha vai de 39,8%
+   para 21,4% de CER na prosa; a página «Scoring» (18) sai legível pela
+   primeira vez.
+3. **A faixa do motor cresce três larguras de box para cada lado**
+   (`FOLGA_DA_FAIXA_EM_LARGURAS`): onde a cadeia perdeu o fim da linha na
+   trama (`Combining both meth`), o motor ainda vê o que está impresso. A
+   tarja em negativo não ganha a folga — a sombra da borda dela, invertida,
+   virava `| |` (Yusupov p. 34 pegou).
+4. **A faixa sobre trama é limpa para o motor** (`_limpar_faixa_de_trama`):
+   Otsu no miolo e abertura 2×2 quando os componentes minúsculos são mais
+   que três vezes os outros. O Tesseract lia a faixa cinza do painel como
+   `v Combisnag bod: medi` a 0,14; limpa, `¥ Combining both meth` a 0,83.
+5. **`1.s` não é lance.** `RE_NUMERO_DE_LANCE` tinha ficado sem o `$` para
+   `26...g16` ficar com a cadeia; o pingo que não funde vira `1.`, e cada
+   `1.s`, `1.n`, `1.mportant` passava por lance e ficava com a cadeia em vez
+   de ir para o motor. Volta o `$`. E o `l` solto na frente de reticências e
+   lance é `1` (`l ...♘g4!`, `1 l .♘xf4+`): `_colar_numero_de_lance` o cola
+   em até três passos.
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Yusupov p. 47 (primeira rodada) | `palavra` | 12,77% | 12,83% | 11,48% | 23,26% | 12,58% |
+| Yusupov p. 47 | `glifo` | 21,36% | 35,85% | 0,48% | 2,33% | 18,40% |
+| | `linha` | 4,73% | 7,92% | 2,39% | 9,30% | 4,40% |
+| | `palavra` | **4,65%** | **7,92%** | **0,00%** | **0,00%** | **3,99%** |
+| Aagaard p. 30 | `palavra` | 1,33% | 2,90% | 4,60% | 11,36% | 2,40% |
+| Yusupov p. 34 | `palavra` | 0,66% | 2,34% | 0,76% | 3,39% | 0,71% |
+| Nunn p. 237 | `palavra` | 16,49% | 16,36% | 19,85% | 26,03% | 17,93% |
+
+As três páginas anteriores não mudaram (a 34 oscila um centésimo, dentro do
+que uma rodada do Tesseract muda), e nas 11 páginas rotuladas nada muda. Dos
+21 tokens que sobram na p. 47, 15 são o painel — a cadeia ainda lê `T♕ eas`
+para `Two methods`, com a figurina que a peneira guarda como lance, e o
+título `CHAPTER 5` sai `CHAPTER )` —, e os outros são o `Diagram 5-1` do
+lado do tabuleiro, `opponent,s` (o Tesseract dá 0,0 de confiança à palavra
+com apóstrofo curvo) e o número da página.
 
 ### Próximo passo
 
-Conferir as três referências contra o livro impresso. Depois, as páginas de
-capítulo do Chess Evolution 1 (18, 46), e a medição já diz por onde: a
-binária de segmentação da página 46 tem 5.724 componentes com **altura
-mediana de 2 px** — os pontos do painel sobre a trama —, e a escala de texto
-sai **6** (a prosa tem 30). Com a escala em 6 tudo que é letra vira bloco
-para o descarte (`FATOR_NAO_TEXTO` × 6 = 24 px), e sobram 4 boxes antes do
-descarte, 23 depois. Só na metade direita, sem o painel, Otsu dá 949
-componentes: a prosa está lá. O passo é a estimativa de escala ignorar a
-nuvem de pontos (é o que `preprocess.escala_de_texto` promete "pesando por
-tinta", e aqui não entrega), medindo nas 11 páginas rotuladas antes de
-mexer. Em paralelo, as células da tabela pela fusão. A orelha girada do
-capítulo (`♕ ♕ ♕ ⩲`) é assunto da F8.1, e os erros confiantes da cadeia no
+Conferir as quatro referências contra o livro impresso. O painel sobre a
+trama ainda pede uma coisa: a figurina que a cadeia vê no ponto de trama
+(`T♕`) vira lance e não passa pelo motor — a linha sobre trama, com o motor
+lendo a faixa limpa a 0,8, devia poder trocar o lance da âncora quando ele
+não tem casa. Em paralelo, as células da tabela do Nunn pela fusão. A orelha
+girada do capítulo é assunto da F8.1, e os erros confiantes da cadeia no
 lance, da OCR-14.

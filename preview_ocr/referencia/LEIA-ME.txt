@@ -37,4 +37,12 @@ célula (vazia). O impresso tem «W: Win: (1 ♖c1!)» com dois-pontos depois de
 «Win», e assim ficou. A legenda do diagrama («399a =/=») entra antes das duas
 linhas da coluna da direita, que é onde o programa a põe.
 
-Conferência das três contra o livro impresso ainda em aberto.
+yusupov_chess_evolution_1/p047.txt — Yusupov, «Chess Evolution 1», página
+47 do PDF (impressa como 46): a abertura do capítulo 5, com o painel de
+conteúdo sobre meio-tom («CHAPTER 5», «Contents», três itens com ✓), o
+diagrama 5-1 e a coluna de prosa. Transcrita da imagem em 2026-09-15 em tiras
+a 200 dpi. A ordem é a do programa: o painel e o cabeçalho do diagrama
+primeiro, a prosa depois; o número da página («46») entra no fim. O ✓ do
+impresso pode sair como «🗸» do programa, e conta como diferença.
+
+Conferência das quatro contra o livro impresso ainda em aberto.

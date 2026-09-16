@@ -98,18 +98,61 @@ class BoxService:
         th = preprocess.binarize(img_cv, method, fixed_threshold=threshold)
         th = preprocess.remover_textura(img_cv, th)
         if max_contornos is None:
-            return th
+            return BoxService._tirar_o_ponto_escuro(th)
 
         contornos, _ = cv2.findContours(
             th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if len(contornos) <= max_contornos:
-            return th
+            return BoxService._tirar_o_ponto_escuro(th)
 
         limpa = cv2.morphologyEx(
             th, cv2.MORPH_OPEN, np.ones((2, 2), dtype=np.uint8))
         contornos_limpos, _ = cv2.findContours(
             limpa, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        return limpa if len(contornos_limpos) <= max_contornos else th
+        # O ponto escuro sai **depois** da abertura, e não no lugar dela: a
+        # abertura come o ponto de 2 px e o traço fino de trama; o que sobra
+        # dela, o ponto de 3×3, é o que este passo tira.
+        return BoxService._tirar_o_ponto_escuro(
+            limpa if len(contornos_limpos) <= max_contornos else th)
+
+    #: A página está dominada por trama escura quando os componentes de
+    #: menos de `TRAMA_ALTURA_PX` de altura são mais que esta fração de todos
+    #: — e são mais que `TRAMA_MINIMO` em número, para uma página quase vazia
+    #: não passar por trama. Na página 47 do Chess Evolution 1 são 5.603 de
+    #: 6.252 (90%): o painel do capítulo sobre meio-tom, com ponto escuro
+    #: demais para `remover_textura`, que só tira o ponto **claro**. Numa
+    #: página de prosa limpa a fração fica abaixo de um terço.
+    TRAMA_FRACAO = 0.7
+    TRAMA_ALTURA_PX = 4
+    TRAMA_MINIMO = 1000
+
+    @staticmethod
+    def _tirar_o_ponto_escuro(th: np.ndarray) -> np.ndarray:
+        """Tira o ponto escuro da binária da página dominada por ele.
+
+        A página 47 do Chess Evolution 1 tem 130 mil componentes, 97% deles o
+        meio-tom do painel do capítulo, escuro demais para `remover_textura`,
+        que só tira o ponto **claro**. A abertura 2×2 da página com contorno
+        demais (`max_contornos`) deixa 9 mil, e 75% ainda são ponto: o ponto
+        de 3×3 sobrevive a ela. Com eles a mediana das alturas dos boxes cai
+        para 2 px, o pingo do `i` deixa de fundir na prosa inteira, e a cadeia
+        lê os pontos do painel como figurinas (`T♕ fet♖[ias` por `Two
+        methods`). Aqui o componente com menos de `TRAMA_ALTURA_PX` nos dois
+        eixos sai, e só ele: o pingo do `i`, a vírgula e o ponto final medem
+        5 px ou mais a 300 dpi, e o traço da letra não é tocado — não há
+        erosão, ao contrário da abertura.
+        """
+        total, rotulos, medidas, _c = cv2.connectedComponentsWithStats(th, connectivity=8)
+        if total - 1 < BoxService.TRAMA_MINIMO:
+            return th
+        pontos = ((medidas[1:, cv2.CC_STAT_HEIGHT] < BoxService.TRAMA_ALTURA_PX)
+                  & (medidas[1:, cv2.CC_STAT_WIDTH] < BoxService.TRAMA_ALTURA_PX))
+        if int(pontos.sum()) < BoxService.TRAMA_FRACAO * (total - 1):
+            return th
+        e_ponto = np.concatenate([[False], pontos])
+        limpa = th.copy()
+        limpa[e_ponto[rotulos]] = 0
+        return limpa
 
     @staticmethod
     def boxes_antes_do_descarte(image: Image.Image, threshold: int = 180,
@@ -208,7 +251,7 @@ class BoxService:
         # fora dele.
         boxes, _pilhas = vertical.aplicar(img_cv, boxes, arbitro)
         return (BoxService._marcar_o_miolo_da_moldura(
-            BoxService.merge_vertical_boxes(boxes)), th, escala, img_cv)
+            BoxService.merge_vertical_boxes(boxes, escala)), th, escala, img_cv)
 
     @staticmethod
     def _marcar_o_miolo_da_moldura(boxes: List[BoxEntry]) -> List[BoxEntry]:
@@ -1479,6 +1522,11 @@ class BoxService:
     #: vale, longe dos dois lados: 0,33 de um, 0,55 do outro.
     FOLGA_DE_DIACRITICO = 0.40
 
+    #: Fração da escala de texto abaixo da qual um box não entra na mediana
+    #: que dá a régua do merge: é o ponto da trama (2–5 px numa escala de
+    #: 30), que na página 47 do Chess Evolution 1 é a maioria dos boxes.
+    ALTURA_MINIMA_NA_MEDIANA = 0.25
+
     #: A mesma folga quando os **dois** pedaços são curtos: ':' e ';', que são
     #: dois pontos separados por meia altura de x e por isso precisam de mais
     #: espaço que um pingo. Medido, ':' fica em 0,45 e ';' em 0,43.
@@ -1529,9 +1577,21 @@ class BoxService:
         return sorted(achados)
 
     @staticmethod
-    def merge_vertical_boxes(boxes: List[BoxEntry]) -> List[BoxEntry]:
+    def merge_vertical_boxes(boxes: List[BoxEntry],
+                             escala: Optional[int] = None) -> List[BoxEntry]:
         """
         Mescla boxes verticalmente alinhados e próximos (ex: pingo do 'i', ':', ';').
+
+        **A escala peneira a população da mediana, quando quem chama a tem.**
+        A mediana simples das alturas dos boxes é a que `preprocess.escala_de_texto` recusou:
+        na página 47 do Chess Evolution 1 ela dá **2 px** (os 8.321 boxes são
+        em maioria os pontos do painel sobre a trama), o piso de 10 a segura
+        em 10, e a folga do pingo vira 4 px onde o pingo do `i` da prosa está
+        a 5 — nenhum `i` fundia, e a prosa saía `1.s used`, `1.mportant`. A
+        escala por tinta dá 30 na mesma página; com ela, o box de menos de
+        um quarto de escala sai da população e a mediana volta a 19. Sem
+        `escala`, fica a mediana de todos: é o que `vertical.fundir_pingos` e
+        os testes chamam.
 
         **Box de texto girado não entra** (F8.1). Numa pilha vertical as letras
         vizinhas são exatamente o que esta regra procura — alinhadas em x e
@@ -1553,12 +1613,21 @@ class BoxService:
         girados = [b for b in boxes if getattr(b, "angulo", 0)]
         if girados:
             de_pe = [b for b in boxes if not getattr(b, "angulo", 0)]
-            return BoxService.merge_vertical_boxes(de_pe) + girados
+            return BoxService.merge_vertical_boxes(de_pe, escala) + girados
 
         heights = [b.y2 - b.y1 for b in boxes]
         if not heights:
             return boxes
 
+        # A escala por tinta não substitui a mediana: ela mede o corpo do
+        # texto (37 no Chess Evolution 1) onde a mediana dos boxes mede a
+        # altura de x (20), e as folgas foram medidas nesta — com a escala
+        # no lugar dela o pingo da linha de cima passava a caber. O que a
+        # escala faz é **tirar o ponto de trama da população**: o box com
+        # menos de um quarto dela não é caractere, e a mediana é dos outros.
+        if escala:
+            de_texto = [h for h in heights if h >= escala * BoxService.ALTURA_MINIMA_NA_MEDIANA]
+            heights = de_texto or heights
         median_h = sorted(heights)[len(heights) // 2]
         if median_h < 10:
             median_h = 10
@@ -1672,8 +1741,16 @@ class BoxService:
 
                     is_tall_1 = h1 > SHORT_THRESH
                     is_tall_2 = h2 > SHORT_THRESH
+                    # O bloco — diagrama, painel, moldura — não recebe
+                    # diacrítico: a folga do pingo, medida para uma haste,
+                    # levava para dentro do tabuleiro os rótulos `a`–`h` e
+                    # `1`–`8` impressos em volta dele, e o retângulo crescido
+                    # deslocava as 64 casas. O respingo encostado continua
+                    # entrando, pela régua de dois altos.
+                    e_bloco = (h1 > median_h * BoxService.FATOR_NAO_TEXTO
+                               or h2 > median_h * BoxService.FATOR_NAO_TEXTO)
 
-                    if is_tall_1 and is_tall_2:
+                    if (is_tall_1 and is_tall_2) or e_bloco:
                         max_vert_dist = 2
                     elif is_tall_1 or is_tall_2:
                         # curto + alto: diacrítico. É o par que o ponto da linha
