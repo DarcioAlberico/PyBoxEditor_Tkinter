@@ -203,6 +203,148 @@ def test_os_boxes_da_tabela_saem_da_prosa():
 
 
 # ----------------------------------------------------------------------
+# A célula pelo motor (OCR-11 e OCR-12 em produção)
+# ----------------------------------------------------------------------
+
+def test_a_celula_e_lida_pelo_leitor_quando_ha_um():
+    """
+    A célula passa pelo mesmo caminho da linha de prosa: o `leitor` de
+    `_tabela_da_pagina` é o `ler_celula` de `extrair_pagina`, que roteia e
+    funde. Sem ele a célula é só da cadeia, como era.
+    """
+    img = _pagina_com_tabela(filas=2, colunas=2)
+    boxes = BoxService.generate_boxes_opencv(Image.fromarray(img))
+    rotulos = []
+
+    def leitor(sub, rotulo):
+        rotulos.append(rotulo)
+        assert sub, "a célula vazia não chama o leitor"
+        return f"W: Win {rotulo}", 1
+
+    achado = livro._tabela_da_pagina(img, boxes, lambda r: ("x", 1.0), 0.0,
+                                     None, 0, leitor=leitor)
+    assert achado is not None
+    tabela, _usados, _topo, fracos = achado
+    assert rotulos == ["t0c0l0", "t0c1l0", "t1c0l0", "t1c1l0"]
+    assert tabela.linhas == [["W: Win t0c0l0", "W: Win t0c1l0"],
+                             ["W: Win t1c0l0", "W: Win t1c1l0"]]
+    assert fracos == 4, "os derrubados da célula são os que o leitor contou"
+
+
+def test_o_box_em_cima_da_regua_e_a_regua():
+    """
+    Geometria da tabela do Nunn (p. 237): réguas verticais em 159–164,
+    313–317, 707–708, 1096–1097 e 1489–1494, glifo típico de 29 px, e os
+    pedaços da divisória em 4–8 × 107–178 px, um por fila.
+    """
+    verticais = [(159, 164), (313, 317), (707, 708), (1096, 1097), (1489, 1494)]
+    horizontais = [(420, 424), (607, 609), (793, 795)]
+    pedacos = [(156, 427, 164, 604), (704, 427, 708, 583), (1098, 1204, 1100, 1277),
+               (160, 1285, 167, 1416), (1490, 1170, 1496, 1277)]
+    for x1, y1, x2, y2 in pedacos:
+        assert livro._em_cima_da_regua(BoxEntry("", x1, y1, x2, y2),
+                                       horizontais, verticais, 29), (x1, y1, x2, y2)
+    # O `l` encostado à divisória tem uma altura só; a palavra larga perto da
+    # régua horizontal tem altura de glifo; o pedaço de régua longe de qualquer
+    # régua não é régua desta tabela.
+    for x1, y1, x2, y2 in [(700, 488, 705, 517), (367, 600, 500, 629),
+                           (500, 427, 505, 604)]:
+        assert not livro._em_cima_da_regua(BoxEntry("", x1, y1, x2, y2),
+                                           horizontais, verticais, 29), (x1, y1, x2, y2)
+    # A régua horizontal partida: larga, fina e em cima dela.
+    assert livro._em_cima_da_regua(BoxEntry("", 200, 606, 300, 610),
+                                   horizontais, verticais, 29)
+
+
+def test_a_regua_e_consumida_pela_tabela_e_nao_lida():
+    """
+    O pedaço da divisória entra como box de moldura (é como chega do Nunn: a
+    montagem sintética não o produz, e ele é posto à mão em cima da régua do
+    meio, x 448–452): a tabela o consome, e ele não é classificado nem
+    sobra para a página.
+    """
+    img = _pagina_com_tabela(filas=2, colunas=2)
+    boxes = BoxService.generate_boxes_opencv(Image.fromarray(img))
+    pedaco = BoxEntry("", 447, 310, 453, 570, moldura=True)
+    boxes = list(boxes) + [pedaco]
+    lidos = []
+
+    def classificar(recorte):
+        lidos.append(recorte.shape)
+        return "x", 1.0
+
+    achado = livro._tabela_da_pagina(img, boxes, classificar, 0.0, None, 0)
+    assert achado is not None
+    tabela, usados, _topo, _f = achado
+    assert any(b is pedaco for b in usados), "o pedaço de régua tinha de ser consumido"
+    assert not any(recorte[0] >= 200 for recorte in lidos), \
+        "o pedaço de régua foi classificado como glifo"
+    assert tabela.linhas == [["xxx", "xxx"], ["xxx", "xxx"]]
+
+
+def test_a_celula_passa_pela_fusao_por_palavra(monkeypatch):
+    """
+    A cadeia lê `W:W1n` na célula e o motor tem `W:` e `Win` a 0,95 no mesmo
+    lugar: a célula sai `W: Win`, com registro de roteamento rotulado por
+    fila, coluna e linha — e antes das linhas da página, que não veem os
+    registros que a tabela consumiu.
+    """
+    img = _pagina_com_tabela(filas=2, colunas=2)
+    monkeypatch.setattr(livro, "_pagina_cinza", lambda page, dpi: img)
+    classificar = lambda recorte: ("x", 1.0)  # noqa: E731
+    boxes = BoxService.generate_boxes_opencv(Image.fromarray(img))
+    de_moldura = [b for b in boxes if b.moldura]
+    regiao = (min(b.x1 for b in de_moldura), min(b.y1 for b in de_moldura),
+              max(b.x2 for b in de_moldura), max(b.y2 for b in de_moldura))
+    horizontais, verticais = livro._grade(img, regiao)
+    celulas = [(xa, ya, xz, yz) for ya, yz in livro._celulas(horizontais)
+               for xa, xz in livro._celulas(verticais)]
+
+    def na_tabela(linha):
+        cx = (min(b.x1 for b in linha) + max(b.x2 for b in linha)) / 2
+        cy = (min(b.y1 for b in linha) + max(b.y2 for b in linha)) / 2
+        return regiao[0] <= cx <= regiao[2] and regiao[1] <= cy <= regiao[3]
+
+    def texto_da_linha(img_, linha, classificar_, conf_minima, coletor=None,
+                       pagina=0, marcador_glifo=None):
+        texto = "W:W1n" if na_tabela(linha) else "ABCDEFGH"
+        n = len(linha)
+        caixas = [min(n - 1, i * n // len(texto)) for i in range(len(texto))]
+        return texto, 0, [None] * len(texto), [None] * len(texto), caixas
+    monkeypatch.setattr(livro, "_texto_da_linha", texto_da_linha)
+
+    def ler_pagina(img_):
+        registros = []
+        for xa, ya, xz, yz in celulas:
+            dentro = [b for b in boxes if xa <= (b.x1 + b.x2) / 2 <= xz
+                      and ya <= (b.y1 + b.y2) / 2 <= yz
+                      and (b.y2 - b.y1) < 2 * 20]
+            if not dentro:
+                continue
+            x1, y1 = min(b.x1 for b in dentro), min(b.y1 for b in dentro)
+            x2, y2 = max(b.x2 for b in dentro), max(b.y2 for b in dentro)
+            corte = x1 + (x2 - x1) * 2 // 5
+            registros.append(("W: Win", 0.95, (x1, y1, x2, y2),
+                              (("W:", 0.95, (x1, y1, corte, y2)),
+                               ("Win", 0.95, (corte, y1, x2, y2)))))
+        return registros
+
+    pagina = livro.extrair_pagina(None, classificar, dpi=150, ler_pagina=ler_pagina,
+                                  fusao="palavra")
+
+    tabelas = [b for b in pagina.blocos if isinstance(b, Tabela)]
+    assert len(tabelas) == 1
+    assert tabelas[0].linhas == [["W: Win", "W: Win"], ["W: Win", "W: Win"]]
+    celulas_lidas = [r for r in pagina.roteamento if r.get("celula")]
+    assert [r["celula"] for r in celulas_lidas] == ["t0c0l0", "t0c1l0", "t1c0l0", "t1c1l0"]
+    assert {r["fonte"] for r in celulas_lidas} == {"fusao"}
+    assert celulas_lidas[0]["ancora"] == "W:W1n"
+    linhas_da_pagina = [r for r in pagina.roteamento if not r.get("celula")]
+    assert linhas_da_pagina and {r["texto"] for r in linhas_da_pagina} == {"ABCDEFGH"}
+    assert all(r["linha"] == i for i, r in enumerate(linhas_da_pagina))
+
+
+# ----------------------------------------------------------------------
 # A saída
 # ----------------------------------------------------------------------
 

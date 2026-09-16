@@ -1911,11 +1911,40 @@ def _celulas(cortes: Sequence[Tuple[int, int]]) -> List[Tuple[int, int]]:
             if cortes[i + 1][0] - cortes[i][1] > 2]
 
 
+def _em_cima_da_regua(b: BoxEntry, horizontais: Sequence[Tuple[int, int]],
+                      verticais: Sequence[Tuple[int, int]], tipica: float) -> bool:
+    """O box que é um pedaço da régua da moldura, e não conteúdo da célula.
+
+    A divisória vertical da tabela do Nunn (p. 237) sobrevive ao `trama.aplicar`
+    em pedaços de 4–8 × 107–178 px, um por fila — 19 na página —, todos com
+    o centro a 3 px da régua que `_grade` achou. Dentro da célula, um deles
+    esticava a linha `W:Win(1 ♖e1!)` até a fila de baixo (y 427–583), e a
+    linha casava o registro errado do motor e perdia a faixa; fora dela, os
+    das bordas saíam depois da tabela como parágrafos `H l`, `u l u`, `ll`.
+    O pedaço é mais alto que duas alturas de glifo e mais estreito que meia,
+    e tem o centro a menos de meia altura da régua; o `l` e o `|` de verdade
+    têm uma altura só. O mesmo, deitado, para a régua horizontal.
+    """
+    largura, altura = b.x2 - b.x1, b.y2 - b.y1
+    cx, cy = (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2
+    folga = tipica / 2
+    if altura >= 2 * tipica and largura <= folga:
+        return any(abs(cx - (r0 + r1) / 2) <= folga for r0, r1 in verticais)
+    if largura >= 2 * tipica and altura <= folga:
+        return any(abs(cy - (r0 + r1) / 2) <= folga for r0, r1 in horizontais)
+    return False
+
+
 def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
                       classificar: Callable, conf_minima: float,
-                      coletor, numero: int):
+                      coletor, numero: int, leitor: Optional[Callable] = None):
     """
     `(Tabela, boxes consumidos, topo, fracos)` — ou `None`, se não há tabela.
+
+    `leitor(linha, rotulo) -> (texto, derrubados)` lê cada linha de célula no
+    lugar de `_texto_da_linha`: é o `ler_celula` de `extrair_pagina`, que
+    passa a célula pelo motor como passa a linha de prosa. Sem ele a célula
+    é só da cadeia, como era.
 
     **A marca diz onde olhar, e a grade decide.** Os boxes vêm marcados de
     dentro de uma moldura (F71), mas moldura não é tabela: o painel de pontuação
@@ -1951,12 +1980,20 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
                   or (x1 <= (b.x1 + b.x2) / 2 <= x2
                       and y1 <= (b.y1 + b.y2) / 2 <= y2)]
 
+    # **O box em cima da régua é a régua**, e a tabela o consome sem ler: nem
+    # é conteúdo da célula, nem pode sobrar para virar linha da página.
+    alturas = sorted(b.y2 - b.y1 for b in de_moldura)
+    tipica = alturas[len(alturas) // 2]
+    usados: List[BoxEntry] = [b for b in de_moldura
+                              if _em_cima_da_regua(b, horizontais, verticais, tipica)]
+    reguas = {id(b) for b in usados}
+    de_moldura = [b for b in de_moldura if id(b) not in reguas]
+
     matriz: List[List[str]] = []
-    usados: List[BoxEntry] = []
     fracos = 0
-    for ya, yz in filas:
+    for i, (ya, yz) in enumerate(filas):
         fila: List[str] = []
-        for xa, xz in colunas:
+        for j, (xa, xz) in enumerate(colunas):
             dentro = [b for b in de_moldura
                       if ya <= (b.y1 + b.y2) / 2 <= yz
                       and xa <= (b.x1 + b.x2) / 2 <= xz]
@@ -1968,12 +2005,15 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
             # lida coluna a coluna. Medido na página 236 do Nunn, a primeira
             # célula saía `w win ( 1 B Draw ( l ♖e 1` — as duas linhas
             # intercaladas. Célula se lê linha a linha, sempre.
-            for sub in quebrar_em_linhas(
-                    BoxService._agrupar_em_linhas(dentro)):
+            for k, sub in enumerate(quebrar_em_linhas(
+                    BoxService._agrupar_em_linhas(dentro))):
                 # A célula não leva peso: a tabela sai como `Tabela`, e nem o
                 # EPUB nem o DOCX marcam negrito dentro de célula (F105).
-                texto, n, _pesos, _lac, _cx = _texto_da_linha(
-                    img, sub, classificar, conf_minima, coletor, numero)
+                if leitor is not None:
+                    texto, n = leitor(sub, f"t{i}c{j}l{k}")
+                else:
+                    texto, n, _pesos, _lac, _cx = _texto_da_linha(
+                        img, sub, classificar, conf_minima, coletor, numero)
                 fracos += n
                 if texto:
                     partes.append(texto)
@@ -2873,6 +2913,128 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                   casas_de_largura=8.0 * (rect[2] - rect[0]) / na_pagina)
 
 
+def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable,
+               conf_minima: float, coletor, numero: int, *, rotulo, ordem: int,
+               roteador: OCRRouter, registros_ocr, usados_ocr: set,
+               ler_faixa: Optional[Callable], fusao: str, idioma_ocr: str):
+    """Uma linha lida pela cadeia própria e, quando o roteador manda, pelo motor.
+
+    É o corpo do laço de `extrair_pagina`, e saiu dele para a célula da
+    tabela passar pelo mesmo caminho (`_tabela_da_pagina`, `leitor`): a
+    cadeia lê `W:Win(1 ♖e1!)` e `W:W1n(1 ♖d1!)` nas células do Nunn, e o
+    motor tem `W:`, `Win` e `(1` a 0,9 no mesmo lugar. Devolve `(texto,
+    derrubados, pesos, lacunas, caixas, origem, domínio, registro)` — o
+    registro é o do roteamento, sem o `texto` final, que quem chama ainda
+    pode mudar (fragmento, correção direta, reparo de colagem).
+
+    `rotulo` identifica a região no roteador (`l3` na página, `t1c2l0` na
+    tabela — fila, coluna e linha da célula); `ordem` é a posição de leitura,
+    e é o `linha` do registro.
+    """
+    glifos_linha: List[Tuple[int, float, str]] = []
+    texto, n, pesos, vaos, caixas = _texto_da_linha(
+        img, linha, classificar, conf_minima, coletor, numero,
+        lambda posicao, centro_x, glifo: glifos_linha.append(
+            (posicao, centro_x, glifo)))
+    texto, pesos, vaos, caixas = _colar_numero_de_lance(texto, pesos, vaos, caixas)
+    ancora = texto
+    # O roteador da OCR-11 decide pelo domínio da âncora: a linha só de
+    # lances fica com a cadeia própria e nem paga o motor; a de prosa ou
+    # mista vai para a fusão. A de domínio desconhecido só paga o motor
+    # quando a âncora está fraca — perdeu caractere por confiança —, que é
+    # a regra do `HybridOCRPipeline` para o mesmo caso.
+    dominio = _dominio_da_linha(texto)
+    decisao = roteador.decide(RegionResult(
+        id=f"p{numero}-{rotulo}",
+        type=TIPO_DE_REGIAO_POR_DOMINIO[dominio], order=ordem,
+        confidence=1.0,
+        bbox=(min(b.x1 for b in linha), min(b.y1 for b in linha),
+              max(b.x2 for b in linha), max(b.y2 for b in linha))))
+    quer_contexto = (decisao.primary == "line"
+                     or (dominio == "unknown" and n > 0))
+    # A linha só de lances não troca nada pelo motor, mas o box que a
+    # cadeia derrubou dentro de um lance é preenchido pelo que o motor
+    # leu ali (`_fundir_por_palavra(so_lacunas=True)`) — só quando há
+    # box derrubado, e só com o registro que a página já tem.
+    so_lacunas = (not quer_contexto and dominio == "notation" and n > 0
+                  and fusao == "palavra")
+    origem = "glyph"
+    texto_ocr, confianca_ocr, semelhanca = "", 0.0, None
+    detalhes_ocr: tuple = ()
+    estatisticas: dict = {}
+    compativel = trama = False
+    # A linha em negativo não usa o registro da página: o motor leu a
+    # faixa preta como estava, e o que saiu é fraco ou errado. Ela vai
+    # direto para a faixa invertida, abaixo.
+    negativa = any(getattr(b, "negativo", False) for b in linha)
+    casamento = (_casar_linha_ocr(linha, registros_ocr, usados_ocr)
+                 if registros_ocr and not negativa else None)
+    if casamento is not None:
+        indice_ocr, texto_ocr, confianca_ocr = casamento
+        detalhes_ocr = (registros_ocr[indice_ocr][3]
+                        if len(registros_ocr[indice_ocr]) > 3 else ())
+        semelhanca, compativel = _compatibilidade_da_linha(
+            texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
+        if (quer_contexto or so_lacunas) and compativel:
+            # O registro só é consumido quando é aceito: o rejeitado pode
+            # ser a linha de baixo — o Tesseract às vezes devolve duas
+            # linhas impressas num registro só, e ele casa primeiro com a
+            # de cima, que o recusa pela semelhança.
+            usados_ocr.add(indice_ocr)
+    if quer_contexto and not compativel and ler_faixa is not None:
+        # A passada de página não devolveu esta linha (ou devolveu a
+        # errada): o motor lê a faixa dela sozinha. Só aqui, e não em toda
+        # linha, porque é uma chamada de processo por faixa.
+        faixa = _registro_da_faixa(img, linha, ler_faixa)
+        if faixa is not None:
+            texto_ocr, confianca_ocr, detalhes_ocr, trama = faixa
+            semelhanca, compativel = _compatibilidade_da_linha(
+                texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao,
+                trama=trama)
+            estatisticas["faixa"] = True
+    elif (quer_contexto and compativel and fusao == "palavra"
+            and any(_lance_sem_casa(t) for t in texto.split())):
+        # O registro veio da passada de página, e a âncora tem a figurina
+        # sem casa: se a linha está sobre trama, ela é um ponto — e é a
+        # única coisa que a trama muda na fusão, então só se mede aqui.
+        trama = _linha_sobre_trama(img, linha)
+    if trama:
+        estatisticas["trama"] = True
+    if so_lacunas and compativel and detalhes_ocr:
+        novo_texto, contas = _fundir_por_palavra(
+            texto, caixas, linha, detalhes_ocr, so_lacunas=True)
+        estatisticas.update(contas)
+        if novo_texto and novo_texto != texto:
+            pesos, vaos = _transferir_medidas(texto, novo_texto, pesos, vaos)
+            texto = novo_texto
+            origem = "lacunas"
+    elif quer_contexto and compativel:
+        if fusao == "palavra" and detalhes_ocr:
+            novo_texto, contas = _fundir_por_palavra(
+                texto, caixas, linha, detalhes_ocr, trama=trama)
+            estatisticas.update(contas)
+            origem = "fusao"
+        else:
+            # Sem as palavras do motor (um `ler_pagina` sem detalhes) só
+            # dá para trocar a linha inteira.
+            novo_texto = _preservar_glifos_por_palavra(
+                texto, texto_ocr, glifos_linha, detalhes_ocr)
+            origem = "line"
+        if novo_texto:
+            novo_texto = _corrigir_prosa_contextual(novo_texto, idioma_ocr)
+            pesos, vaos = _transferir_medidas(texto, novo_texto,
+                                               pesos, vaos)
+            texto = novo_texto
+        else:
+            origem = "glyph"
+    registro = {"linha": ordem, "dominio": dominio,
+                "primario": decisao.primary, "motivo": decisao.reason,
+                "fonte": origem, "ancora": ancora, "linha_ocr": texto_ocr,
+                "confianca_ocr": confianca_ocr, "semelhanca": semelhanca,
+                "descartados": n, **estatisticas}
+    return texto, n, pesos, vaos, caixas, origem, dominio, registro
+
+
 def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    dpi: int = 300, conf_minima: float = CONF_MINIMA,
                    dpi_figura: int = DPI_FIGURA,
@@ -2981,10 +3143,31 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     usados_ocr: set[int] = set()
 
     fracos = reparos = 0
+    roteador = OCRRouter()
+    roteamento: List[dict] = []
+
+    def ler_celula(sub: Sequence[BoxEntry], rotulo: str) -> Tuple[str, int]:
+        """A linha de uma célula da tabela, pelo mesmo caminho da linha de
+        prosa: cadeia, roteador e motor. Sem a régua de fragmento — a célula
+        é curta por natureza (`W:`, `Draw`) — e sem o reparo de colagem, que
+        é do texto corrido."""
+        texto, n, _pesos, _vaos, _caixas, origem, dominio, registro = _ler_linha(
+            img, sub, classificar, conf_minima, coletor, numero,
+            rotulo=rotulo, ordem=len(roteamento), roteador=roteador,
+            registros_ocr=registros_ocr, usados_ocr=usados_ocr,
+            ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr)
+        if origem == "glyph" and dominio != "notation":
+            texto = _corrigir_prosa_contextual(texto, idioma_ocr, fuzzy=False)
+        roteamento.append({**registro, "texto": texto, "celula": rotulo})
+        return texto, n
+
     # A tabela sai da página antes das linhas: as células dela não são linhas de
-    # prosa, e deixá-las virar parágrafo é o defeito que a F72 fecha.
+    # prosa, e deixá-las virar parágrafo é o defeito que a F72 fecha. As
+    # células passam pelo motor como as linhas (`ler_celula`), e consomem os
+    # registros da página que são delas antes de qualquer linha olhar para
+    # eles.
     achado = _tabela_da_pagina(img, boxes, classificar, conf_minima, coletor,
-                               numero)
+                               numero, leitor=ler_celula)
     tabela = topo_da_tabela = None
     if achado is not None:
         tabela, usados, topo_da_tabela, fracos = achado
@@ -2997,111 +3180,14 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         # coluna única também abaixo dela.
 
     medidas: List[Linha] = []
-    roteador = OCRRouter()
-    roteamento: List[dict] = []
     for indice_linha, linha in enumerate(quebrar_em_linhas(boxes)):
-        glifos_linha: List[Tuple[int, float, str]] = []
-        texto, n, pesos, vaos, caixas = _texto_da_linha(
+        (texto, n, pesos, vaos, caixas, origem, dominio,
+         registro) = _ler_linha(
             img, linha, classificar, conf_minima, coletor, numero,
-            lambda posicao, centro_x, glifo: glifos_linha.append(
-                (posicao, centro_x, glifo)))
+            rotulo=f"l{indice_linha}", ordem=indice_linha, roteador=roteador,
+            registros_ocr=registros_ocr, usados_ocr=usados_ocr,
+            ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr)
         fracos += n
-        texto, pesos, vaos, caixas = _colar_numero_de_lance(texto, pesos, vaos, caixas)
-        ancora = texto
-        # O roteador da OCR-11 decide pelo domínio da âncora: a linha só de
-        # lances fica com a cadeia própria e nem paga o motor; a de prosa ou
-        # mista vai para a fusão. A de domínio desconhecido só paga o motor
-        # quando a âncora está fraca — perdeu caractere por confiança —, que é
-        # a regra do `HybridOCRPipeline` para o mesmo caso.
-        dominio = _dominio_da_linha(texto)
-        decisao = roteador.decide(RegionResult(
-            id=f"p{numero}-l{indice_linha}",
-            type=TIPO_DE_REGIAO_POR_DOMINIO[dominio], order=indice_linha,
-            confidence=1.0,
-            bbox=(min(b.x1 for b in linha), min(b.y1 for b in linha),
-                  max(b.x2 for b in linha), max(b.y2 for b in linha))))
-        quer_contexto = (decisao.primary == "line"
-                         or (dominio == "unknown" and n > 0))
-        # A linha só de lances não troca nada pelo motor, mas o box que a
-        # cadeia derrubou dentro de um lance é preenchido pelo que o motor
-        # leu ali (`_fundir_por_palavra(so_lacunas=True)`) — só quando há
-        # box derrubado, e só com o registro que a página já tem.
-        so_lacunas = (not quer_contexto and dominio == "notation" and n > 0
-                      and fusao == "palavra")
-        origem = "glyph"
-        texto_ocr, confianca_ocr, semelhanca = "", 0.0, None
-        detalhes_ocr: tuple = ()
-        estatisticas: dict = {}
-        compativel = trama = False
-        # A linha em negativo não usa o registro da página: o motor leu a
-        # faixa preta como estava, e o que saiu é fraco ou errado. Ela vai
-        # direto para a faixa invertida, abaixo.
-        negativa = any(getattr(b, "negativo", False) for b in linha)
-        casamento = (_casar_linha_ocr(linha, registros_ocr, usados_ocr)
-                     if registros_ocr and not negativa else None)
-        if casamento is not None:
-            indice_ocr, texto_ocr, confianca_ocr = casamento
-            detalhes_ocr = (registros_ocr[indice_ocr][3]
-                            if len(registros_ocr[indice_ocr]) > 3 else ())
-            semelhanca, compativel = _compatibilidade_da_linha(
-                texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao)
-            if (quer_contexto or so_lacunas) and compativel:
-                # O registro só é consumido quando é aceito: o rejeitado pode
-                # ser a linha de baixo — o Tesseract às vezes devolve duas
-                # linhas impressas num registro só, e ele casa primeiro com a
-                # de cima, que o recusa pela semelhança.
-                usados_ocr.add(indice_ocr)
-        if quer_contexto and not compativel and ler_faixa is not None:
-            # A passada de página não devolveu esta linha (ou devolveu a
-            # errada): o motor lê a faixa dela sozinha. Só aqui, e não em toda
-            # linha, porque é uma chamada de processo por faixa.
-            faixa = _registro_da_faixa(img, linha, ler_faixa)
-            if faixa is not None:
-                texto_ocr, confianca_ocr, detalhes_ocr, trama = faixa
-                semelhanca, compativel = _compatibilidade_da_linha(
-                    texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao,
-                    trama=trama)
-                estatisticas["faixa"] = True
-        elif (quer_contexto and compativel and fusao == "palavra"
-                and any(_lance_sem_casa(t) for t in texto.split())):
-            # O registro veio da passada de página, e a âncora tem a figurina
-            # sem casa: se a linha está sobre trama, ela é um ponto — e é a
-            # única coisa que a trama muda na fusão, então só se mede aqui.
-            trama = _linha_sobre_trama(img, linha)
-        if trama:
-            estatisticas["trama"] = True
-        if so_lacunas and compativel and detalhes_ocr:
-            novo_texto, contas = _fundir_por_palavra(
-                texto, caixas, linha, detalhes_ocr, so_lacunas=True)
-            estatisticas.update(contas)
-            if novo_texto and novo_texto != texto:
-                pesos, vaos = _transferir_medidas(texto, novo_texto, pesos, vaos)
-                texto = novo_texto
-                origem = "lacunas"
-        elif quer_contexto and compativel:
-            if fusao == "palavra" and detalhes_ocr:
-                novo_texto, contas = _fundir_por_palavra(
-                    texto, caixas, linha, detalhes_ocr, trama=trama)
-                estatisticas.update(contas)
-                origem = "fusao"
-            else:
-                # Sem as palavras do motor (um `ler_pagina` sem detalhes) só
-                # dá para trocar a linha inteira.
-                novo_texto = _preservar_glifos_por_palavra(
-                    texto, texto_ocr, glifos_linha, detalhes_ocr)
-                origem = "line"
-            if novo_texto:
-                novo_texto = _corrigir_prosa_contextual(novo_texto, idioma_ocr)
-                pesos, vaos = _transferir_medidas(texto, novo_texto,
-                                                   pesos, vaos)
-                texto = novo_texto
-            else:
-                origem = "glyph"
-        registro = {"linha": indice_linha, "dominio": dominio,
-                    "primario": decisao.primary, "motivo": decisao.reason,
-                    "fonte": origem, "ancora": ancora, "linha_ocr": texto_ocr,
-                    "confianca_ocr": confianca_ocr, "semelhanca": semelhanca,
-                    "descartados": n, **estatisticas}
         if origem == "glyph":
             # A sobra curta do detector que o motor já cobriu inteira não vira
             # linha. E a linha que ficou com a cadeia própria recebe só as

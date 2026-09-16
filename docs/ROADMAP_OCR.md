@@ -929,10 +929,65 @@ pontuação), `CHAPTER )` (o `5` do título), as três linhas `:` e o `Diagram
 5-1` do lado do tabuleiro que a cadeia perde, `opponent,s`, `A.Yusupv`, `]`,
 `-` e o número da página.
 
+### As células da tabela pela fusão, e o box em cima da régua
+
+Data: 2026-09-15. O corpo do laço de linha de `extrair_pagina` — cadeia,
+`_colar_numero_de_lance`, roteador, registro da página, faixa, fusão — saiu
+para `_ler_linha`, e `_tabela_da_pagina` ganhou um `leitor`: o `ler_celula`
+de `extrair_pagina`, que lê cada linha de célula por esse mesmo caminho e a
+registra no roteamento com o rótulo `t{fila}c{coluna}l{linha}` (`celula`).
+A célula fica sem a régua de fragmento — é curta por natureza (`W:`,
+`Draw`) — e sem o reparo de colagem, que é do texto corrido. A tabela é
+lida antes das linhas, como já era, e agora consome os registros da página
+que são dela antes de qualquer linha olhar para eles. Primeira rodada:
+17,93% → 11,71%; `W:Win(1 ♖e1!)` e `W:W1n(1 ♖d1!)` saem `W: Win (1 ♖e1!)`
+e `W: Win (1 ♖d1!)`, com `W:`, `Win` e `(1` do motor a 0,9 e o lance da
+âncora.
+
+Uma célula não fundiu, e o registro dela explicou: `W:Win(1 ♖e1!)` na fila
+`B♖h2` casava com o registro da linha de baixo (0,25) e a faixa não devolvia
+nada, porque a linha tinha um box de 4×156 px em y 427–583 — **o pedaço da
+divisória vertical da tabela**, que sobrevive ao `trama.aplicar` em pedaços,
+um por fila: 19 na página, todos com o centro a 3 px de uma régua que
+`_grade` acha. Dentro da célula, esticava a linha até a fila de baixo; fora
+dela, os das bordas saíam depois da tabela como parágrafos `H l`, `u l u`,
+`ll`, `l` — e `ll` sobrevivia à régua de fragmento porque atravessa a página
+(um `l` na borda esquerda, outro na direita). `_em_cima_da_regua`: o box
+mais alto que duas alturas de glifo, mais estreito que meia, com o centro a
+menos de meia altura da régua, é a régua, e a tabela o consome sem ler;
+deitado, o mesmo para a horizontal. O `l` e o `|` de verdade têm uma altura
+só.
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Nunn p. 237 (rodada anterior) | `palavra` | 16,49% | 16,36% | 19,85% | 26,03% | 17,93% |
+| Nunn p. 237 (células pela fusão) | `palavra` | 9,78% | 12,73% | 14,29% | 24,66% | 11,71% |
+| Nunn p. 237 | `glifo` | 16,85% | 20,00% | 18,16% | 26,03% | 17,41% |
+| | `linha` | 11,78% | 10,91% | 26,15% | 46,58% | 17,93% |
+| | `palavra` | **5,80%** | **10,30%** | **11,38%** | **24,66%** | **8,19%** |
+| Aagaard p. 30 | `palavra` | 1,33% | 2,90% | 4,60% | 11,36% | 2,40% |
+| Yusupov p. 34 | `palavra` | 0,66% | 2,34% | 0,76% | 3,39% | 0,71% |
+| Yusupov p. 47 | `palavra` | 2,92% | 5,66% | 0,00% | 0,00% | 2,50% |
+
+O `glifo` também cai (20,83% → 17,41%): as linhas de régua sumiram, e
+`_colar_numero_de_lance` passou a valer dentro da célula (`( 1 ...♔h6` →
+`( 1...♔h6`), que é o caminho da linha. As outras três páginas não mudam um
+centésimo — não têm tabela, e o laço é o mesmo de antes, só que numa
+função. Dos 35 tokens que sobram na p. 237: a fila de cabeçalho `W♔d1 W♔c1
+W♔b1` (o bloco baixo e largo que `trama.candidatos` recusa, como antes);
+`W:W1n(1♖d1!)` e `Draw(1...♖h2!)` (×2), em que a cadeia cola a prosa ao
+lance num token só, e o token com figurina é lance para a fusão — partir o
+token da âncora pelas palavras do motor (`W:` `Win` `(1` `Bd1!)`) é o que
+os resolve; o `(` que a cadeia separa do `1...` (cinco vezes, na tabela e na
+prosa); os erros da cadeia no lance (`(l...♖a2!)`, `1..♖b2?`, `♖e1 !`,
+`♖e8 !`, `w♖g1`); o `*` (derrubado pela cadeia, e o motor não o lê); e
+`-see`.
+
 ### Próximo passo
 
-Conferir as quatro referências contra o livro impresso. As células da tabela
-do Nunn pela fusão (`_tabela_da_pagina` no mesmo laço de linha de
-`extrair_pagina`), que é onde está a maior parte dos 40 tokens da p. 237. A
-orelha girada do capítulo é assunto da F8.1, e os erros confiantes da cadeia
-no lance, da OCR-14.
+Conferir as quatro referências contra o livro impresso. Partir o token da
+âncora que cola prosa ao lance (`Draw(1...♖h2!)`) pelas palavras do motor,
+quando o token inteiro não tem forma de lance e cada pedaço tem a sua. A
+fila de cabeçalho da tabela do Nunn é o bloco baixo e largo de
+`trama.candidatos`. A orelha girada do capítulo é assunto da F8.1, e os
+erros confiantes da cadeia no lance, da OCR-14.
