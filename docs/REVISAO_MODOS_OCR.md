@@ -259,6 +259,19 @@ treino grava a proveniência; carimbos em UTC.
 
 ### 4.4 Interface
 
+**Uma caixa só para exportar** (`ui/dialogo_de_exportacao.py`, item 1 da
+lista de 5, feito em 2026-09-18): formato, destino, páginas, idioma, estado
+do Tesseract, reparo de colagem, modelo de linha (atrás do portão), coleta
+com teto, diagramas (redesenho, fonte embutida, coordenadas, e o painel com
+a amostra de verdade) — no lugar das catorze `messagebox` encadeadas. O que
+se escolheu volta preenchido da próxima vez (`Settings`, chave
+`exportacao`), de modo que exportar o mesmo livro de novo é abrir a caixa e
+confirmar; o botão só libera com o formulário consistente, e cancelar é
+desistir. `OpcoesDeExportacao` é o que a ação consome, e a mesma caixa
+serve o documento editorial com mais formatos. Cabe em 768 px de altura
+(1136×586). `test_f26_livro` migrou do dublê por título para o dublê da
+caixa; `test_dialogo_de_exportacao` fixa o contrato (20 testes).
+
 Menu por etapa (Arquivo → Exportar; Editar; Reconhecer com o modo
 recomendado primeiro; Revisar; Modelo; PDF; Notação; Ferramentas; Ajuda com
 a lista de atalhos), mnemônicos, guardas de foco em Delete/Backspace e nas
@@ -275,10 +288,7 @@ linhas de cinco arquivos, "Próximo" com acento.
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
 ordem indicada.
 
-1. **Um diálogo de exportação** no lugar das 14 caixas, persistido em
-   `Settings` (`config/settings.py`), com a amostra do diagrama embutida.
-   Aceite: exportar o mesmo livro duas vezes não pergunta nada na segunda;
-   `test_f26_livro` migrado do dublê por título para o diálogo.
+1. ~~Um diálogo de exportação no lugar das 14 caixas~~ — feito (4.4).
 2. **Fila de suspeitas com evidência** (`core/editorial_review.py`,
    `ui/dialogo_revisao_editorial.py`): recorte pelo bbox da página,
    alternativas (âncora × motor, do `roteamento`), motivo em linguagem
