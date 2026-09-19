@@ -283,19 +283,90 @@ handler de movimento vai só para o log, sem tempestade de caixas), o botão
 consultando o mesmo portão do modelo de linha, mojibake corrigido em 14
 linhas de cinco arquivos, "Próximo" com acento.
 
+### 4.5 A fila de suspeitas com evidência (item 2, 2026-09-19)
+
+O adapter do leitor medido (`core/editorial_adapters.py`) marcava todo bloco
+`automatic` a 1,0, e a fila de um livro inteiro saía **vazia**; a da fachada
+nova punha o livro inteiro dentro. Agora cada linha impressa do parágrafo
+vira uma `Evidence` com as duas leituras (a âncora da cadeia própria e a
+linha do motor, como hipóteses), a caixa da linha na página e os motivos de
+suspeita — em código, para a fila ordenar, e **em frase**, para o revisor
+ler. Para isso o leitor passou a guardar de que registros de roteamento cada
+parágrafo saiu (`Paragrafo.registros`, paralelo a `inicios` e cortado junto
+por `_cortar`), a caixa de cada linha no registro (`caixa`) e a do tabuleiro
+na figura (`Figura.caixa`).
+
+A régua é `core/editorial_suspeitas.py`, lexical e geométrica como as de
+`livro.py`, e cada regra existe por um resíduo de 4.1: o token com figurina
+que não tem forma de lance (`25♖xc7!`, `57..♖xc4?`, `w♖g1`, `1..♖b2?`); o
+que começa como número de lance e não é lance (`26...g16`); o lance de peão
+que o motor leu diferente da cadeia (`gxh5` × `a6`, com a peça fora da
+comparação — o motor a lê como letra — e só com o motor acima de 0,6); a
+linha vazia que a cadeia derrubou e o motor leu (`*`); a prosa que ficou
+com a cadeia porque o motor não confirmou ou não devolveu a linha; o
+resultado partido no fim da linha de lances (`35.♔h3 1`); a figurina sem
+casa no fim da linha (`4.♘e5 ♕`); o sinal que não é de prosa (`El]`, `[n`,
+`§.Tarrasch`, `opponent,s`, a aspa que abre e não fecha); a linha que é um
+sinal só (`:`, `/`, o cisco da trama). A avaliação colada ao lance
+(`3.♕h4+–`, `6.♘e5++–`) **não** é lance malformado — sem isso a p. 34 do
+Yusupov entrava inteira.
+
+Medido com `scripts/fila_de_suspeitas.py` (lê pela fachada, imprime a fila e
+confere cada linha suspeita contra a referência humana):
+
+| página | blocos na fila | linhas suspeitas | erro real | falso positivo | erros fora da fila |
+|---|---:|---:|---:|---:|---:|
+| Aagaard p. 30 | 4 de 5 | 8 | 8 | 0 | 3 (`⩲`/`±`, `♕c1`/`♕e1`, `Bur`) |
+| Nunn p. 237 | 3 de 11 | 4 | 4 | 0 | 1 (`—see`) |
+| Yusupov p. 34 | 5 de 30 | 5 | 5 | 0 | 2 (`Solutions f7`, `33`) |
+| Yusupov p. 47 | 6 de 16 | 6 | 6 | 0 | 5 (`CHAPTER )`, `🗸`, `. -`, `:`, `— German`) |
+
+Os 23 apontados são erros; o que escapa é o erro confiante da cadeia num
+lance bem formado (a OCR-14, item 5) e cisco tipográfico. A fila aceita um
+teto por página (`build_review_queue(limite_por_pagina=N)`), e o impacto
+segue a spec: diagrama recusado, depois a linha perdida e o lance, depois a
+palavra, depois o sinal.
+
+A sessão (`core/editorial_review.py`): **desfazer é uma pilha** — cada
+`undo` volta um passo do revisor, um lote (`aceitar semelhantes`, eventos
+com o mesmo `batch:<id>`) volta inteiro, e o bloco volta ao **estado** de
+antes (`ReviewEvent.before_status`), de modo que o aceito e desfeito
+reaparece na fila; era "o último evento que não é undo", e dois `undo`
+voltavam o mesmo passo. `substituir_linha` troca uma linha do bloco pela
+leitura escolhida; `semelhantes` são os itens do mesmo tipo e motivos.
+
+A janela (`ui/dialogo_revisao_editorial.py`): o recorte da página no lugar
+do bloco e, linha a linha, no lugar de cada linha (`ProvedorDePaginas`
+rasteriza a origem na escala em que ela foi lida, quatro páginas em memória);
+as linhas do bloco com as duas leituras e "Usar cadeia"/"Usar motor"; o
+motivo em frase; filtro por página e tipo e teto por página; lote com
+amostra e contagem; o valor editável (Ctrl+Enter salva); teclas que não
+valem com o foco no texto; cabe em 768 px (1180×600, encostada no alto). O
+diagrama abre no `DialogoDiagrama` ao lado do recorte impresso
+(`leitura_de_fen` monta a posição do IR) e o FEN que sai de lá entra no
+documento. **"Exportar com as correções"** regrava o arquivo da exportação:
+os formatos do IR pelo documento revisado, o EPUB/DOCX pelas
+`PaginaExtraida` com a revisão aplicada (`aplicar_revisao`: texto, filas,
+FEN redesenhado com a fonte do livro, bloco rejeitado fora) — o FEN revisado
+**volta** para a exportação. Testes: `test_editorial_suspeitas` (32, a régua e o
+leitor), `test_fila_de_suspeitas` (15), `test_dialogo_revisao_editorial` (15),
+`test_revisao_na_janela` (5).
+
 ## 5. O que fica, em ordem
 
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
 ordem indicada.
 
 1. ~~Um diálogo de exportação no lugar das 14 caixas~~ — feito (4.4).
-2. **Fila de suspeitas com evidência** (`core/editorial_review.py`,
+2. ~~**Fila de suspeitas com evidência** (`core/editorial_review.py`,
    `ui/dialogo_revisao_editorial.py`): recorte pelo bbox da página,
    alternativas (âncora × motor, do `roteamento`), motivo em linguagem
    humana, lote com amostra e desfazer em pilha; o diagrama abre o
    `DialogoDiagrama`, e o FEN revisado **volta** para a exportação. Aceite:
    nas quatro páginas a fila contém os resíduos listados em 4.1 e mais nada
-   além de N por página; `undo` duas vezes volta dois passos.
+   além de N por página; `undo` duas vezes volta dois passos.~~ — feito
+   (4.5): 23 linhas apontadas nas quatro páginas, 23 erros, 0 falsos
+   positivos; o que escapa é a OCR-14 e cisco tipográfico.
 3. **Diagrama sem convenção silenciosa**: lado a jogar da legenda quando
    houver ("White/Black to move", "brancas jogam"), senão marcado no alt e
    na figcaption; aviso de orientação não confirmada no diálogo legado;

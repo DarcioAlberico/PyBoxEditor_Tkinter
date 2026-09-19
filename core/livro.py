@@ -204,6 +204,13 @@ class Paragrafo:
     #: parágrafo — no Aagaard é o caso de quase toda página. Vazio no
     #: parágrafo montado à mão.
     inicios: List[int] = field(default_factory=list)
+    #: O índice, em `PaginaExtraida.roteamento`, do registro de cada linha
+    #: impressa — paralelo a `inicios`, e `-1` na linha que não veio da
+    #: página. É o que liga o parágrafo às duas leituras de cada linha (a
+    #: âncora da cadeia e a linha do motor): a fila de revisão mostra o
+    #: recorte da linha e as alternativas dela por aqui, e sem isto o
+    #: parágrafo já pronto não sabia mais de que linhas tinha saído.
+    registros: List[int] = field(default_factory=list)
 
     @property
     def linhas_impressas(self) -> int:
@@ -265,6 +272,15 @@ class Figura:
     #: linhas e acabou — e quem escreve o arquivo não põe moldura por fora,
     #: porque ela já está dentro do texto.
     linhas_emolduradas: bool = False
+    #: Onde o tabuleiro está na página lida — o `Diagrama.tabuleiro`, em
+    #: pixels da imagem a `PaginaExtraida.dpi`. `None` na figura que não veio
+    #: de um tabuleiro da página (a página inteira que virou imagem).
+    #:
+    #: É o que a fila de revisão precisa para abrir o diagrama **ao lado do
+    #: recorte impresso**, na mesma escala, e não só ao lado do desenho que o
+    #: modelo fez dele: conferir uma posição contra o desenho dela é conferir
+    #: a leitura contra si mesma.
+    caixa: Optional[Tuple[int, int, int, int]] = None
 
 
 @dataclass
@@ -336,6 +352,13 @@ class PaginaExtraida:
     #: que a OCR-11 pede ("registrar decisão de roteamento e motivo"), e é o
     #: que `scripts/ab_ocr_livro.py` lê para medir prosa e notação em separado.
     roteamento: List[dict] = field(default_factory=list)
+    #: O motivo, quando o motor contextual (`ler_pagina`/`ler_faixa`) **falhou**
+    #: nesta página — o Tesseract ausente, o pacote de idioma que não está
+    #: instalado. A página sai só com a cadeia própria, como sempre saiu; o que
+    #: muda é que isso deixa de ser invisível: até aqui a falha devolvia `[]`,
+    #: e uma página sem Tesseract era bit a bit igual a uma página em branco.
+    #: O relatório do fim da exportação conta quantas páginas ficaram assim.
+    motor_indisponivel: str = ""
 
     @property
     def texto(self) -> str:
@@ -1041,6 +1064,45 @@ def _limpar_faixa_de_trama(faixa: np.ndarray, linha: Sequence[BoxEntry]
     return limpa, True
 
 
+#: Depois de quantas falhas seguidas do motor de faixa a página para de pedi-lo.
+#: A indisponibilidade (executável, idioma) desliga na primeira, sem contar:
+#: a segunda chamada falharia igual, e são uma por linha. A falha comum — um
+#: recorte que o motor não engoliu — precisa se repetir: isolada, não desliga
+#: nada, e três seguidas são um defeito que vai se repetir na linha seguinte.
+FALHAS_DE_FAIXA_ATE_DESISTIR = 3
+
+
+def _ler_faixa_registrando(ler_faixa: Callable, falhas: List[str]) -> Callable:
+    """Embrulha `ler_faixa` para que a falha dele **fique registrada** em
+    `falhas` em vez de sumir: o recorte que ele não leu devolve `[]` e a linha
+    fica com a âncora, como antes — mas a página sabe que o motor faltou.
+    A indisponibilidade (`MotorIndisponivel`) desliga o motor para o resto da
+    página na primeira vez; a falha comum precisa se repetir
+    `FALHAS_DE_FAIXA_ATE_DESISTIR` vezes seguidas."""
+    from core.services.ocr_service import MotorIndisponivel
+
+    estado = {"desligado": False, "seguidas": 0}
+
+    def ler(faixa):
+        if estado["desligado"]:
+            return []
+        try:
+            registros = ler_faixa(faixa)
+        except MotorIndisponivel as erro:
+            estado["desligado"] = True
+            falhas.append(f"faixa: {erro.motivo}")
+            return []
+        except Exception as erro:  # noqa: BLE001 — registrada, e a linha segue
+            estado["seguidas"] += 1
+            if estado["seguidas"] >= FALHAS_DE_FAIXA_ATE_DESISTIR:
+                estado["desligado"] = True
+            falhas.append(f"faixa: {type(erro).__name__}: {erro}")
+            return []
+        estado["seguidas"] = 0
+        return registros
+    return ler
+
+
 def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
                        ler_faixa: Callable):
     """Lê a faixa de uma linha só e devolve o registro em coordenadas da página.
@@ -1083,12 +1145,10 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
         trama = False
     else:
         faixa, trama = _limpar_faixa_de_trama(faixa, linha)
-    try:
-        registros = list(ler_faixa(faixa) or [])
-    except Exception:
-        # O fallback é uma melhoria opcional, como o `ler_pagina`: a falha
-        # dele não pode derrubar a página.
-        return None
+    # A falha do motor não é tratada aqui: `extrair_pagina` embrulha o
+    # `ler_faixa` em `_ler_faixa_registrando`, que a anota na página e devolve
+    # `[]` — a linha fica com a âncora, e a página sabe por quê.
+    registros = list(ler_faixa(faixa) or [])
     registros = [r for r in registros if len(r) >= 3 and str(r[0] or "").strip()]
     if not registros:
         return None
@@ -2247,6 +2307,10 @@ class Linha:
     #: A/B separa para medir prosa e notação cada uma por si.
     dominio: str = "prose"
     fonte: str = "glyph"
+    #: O índice do registro desta linha em `PaginaExtraida.roteamento`, para
+    #: o parágrafo que ela vai formar guardar de onde veio (`Paragrafo.
+    #: registros`). `None` na linha que não passou pelo roteador.
+    registro: Optional[int] = None
 
 
 def _metricas_por_coluna(linhas: Sequence[Linha]) -> dict:
@@ -2486,7 +2550,9 @@ def _paragrafo_de(linhas: Sequence[Linha],
                      lacunas=negrito.vetor(vaos),
                       topo=min(linha.topo for linha in linhas),
                       pe=max(linha.topo + linha.altura for linha in linhas),
-                     inicios=inicios)
+                     inicios=inicios,
+                     registros=[-1 if linha.registro is None else linha.registro
+                                for linha in linhas])
 
 
 #: Quantas vezes uma palavra precisa aparecer **sozinha** no material para
@@ -2739,6 +2805,11 @@ def _cortar(p: Paragrafo, inicio: int, fim: int) -> None:
     if p.lacunas is not None:
         p.lacunas = np.concatenate([p.lacunas[:inicio], p.lacunas[fim:]])
     tamanho = fim - inicio
+    # `registros` anda em paralelo a `inicios`: a linha que sai leva o
+    # registro dela junto, senão o parágrafo apontaria para a linha errada.
+    if len(p.registros) == len(p.inicios):
+        p.registros = [r for i, r in zip(p.inicios, p.registros)
+                       if not inicio <= i < fim]
     p.inicios = [i if i < inicio else i - tamanho
                  for i in p.inicios if not inicio <= i < fim]
     p.negrito = [(a if a < inicio else a - tamanho,
@@ -3090,7 +3161,8 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                               orientacao=leitura.orientacao,
                               casas_de_largura=(
                                   larg * 8.0
-                                  / render_diagrama.lado_efetivo(lado)))
+                                  / render_diagrama.lado_efetivo(lado)),
+                              caixa=tuple(int(v) for v in d.tabuleiro))
         except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta) as erro:
             # Falta de modelo ou de fonte não pode derrubar a exportação de um
@@ -3106,7 +3178,8 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
     na_pagina = max(1, d.tabuleiro[2] - d.tabuleiro[0])
     return Figura(png, larg, alt, origem="recorte", aviso=aviso,
                   coordenadas=quer,
-                  casas_de_largura=8.0 * (rect[2] - rect[0]) / na_pagina)
+                  casas_de_largura=8.0 * (rect[2] - rect[0]) / na_pagina,
+                  caixa=tuple(int(v) for v in d.tabuleiro))
 
 
 def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable,
@@ -3142,12 +3215,12 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
     # quando a âncora está fraca — perdeu caractere por confiança —, que é
     # a regra do `HybridOCRPipeline` para o mesmo caso.
     dominio = _dominio_da_linha(texto)
+    decisao_bbox = (min(b.x1 for b in linha), min(b.y1 for b in linha),
+                    max(b.x2 for b in linha), max(b.y2 for b in linha))
     decisao = roteador.decide(RegionResult(
         id=f"p{numero}-{rotulo}",
         type=TIPO_DE_REGIAO_POR_DOMINIO[dominio], order=ordem,
-        confidence=1.0,
-        bbox=(min(b.x1 for b in linha), min(b.y1 for b in linha),
-              max(b.x2 for b in linha), max(b.y2 for b in linha))))
+        confidence=1.0, bbox=decisao_bbox))
     quer_contexto = (decisao.primary == "line"
                      or (dominio == "unknown" and n > 0))
     # A linha só de lances não troca nada pelo motor, mas o box que a
@@ -3225,11 +3298,15 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
             texto = novo_texto
         else:
             origem = "glyph"
+    # A `caixa` é a da linha na página (pixels da imagem lida): é por ela
+    # que a fila de revisão recorta a linha para mostrar ao lado das duas
+    # leituras — o registro sem ela dizia o que foi lido, e não onde.
     registro = {"linha": ordem, "dominio": dominio,
                 "primario": decisao.primary, "motivo": decisao.reason,
                 "fonte": origem, "ancora": ancora, "linha_ocr": texto_ocr,
                 "confianca_ocr": confianca_ocr, "semelhanca": semelhanca,
-                "descartados": n, **estatisticas}
+                "descartados": n, "caixa": [int(v) for v in decisao_bbox],
+                **estatisticas}
     return texto, n, pesos, vaos, caixas, origem, dominio, registro
 
 
@@ -3329,15 +3406,24 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     # O Tesseract (ou outro motor contextual) é chamado uma vez por página,
     # nunca uma vez por caractere. O resultado traz coordenadas e fica restrito
     # à linha que realmente cobre os boxes internos.
+    #
+    # O OCR contextual é uma melhoria opcional: se o executável ou o idioma
+    # não estiver instalado, a rede especializada continua produzindo o livro
+    # normalmente. **Mas a falha fica registrada** (`falhas_do_motor`): até
+    # aqui ela virava `[]` em silêncio, e a página sem motor era idêntica a
+    # uma página em que o motor não leu nada. Depois da primeira
+    # indisponibilidade a faixa deixa de ser pedida — o motor que não abriu
+    # a página não vai abrir a faixa, e são uma chamada de processo por linha.
+    falhas_do_motor: List[str] = []
     registros_ocr = []
     if ler_pagina is not None:
         try:
             registros_ocr = list(ler_pagina(img) or [])
-        except Exception:
-            # O OCR contextual é uma melhoria opcional: se o executável ou o
-            # idioma não estiver instalado, a rede especializada continua
-            # produzindo o livro normalmente.
+        except Exception as erro:  # noqa: BLE001 — registrada, e a página segue
+            falhas_do_motor.append(f"página: {erro}")
             registros_ocr = []
+    if ler_faixa is not None:
+        ler_faixa = _ler_faixa_registrando(ler_faixa, falhas_do_motor)
     usados_ocr: set[int] = set()
 
     fracos = reparos = 0
@@ -3422,7 +3508,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 texto=texto,
                 coluna=_coluna_de((min(b.x1 for b in linha)
                                    + max(b.x2 for b in linha)) / 2, colunas),
-                pesos=pesos, lacunas=vaos, dominio=dominio, fonte=origem))
+                pesos=pesos, lacunas=vaos, dominio=dominio, fonte=origem,
+                registro=len(roteamento) - 1))
 
     resultado = PaginaExtraida(numero=numero, diagramas=len(tabuleiros),
                                respingos_descartados=respingos,
@@ -3430,7 +3517,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                                colunas=len(colunas), reparos=reparos,
                                altura=int(img.shape[0]),
                                largura=int(img.shape[1]), dpi=int(dpi),
-                               roteamento=roteamento)
+                               roteamento=roteamento,
+                               motor_indisponivel="; ".join(falhas_do_motor))
 
     def figura(d: Diagrama) -> List[Bloco]:
         """

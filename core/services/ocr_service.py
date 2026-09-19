@@ -51,6 +51,29 @@ def preprocess_for_easyocr(crop_np: np.ndarray, pad: int = 10, min_h: int = 64) 
     return crop_padded
 
 
+class MotorIndisponivel(RuntimeError):
+    """Um motor de OCR opcional não pôde rodar — executável, pacote ou idioma
+    ausente. **Não é "a página não tem texto"**: quem chama decide se segue
+    sem o motor, mas tem de saber que ele faltou. Antes disto, o Tesseract
+    ausente devolvia `[]`, e a página inteira saía só com a cadeia própria sem
+    aviso nenhum — bit a bit igual a uma página em branco."""
+
+    def __init__(self, motor: str, motivo: str, como_resolver: str = ""):
+        self.motor = motor
+        self.motivo = motivo
+        self.como_resolver = como_resolver
+        texto = f"{motor} indisponível: {motivo}"
+        if como_resolver:
+            texto += f"\n\n{como_resolver}"
+        super().__init__(texto)
+
+
+COMO_INSTALAR_TESSERACT = (
+    "Instale o Tesseract OCR (https://github.com/UB-Mannheim/tesseract/wiki) "
+    "com os pacotes de idioma 'eng' e 'por', ou aponte o executável em "
+    "core.services.ocr_service.OCRService._configurar_tesseract.")
+
+
 class OCRService:
     """
     Serviço puro para execução de OCR com Tesseract, EasyOCR e Rede Neural.
@@ -83,6 +106,53 @@ class OCRService:
                 pytesseract.pytesseract.tesseract_cmd = caminho
                 return
 
+    @staticmethod
+    def _erro_do_tesseract(pytesseract, erro: Exception) -> Exception:
+        """Traduz a exceção do pytesseract para o que quem chama entende.
+
+        O executável ausente (`TesseractNotFoundError`) e o binário que
+        respondeu com erro (`TesseractError` — o caso típico é o pacote de
+        idioma que não está instalado) são **indisponibilidade**, e sobem como
+        `MotorIndisponivel`. Qualquer outra coisa sobe como está: não é o
+        papel deste serviço decidir que uma exceção desconhecida é "sem texto".
+        """
+        if isinstance(erro, pytesseract.TesseractNotFoundError):
+            return MotorIndisponivel(
+                "Tesseract", "o executável não foi encontrado",
+                COMO_INSTALAR_TESSERACT)
+        if isinstance(erro, pytesseract.TesseractError):
+            return MotorIndisponivel(
+                "Tesseract", f"o executável respondeu com erro: {erro}",
+                COMO_INSTALAR_TESSERACT)
+        return erro
+
+    def tesseract_disponivel(self, idioma: str = "en") -> Tuple[bool, str]:
+        """`(True, versão)` se o Tesseract roda com este idioma; `(False, motivo)`
+        se não. É a sondagem que a interface faz **antes** de uma exportação
+        de livro, para o usuário decidir sabendo — e não descobrir no relatório
+        do fim que 300 páginas saíram só com a cadeia própria."""
+        try:
+            import pytesseract
+        except ImportError:
+            return False, ("o pacote Python 'pytesseract' não está instalado "
+                           "(python -m pip install -e \".[ocr]\")")
+        self._configurar_tesseract(pytesseract)
+        try:
+            versao = str(pytesseract.get_tesseract_version())
+        except Exception as erro:  # noqa: BLE001 — traduzida logo abaixo
+            traduzido = self._erro_do_tesseract(pytesseract, erro)
+            return False, getattr(traduzido, "motivo", str(traduzido))
+        try:
+            idiomas = set(pytesseract.get_languages(config=""))
+        except Exception:  # noqa: BLE001 — versões antigas não listam idiomas
+            idiomas = set()
+        pacote = self._idioma_tesseract(idioma)
+        if idiomas and pacote not in idiomas:
+            return False, (f"o pacote de idioma '{pacote}' não está instalado "
+                           f"({len(idiomas)} idiomas instalados; falta o "
+                           f"'{pacote}.traineddata' na pasta tessdata)")
+        return True, versao
+
     def tesseract_ocr(self, crop: Image.Image, whitelist: Optional[str] = None) -> str:
         """Roda Tesseract num recorte PIL. Retorna string (pode ser vazia)."""
         return self.tesseract_ocr_conf(crop, whitelist)[0]
@@ -106,8 +176,8 @@ class OCRService:
         try:
             dados = pytesseract.image_to_data(
                 crop, config=config, output_type=pytesseract.Output.DICT)
-        except Exception:
-            return "", 0.0
+        except Exception as erro:  # noqa: BLE001 — traduzida, nunca engolida
+            raise self._erro_do_tesseract(pytesseract, erro) from erro
 
         melhor, melhor_conf = "", 0.0
         for texto, conf in zip(dados.get("text", []), dados.get("conf", [])):
@@ -157,8 +227,11 @@ class OCRService:
                 config=f"--psm {psm} -c preserve_interword_spaces=1",
                 output_type=pytesseract.Output.DICT,
             )
-        except Exception:
-            return []
+        except Exception as erro:  # noqa: BLE001 — traduzida, nunca engolida
+            # Devolver `[]` aqui era o que fazia o executável ausente parecer
+            # uma página sem texto — e tornava letra morta o `except` que
+            # `livro.extrair_pagina` tem justamente para este caso.
+            raise self._erro_do_tesseract(pytesseract, erro) from erro
         return self._agrupar_dados_do_tesseract(dados)
 
     @staticmethod
