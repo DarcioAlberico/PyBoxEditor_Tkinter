@@ -11,7 +11,7 @@ dynamic = ["dependencies"]
 
 [tool.setuptools]
 packages = [
-    "core", "core.dados", "core.services", "config", "ui",
+    "core", "core.dados", "core.services", "core.editor", "config", "ui", "ui.editor",
     "assets", "assets.fonts", "assets.lexico",
 ]
 
@@ -53,6 +53,7 @@ markers = [
     "gui: testes que exigem display Tkinter",
     "ml: testes que exigem PyTorch ou modelos neurais",
     "export: testes de exportação DOCX/EPUB/PDF",
+    "slow: medições de desempenho do editor, fora do gate padrão (-m 'not slow')",
 ]
 
 [tool.ruff]

@@ -609,5 +609,102 @@ def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,
         doc.close()
 
 
+# ----------------------------------------------------------------------
+# As linhas → FEN (o inverso de `linhas` e de `grade`; ED-00)
+# ----------------------------------------------------------------------
+
+def mapa_da_fonte(nome: str = FONTE_PADRAO) -> Fonte:
+    """
+    O mapa da fonte **sem conferir o arquivo dela**.
+
+    `carregar` abre o `.otf` e confere glifo por glifo, porque vai desenhar. Quem
+    só quer **ler** um diagrama em texto (o EPUB de hoje, a tabela 1×1 do DOCX)
+    precisa do mapa e de mais nada — e precisa dele mesmo numa máquina sem a
+    fonte instalada, que é onde um livro reaberto não pode virar ilha.
+    """
+    if nome in _cache:
+        return _cache[nome]
+    mapas = _mapas()
+    if nome not in mapas:
+        raise FonteDesconhecida(
+            f"sem mapa para {nome!r} (há: {', '.join(mapas) or 'nenhuma'})")
+    bruto = mapas[nome]
+    caminho = bruto["arquivo"]
+    if not os.path.isabs(caminho):
+        caminho = os.path.join(_RAIZ, caminho)
+    casas = {ch: (par[0], par[1]) for ch, par in bruto["casas"].items()}
+    molduras = {m: dict(pecas) for m, pecas in bruto.get("molduras", {}).items()
+                if m in MOLDURAS}
+    return Fonte(nome=nome, arquivo=caminho, em=int(bruto.get("em", 1000)),
+                 casas=casas, licenca=bruto.get("licenca", ""), molduras=molduras)
+
+
+def fen_de_linhas(linhas_de_texto: Sequence[str],
+                  fonte: "Fonte | str" = FONTE_PADRAO) -> Tuple[str, Optional[str]]:
+    """
+    `(posição, orientação)` lidas das oito linhas de `linhas` ou das dez de `grade`.
+
+    A posição é só o primeiro campo do FEN — o texto não diz quem joga nem se há
+    roque, e inventar isso seria a decisão silenciosa que o `CONTEXT.md` proíbe.
+    A orientação sai dos glifos de moldura da grade de dez (o `0xC0` da Chess
+    Merida *é* a borda esquerda com o `1` desenhado ao lado); nas oito linhas nuas
+    ela é `None`: as oito linhas de um diagrama do lado das pretas decodificam para
+    a posição girada, e sem rótulo não há como saber. `ValueError` cita a linha e a
+    coluna do glifo que não está no mapa.
+    """
+    fonte = mapa_da_fonte(fonte) if isinstance(fonte, str) else fonte
+    linhas_de_texto = [str(linha) for linha in linhas_de_texto]
+    orientacao: Optional[str] = None
+    if len(linhas_de_texto) == 10:
+        orientacao = _orientacao_da_grade(linhas_de_texto, fonte)
+        miolo = [linha[1:9] for linha in linhas_de_texto[1:9]]
+    elif len(linhas_de_texto) == 8:
+        miolo = linhas_de_texto
+    else:
+        raise ValueError(f"um diagrama tem 8 ou 10 linhas, não {len(linhas_de_texto)}")
+    filas = []
+    for i, linha in enumerate(miolo):
+        if len(linha) != 8:
+            raise ValueError(f"linha {i + 1} com {len(linha)} casas em vez de 8")
+        simbolos = []
+        for j, ch in enumerate(linha):
+            if ch not in fonte.casas:
+                raise ValueError(f"linha {i + 1}, coluna {j + 1}: {ch!r} não é casa na {fonte.nome}")
+            simbolos.append(fonte.casas[ch][0])
+        filas.append(simbolos)
+    if orientacao == "preta":
+        filas = [list(reversed(fila)) for fila in reversed(filas)]
+    return "/".join(_fila_em_fen(fila) for fila in filas), orientacao
+
+
+def _fila_em_fen(fila: Sequence[Optional[str]]) -> str:
+    saida, vazias = "", 0
+    for simbolo in fila:
+        if simbolo is None:
+            vazias += 1
+            continue
+        if vazias:
+            saida += str(vazias)
+            vazias = 0
+        saida += simbolo
+    if vazias:
+        saida += str(vazias)
+    return saida
+
+
+def _orientacao_da_grade(linhas_de_texto: Sequence[str], fonte: Fonte) -> Optional[str]:
+    """Pelo glifo de fila da primeira linha do miolo: o da fila 8 é branca; o da 1, preta."""
+    for pecas in fonte.molduras.values():
+        filas = pecas.get("filas")
+        if not filas:
+            continue
+        primeiro = linhas_de_texto[1][:1]
+        if primeiro == filas[7]:
+            return "branca"
+        if primeiro == filas[0]:
+            return "preta"
+    return None
+
+
 #: Nome interno antigo, mantido para quem já importava.
 _rotulos = rotulos
