@@ -319,6 +319,12 @@ class PaginaExtraida:
     #: A altura da imagem lida, em pixels. É a régua de `retirar_cabecalhos`:
     #: "na margem de cima" é uma fração disto, e não um número de pixels.
     altura: int = 0
+    #: A largura da imagem lida, em pixels, e a resolução em que ela foi
+    #: rasterizada. Com `altura`, é o que permite converter `Paragrafo.topo`/
+    #: `pe` em coordenadas de página (pontos do PDF) fora daqui — a camada
+    #: invisível do PDF pesquisável escala por `largura da página / largura`.
+    largura: int = 0
+    dpi: int = 0
     #: O texto de cada cabeçalho ou rodapé de página que saiu desta página
     #: (F109). Preenchido pela passada `retirar_cabecalhos`, que é quem
     #: decide — e guardado como texto, e não como número, para o relatório do
@@ -739,7 +745,30 @@ def _dominio_da_linha(texto: str) -> str:
 #: O `l` e o `I` entram como dígito: a cadeia lê o `1` do Chess Evolution 1
 #: como `l` (`l ...♘g4!`, `1 l .♘xf4+`), e um `l` solto na frente de
 #: reticências e lance não é letra. Sai como `1`.
-RE_NUMERO_PARTIDO = re.compile(r"(?<!\S)([0-9lI]{1,2}) (?=(?:[0-9lI]{1,2})?\.{1,3}\S)")
+RE_NUMERO_PARTIDO = re.compile(r"(?<![^\s(])([0-9lI]{1,2}) (?=(?:[0-9lI]{1,2})?\.{1,3}[^.\s])")
+
+#: O parêntese partido do número de lance por um espaço falso: `( 1...♔h6`,
+#: `( 1 ♖e1!)`. Nas células da tabela do Nunn a régua do espaço é a de poucos
+#: boxes, e o `(` sai solto cinco vezes na página; um `(` sozinho na frente de
+#: um número de lance só pode ser o parêntese da variante.
+RE_PARENTESE_PARTIDO = re.compile(r"(?<!\S)\( (?=[0-9lI]{1,3}[. ])")
+
+#: A reticência do lance das pretas partida por um espaço: `1. ..♖d2`,
+#: `1.. .♖h2`. Três pontos com um espaço no meio, logo depois de um dígito,
+#: não são dois sinais de pontuação.
+RE_RETICENCIA_PARTIDA = re.compile(r"(?<=[0-9lI ])(?:\. (?=\.\.)|\.\. (?=\.))")
+
+#: O `!`/`?` partido do lance por um espaço: `♖e8 !`, `♖e1 !)`. O sinal de
+#: anotação é do lance que o precede; solto, depois de casa, xeque ou
+#: figurina, ele nunca é outra coisa.
+RE_SINAL_PARTIDO = re.compile(r"(?<=[a-h1-8+#♔♕♖♗♘♙♚♛♜♝♞♟]) (?=[!?]{1,2}(?:[)\s]|$))")
+
+#: O `l` (ou `I`) que é o `1` do lance das pretas: `(l...♖a2!)`, `l...e5`.
+#: Sem letra antes e com a reticência **e um lance** depois — a figurina, ou
+#: peça e casa —, não há leitura em que seja letra. O `I...` de um diálogo
+#: em prosa não tem lance depois da reticência.
+RE_L_QUE_E_UM = re.compile(
+    r"(?<![A-Za-z])[lI](?=\.{3}(?:[♔♕♖♗♘♙♚♛♜♝♞♟]|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8]))")
 
 
 def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
@@ -748,6 +777,23 @@ def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
     vetores ao mesmo tempo — o espaço é um item deles, com box `-1`. Roda
     até estabilizar, porque `1 l .♘xf4+` cola em dois passos."""
     saida, pesos, lacunas, caixas = list(texto), list(pesos), list(lacunas), list(caixas)
+
+    def tirar_espaco(posicao: int) -> None:
+        if posicao < len(saida) and saida[posicao] == " ":
+            del saida[posicao]
+            for vetor in (pesos, lacunas, caixas):
+                if posicao < len(vetor):
+                    del vetor[posicao]
+
+    # As colagens que sobravam nas células do Nunn, **antes** do número: o
+    # parêntese solto na frente dele (`( 1...`), a reticência com espaço no
+    # meio (`1 . ..♖d2`) e o sinal partido do lance (`♖e8 !`). Cada uma tira
+    # um espaço, e os quatro vetores acompanham; o `l` que é `1` vem no fim.
+    for regra in (RE_PARENTESE_PARTIDO, RE_RETICENCIA_PARTIDA, RE_SINAL_PARTIDO):
+        atual = "".join(saida)
+        for m in reversed(list(regra.finditer(atual))):
+            tirar_espaco(m.end() - 1)
+
     for _passo in range(3):
         atual = "".join(saida)
         achados = [m for m in RE_NUMERO_PARTIDO.finditer(atual)
@@ -758,13 +804,71 @@ def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
             posicao = m.end(1)
             if saida[posicao] != " ":
                 continue
-            del saida[posicao]
-            for vetor in (pesos, lacunas, caixas):
-                if posicao < len(vetor):
-                    del vetor[posicao]
+            tirar_espaco(posicao)
             for k in range(m.start(1), m.end(1)):
                 if saida[k] in "lI":
                     saida[k] = "1"
+    atual = "".join(saida)
+    for m in RE_L_QUE_E_UM.finditer(atual):
+        saida[m.start()] = "1"
+    return "".join(saida), pesos, lacunas, caixas
+
+
+#: O que separa a prosa colada ao lance, na frente do lance: o parêntese da
+#: variante, o número de lance ou a figurina. `W:W1n(1♖d1!)` parte no `(`;
+#: `Draw(1...♖h2!)` idem. É onde o token deixa de ser palavra e passa a ser
+#: lance — e o pedaço da frente precisa ser palavra (duas letras, sem
+#: figurina), senão não é prosa colada: `T♕` e `W♔d1` ficam inteiros.
+RE_COMECO_DE_LANCE = re.compile(
+    r"\((?=[0-9lI♔♕♖♗♘♙♚♛♜♝♞♟])|(?<![0-9])[0-9]{1,3}\.{1,3}(?=\S)|[♔♕♖♗♘♙♚♛♜♝♞♟]")
+
+#: O lance que fica depois do corte, com o parêntese e o número opcionais: é
+#: o que autoriza partir. `(1♖d1!)`, `(1...♖h2!)`, `♖e8!`, `1 ♖e1!)`.
+RE_LANCE_DEPOIS_DO_CORTE = re.compile(
+    r"^\(?(?:[0-9lI]{1,3}\.{0,3} ?)?"
+    r"(?:[♔♕♖♗♘♙♚♛♜♝♞♟KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x?[a-h][1-8]|[a-h][1-8])")
+
+
+def _partir_prosa_colada_ao_lance(texto: str, pesos: List[Optional[float]],
+                                  lacunas: List[Optional[float]],
+                                  caixas: List[int]):
+    """Abre um espaço entre a prosa e o lance que a cadeia colou num token só.
+
+    `W:W1n(1♖d1!)` e `Draw(1...♖h2!)` são um token para a cadeia porque a
+    régua do espaço da célula é a de poucos boxes; e para a fusão o token com
+    figurina é lance inteiro — ficava com a âncora, com o motor lendo `W:`
+    `Win` `(1` a 0,9 no mesmo lugar. Partido em `W:W1n` + `(1♖d1!)`, a prosa
+    vai para o motor e o lance fica, que é a regra de sempre.
+
+    Só parte o token que **não** tem forma de lance inteiro, num ponto onde o
+    que vem depois tem (`RE_LANCE_DEPOIS_DO_CORTE`) e o que vem antes é
+    palavra: duas letras no mínimo, sem figurina. O espaço entra nos quatro
+    vetores como os outros — `None` na medida, `-1` no box.
+    """
+    saida, pesos, lacunas, caixas = list(texto), list(pesos), list(lacunas), list(caixas)
+    atual = "".join(saida)
+    cortes = []
+    for m in re.finditer(r"\S+", atual):
+        token = m.group(0)
+        if not any(c in GLIFOS_DE_XADREZ for c in token):
+            continue
+        nucleo = token.strip(notacao._PONTUACAO_DE_BORDA)
+        if notacao.RE_LANCE_ESTRITO.match(nucleo):
+            continue
+        for inicio in RE_COMECO_DE_LANCE.finditer(token):
+            k = inicio.start()
+            cabeca, cauda = token[:k], token[k:]
+            if (k == 0 or sum(c.isalpha() for c in cabeca) < 2
+                    or any(c in GLIFOS_DE_XADREZ for c in cabeca)):
+                continue
+            if RE_LANCE_DEPOIS_DO_CORTE.match(cauda):
+                cortes.append(m.start() + k)
+                break
+    for posicao in reversed(cortes):
+        saida.insert(posicao, " ")
+        pesos.insert(posicao, None)
+        lacunas.insert(posicao, None)
+        caixas.insert(posicao, -1)
     return "".join(saida), pesos, lacunas, caixas
 
 
@@ -1131,6 +1235,82 @@ def _lance_sem_casa(token: str) -> bool:
             and not token[:1].isdigit())
 
 
+#: Onde o espaço do motor **não** entra num lance: entre a peça e a casa
+#: (`♖d1`), entre a letra e o dígito da casa (`d1`), depois da captura
+#: (`xd1`) e da promoção (`=♕`). O motor separa `(1` de `&d1!)` porque o
+#: livro imprime `1 ♖d1!` com espaço; o que ele nunca separa, se separar, é
+#: leitura errada dele, e o lance da âncora vale mais.
+_NAO_PARTE_DEPOIS_DE = frozenset("KQRBNx=-–—" + "".join(sorted(GLIFOS_DE_XADREZ)))
+#: E onde ele não entra pela pontuação: antes do ponto do número de lance, do
+#: `!`/`?`, do xeque, do parêntese que fecha, da vírgula — e em volta do
+#: traço, que é o do roque (`O-O`) e o do resultado (`1–0`, `½–½`): o motor
+#: perde o traço fino com frequência e devolve duas palavras.
+_PONTUACAO_QUE_COLA = frozenset(".!?)+#,;:…-–—")
+
+
+def _espacos_do_motor(texto_token: str, caixas_do_token: Sequence[int],
+                      linha: Sequence[BoxEntry],
+                      palavras: Sequence[Tuple[float, float]]) -> str:
+    """Repõe no lance o espaço que o motor viu e a cadeia não.
+
+    O lance é da âncora, mas a régua do espaço da cadeia é a mediana da
+    linha — numa célula de três boxes ela não diz nada, e `(1 ♖d1!)` sai
+    `(1♖d1!)`. O motor tem as caixas das palavras dele: onde duas palavras
+    do motor cobrem o mesmo token da âncora e o vão entre elas cai num vão
+    entre dois boxes da âncora, ali havia espaço impresso. É evidência
+    geométrica dos dois lados, e só ela: o token continua o da cadeia,
+    caractere por caractere.
+    """
+    if " " in texto_token or len(caixas_do_token) != len(texto_token):
+        return texto_token
+    indices = [c for c in caixas_do_token if 0 <= c < len(linha)]
+    if len(indices) < 2:
+        return texto_token
+    x1 = min(linha[i].x1 for i in indices)
+    x2 = max(linha[i].x2 for i in indices)
+    cobrem = sorted((px1, px2) for px1, px2 in palavras
+                    if _sobreposicao(x1, x2, px1, px2) > 0
+                    and min(x2, px2) - max(x1, px1) > 0)
+    if len(cobrem) < 2:
+        return texto_token
+    vaos_do_motor = [(a[1], b[0]) for a, b in zip(cobrem, cobrem[1:])
+                     if b[0] > a[1]]
+    if not vaos_do_motor:
+        return texto_token
+    cortes = []
+    for k in range(1, len(texto_token)):
+        antes, depois = caixas_do_token[k - 1], caixas_do_token[k]
+        if not (0 <= antes < len(linha) and 0 <= depois < len(linha)):
+            continue
+        if antes == depois:
+            continue
+        vao = (linha[antes].x2, linha[depois].x1)
+        if vao[1] <= vao[0]:
+            continue
+        centro = (vao[0] + vao[1]) / 2.0
+        if not any(inicio <= centro <= fim for inicio, fim in vaos_do_motor):
+            continue
+        anterior, atual = texto_token[k - 1], texto_token[k]
+        if anterior in _NAO_PARTE_DEPOIS_DE or anterior in "(.,":
+            continue
+        # Espaço nunca vem antes de pontuação (`21 .♗xc6` não existe; o motor
+        # leu `21 b` e o vão caiu antes do ponto), nem parte um número.
+        if atual in _PONTUACAO_QUE_COLA or (anterior.isdigit() and atual.isdigit()):
+            continue
+        if anterior in "abcdefgh" and atual in "12345678":
+            continue
+        cortes.append(k)
+    if not cortes:
+        return texto_token
+    partes = []
+    ultimo = 0
+    for k in cortes:
+        partes.append(texto_token[ultimo:k])
+        ultimo = k
+    partes.append(texto_token[ultimo:])
+    return " ".join(partes)
+
+
 def _fundir_por_palavra(texto: str, caixas: Sequence[int],
                         linha: Sequence[BoxEntry], detalhes, *,
                         so_lacunas: bool = False,
@@ -1164,6 +1344,13 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
     lê a faixa limpa a 0,7–0,96. O lance com casa continua sendo da âncora,
     trama ou não. Fora da trama nada muda: a figurina solta na prosa (`the
     ♘ is strong`) é da cadeia, que é a única que a escreve.
+
+    Por fim, o token de lance ainda pode ganhar de volta **o espaço que só o
+    motor viu** (`_espacos_do_motor`): a régua de espaço da cadeia é a
+    mediana da linha, e numa célula de poucos boxes ela cola `(1 ♖d1!)` em
+    `(1♖d1!)` — o motor tem as caixas das duas palavras e enxerga o vão que a
+    régua não vê. Só onde o vão dele cai num vão entre boxes da âncora, e
+    nunca antes de pontuação nem entre peça e casa.
     """
     y_topo = min(b.y1 for b in linha)
     y_base = max(b.y2 for b in linha)
@@ -1219,6 +1406,15 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
             if preenchido is not None:
                 texto_token = preenchido
                 estatisticas["lacunas_preenchidas"] += 1
+            if not so_lacunas:
+                espacado = _espacos_do_motor(
+                    texto_token, [caixas[k] for k in range(token.start(), token.end())
+                                  if k < len(caixas)],
+                    linha, [(px1, px2) for px1, px2, _p in todas])
+                if espacado != texto_token:
+                    texto_token = espacado
+                    estatisticas["espacos_do_motor"] = (
+                        estatisticas.get("espacos_do_motor", 0) + 1)
             # Depois de preencher: o `♘xe` com o `4` derrubado ganha a casa
             # e continua lance. O que não ganhou, sobre trama, é prosa — e
             # só quando o motor leu alguma coisa ali; sem palavra do motor
@@ -2937,6 +3133,8 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
         lambda posicao, centro_x, glifo: glifos_linha.append(
             (posicao, centro_x, glifo)))
     texto, pesos, vaos, caixas = _colar_numero_de_lance(texto, pesos, vaos, caixas)
+    texto, pesos, vaos, caixas = _partir_prosa_colada_ao_lance(
+        texto, pesos, vaos, caixas)
     ancora = texto
     # O roteador da OCR-11 decide pelo domínio da âncora: a linha só de
     # lances fica com a cadeia própria e nem paga o motor; a de prosa ou
@@ -3231,6 +3429,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                                descartados_por_confianca=fracos,
                                colunas=len(colunas), reparos=reparos,
                                altura=int(img.shape[0]),
+                               largura=int(img.shape[1]), dpi=int(dpi),
                                roteamento=roteamento)
 
     def figura(d: Diagrama) -> List[Bloco]:
