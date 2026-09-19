@@ -1,8 +1,11 @@
+import sys
+import time
 import tkinter as tk
 from ui.main_window import MainWindow
 
 
 import traceback
+from datetime import datetime, timezone
 from tkinter import messagebox
 
 from config.paths import crash_log_path, ensure_data_dir
@@ -15,6 +18,46 @@ LARGURA_DESEJADA, ALTURA_DESEJADA = 1600, 900
 #: janela — canvas, barra lateral, editor — não cabe com folga em menos que
 #: isto. Com o mínimo, o Windows impede o usuário de encolher até sumir controle.
 LARGURA_MINIMA, ALTURA_MINIMA = 1024, 640
+
+#: A mesma exceção de callback repetida dentro deste prazo vai só para o log.
+SILENCIO_APOS_REPETICAO_S = 3.0
+
+
+def _declarar_dpi():
+    """
+    Diz ao Windows que o processo sabe lidar com DPI — **antes** de `tk.Tk()`.
+
+    Sem isto o processo é "DPI unaware" (medido: `GetProcessDpiAwareness` = 0
+    no interpretador do projeto), e num monitor a 125–150% o Windows estica a
+    janela inteira como bitmap: o scan no canvas, que é o objeto da revisão,
+    chega borrado, e a fonte de figurinas perde o traço fino. Com a declaração
+    o Tk desenha no DPI real e o `tk scaling` (abaixo) mantém as fontes em
+    pontos com o tamanho de sempre.
+
+    Só no Windows, e só se a chamada existir — em outro sistema, ou num Windows
+    anterior ao 8.1, não há nada a declarar.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        # 2 = PROCESS_PER_MONITOR_DPI_AWARE; cai para o system-aware se a
+        # versão não tiver o per-monitor.
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except (AttributeError, OSError):
+            ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
+def _ajustar_escala(root):
+    """As fontes em pontos continuam do tamanho de sempre no DPI real."""
+    try:
+        dpi = root.winfo_fpixels("1i")
+        root.tk.call("tk", "scaling", dpi / 72.0)
+    except tk.TclError:
+        pass
 
 
 def _geometria_que_cabe(root):
@@ -36,10 +79,61 @@ def _geometria_que_cabe(root):
     return f"{largura}x{altura}+{x}+{y}"
 
 
+def _gravar_no_log(texto: str) -> str:
+    """Anexa `texto` ao log de falhas no diretório de dados e devolve o caminho."""
+    caminho_log = ensure_data_dir() / crash_log_path().name
+    with open(caminho_log, "a", encoding="utf-8") as f:
+        f.write(f"\n=== {datetime.now(timezone.utc).isoformat(timespec='seconds')} ===\n")
+        f.write(texto)
+    return str(caminho_log)
+
+
+def _instalar_relator_de_callbacks(root):
+    """
+    Uma exceção num callback do Tk vai para o log **e** para uma caixa.
+
+    O `try/except` em volta do `mainloop` só vê o que sai do laço; a exceção
+    dentro de um handler de botão o Tk imprime em `stderr` e segue — e o app
+    aberto por atalho (`pythonw`) não tem `stderr`: o erro sumia sem deixar
+    rastro nem para o usuário nem para quem fosse diagnosticar depois.
+
+    **A caixa não se repete.** Um handler de movimento (`<B1-Motion>`) que
+    falha, falha a cada pixel até o botão ser solto; com uma caixa modal por
+    ocorrência, seriam dezenas empilhadas. A mesma exceção dentro de
+    `SILENCIO_APOS_REPETICAO_S` só vai para o log.
+    """
+    ultima = {"chave": None, "quando": 0.0}
+
+    def relatar(tipo, valor, tb):
+        texto = "".join(traceback.format_exception(tipo, valor, tb))
+        try:
+            caminho = _gravar_no_log(texto)
+        except OSError:
+            caminho = "(não foi possível gravar o log)"
+        print(texto, file=sys.stderr)
+        chave = (tipo.__name__, str(valor))
+        agora = time.monotonic()
+        if chave == ultima["chave"] and agora - ultima["quando"] < SILENCIO_APOS_REPETICAO_S:
+            ultima["quando"] = agora
+            return
+        ultima.update(chave=chave, quando=agora)
+        try:
+            messagebox.showerror(
+                "Erro inesperado",
+                f"{tipo.__name__}: {valor}\n\n"
+                f"O detalhe completo foi gravado em:\n{caminho}")
+        except tk.TclError:
+            pass
+    root.report_callback_exception = relatar
+
+
 def main():
+    _declarar_dpi()
     try:
         root = tk.Tk()
-        root.title("PyBoxEditor (Tkinter Modular)")
+        _ajustar_escala(root)
+        _instalar_relator_de_callbacks(root)
+        root.title("PyBoxEditor")
         root.geometry(_geometria_que_cabe(root))
         root.minsize(min(LARGURA_MINIMA, root.winfo_screenwidth()),
                      min(ALTURA_MINIMA, root.winfo_screenheight()))
@@ -50,9 +144,10 @@ def main():
         root.mainloop()
     except Exception as e:
         err_msg = traceback.format_exc()
-        caminho_log = ensure_data_dir() / crash_log_path().name
-        with open(caminho_log, "w", encoding="utf-8") as f:
-            f.write(err_msg)
+        try:
+            caminho_log = _gravar_no_log(err_msg)
+        except OSError:
+            caminho_log = "(não foi possível gravar o log)"
         # Senta que lá vem a história... se o root não foi criado, messagebox precisa de um
         try:
             messagebox.showerror(
@@ -61,7 +156,6 @@ def main():
         except Exception:
             # Fallback se o tk não estiver inicializado
             print(err_msg)
-
 
 
 if __name__ == "__main__":

@@ -754,12 +754,23 @@ class NeuralPredictor:
                               + AVISO_SEM_CALIBRACAO)
 
             self.model = SimpleCNN(num_classes).to(self.device)
-            self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+            # `weights_only=True` como em `core.diagrama`: um `.pth` é um
+            # pickle, e sem isso abrir um arquivo de terceiro executa o que
+            # estiver dentro. O modelo grava `state_dict` puro, que cabe.
+            self.model.load_state_dict(torch.load(self.model_path, map_location=self.device,
+                                                  weights_only=True))
             self.model.eval()
             self.loaded = True
             return True
         except Exception as e:
-            print(f"Erro ao carregar modelo: {e}")
+            # O motivo tem de ficar em `self.erro`: é ele que `LearningService
+            # .motivo_do_modelo` mostra. Com o `print` sozinho, o app aberto por
+            # atalho (sem console) dizia "veja o console para o erro exato" e
+            # não havia console nenhum.
+            self.erro = (f"Não foi possível carregar "
+                         f"{os.path.basename(self.model_path)}: "
+                         f"{type(e).__name__}: {e}")
+            print(f"Erro ao carregar modelo: {self.erro}")
             return False
             
     def predict_topk(self, img_np, k=5):

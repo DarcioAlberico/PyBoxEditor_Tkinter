@@ -141,9 +141,14 @@ class LearningService:
                 "o erro exato.")
 
     def predict_neural(self, crop_np: np.ndarray) -> Tuple[str, float]:
-        """Predição via CNN. Retorna ('?', 0.0) se modelo não carregado."""
+        """Predição via CNN. Retorna ('', 0.0) se modelo não carregado.
+
+        Vazio, e não `'?'`: o `?` é um NAG de verdade (lance ruim), e um
+        chamador que testasse `if char:` tomaria "modelo ausente" por leitura.
+        É o mesmo contrato de `OCRService.neural_ocr`.
+        """
         if not self.load_predictor():
-            return "?", 0.0
+            return "", 0.0
         return self._predictor.predict(crop_np)
 
     def ler_texto(self, crop_np: np.ndarray,
