@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00 e ED-01 implementadas** (2026-09-19)
+Status: **ED-00, ED-01 e ED-07 implementadas** (2026-09-19)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -932,6 +932,57 @@ ED-08); testes `tests/test_editor_realce.py`, `_codigo.py`, `_consertar.py`, `_c
 .venv/Scripts/python.exe -m pytest tests/test_editor_realce.py tests/test_editor_codigo.py tests/test_editor_consertar.py tests/test_editor_clipes.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-19 — IMPLEMENTADA
+
+Entregue em `ui/editor/realce.py` (tokenizador de XHTML e CSS com estado por linha,
+`Realce` incremental, os dois temas e `contraste`), `ui/editor/codigo.py`
+(`EditorDeCodigo`), `core/editor/consertar.py` (`consertar`, `reformatar_css`),
+`core/editor/clipes.py` + `ui/editor/clipes.py` e os quatro arquivos de teste (29
+testes; o de desempenho é `slow`). Conferido na tela, nos dois temas, com o processo
+DPI-aware.
+
+**O que divergiu da spec, e por quê:**
+
+- **O `tk.Text` é observado por um proxy do comando Tcl** (`rename` + `createcommand`),
+  e não por `<<Modified>>`: é o único jeito de saber **onde** a edição aconteceu (linha e
+  quantas linhas entraram ou saíram) — o que a re-tokenização incremental e o desfazer
+  por operação precisam — e de ver as edições que o próprio `Text` faz por dentro
+  (`tk::TextInsert`, colar, arrastar). Os resultados do `tk.call` chegam como
+  `Tcl_Obj` e são convertidos com `str()` na hora — sem isso o proxy morre em silêncio
+  (o Tcl engole a exceção do callback e devolve um `TclError` vazio a quem chamou).
+- **Desfazer próprio por operação**, e não por cópia do documento: cada `insert`/`delete`
+  vira uma operação reversível; a digitação contínua coalesce em 0,7 s (a janela da
+  DEC-04); um comando composto (envolver, comentar, sugerir, reformatar) entra num
+  **grupo** (`with self._grupo()`), senão desfazer um `envolver` devolvia o texto sem o
+  miolo. A ED-02 decide se o modo código usa esta pilha ou a `Historico` do projeto.
+- **A faixa visível tem no mínimo 60 linhas** a partir do topo: numa janela `withdraw`n
+  o `winfo_height` é 1, e sem esse piso os testes (e a primeira pintura) não veriam
+  tag nenhuma. `sincronizar(tudo=True)` pinta o documento inteiro.
+- **Fechar um comentário re-tokeniza até o fim tanto quanto abri-lo** (AC-ED07-1): a
+  convergência só para quando o estado no começo de uma linha *já era* o mesmo, e depois
+  de abrir, todas começavam em comentário. Editar uma linha comum para na seguinte.
+- **`</` completa pela pilha de elementos abertos** (regex sobre o texto até o cursor,
+  sem os vazios e sem comentários/PIs) — não pelo `expat`, que exigiria o documento
+  bem-formado justamente quando ele não está.
+- **Tema escuro: `casamento` = `#12304d`** (o `#264f78` do rascunho dava 3,2:1 contra os
+  tokens); o teste do AC-ED07-8 confere token × fundo, token × linha atual, token ×
+  casamento e token × erro, nos dois temas.
+- **`consertar` preserva a caixa das letras** relendo o texto cru da tag
+  (`get_starttag_text`), porque o `html.parser` devolve tudo em minúsculas e um
+  `viewBox` de SVG embutido não sobreviveria. O que já está bem-formado volta intacto.
+- **`reformatar_css` dá `;` à última declaração do bloco** e mantém o comentário no
+  lugar (antes da regra, ou colado à declaração); idempotente por teste.
+- **Clipes: `\0` também é a seleção**, e um `padrao` (regex) opcional dá `\2`…`\9`;
+  `Clipes.carregar` devolve os de fábrica quando nada foi gravado, e uma lista vazia
+  gravada é "nenhum clipe". Padrão inválido é `ValueError` na criação.
+- **Os diálogos ficam para a janela**: `Ctrl+G`, `Ctrl+K`, `Ctrl+Enter` e
+  `Ctrl+Shift+J` geram `<<IrParaLinha>>`, `<<InserirLink>>`, `<<DividirNoCursor>>` e
+  `<<Clipes>>`; os comandos com argumentos (`ir_para_linha(n)`, `inserir_link(href,
+  texto)`, `dividir_no_cursor()` → as duas metades) são o que a ED-02 liga.
+- **`pytest.ini` (F5.4) sobrepunha o `[tool.pytest.ini_options]` do `pyproject.toml`**:
+  os `markers` registrados lá, inclusive o `slow` da ED-00, nunca valeram (o marcador
+  saía como desconhecido). Passaram para o `pytest.ini`; `-m "not slow"` é o gate.
+
 ---
 
 ## ED-08 — O livro no modo código: navegador, sumário, metadados, capa, semântica, relatórios, validação, prévia
@@ -1260,7 +1311,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-05b | a fazer | | | |
 | ED-06 | a fazer | | | |
 | ED-06b | a fazer | | | |
-| ED-07 | a fazer | | | |
+| ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
 | ED-08 | a fazer | | | |
 | ED-09 | a fazer | | | |
 | ED-09b | a fazer | | | |

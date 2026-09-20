@@ -183,7 +183,7 @@ def dados_de(livro: Livro, recurso: Recurso) -> bytes:
     `zip_de_origem` e guardados nele. `FileNotFoundError` quando não há de onde ler.
     """
     if recurso.texto_cru is not None:
-        return recurso.texto_cru.lstrip("﻿").encode("utf-8")
+        return recurso.texto_cru.lstrip("\ufeff").encode("utf-8")
     if recurso.dados is not None:
         return recurso.dados
     if not livro.zip_de_origem:
@@ -479,7 +479,7 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
         try:
             cap = xhtml.ler(dados, href)
         except ErroDeXhtml as erro:
-            texto = dados.decode("utf-8", errors="replace").lstrip("﻿")
+            texto = dados.decode("utf-8", errors="replace").lstrip("\ufeff")
             cap = Capitulo(arquivo=href, texto_cru=texto, avisos=[f"XHTML mal-formado: {erro}"])
             relatorio.aviso(f"{href}: XHTML mal-formado ({erro}); aberto em modo código")
         cap.linear = linear
@@ -651,7 +651,7 @@ class _Escritor:
         capitulos: list[tuple[Capitulo, str]] = []
         for cap in livro.capitulos:
             if cap.texto_cru is not None:
-                texto = cap.texto_cru.lstrip("﻿")
+                texto = cap.texto_cru.lstrip("\ufeff")
             else:
                 texto = xhtml.escrever(cap, pasta_de_imagens=self.pasta_de_imagens)
                 self._desenhar_diagramas(cap)
