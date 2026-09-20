@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **nenhuma fase implementada**
+Status: **ED-00 e ED-01 implementadas** (2026-09-19)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -386,6 +386,67 @@ texto_cru`, `OrigemDoLivro`), §7.6, §9 (Checkpoints), §9.5, §10.1, §10.6.1;
 ```
 .venv/Scripts/python.exe -m pytest tests/test_editor_epub.py tests/test_editor_projeto.py tests/test_editor_livro_ops.py -q -p no:cacheprovider -o addopts=""
 ```
+
+### Registro — 2026-09-19 — IMPLEMENTADA
+
+Entregue em `core/editor/{epub,livro_ops,projeto}.py`, `tests/editor_livros.py` (os três
+livros de prova: o EPUB de hoje, um "de fora" à moda do Sigil/Calibre e um modelo à mão)
+e `tests/test_editor_{epub,livro_ops,projeto}.py` (31 testes; o `epubcheck` roda em três
+deles quando há Java). Medido: o EPUB de `exportar.para_epub` nos dois modos volta ao
+disco com **as mesmas entradas**, os recursos byte a byte, os capítulos `igual` e o
+`epubcheck` a zero; o "de fora" idem — `refines`, `calibre:*`, `linear="no"`, NCX sem
+nav, `<svg>` com `&nbsp;`, `id="title"` em dois capítulos, arquivo fora do manifesto,
+`META-INF/*`, tudo de volta.
+
+**O que divergiu da spec, e por quê:**
+
+- **`Diagrama.imagem` / `imagem_chave`** (campos novos): o EPUB de hoje volta com o PNG
+  já desenhado (`imagens/fig-0001-1.png`), e regravar sem mexer no diagrama **reutiliza**
+  a imagem em vez de redesenhar — redesenhar trocaria em silêncio a orientação que o
+  EPUB de hoje não registra (DEC-06) e custaria segundos por gravação. A chave
+  (`dialeto.chave_do_diagrama`) guardada na leitura é o que diz se o diagrama ainda é o
+  da imagem; mudou (orientação, lado, fonte…), o PNG canônico `diag-<chave>.png` é
+  desenhado na pasta de imagens do livro (`epub.pasta_de_imagens`), com cache por chave.
+  O leitor só preenche `imagem` quando o nome **não** é o canônico, para a R2 da ED-00
+  continuar fechando.
+- **`width` em pontos no `<img>` do diagrama em imagem** (`xhtml.largura_do_png_pt`,
+  `render_diagrama.largura_em_casas`): o EPUB de hoje o tinha (F97) e o leitor da ED-00
+  o descartava — sem ele o PNG de 528 px sairia em tamanho natural. A conta é fechada
+  no caminho da caneta e medida uma vez por fonte/moldura/cantos no da grade.
+- **`Capitulo.linear`**, **`Livro.nav_na_espinha`**, **`Recurso.no_manifesto`**,
+  **`Pessoa.id`**, **`Metadados.ids`/`prefixos`**, **`Livro.zip_de_origem`**: o que
+  "preservar a disposição" exige de fato — `linear="no"` da capa e das notas, o nav que o
+  Sigil põe na espinha, o `META-INF/com.apple.ibooks.display-options.xml` e a sobra fora
+  do manifesto, os `id` que os `refines` dos extras apontam, o `prefix` do `<package>`, e
+  de onde ler o `Recurso.dados is None`. `Metadados.extras` ficou `(elemento, atributos,
+  texto)` na letra do OPF — é o que faz um `title-type` ou um `calibre:series` voltar
+  sem o modelo saber o que são.
+- **`FormatoDePagina.hifenizar`** (a spec v1.3 já o tinha; faltava no modelo) e a
+  **persistência de `Livro.pagina`** como `pybox:pagina` (JSON) ao lado dos `pybox:*` da
+  origem, só quando difere do padrão — sem isso o formato escolhido para o DOCX se
+  perdia ao reabrir o EPUB.
+- **`epub.descarregar`**: a gravação carrega todo recurso para copiá-lo; `Projeto.salvar`
+  solta de novo os que estão no zip recém-gravado, senão o rascunho de 60 s levaria
+  400 imagens em base64.
+- **`href` codificado como URL** ao escrever (`xhtml`, `sumario`) e decodificado ao ler:
+  `Text/cap%201.xhtml` no OPF é o arquivo `cap 1.xhtml` do zip, e o modelo guarda o nome
+  do arquivo. Sem isso o link do EPUB de fora apontava para capítulo inexistente.
+- **`noteref` para nota noutro arquivo é ilha** (correção no leitor da ED-00): virava
+  `Trecho.nota` com um id que não existe no capítulo e saía `href="#notas.xhtml#n1"`
+  (o `epubcheck` pegou). Só o `href="#id"` do próprio capítulo é `Trecho.nota` (DEC-02).
+- **Metadados de acessibilidade e `ibooks:specified-fonts` não são carregados** do OPF
+  lido: são recalculados a cada gravação (§10.1). O `schema:` **não** é declarado no
+  `prefix` (é reservado no EPUB 3.3; o `epubcheck` avisa quando se redeclara).
+- **`juntar_por_titulo`** primeiro parte cada página no título que não a abre (senão a
+  prosa antes do `<h1>` iria para o capítulo errado), depois junta; a `MarcaDePagina`
+  sintetizada vem do `<title>` "Página N" ou do nome `pagina-NNNN`, e o `titulo` "Página
+  N" do capítulo resultante é apagado para o `titulo_efetivo` ser o do `<h1>`.
+- **`excluir`** devolve, além do `arquivo#id` de quem apontava, `sumário: rótulo`,
+  `marco: tipo` e `capa` — e limpa esses três, porque um nav que aponta para nada é EPUB
+  inválido; o `Trecho.link` fica (INV-02).
+- **O checkpoint de livro sem caminho** vai para `data_dir()/rascunhos/<uuid>.checkpoints/`
+  (a spec só previa `<livro>.checkpoints/`).
+- `ErroDeXhtml` de um `texto_cru` mal-formado ao salvar traz o **arquivo** na mensagem.
 
 ---
 
@@ -1191,7 +1252,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 |---|---|---|---|---|
 | ED-pré | a fazer (usuário) | | | |
 | ED-00 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | entidade numérica na leitura; `Capitulo.namespaces`; notas rodapé-primeiro; `span.com`; `Ponto.indices`; `mapa_da_fonte` |
-| ED-01 | a fazer | | | |
+| ED-01 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | `Diagrama.imagem`; `width` no PNG; `linear`, `nav_na_espinha`, `no_manifesto`, `Pessoa.id`, `Metadados.ids/prefixos`, `zip_de_origem`; `pybox:pagina`; `href` codificado; `noteref` de fora é ilha |
 | ED-02 | a fazer | | | |
 | ED-03 | a fazer | | | |
 | ED-04 | a fazer | | | |

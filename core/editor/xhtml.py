@@ -38,6 +38,7 @@ from __future__ import annotations
 import html.entities
 import posixpath
 import re
+from urllib.parse import quote, unquote
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 from xml.parsers import expat
@@ -51,6 +52,9 @@ from core.editor.modelo import (Bloco, Capitulo, Celula, Citacao, Diagrama, Figu
 NS_XHTML = dialeto.NS_XHTML
 NS_EPUB = dialeto.NS_EPUB
 NS_XML = dialeto.NS_XML
+
+#: O que `quote` deixa como está num `href`: a barra e os caracteres que uma URL relativa admite.
+SEGUROS_NA_URL = "/@!$&'()*+,;=:-._~"
 
 #: Prefixos que `escrever` sabe declarar quando aparecem numa ilha.
 PREFIXOS_CONHECIDOS = {
@@ -302,10 +306,14 @@ class _Leitor:
     # -- utilidades -------------------------------------------------------
 
     def _href(self, valor: str) -> str:
-        """`href` relativo ao capítulo → relativo ao OPF (a convenção do modelo)."""
+        """
+        `href` relativo ao capítulo → relativo ao OPF (a convenção do modelo), e sem a
+        codificação de URL: `cap%201.xhtml` é o arquivo `cap 1.xhtml` do zip (ED-01).
+        """
         if not valor or "://" in valor or valor.startswith(("#", "mailto:", "data:")):
             return valor
         caminho, _, ancora = valor.partition("#")
+        caminho = unquote(caminho)
         if self.pasta:
             caminho = posixpath.normpath(posixpath.join(self.pasta, caminho))
         return caminho + ("#" + ancora if ancora else "")
@@ -702,6 +710,8 @@ class _Leitor:
                 return self._ilha(no)
             alt = miolo.attrs.get("alt", "") if miolo.nome == "img" else miolo.attrs.get("aria-label", "")
             d.alt = "" if alt in ("", d.fen, alt_de(d), alt_de(d, "en")) else alt
+            if miolo.nome == "img":
+                self._imagem_do_diagrama(d, miolo.attrs.get("src", ""))
             return d
         if miolo.nome == "div" and "diagrama" in miolo.classes:
             return self._diagrama_de_div(miolo, campos, {"legenda": legenda})
@@ -713,8 +723,10 @@ class _Leitor:
         if modelo.fen_valido(alt):
             # O EPUB de hoje escreve o FEN no `alt` (`exportar._alternativo`): é um
             # diagrama, e a orientação e o lado não foram registrados (DEC-06).
-            return Diagrama(fen=alt, lado="", estado="revisar", aviso="orientação não registrada",
-                            legenda=legenda, numero=int(numero) if numero.isdigit() else None, **campos)
+            d = Diagrama(fen=alt, lado="", estado="revisar", aviso="orientação não registrada",
+                         legenda=legenda, numero=int(numero) if numero.isdigit() else None, **campos)
+            self._imagem_do_diagrama(d, miolo.attrs.get("src", ""))
+            return d
         largura = None
         if "style" in miolo.attrs:
             direto = self._estilo_direto(miolo.attrs["style"])
@@ -727,6 +739,20 @@ class _Leitor:
         return Figura(recurso=self._href(miolo.attrs.get("src", "")) or "?", alt=alt, legenda=legenda,
                       numero=int(numero) if numero.isdigit() else None, largura_pt=largura,
                       alinhamento=alinhamento, **campos)
+
+    def _imagem_do_diagrama(self, d: Diagrama, src: str) -> None:
+        """
+        Guarda em `d.imagem` o PNG que já desenha este diagrama, quando o nome dele não é
+        o canônico `diag-<chave>.png` — é o `fig-0001-1.png` do EPUB de hoje. Com o nome
+        canônico não há o que guardar: o escritor o regenera igual.
+        """
+        href = self._href(src)
+        if not href or "://" in href or href.startswith("data:"):
+            return
+        chave = dialeto.chave_do_diagrama(d)
+        if posixpath.basename(href) == posixpath.basename(dialeto.nome_do_png(d)):
+            return
+        d.imagem, d.imagem_chave = href, chave
 
     def _diagrama_de_div(self, div: No, campos: dict[str, Any], resto: dict[str, Any]) -> Bloco:
         try:
@@ -849,7 +875,9 @@ class _Leitor:
             tipo = attrs.pop("epub:type", "")
             attrs.pop("role", None)
             if "noteref" in tipo.split():
-                return "nota" if "href" in attrs else None
+                # Só a nota do próprio capítulo é `Trecho.nota`; a referência a uma nota
+                # noutro arquivo (o Calibre as junta num só) fica ilha, byte a byte (DEC-02).
+                return "nota" if attrs.get("href", "").startswith("#") else None
             href = attrs.pop("href", None)
             if href is None or tipo:
                 return None
@@ -1116,13 +1144,13 @@ class _Escritor:
     # -- utilidades -------------------------------------------------------
 
     def _href(self, valor: str) -> str:
-        """`href` relativo ao OPF → relativo ao capítulo."""
+        """`href` relativo ao OPF → relativo ao capítulo, codificado como URL (um espaço sai `%20`)."""
         if not valor or "://" in valor or valor.startswith(("#", "mailto:", "data:")):
             return valor
         caminho, _, ancora = valor.partition("#")
         if self.pasta:
             caminho = posixpath.relpath(caminho, self.pasta)
-        return caminho + ("#" + ancora if ancora else "")
+        return quote(caminho, safe=SEGUROS_NA_URL) + ("#" + ancora if ancora else "")
 
     def _ilha(self, cru: str) -> str:
         if "epub:" in cru:
@@ -1340,7 +1368,13 @@ class _Escritor:
         if d.modo == "fonte":
             miolo = self._diagrama_em_texto(d, alt)
             return f"<figure{_atributos_para_texto(attrs)}>\n{miolo}\n{legenda}</figure>"
-        img = {"src": self._href(dialeto.nome_do_png(d, self.pasta_de_imagens)), "alt": alt}
+        img = {"src": self._href(imagem_do_diagrama(d, self.pasta_de_imagens)), "alt": alt}
+        largura = largura_do_png_pt(d)
+        if largura is not None:
+            # A largura vai no próprio `img`, como no EPUB de hoje (F97): o corpo por
+            # casa é do diagrama, e quantas casas a figura tem depende da moldura e
+            # das coordenadas.
+            img["style"] = f"width: {largura:g}pt"
         return f"<figure{_atributos_para_texto(attrs)}><img{_atributos_para_texto(img)}/>{legenda}</figure>"
 
     def _diagrama_em_texto(self, d: Diagrama, alt: str) -> str:
@@ -1466,6 +1500,32 @@ def _e_fonte_de_diagrama(familia: str) -> bool:
 
 
 alt_de = dialeto.alt_de
+
+
+def imagem_do_diagrama(d: Diagrama, pasta_de_imagens: str = "Images") -> str:
+    """
+    O href (relativo ao OPF) do PNG deste diagrama: a imagem já desenhada, enquanto
+    ela reproduz a chave corrente; senão o nome canônico, que `epub.escrever` desenha.
+    """
+    if d.imagem and d.imagem_chave == dialeto.chave_do_diagrama(d):
+        return d.imagem
+    return dialeto.nome_do_png(d, pasta_de_imagens)
+
+
+def largura_do_png_pt(d: Diagrama) -> float | None:
+    """
+    A largura do diagrama em imagem, em pontos: casas de largura × corpo por casa. O
+    `render_diagrama` é importado aqui dentro (traz `fitz`), e uma fonte que ele não
+    conhece não derruba a escrita — sai sem largura.
+    """
+    from core import render_diagrama
+
+    try:
+        casas = render_diagrama.largura_em_casas(d.fen, d.fonte, d.orientacao, d.moldura, d.cantos,
+                                                 d.coordenadas)
+    except (render_diagrama.FonteDesconhecida, render_diagrama.FonteIncompleta, OSError):
+        return None
+    return round(casas * d.corpo_pt, 2)
 
 
 def escrever(cap: Capitulo, *, pasta_de_imagens: str = "Images") -> str:

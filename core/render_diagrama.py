@@ -457,6 +457,43 @@ def lado_efetivo(lado_px: int) -> int:
     return max(8, int(round(lado_px / 8.0)) * 8)
 
 
+#: (fonte, moldura, cantos) → casas de largura do diagrama em grade, medidas uma vez.
+_LARGURA_DA_GRADE: dict = {}
+
+
+def largura_em_casas(fen: str, fonte: str = FONTE_PADRAO, orientacao: str = "branca",
+                     moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO,
+                     coordenadas: bool = False) -> float:
+    """
+    Quantas casas de largura `desenhar` daria a esta figura — sem desenhá-la.
+
+    É o que o editor precisa para pôr `width` em pontos no `<img>` de um diagrama
+    em imagem que ele **não** vai redesenhar (ED-01): casas × corpo por casa, como
+    o `largura_em_pt` do `exportar` faz com o `casas_de_largura` medido na hora.
+
+    No caminho da caneta a conta é fechada: oito casas, a calha do rótulo quando
+    há coordenadas, e a margem dos filetes dos dois lados. No da grade (fonte com
+    glifos de borda, F99) a figura é recortada na tinta, e a largura só se sabe
+    medindo — uma vez por fonte, moldura e cantos, porque a caixa da tinta não
+    depende das peças (ver `_pintar_grade`).
+    """
+    moldura = normalizar_moldura(moldura)
+    cantos = normalizar_cantos(cantos)
+    if coordenadas:
+        mapa = mapa_da_fonte(fonte)
+        if grade(fen, mapa, orientacao, moldura, cantos) is not None:
+            chave = (mapa.nome, moldura, cantos)
+            if chave not in _LARGURA_DA_GRADE:
+                lado = lado_efetivo(LADO_PADRAO)
+                _png, largura, _altura = desenhar("8/8/8/8/8/8/8/8", fonte=fonte, lado_px=lado,
+                                                  coordenadas=True, moldura=moldura,
+                                                  cantos=cantos, orientacao=orientacao)
+                _LARGURA_DA_GRADE[chave] = largura * 8.0 / lado
+            return _LARGURA_DA_GRADE[chave]
+    _tracos, margem = filetes(moldura, 1.0)
+    return 8.0 + (GUTTER_ROTULO if coordenadas else 0.0) + 2.0 * margem
+
+
 def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
              coordenadas: bool = False, moldura=MOLDURA_PADRAO,
              cantos: str = CANTO_PADRAO,

@@ -1285,18 +1285,6 @@ embutidas, tempo) devolvido por **toda** `ler(caminho) -> (Livro, Relatorio)` e
 `importar_ir`, e mostrado na `DialogoDeConclusao`. `OpcoesDeConversao` (mesmo módulo):
 `modo_de_diagrama` (`png`/`fonte`, para DOCX e PDF), `corpo_pt`, `fonte`, `moldura`,
 `cantos`, `sumario` (campo TOC no DOCX), `notas` (`rodape`/`fim`), `idioma`, `ncx`
-(escrever o `toc.ncx`), `pasta_de_imagens` — a hifenização vem de `Livro.pagina`. `OpcoesDeConversao` (mesmo módulo):
-`modo_de_diagrama` (`png`/`fonte`, para DOCX e PDF), `corpo_pt`, `fonte`, `moldura`,
-`cantos`, `sumario` (campo TOC no DOCX), `notas` (`rodape`/`fim`), `idioma`, `ncx`
-(escrever o `toc.ncx`), `pasta_de_imagens` — a hifenização vem de `Livro.pagina`. `OpcoesDeConversao` (mesmo módulo):
-`modo_de_diagrama` (`png`/`fonte`, para DOCX e PDF), `corpo_pt`, `fonte`, `moldura`,
-`cantos`, `sumario` (campo TOC no DOCX), `notas` (`rodape`/`fim`), `idioma`, `ncx`
-(escrever o `toc.ncx`), `pasta_de_imagens` — a hifenização vem de `Livro.pagina`. `OpcoesDeConversao` (mesmo módulo):
-`modo_de_diagrama` (`png`/`fonte`, para DOCX e PDF), `corpo_pt`, `fonte`, `moldura`,
-`cantos`, `sumario` (campo TOC no DOCX), `notas` (`rodape`/`fim`), `idioma`, `ncx`
-(escrever o `toc.ncx`), `pasta_de_imagens` — a hifenização vem de `Livro.pagina`. `OpcoesDeConversao` (mesmo módulo):
-`modo_de_diagrama` (`png`/`fonte`, para DOCX e PDF), `corpo_pt`, `fonte`, `moldura`,
-`cantos`, `sumario` (campo TOC no DOCX), `notas` (`rodape`/`fim`), `idioma`, `ncx`
 (escrever o `toc.ncx`), `pasta_de_imagens` — a hifenização vem de `Livro.pagina`.
 
 ---

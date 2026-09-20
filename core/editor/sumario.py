@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import posixpath
 from typing import Sequence
+from urllib.parse import quote, unquote
 from xml.sax.saxutils import escape
 
 from core.editor import modelo
@@ -34,17 +35,18 @@ def _attr(valor: str) -> str:
 
 
 def _relativo(destino: str, de_arquivo: str) -> str:
-    """`destino` (relativo ao OPF) visto de dentro de `de_arquivo` (idem)."""
+    """`destino` (relativo ao OPF) visto de dentro de `de_arquivo` (idem), codificado como URL."""
     caminho, _, ancora = destino.partition("#")
     pasta = posixpath.dirname(de_arquivo)
     if caminho and pasta:
         caminho = posixpath.relpath(caminho, pasta)
-    return caminho + ("#" + ancora if ancora else "")
+    return quote(caminho, safe="/@!$&'()*+,;=:-._~") + ("#" + ancora if ancora else "")
 
 
 def _absoluto(href: str, de_arquivo: str) -> str:
-    """O inverso: um `href` de dentro de `de_arquivo` → relativo ao OPF."""
+    """O inverso: um `href` de dentro de `de_arquivo` → relativo ao OPF, sem a codificação de URL."""
     caminho, _, ancora = href.partition("#")
+    caminho = unquote(caminho)
     pasta = posixpath.dirname(de_arquivo)
     if caminho and pasta:
         caminho = posixpath.normpath(posixpath.join(pasta, caminho))

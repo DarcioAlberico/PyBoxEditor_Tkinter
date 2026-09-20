@@ -366,6 +366,12 @@ class Diagrama(Bloco):
     recorte: str = ""
     estado: str = "ok"
     aviso: str = ""
+    #: A imagem já desenhada deste diagrama (href relativo ao OPF), quando ela não tem o
+    #: nome canônico `diag-<chave>.png` — é o PNG do EPUB de hoje. `epub.escrever` a
+    #: reutiliza enquanto `imagem_chave` for a `dialeto.chave_do_diagrama` corrente; mudou
+    #: o diagrama, mudou a chave, e a imagem é redesenhada (ED-01).
+    imagem: str = ""
+    imagem_chave: str = ""
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -467,6 +473,8 @@ class Capitulo:
     avisos: list[str] = field(default_factory=list)
     #: Prefixos de namespace declarados no `<html>` além de `epub` (uma ilha pode usá-los).
     namespaces: dict[str, str] = field(default_factory=dict)
+    #: `linear="no"` na espinha do OPF é `False` (a capa e as notas de um EPUB de fora).
+    linear: bool = True
 
     def __post_init__(self) -> None:
         self.arquivo = str(self.arquivo).strip()
@@ -505,6 +513,9 @@ class Recurso:
     dados: bytes | None = None
     texto_cru: str | None = None
     propriedades: str = ""
+    #: `False` para o que estava no zip sem entrada no manifesto (`META-INF/encryption.xml`,
+    #: um arquivo esquecido): é regravado onde estava, e não entra no OPF.
+    no_manifesto: bool = True
 
     def __post_init__(self) -> None:
         self.caminho = str(self.caminho).strip()
@@ -530,6 +541,9 @@ class Pessoa:
     nome: str
     papel: str = "aut"
     file_as: str = ""
+    #: O `id` do `<dc:creator>` como lido; um `<meta refines="#id">` preservado em
+    #: `Metadados.extras` precisa dele de volta.
+    id: str = ""
 
     def __post_init__(self) -> None:
         self.nome = str(self.nome).strip()
@@ -553,7 +567,15 @@ class Metadados:
     capa: str = ""
     fonte_impressa: str = ""
     modificado: str = ""
+    #: O que o modelo não interpreta, tal como estava no OPF: `(elemento, atributos, texto)`
+    #: — `("meta", 'property="title-type" refines="#title"', "main")`, `("dc:type", "", "…")`.
+    #: `epub.escrever` os devolve na letra, depois do que ele mesmo gera.
     extras: list[tuple[str, str, str]] = field(default_factory=list)
+    #: `id` do OPF dos elementos interpretados (`"identificador"`, `"titulo"`, `"idioma"`,
+    #: `"colecao"`, `"assunto-1"`…), para os `refines` dos extras não ficarem soltos.
+    ids: dict[str, str] = field(default_factory=dict)
+    #: O `prefix` do `<package>`, além dos reservados e dos que o escritor declara sozinho.
+    prefixos: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.titulo = str(self.titulo)
@@ -562,6 +584,8 @@ class Metadados:
             nome, posicao = self.colecao
             self.colecao = (str(nome), int(posicao))
         self.extras = [(str(a), str(b), str(c)) for a, b, c in self.extras]
+        self.ids = {str(k): str(v) for k, v in self.ids.items()}
+        self.prefixos = {str(k): str(v) for k, v in self.prefixos.items()}
 
 
 @dataclass(kw_only=True)
@@ -574,6 +598,8 @@ class FormatoDePagina:
     cabecalho_par: str = "titulo"
     cabecalho_impar: str = "capitulo"
     numerar_paginas: bool = True
+    #: `hyphens: auto` na folha padrão, `w:autoHyphenation` no DOCX, o mesmo no PDF.
+    hifenizar: bool = False
 
     def __post_init__(self) -> None:
         self.margens_mm = tuple(float(m) for m in self.margens_mm)  # type: ignore[assignment]
@@ -603,6 +629,11 @@ class Livro:
     ncx: str = ""
     pagina: FormatoDePagina = field(default_factory=FormatoDePagina)
     origem: OrigemDoLivro = field(default_factory=OrigemDoLivro)
+    #: O EPUB de onde os `Recurso.dados is None` ainda vão ser lidos (`epub.dados_de`);
+    #: `epub.escrever` o atualiza para o arquivo recém-gravado.
+    zip_de_origem: str = ""
+    #: Posição do `nav.xhtml` na espinha quando ele estava nela (o Sigil o põe), senão `None`.
+    nav_na_espinha: int | None = None
 
     def __post_init__(self) -> None:
         self.capitulos = list(self.capitulos)
