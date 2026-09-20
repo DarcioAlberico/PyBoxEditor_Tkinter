@@ -810,12 +810,25 @@ def trechos_normalizados(trechos: Sequence[Trecho]) -> list[Trecho]:
     return saida
 
 
+_CAMPOS_DE_FORMATO: tuple[str, ...] = ()
+
+
+def _chave_de_formato(t: Trecho) -> tuple:
+    """Os campos do trecho menos o texto, como tupla — `formato()` sem passar por `para_dict`."""
+    global _CAMPOS_DE_FORMATO
+    if not _CAMPOS_DE_FORMATO:
+        _CAMPOS_DE_FORMATO = tuple(f.name for f in fields(Trecho) if f.name != "texto")
+    return tuple(getattr(t, campo) for campo in _CAMPOS_DE_FORMATO)
+
+
 def _fundem(a: Trecho, b: Trecho) -> bool:
     # Uma ilha, uma quebra, uma marca de página ou uma nota são marcos do trecho
     # em que estão: o trecho seguinte não se cola a eles.
     if b.quebra_antes or b.pagina is not None or b.ilha or a.ilha or b.nota or a.nota:
         return False
-    return a.formato() == b.formato()
+    # Comparar tuplas, e não `formato()` (que passa por `para_dict`): a normalização
+    # roda a cada leitura do widget, sobre milhares de trechos (ED-03, medido).
+    return _chave_de_formato(a) == _chave_de_formato(b)
 
 
 def _partir(trechos: Sequence[Trecho], posicao: int) -> list[Trecho]:

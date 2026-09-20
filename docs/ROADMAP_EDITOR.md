@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01 e ED-07 implementadas** (2026-09-19)
+Status: **ED-00, ED-01, ED-03 e ED-07 implementadas** (2026-09-19)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -625,6 +625,57 @@ Ler: spec §4 (DEC-03 inteira, DEC-04, DEC-11), §5, §6.3, §6.4, §8.1–§8.5
 .venv/Scripts/python.exe -m pytest tests/test_editor_desempenho.py -q -p no:cacheprovider -o addopts="" -m slow
 .venv/Scripts/python.exe scripts/medir_editor.py
 ```
+
+### Registro — 2026-09-19 — IMPLEMENTADA
+
+Entregue em `ui/editor/{tags,dump,objetos,calha,texto_rico,estilos,fonte}.py`,
+`scripts/medir_editor.py` e seis arquivos de teste (25 testes + 1 `slow`). Medido num
+capítulo gerado de 20 páginas (200 blocos): `carregar` 90 ms, `dump` (o capítulo
+inteiro relido do widget) 46 ms, tecla 1,6 ms — dentro dos orçamentos da §13.1. A ida e
+volta fecha em 100 capítulos gerados sem objetos (AC-1) e os com objetos e ilhas inline
+voltam intactos pelo registro. Conferido na tela com o processo DPI-aware.
+
+**O que divergiu da spec, e por quê:**
+
+- **O `tk.Text` é observado pelo proxy do comando Tcl** (o mesmo da ED-07), não por
+  `<<Modified>>`: é ele que diz **quais blocos** um `insert`/`delete` tocou (`_tocados`),
+  e a reconciliação — tags de parágrafo cobrindo o bloco inteiro, fonte derivada
+  recalculada, bloco relido pelo `dump`, ponto de desfazer — corre só neles. O
+  `<<Modified>>` não diz onde foi.
+- **`sincronizar()` devolve o modelo em cache** (`_modelo`, mantido a cada edição pela
+  API) e só relê o que está pendente; `sincronizar(reler=True)` passa tudo pelo `dump`
+  — é o que os testes de ida e volta e a medição usam. Sem o cache, o "dump" de 200
+  blocos custava 480 ms; com ele, o que se paga é o da edição (1,6 ms por tecla).
+- **O `dump` do Tk só relata `tagon` onde a tag começa**: uma tag que vem do bloco
+  anterior (dois `p:titulo4` seguidos) não aparece no intervalo do segundo. `_dump`
+  do widget semeia os `tag_names` do início do intervalo — sem isso o título virava
+  parágrafo na releitura.
+- **`mark previous` começa antes do índice**: `_bloco_em` consulta `index+1c` para
+  incluir a marca que está exatamente no índice (senão o objeto no começo do bloco
+  seguinte era atribuído ao anterior, e apagar um diagrama selecionado falhava).
+- **Desenhar no meio do texto usa uma marca provisória de gravidade `right`**
+  (`fim_ins`): inserir numa marca de gravidade `left` deixa a marca do bloco seguinte
+  presa no começo do texto novo; a marca provisória aponta o fim do que entrou, e a do
+  seguinte é reposta ali.
+- **Parágrafos internos** (itens de lista, parágrafos de citação) levam tags próprias:
+  a formatação direta (`al:`, `rec1:`…), `pid:<id>` quando o id é persistente,
+  `pcls:<classe>` e `pex:<base64 de JSON>` com `extras` e `origem` — sem elas a
+  releitura perdia o que não estava em tag. A lista aninhada leva `sub:<o|n>|<marcador>|
+  <início>` no item, porque `Lista.filhos` tem tipo, marcador e início próprios.
+- **`modelo._fundem` compara tuplas**, não `formato()` via `para_dict`: a normalização
+  de trechos roda em toda releitura, sobre milhares de trechos (era metade do tempo do
+  `dump`). Mudança na ED-00, sem efeito no resultado.
+- **`mudar_caixa` recebe uma cópia**: `modelo.mudar_caixa` muda o parágrafo no lugar, e
+  o "antes" do ponto de desfazer é o objeto em cache.
+- **Apagar tudo deixa um parágrafo vazio** (`_garantir_um_bloco`): um capítulo nunca fica
+  sem bloco nem com texto órfão fora de marca.
+- **Enter no fim de um título abre `corpo`** (o Word faz igual); enter em item vazio
+  sai da lista — o item com conteúdo que sai (`BackSpace` no nível 1) vira parágrafo com
+  o seu texto, não um parágrafo vazio.
+- **`ir_para` desfaz a seleção**: `alternar` e `aplicar` a repõem (o Word mantém), e um
+  `enter()` depois de mover o cursor apagava a seleção velha.
+- **`markers` do pytest**: o `slow` desta fase só valeu porque a ED-07 os pôs no
+  `pytest.ini` (o `pyproject.toml` é ignorado).
 
 ---
 
@@ -1305,7 +1356,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-00 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | entidade numérica na leitura; `Capitulo.namespaces`; notas rodapé-primeiro; `span.com`; `Ponto.indices`; `mapa_da_fonte` |
 | ED-01 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | `Diagrama.imagem`; `width` no PNG; `linear`, `nav_na_espinha`, `no_manifesto`, `Pessoa.id`, `Metadados.ids/prefixos`, `zip_de_origem`; `pybox:pagina`; `href` codificado; `noteref` de fora é ilha |
 | ED-02 | a fazer | | | |
-| ED-03 | a fazer | | | |
+| ED-03 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text` em vez de `<<Modified>>`; modelo em cache + `sincronizar(reler=True)`; tags `pid:`/`pcls:`/`pex:`/`sub:` nos internos; `_fundem` por tupla; enter no título abre corpo |
 | ED-04 | a fazer | | | |
 | ED-05 | a fazer | | | |
 | ED-05b | a fazer | | | |
