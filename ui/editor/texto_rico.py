@@ -671,6 +671,9 @@ class TextoRico(ttk.Frame):
         """`False` se o intervalo (ou o ponto de inserção) toca uma faixa protegida."""
         texto = self.texto
         ini = texto.index(ini)
+        bloco = self._modelo.get(self._bloco_em(ini) or "")
+        if isinstance(bloco, TIPOS_DE_OBJETO):
+            return False           # o bloco de um objeto é a janela e o `\n`: texto não entra nele
         if fim is None:
             depois, antes = texto.tag_names(ini), texto.tag_names(f"{ini}-1c") if texto.compare(ini, ">", "1.0") else ()
             dentro = ("protegido" in depois and "protegido" in antes and not any(T.e_quebra(t) for t in depois)

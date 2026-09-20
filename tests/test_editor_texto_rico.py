@@ -292,10 +292,12 @@ def test_ac8_protegido_recusa_e_o_objeto_selecionado_apaga_com_desfazer():
         antes = texto.get("1.0", "end-1c")
         assert t.w.apagar(ini, f"{ini}+2c") is False and texto.get("1.0", "end-1c") == antes   # o marcador
         assert t.w.apagar(t.w._inicio_de(diagrama.id), t.w._fim_de(diagrama.id)) is False
-        janela = texto.window_names()[1] if len(texto.window_names()) > 1 else texto.window_names()[0]
-        posicao = texto.index(janela)
-        assert t.w.inserir("x", f"{posicao}") is True or True            # ao lado do objeto pode
-        assert t.w.inserir("x", f"{ini}+1c") is False                    # dentro do marcador "1. " não
+        janela_da_ilha = next(n for n in texto.window_names() if isinstance(t.w.registro.objeto(n), m.Trecho))
+        janela_do_diagrama = t.w.registro.nome_de(diagrama.id)
+        assert t.w.inserir("x", texto.index(janela_do_diagrama)) is False    # no bloco do objeto, não
+        assert t.w.inserir("x", texto.index(janela_da_ilha)) is True        # ao lado da ilha inline, pode
+        assert m.texto_de(t.blocos()[2]) == "axb"
+        assert t.w.inserir("x", f"{ini}+1c") is False                        # dentro do marcador "1. " não
         # A ilha inline volta intacta e o diagrama também (ObjetoGenerico).
         volta = t.w.sincronizar(reler=True)
         assert isinstance(volta.blocos[1], m.Diagrama) and volta.blocos[1].orientacao == "preta"
