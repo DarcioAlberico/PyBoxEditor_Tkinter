@@ -17,9 +17,11 @@ todo corretor, e num livro de xadrez as siglas são muitas.
 ## O léxico de cada idioma
 
 O `lang` do trecho escolhe o léxico; sem `lang`, o idioma do capítulo; sem ele, o do
-livro. O inglês é o `assets/lexico/en.txt.gz` de sempre (com os nomes); o português
-chega na ED-06b (`pt.txt.gz`) — até lá, um léxico **vazio**, que não acusa nada
-(`Lexico.sinaliza` é falso), em vez de acender a tela inteira. O dicionário do livro é
+livro. O inglês é o `assets/lexico/en.txt.gz` de sempre (com os nomes); o português é o
+pacote Hunspell `pt.hunspell.gz` (ED-06b): as raízes vão para `Lexico.palavras` (é o que
+`sugestoes` olha) e as flexões são conferidas por `core/afixos.py` (`Lexico.flexoes`). Um
+idioma sem léxico fica **vazio**, e o vazio não acusa nada (`Lexico.sinaliza` é falso), em
+vez de acender a tela inteira. O dicionário do livro é
 `<livro>.lexico.txt` ao lado do EPUB (`lexico.caminho_do_usuario(…, e_pdf=True)`, o
 mesmo do PDF de que o livro veio), partilhado por todos os idiomas.
 
@@ -105,8 +107,8 @@ class Suspeita:
         return ("…" if a else "") + texto[a:b].replace("\n", " ") + ("…" if b < len(texto) else "")
 
 
-def _mapa_de_formato(paragrafo: Paragrafo | None,
-                     legenda: Sequence[Trecho] | None = None) -> list[tuple[int, int, Trecho]]:
+def mapa_de_formato(paragrafo: Paragrafo | None,
+                    legenda: Sequence[Trecho] | None = None) -> list[tuple[int, int, Trecho]]:
     """`(ini, fim, trecho)` de cada trecho no texto do parágrafo (ou da legenda)."""
     saida: list[tuple[int, int, Trecho]] = []
     andado = 0
@@ -137,7 +139,7 @@ def palavras_do_alvo(alvo: Alvo, paragrafo: Paragrafo | None, legenda: Sequence[
     `(ini, fim, palavra, idioma)` de cada palavra candidata do alvo — já sem a notação,
     os números, as maiúsculas, o código, as ilhas e os trechos com papel de xadrez.
     """
-    mapa = _mapa_de_formato(paragrafo, legenda)
+    mapa = mapa_de_formato(paragrafo, legenda)
     saida: list[tuple[int, int, str, str]] = []
     for m in _RE_TOKEN.finditer(alvo.texto):
         token = m.group(0)
@@ -228,12 +230,18 @@ def caminho_do_dicionario(caminho_do_livro: str | None) -> str | None:
 
 
 def caminho_do_lexico(idioma: str) -> str | None:
-    """O `assets/lexico/<idioma>.txt.gz` do idioma, se existe."""
+    """
+    O léxico do idioma em `assets/lexico/`: a lista chã `<idioma>.txt.gz` ou o pacote
+    Hunspell `<idioma>.hunspell.gz` (o português, ED-06b — ver `core/afixos.py`); `None` sem nenhum.
+    """
     idioma = (idioma or "").split("-")[0].lower()
     if not idioma:
         return None
-    caminho = os.path.join(PASTA_DOS_LEXICOS, f"{idioma}.txt.gz")
-    return caminho if os.path.exists(caminho) else None
+    for nome in (f"{idioma}.txt.gz", f"{idioma}.hunspell.gz"):
+        caminho = os.path.join(PASTA_DOS_LEXICOS, nome)
+        if os.path.exists(caminho):
+            return caminho
+    return None
 
 
 @dataclass
@@ -257,10 +265,19 @@ class Lexicos:
         from core import lexico
 
         usuario = caminho_do_dicionario(self.caminho_do_livro)
+        caminho = caminho_do_lexico(idioma)
         if idioma == "en":
             lex = lexico.carregar(caminho_usuario=usuario, idioma="en")
+        elif caminho and caminho.endswith(".hunspell.gz"):
+            from core import afixos
+
+            flexoes = afixos.Afixos.carregar(caminho)
+            lex = lexico.carregar(caminho=os.path.join(PASTA_DOS_LEXICOS, "nada"), caminho_usuario=usuario,
+                                  idioma=idioma, nomes=False)
+            lex.palavras.update(flexoes.raizes)       # as raízes: é o que `sugestoes` e `sinaliza` olham
+            lex.flexoes = flexoes
         else:
-            lex = lexico.carregar(caminho=caminho_do_lexico(idioma) or os.path.join(PASTA_DOS_LEXICOS, "nada"),
+            lex = lexico.carregar(caminho=caminho or os.path.join(PASTA_DOS_LEXICOS, "nada"),
                                   caminho_usuario=usuario, idioma=idioma, nomes=False)
         self._por_idioma[idioma] = lex
         return lex

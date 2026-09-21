@@ -1,0 +1,27 @@
+Licenças das listas de palavras desta pasta
+============================================
+
+pt.hunspell.gz — português (ED-06b)
+-----------------------------------
+Empacotado por `scripts/gerar_lexico_pt.py` a partir do dicionário Hunspell pt_BR do
+VERO — Verificador Ortográfico do LibreOffice/OpenOffice.org (`pt_BR.dic` + `pt_BR.aff`,
+versão de 2010, como distribuída com o TeXstudio). O arquivo contém as linhas `SFX`/`PFX`
+do `.aff` e as entradas do `.dic`, convertidas de ISO-8859-1 para UTF-8, sem outra
+alteração.
+
+    Copyright (C) 2006 - 2010 por Raimundo Santos Moura <raimundomoura@openoffice.org>
+    Colaboradores deste projeto: http://www.openoffice.org.br/?q=creditos
+    Brasil - Setembro 2010
+    Este é um dicionário para correção ortográfica da língua Portuguesa para o Hunspell.
+    Este programa é livre e pode ser redistribuído e/ou modificado nos termos da
+    GNU Lesser General Public License (LGPL) versão 2.1.
+
+O texto completo da LGPL 2.1 está em https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+(e no arquivo COPYING do projeto VERO). O dicionário é distribuído SEM GARANTIA ALGUMA;
+o PyBoxEditor não altera as palavras nem as regras.
+
+en.txt.gz e nomes.txt.gz — inglês e nomes próprios (F9)
+--------------------------------------------------------
+Produzidos por `importar_lexico.py` a partir do dicionário que o usuário do PyBoxEditor
+mantinha para o ABBYY FineReader (ver o cabeçalho de `core/lexico.py`). Uso interno do
+projeto.

@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-07 e ED-09 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07 e ED-09 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1155,6 +1155,55 @@ licença em `assets/lexico/LICENCAS.txt`); `core/editor/buscas_salvas.py` +
 .venv/Scripts/python.exe -m pytest tests/test_editor_tipografia.py tests/test_lexico_pt.py tests/test_editor_buscas_salvas.py tests/test_editor_css_minima.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/afixos.py`, `core/editor/{tipografia,buscas_salvas}.py`,
+`ui/editor/{tipografia,buscas_salvas}.py`, `scripts/gerar_lexico_pt.py`,
+`assets/lexico/pt.hunspell.gz` (1,3 MB) e `LICENCAS.txt`, as mudanças em `core/lexico.py`,
+`core/editor/ortografia.py`, `ui/editor/{janela,dialogos}.py` e três arquivos de teste (17
+testes, um `slow`). Conferido na tela com o processo DPI-aware: a caixa Tipografia com a
+prévia por ocorrência e a caixa Buscas salvas.
+
+**O que divergiu da spec, e por quê:**
+
+- **O português não é uma lista chã (`pt.txt.gz`): é o pacote Hunspell `pt.hunspell.gz`
+  + `core/afixos.py`.** Medido: a expansão completa do VERO (o dicionário do LibreOffice,
+  307 mil raízes e 25 mil regras) dá 10,4 milhões de formas — 2,7 milhões sem as ênclises
+  (`amá-lo-ia`), 1,8 milhão sem diminutivos e superlativos —, 27 MB comprimidos e meio
+  minuto para carregar num `set`. O pacote guarda as raízes com as flags e as regras
+  `SFX`/`PFX` (texto UTF-8, 1,3 MB), carrega em 0,4 s, e `Afixos.conhece` consulta ao
+  contrário (da palavra para a raiz: sufixo, prefixo e prefixo+sufixo cruzados) em
+  ~50 µs. Um teste `slow` confere que 400 raízes sorteadas têm toda a expansão
+  reconhecida (zero faltas). `Lexico` ganhou o campo `flexoes`; as raízes vão para
+  `palavras` (é o que `sugestoes` e `sinaliza` olham) — as sugestões do `pt` são raízes.
+  A licença (LGPL 2.1, Raimundo Santos Moura) está em `assets/lexico/LICENCAS.txt`; o
+  dicionário veio do TeXstudio instalado nesta máquina.
+- **`sugestoes` desempata pelo prefixo comum**: `cavalu` tinha cinco candidatas com o
+  mesmo `ratio` (`craval`, `chaval`, `cavalo`…) e o erro costuma estar no fim da palavra.
+- **Tipografia propõe e só depois aplica** (`Troca` com contexto antes/depois; a caixa
+  deixa desmarcar por ocorrência e por regra, e as regras escolhidas ficam em
+  `Settings editor.tipografia`). O espaço inseparável entre número e lance só entra quando
+  o que segue tem cara de lance (`2012. Now` não); `0-0`/`0-0-0` são roques (U+2011) e
+  `0-1`/`1-0`/`½-½` resultados (U+2013); um intervalo de dígitos e um " - " espaçado viram
+  meia-risca; `+-`/`-+` ficam. Código e ilha ficam fora. Na aba aberta a troca é do
+  widget (um ponto composto); no capítulo fechado, `aplicar_no_capitulo` regista um
+  ponto por capítulo (a nota inteira, como na busca).
+- **"Juntar palavras hifenizadas"** usa `lexico.juntar_hifenizadas` como critério e cobre
+  dois casos: o hífen antes de uma quebra suave e o hífen no fim de um parágrafo seguido
+  do pedaço no começo do seguinte (duas trocas, uma em cada).
+- **A hifenização é um bloco marcado na folha padrão** (`/* pybox:hifenizar */ … /*
+  /pybox:hifenizar */`, `p { hyphens: auto; … }`) posto ou tirado por texto, sem reescrever
+  o resto: `css_minima.escrever` só conhece as propriedades da CSS mínima e perderia o que
+  não conhece. A caixa Tipografia tem o interruptor; `FormatoDePagina.hifenizar` continua
+  o campo que o DOCX lê (`w:autoHyphenation`, conferido). Um livro sem folha só guarda o
+  campo. `janela._texto_do_recurso` nasceu aqui.
+- **Buscas salvas** moram em `Settings editor.buscas_salvas`; o lote é
+  `Colecao.em_lote(nomes, executar)`, que recebe o "substituir todos" do `Buscador` e só
+  soma (o resumo por busca e por arquivo vai a Mensagens, ao status e a uma caixa); a
+  caixa é modeless e chama a janela pelos comandos internos `_buscas_salvas_*` (sem item
+  de menu — são da caixa). O JSON tem `formato: pybox-buscas` e importar troca as de mesmo
+  nome.
+
 ---
 
 ## ED-07 — O editor de código
@@ -1658,7 +1707,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-05 | a fazer | | | |
 | ED-05b | a fazer | | | |
 | ED-06 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `Alvo` com deslocamento e chave; célula/legenda não endereçáveis; formato do primeiro caractere; um ponto composto na aba, um por capítulo fechado; texto/arquivos marcados com item; "Ir para…" nos dois modos; `e_notacao` copiada; `lexico` sem `notacao` no topo; caixa única do `F7` com "Trocar todas"; `core/editor/simbolos.py`; `Ctrl+Shift+X` exige 4 dígitos; contagem da barra = `estatisticas` |
-| ED-06b | a fazer | | | |
+| ED-06b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `pt.hunspell.gz` + `core/afixos.py` em vez de lista chã (10,4 M formas); `Lexico.flexoes`; desempate por prefixo; propor/aplicar com prévia; espaço só antes de lance; bloco marcado `pybox:hifenizar` na folha; buscas salvas com comandos internos |
 | ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
 | ED-08 | a fazer | | | |
 | ED-09 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | estilos do Word `builtin`; `STYLEREF 1`; `OS/2` v3 na Merida; folga de 1,5 pt na caixa; `notas="rodape"` respeita o tipo; quebra de capítulo pelo estilo; só alvo existente vira marcador; sumário 1–3 |

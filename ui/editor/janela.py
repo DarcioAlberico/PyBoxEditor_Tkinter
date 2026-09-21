@@ -79,6 +79,7 @@ from ui.editor import barra as barra_mod
 from ui.editor import menus as menus_mod
 from ui.editor.abas import Aba, Abas
 from ui.editor.busca import Buscador, PainelDeBusca
+from ui.editor.buscas_salvas import BuscasSalvas
 from ui.editor.codigo import EditorDeCodigo
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
@@ -88,6 +89,7 @@ from ui.editor.propriedades import PainelDePropriedades
 from ui.editor.resultados import PainelDeResultados, Resultado
 from ui.editor.tabela import GradeDeTabela
 from ui.editor.tags import EstiloDeTela
+from ui.editor.tipografia import Tipografo
 from ui.editor.texto_rico import TextoRico
 
 TITULO = "Editor de livro"
@@ -173,6 +175,7 @@ class JanelaDoEditor(tk.Toplevel):
         self._registrar_comandos_da_ed02()
         self._registrar_comandos_da_ed04()
         self._registrar_comandos_da_ed06()
+        self._registrar_comandos_da_ed06b()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -497,6 +500,13 @@ class JanelaDoEditor(tk.Toplevel):
         self.registrar_comandos({"ir_para": j.ir_para, "inserir_simbolo": j.inserir_simbolo,
                                  "estatisticas": j.estatisticas})
         self.registrar_comandos({"codigo_unicode": j.codigo_unicode}, modos=("texto",))
+
+    def _registrar_comandos_da_ed06b(self) -> None:
+        """Tipografia, juntar hifenizadas e buscas salvas (ED-06b, §8.12 e §8.14)."""
+        self.tipografo = Tipografo(self)
+        self.buscas_salvas = BuscasSalvas(self, self.busca)
+        self.registrar_comandos(self.tipografo.comandos)
+        self.registrar_comandos(self.buscas_salvas.comandos)
 
     # ==================================================================
     # Estado: modo, aba, editores
@@ -1526,16 +1536,23 @@ class JanelaDoEditor(tk.Toplevel):
         self.painel_de_estilos.atualizar()
         self._atualizar_titulo()
 
+    def _texto_do_recurso(self, recurso: Recurso) -> str:
+        """O texto de um recurso: o editado (`texto_cru`), senão o que está no zip; "" se sumiu."""
+        if recurso.texto_cru is not None:
+            return recurso.texto_cru
+        if self.projeto is None:
+            return ""
+        try:
+            return epub.dados_de(self.projeto.livro, recurso).decode("utf-8", errors="replace")
+        except FileNotFoundError:
+            return ""
+
     def _atualizar_painel_de_estilos(self) -> None:
         texto = ""
         if self.projeto is not None and self.projeto.livro.folhas:
             recurso = self.projeto.livro.recurso(self.projeto.livro.folhas[0])
             if recurso is not None:
-                try:
-                    texto = recurso.texto_cru if recurso.texto_cru is not None else \
-                        epub.dados_de(self.projeto.livro, recurso).decode("utf-8", errors="replace")
-                except FileNotFoundError:
-                    texto = ""
+                texto = self._texto_do_recurso(recurso)
         self.painel_de_estilos.folha_padrao = texto
         self.painel_de_estilos.atualizar()
 
@@ -2055,7 +2072,7 @@ class JanelaDoEditor(tk.Toplevel):
     def sobre(self) -> str:
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
-                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-07, ED-09.")
+                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-09.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 

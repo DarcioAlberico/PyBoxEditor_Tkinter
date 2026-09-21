@@ -93,6 +93,9 @@ class Lexico:
     #: sob demanda. Campo declarado, e não atributo posto de fora: quem lê o
     #: dataclass tem de ver tudo que ele carrega.
     _forma: Optional[Dict] = field(default=None, repr=False, compare=False)
+    #: As flexões que não estão na lista: um `core.afixos.Afixos` (raízes + regras
+    #: Hunspell), para o português, cuja expansão não cabe numa lista (ED-06b).
+    flexoes: Optional[object] = field(default=None, repr=False, compare=False)
 
     def __len__(self) -> int:
         return len(self.palavras | self.do_usuario)
@@ -122,7 +125,9 @@ class Lexico:
 
     def conhece(self, palavra: str) -> bool:
         b = palavra.lower()
-        return b in self.palavras or b in self.do_usuario
+        if b in self.palavras or b in self.do_usuario:
+            return True
+        return self.flexoes is not None and bool(self.flexoes.conhece(b))
 
     def procedencia(self, palavra: str) -> Optional[str]:
         """"usuario" | "idioma" | None — para o relatório saber a quem creditar."""
@@ -738,12 +743,22 @@ def sugestoes(palavra: str, lex: Lexico, n: int = 5) -> List[str]:
     candidatos: List[str] = []
     for comprimento in comprimentos:
         candidatos.extend(forma.get((comprimento, nuc[0]), ()))
-    achadas = difflib.get_close_matches(nuc, candidatos, n=n, cutoff=0.6) if candidatos else []
+    achadas = difflib.get_close_matches(nuc, candidatos, n=n * 4, cutoff=0.6) if candidatos else []
     if not achadas:
         candidatos = []
         for comprimento in range(max(1, len(nuc) - 1), len(nuc) + 2):
             candidatos.extend(forma.get((comprimento, None), ()))
-        achadas = difflib.get_close_matches(nuc, candidatos, n=n, cutoff=0.75) if candidatos else []
+        achadas = difflib.get_close_matches(nuc, candidatos, n=n * 4, cutoff=0.75) if candidatos else []
+    # Entre empates de `ratio` ("cavalu": `craval`, `chaval`, `cavalo`), o prefixo comum mais
+    # longo desempata — o erro costuma estar no fim da palavra.
+    def prefixo_comum(a: str, b: str) -> int:
+        k = 0
+        while k < min(len(a), len(b)) and a[k] == b[k]:
+            k += 1
+        return k
+
+    achadas.sort(key=lambda c: (-difflib.SequenceMatcher(None, nuc, c).ratio(), -prefixo_comum(nuc, c)))
+    achadas = achadas[:n]
     # A palavra digitada com inicial maiúscula sugere a forma capitalizada.
     if palavra[:1].isupper():
         achadas = [a[:1].upper() + a[1:] for a in achadas]

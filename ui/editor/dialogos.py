@@ -521,6 +521,12 @@ class Caixas:
 
         return DialogoDeSimbolos(self.master, familia=familia).mostrar()
 
+    def tipografia(self, propostas: Sequence[tuple], regras: Sequence[str], hifenizar: bool = False) -> Any:
+        """Ferramentas → Tipografia… (ED-06b): `(índices marcados, regras, hifenizar)`, ou `None`."""
+        from ui.editor.tipografia import DialogoDeTipografia
+
+        return DialogoDeTipografia(self.master, propostas, regras, hifenizar).mostrar()
+
     def ir_para(self, tipos: Sequence[tuple[str, str]], atual: str = "", numero: int = 1) -> tuple[str, int] | None:
         """"Ir para…": `(tipo, número)`; `tipos` são pares `(chave, rótulo)`."""
         rotulos = {chave: rotulo for chave, rotulo in tipos}
