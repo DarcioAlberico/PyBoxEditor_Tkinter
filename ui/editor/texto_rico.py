@@ -25,6 +25,27 @@ começo do texto novo. O objeto é uma janela embutida registrada no
 `RegistroDeObjetos`. A referência de nota é `¹` protegido com `nota:<id>`; a quebra
 suave é um `\\n` com `qs`; o marcador de lista é texto com `marcador`+`protegido`.
 
+## A faixa de notas (ED-04, §8.8)
+
+Depois do último bloco do capítulo vem o marco `FaixaDeNotas` (um objeto, "Notas") e,
+para cada nota, os parágrafos dela — blocos comuns na `_ordem`, com a tag de
+parágrafo `dn:<id>|<tipo>` e, no primeiro, o número como marcador protegido. Editam-se
+como qualquer parágrafo; `sincronizar()` os devolve agrupados em `Capitulo.notas`, e o
+ponto de desfazer de uma edição numa nota é sobre a **nota inteira** (`Nota`), não sobre
+o parágrafo. `inserir_nota` põe a referência no cursor e o cursor na nota; `Esc`
+(`voltar_da_nota`) volta à referência; apagar a última referência apaga a nota.
+
+## Objetos vivos, células e o texto de fora
+
+A tabela é uma `GradeDeTabela` (`ui/editor/tabela.py`) de células que são `TextoRico`
+em modo célula (`celula=True`: sem calha, sem barra, altura pelas linhas exibidas, com o
+`dono` apontando o texto de fora). O registro pergunta à grade o modelo atual quando o
+`dump` chega a ela, e uma edição numa célula vira um ponto de desfazer sobre a tabela
+inteira no texto de fora. As ligações de teclado moram numa bindtag de **classe**
+(`EditorAtalhosTexto`), ligada uma vez por interpretador, cujo handler despacha para o
+`TextoRico` dono do widget que recebeu a tecla (`_INSTANCIAS`) — uma bindtag de classe
+com closures sobre `self` serviria só o último widget criado.
+
 ## O modelo por bloco, e o desfazer
 
 O widget guarda o **último modelo de cada bloco** (`_modelo`). Depois de cada edição,
@@ -34,7 +55,9 @@ blocos tocados pelo `dump` e registra no `Historico` um ponto `(ids, antes, depo
 redesenha o capítulo; é por isso que nem `undo=True` nem cópias do documento existem
 aqui. Quem diz **quais** blocos uma edição tocou é o proxy do comando Tcl (o mesmo
 truque do modo código): cada `insert`/`delete` que passa por ele anota os blocos do
-intervalo, e o `mark previous` do Tk acha o bloco de um índice em uma ou duas chamadas.
+intervalo, e o `mark previous` do Tk acha o bloco de um índice em uma ou duas chamadas. O proxy é um
+`proc` Tcl (`ui/editor/proxy.py`), não um comando Python: um erro Tcl dentro de um comando
+Python derruba o `mainloop` mesmo quando o Python o captura (ED-04).
 """
 
 from __future__ import annotations
@@ -47,13 +70,18 @@ from tkinter import ttk
 from typing import Any, Callable, Iterable, Sequence
 
 from core.editor import css_minima, dialeto, modelo
+from core.editor.area_de_transferencia import Fragmento
 from core.editor.historico import Historico, Ponto
 from core.editor.modelo import (Bloco, Capitulo, Citacao, Diagrama, Figura, IlhaBruta, ItemDeLista, Lista,
-                                MarcaDePagina, Nota, Paragrafo, QuebraDePagina, Separador, Tabela, Trecho)
+                                MarcaDePagina, Nota, Paragrafo, QuebraDePagina, Separador, Tabela, Titulo, Trecho)
 from ui.editor import dump as dump_mod
+from ui.editor import proxy as proxy_mod
 from ui.editor import tags as T
 from ui.editor.calha import Calha
-from ui.editor.objetos import ObjetoGenerico, RegistroDeObjetos
+from ui.editor.dump import ID_DA_FAIXA, FaixaDeNotas
+from ui.editor.objetos import ContextoDeObjetos, RegistroDeObjetos, criar_objeto
+from ui.editor.tabela import LIMITE as LIMITE_DE_CELULAS
+from ui.editor.tabela import GradeDeTabela
 from ui.editor.tags import EstiloDeTela, Estilos, Fontes
 
 BINDTAG = "EditorAtalhosTexto"
@@ -62,7 +90,14 @@ PASSO_DA_FONTE_PT = 2.0
 SOBRESCRITOS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
 SIMBOLO_DA_PAGINA = "⁞"
 INVISIVEIS = {"paragrafo": "¶", "tab": "→", "quebra": "⏎", "nbsp": "°"}
-TIPOS_DE_OBJETO = (Diagrama, Figura, Tabela, IlhaBruta, MarcaDePagina, QuebraDePagina, Separador)
+TIPOS_DE_OBJETO = (Diagrama, Figura, Tabela, IlhaBruta, MarcaDePagina, QuebraDePagina, Separador, FaixaDeNotas)
+#: O alinhamento com que cada objeto de bloco é desenhado na linha.
+ALINHAMENTO_DO_OBJETO = {"esq": "esquerda", "centro": "centro", "dir": "direita"}
+TIPOS_DE_NOTA = ("rodape", "fim")
+#: Quanto uma edição numa célula espera antes de a tabela ser relida (a digitação contínua junta-se).
+ATRASO_DA_CELULA_MS = 250
+#: `TextoRico` por caminho do `tk.Text` — o despacho da bindtag de classe (ver o cabeçalho).
+_INSTANCIAS: dict[str, "TextoRico"] = {}
 ATRIBUTOS_ALTERNAVEIS = {"negrito": "b", "italico": "i", "sublinhado": "u", "tachado": "s", "versalete": "vers",
                          "sobrescrito": "sobre", "subscrito": "sub"}
 PREFIXOS_DE_APLICAR = {"familia": "fam:", "corpo_pt": "corpo:", "cor": "cor:", "fundo": "fundo:", "classe": "cls:",
@@ -80,6 +115,25 @@ def _sobrescrito(n: int) -> str:
     return "".join(SOBRESCRITOS[int(d)] for d in str(n))
 
 
+def _contagem(resultado: Any) -> int:
+    """O inteiro de `Text.count`: o tkinter devolve `None` para zero, uma tupla ou um inteiro conforme a versão."""
+    if resultado is None:
+        return 0
+    if isinstance(resultado, (tuple, list)):
+        return int(resultado[0]) if resultado else 0
+    return int(resultado)
+
+
+def _numero_ou_nenhum(valor: Any, nome: str) -> float | None:
+    """Um campo numérico do painel: vazio é `None`; texto que não é número é erro de entrada."""
+    if valor is None or (isinstance(valor, str) and not valor.strip()):
+        return None
+    try:
+        return float(str(valor).strip().replace(",", "."))
+    except ValueError:
+        raise ValueError(f"{nome}: {valor!r} não é um número") from None
+
+
 def _valor_de_tag(valor: Any) -> str:
     return f"{valor:g}" if isinstance(valor, float) else str(valor)
 
@@ -87,26 +141,46 @@ def _valor_de_tag(valor: Any) -> str:
 class TextoRico(ttk.Frame):
     def __init__(self, master: tk.Misc, estilo_de_tela: EstiloDeTela | None = None, folhas: Any = (),
                  historico: Historico | None = None, relogio: Callable[[], float] = time.monotonic,
-                 arquivo: str = "capitulo", **kw: Any):
+                 arquivo: str = "capitulo", *, celula: bool = False, dono: "TextoRico | None" = None,
+                 estilos: Estilos | None = None, fontes: Fontes | None = None,
+                 recursos: Callable[[str], bytes | None] | None = None,
+                 ao_ativar: Callable[[Any], Any] | None = None, **kw: Any):
         super().__init__(master, **kw)
-        self.tela = estilo_de_tela or EstiloDeTela()
-        self.estilos = Estilos(self.tela, None)
-        self.fontes = Fontes(self)
+        self.celula = bool(celula)
+        self.dono = dono
+        self.tela = estilo_de_tela or (dono.tela if dono is not None else EstiloDeTela())
+        self.estilos = estilos or Estilos(self.tela, None)
+        self.fontes = fontes or Fontes(self)
         self.historico = historico or Historico(relogio=relogio)
         self.relogio = relogio
         self.arquivo = arquivo
+        self.recursos = recursos
+        self.ao_ativar = ao_ativar
         self.registro = RegistroDeObjetos()
+        #: Os ganchos que a grade de tabela põe numa célula (ED-04, §8.6).
+        self.ao_tab: Callable[[int], Any] | None = None
+        self.ao_escape: Callable[[], Any] | None = None
+        self.ao_sair_vertical: Callable[[int], Any] | None = None
+        self.ao_sair_horizontal: Callable[[int], Any] | None = None
 
-        self.texto = tk.Text(self, undo=False, wrap="word", highlightthickness=2, padx=12, pady=8, spacing3=4,
-                             exportselection=False, insertwidth=2)
-        self.calha = Calha(self, self.texto)
-        self.barra = ttk.Scrollbar(self, orient="vertical", command=self.texto.yview)
-        self.texto.configure(yscrollcommand=self._rolagem)
-        self.calha.grid(row=0, column=0, sticky="ns")
-        self.texto.grid(row=0, column=1, sticky="nsew")
-        self.barra.grid(row=0, column=2, sticky="ns")
-        self.rowconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
+        if self.celula:
+            self.texto = tk.Text(self, undo=False, wrap="word", highlightthickness=1, padx=4, pady=2, spacing3=0,
+                                 exportselection=False, insertwidth=2, height=1, width=12,
+                                 highlightbackground="#c8c8c8", highlightcolor="#0645ad")
+            self.calha = _SemCalha()               # uma célula não tem margem de ícones
+            self.barra = None
+            self.texto.pack(fill="both", expand=True)
+        else:
+            self.texto = tk.Text(self, undo=False, wrap="word", highlightthickness=2, padx=12, pady=8, spacing3=4,
+                                 exportselection=False, insertwidth=2)
+            self.calha = Calha(self, self.texto)
+            self.barra = ttk.Scrollbar(self, orient="vertical", command=self.texto.yview)
+            self.texto.configure(yscrollcommand=self._rolagem)
+            self.calha.grid(row=0, column=0, sticky="ns")
+            self.texto.grid(row=0, column=1, sticky="nsew")
+            self.barra.grid(row=0, column=2, sticky="ns")
+            self.rowconfigure(0, weight=1)
+            self.columnconfigure(1, weight=1)
 
         self._modelo: dict[str, Bloco] = {}
         self._ordem: list[str] = []
@@ -124,9 +198,18 @@ class TextoRico(ttk.Frame):
         self._pincel: tuple[str, ...] | None = None
         self._invisiveis = False
         self._simples = False
+        self._composto = 0
+        self._ids_compostos: set[str] = set()
+        self._modelo_antes: dict[str, Bloco] = {}
+        self._notas_antes: list[Nota] = []
+        self._rotulo_composto = ""
+        self._objeto_selecionado: str | None = None
+        self._reconciliacao_agendada: str | None = None
+        self._antes_forcado: dict[str, Bloco] = {}
         self._configuradas: set[str] = set()
-        self.definir_folhas(folhas)
-        T.configurar(self.texto, self.estilos, self.fontes)
+        if estilos is None:
+            self.definir_folhas(folhas)
+        T.configurar(self.texto, self.estilos, self.fontes, preguicoso=self.celula)
         self._instalar_proxy()
         self._instalar_ligacoes()
         self.comandos: dict[str, Callable[..., Any]] = {
@@ -149,6 +232,9 @@ class TextoRico(ttk.Frame):
             "selecionar_paragrafo": self.selecionar_paragrafo, "selecionar_bloco": self.selecionar_bloco,
             "selecionar_tudo": self.selecionar_tudo, "invisiveis": self.invisiveis, "zoom": self.zoom,
             "enter": self.enter, "backspace": self.backspace, "apagar_selecao": self.apagar_selecao,
+            "quebra_de_linha": self.inserir_quebra_suave, "quebra_de_pagina": self.inserir_quebra_de_pagina,
+            "inserir_separador": self.inserir_separador,
+            "nota_de_rodape": lambda: self.inserir_nota("rodape"), "nota_de_fim": lambda: self.inserir_nota("fim"),
         }
 
     # ------------------------------------------------------------------
@@ -175,8 +261,10 @@ class TextoRico(ttk.Frame):
             T.configurar_paragrafo(self.texto, tag, self.estilos, self.fontes)
         elif T.e_de_caractere(tag) and ":" in tag:
             T.configurar_caractere(self.texto, tag, self.estilos, self.fontes)
-        elif tag.startswith(("lista:", "marc:", "ini:", "sub:", "pid:", "pcls:", "pex:")):
+        elif tag.startswith(("lista:", "marc:", "ini:", "sub:", "pid:", "pcls:", "pex:", "ncab:")):
             self.texto.tag_configure(tag)
+        elif self.celula and T.e_fixa(tag):
+            T.configurar_fixa(self.texto, tag, self.estilos, self.fontes)
         self._configuradas.add(tag)
 
     def _tag_de_fonte(self, estilo: str, tags: Iterable[str]) -> str:
@@ -191,29 +279,24 @@ class TextoRico(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _instalar_proxy(self) -> None:
-        self._original = self.texto._w + "_orig"
-        self.texto.tk.call("rename", self.texto._w, self._original)
-        self.texto.tk.createcommand(self.texto._w, self._proxy)
+        """O `proc` Tcl de `ui/editor/proxy.py`: `_antes` anota os blocos que um `insert`/`delete` toca."""
+        self._original = proxy_mod.instalar(self.texto, self._antes_do_comando, self._depois_do_comando)
 
-    def _proxy(self, comando: str, *args: Any) -> Any:
-        chamar = self.texto.tk.call
-        tocados: list[str] = []
-        if not self._em_carga and comando in ("insert", "delete") and args:
-            ini = str(chamar(self._original, "index", args[0]))
-            if comando == "delete":
-                fim = str(chamar(self._original, "index", args[1])) if len(args) > 1 else \
-                    str(chamar(self._original, "index", f"{ini}+1c"))
-            else:
-                fim = ini
-            tocados = self._blocos_entre(ini, fim)
-        resultado = chamar((self._original, comando) + args)
-        if tocados:
-            self._tocados.update(tocados)
-        elif comando == "mark" and len(args) >= 3 and args[0] == "set" and args[1] == "insert":
+    def _antes_do_comando(self, comando: str, args: tuple[str, ...]) -> None:
+        if self._em_carga or not args:
+            return
+        ini = self.texto.index(args[0])
+        if comando == "delete":
+            fim = self.texto.index(args[1]) if len(args) > 1 else self.texto.index(f"{ini}+1c")
+        else:
+            fim = ini
+        self._tocados.update(self._blocos_entre(ini, fim))
+
+    def _depois_do_comando(self, comando: str, args: tuple[str, ...]) -> None:
+        if comando == "mark" and len(args) >= 3 and args[0] == "set" and args[1] == "insert":
             self._cursor_moveu()
         elif comando == "yview" and args:
             self._agendar_calha()
-        return resultado
 
     def _agendar_calha(self) -> None:
         try:
@@ -305,22 +388,117 @@ class TextoRico(ttk.Frame):
             cap = xhtml.ler(cap.texto_cru, cap.arquivo)
         self._capitulo = cap
         self.arquivo = cap.arquivo
-        self._notas = list(cap.notas)
-        self.carregar_blocos(cap.blocos)
+        self.carregar_blocos(cap.blocos, cap.notas)
         self.historico.limpar(self.arquivo)
         self._sujo = False
 
-    def carregar_blocos(self, blocos: Sequence[Bloco]) -> None:
+    def carregar_blocos(self, blocos: Sequence[Bloco], notas: Sequence[Nota] | None = None) -> None:
+        """Desenha os blocos e, com `notas`, a faixa de notas depois deles (§8.8)."""
         self._em_carga = True
         try:
             self._limpar_widget()
+            self._notas = [copy.deepcopy(n) for n in (notas or [])]
             for bloco in blocos:
                 self._desenhar_bloco(bloco, "end-1c")
+            if self._notas:
+                self._desenhar_faixa()
+                for nota in self._notas:
+                    self._desenhar_nota(nota)
             self.texto.mark_set("insert", "1.0")
         finally:
             self._em_carga = False
         self._tocados.clear()
         self.calha.redesenhar()
+        if self.celula:
+            self.ajustar_altura()
+
+    # -- a faixa de notas ---------------------------------------------------
+
+    def _raiz(self) -> "TextoRico":
+        """O texto de fora de uma célula (o dono das notas); o próprio widget quando não é célula."""
+        raiz = self
+        while raiz.dono is not None:
+            raiz = raiz.dono
+        return raiz
+
+    def _tem_faixa(self) -> bool:
+        return ID_DA_FAIXA in self._ordem
+
+    def _desenhar_faixa(self) -> None:
+        if not self._tem_faixa():
+            self._desenhar_bloco(FaixaDeNotas(), "end-1c")
+
+    def _nota_do_paragrafo(self, bloco_id: str) -> str | None:
+        nota = dump_mod.nota_da_tag(self._ptags.get(bloco_id, ()))
+        return nota[0] if nota else None
+
+    def _paragrafos_da_nota(self, nota_id: str) -> list[str]:
+        return [i for i in self._ordem if self._nota_do_paragrafo(i) == nota_id]
+
+    def ids_das_notas(self) -> list[str]:
+        return [n.id for n in self._raiz()._notas]
+
+    def _numero_da_nota(self, nota_id: str) -> int:
+        return next((i for i, n in enumerate(self._raiz()._notas, start=1) if n.id == nota_id), 0)
+
+    def _glifo_da_nota(self, nota_id: str) -> str:
+        numero = self._numero_da_nota(nota_id)
+        return _sobrescrito(numero) if numero else "¹"
+
+    def _desenhar_nota(self, nota: Nota, antes_de: str | None = None) -> None:
+        """Os parágrafos da nota, com `dn:<id>|<tipo>` e o número como marcador no primeiro."""
+        extras = (T.nome("dn:", f"{nota.id}|{nota.tipo}"),)
+        paragrafos = list(nota.blocos) or [Paragrafo(trechos=[], estilo="nota")]
+        for k, paragrafo in enumerate(paragrafos):
+            if not isinstance(paragrafo, Paragrafo):
+                continue
+            onde = self._inicio_de(antes_de) if antes_de is not None else "end-1c"
+            self._desenhar_bloco(paragrafo, onde, antes_de, extras=extras,
+                                 marcador=f"{self._glifo_da_nota(nota.id)} " if k == 0 else "",
+                                 tag_do_marcador=T.nome("ncab:", nota.id))
+
+    def _montar_nota(self, nota_id: str) -> Nota | None:
+        """A nota como está no widget agora (`None` se não tem mais parágrafo)."""
+        ids = self._paragrafos_da_nota(nota_id)
+        blocos = [self._modelo[i] for i in ids if i in self._modelo and isinstance(self._modelo[i], Paragrafo)]
+        if not blocos:
+            return None
+        tipo = (dump_mod.nota_da_tag(self._ptags.get(ids[0], ())) or (nota_id, "rodape"))[1]
+        return Nota(id=nota_id, tipo=tipo, blocos=blocos)
+
+    def _nota_cache(self, nota_id: str) -> Nota | None:
+        return next((n for n in self._notas if n.id == nota_id), None)
+
+    def notas_atuais(self) -> list[Nota]:
+        """As notas do capítulo como estão na faixa, na ordem da faixa."""
+        saida: list[Nota] = []
+        vistos: set[str] = set()
+        for bloco_id in self._ordem:
+            nota_id = self._nota_do_paragrafo(bloco_id)
+            if nota_id and nota_id not in vistos:
+                vistos.add(nota_id)
+                nota = self._montar_nota(nota_id)
+                if nota is not None:
+                    saida.append(nota)
+        return saida
+
+    def _ids_do_capitulo(self) -> list[str]:
+        """Os blocos do capítulo propriamente: o que vem antes da faixa de notas."""
+        saida = []
+        for bloco_id in self._ordem:
+            if bloco_id == ID_DA_FAIXA:
+                break
+            saida.append(bloco_id)
+        return saida
+
+    @property
+    def ordem_do_capitulo(self) -> list[str]:
+        return self._ids_do_capitulo()
+
+    def em_nota(self, indice: str = "insert") -> str | None:
+        """O id da nota em que o índice está (`None` fora da faixa)."""
+        bloco_id = self._bloco_em(indice)
+        return self._nota_do_paragrafo(bloco_id) if bloco_id else None
 
     def _limpar_widget(self) -> None:
         for bloco_id in list(self._ordem):
@@ -342,6 +520,10 @@ class TextoRico(ttk.Frame):
 
     def _ptags_de(self, bloco: Bloco) -> tuple[str, ...]:
         """As tags de parágrafo de um bloco do modelo."""
+        if isinstance(bloco, Figura):
+            return ("p:corpo", T.nome("al:", ALINHAMENTO_DO_OBJETO.get(bloco.alinhamento, "centro")))
+        if isinstance(bloco, (Diagrama, QuebraDePagina, MarcaDePagina, Separador, FaixaDeNotas)):
+            return ("p:corpo", "al:centro")
         if isinstance(bloco, Lista):
             tags = ["p:corpo", "lista:o" if bloco.ordenada else "lista:n"]
             if bloco.marcador:
@@ -414,19 +596,95 @@ class TextoRico(ttk.Frame):
                 self._inserir_objeto(t, ptags, inline=True)
                 continue
             if t.nota:
-                numero = next((i for i, n in enumerate(self._notas, start=1) if n.id == t.nota), 0)
-                self._inserir_segmento(_sobrescrito(numero) if numero else "¹", ptags, (), estilo,
+                self._inserir_segmento(self._glifo_da_nota(t.nota), ptags, (), estilo,
                                        (T.nome("nota:", t.nota), "protegido"))
                 continue
             if t.texto:
                 self._inserir_segmento(t.texto, ptags, self._tags_do_trecho(t), estilo)
 
+    def _contexto_de_objetos(self) -> ContextoDeObjetos:
+        try:
+            largura = int(self.texto.winfo_width())
+        except tk.TclError:
+            largura = 0
+        if largura < 100:
+            largura = 640
+        return ContextoDeObjetos(recursos=self._raiz().recursos, largura_maxima_px=max(120, largura - 60),
+                                 zoom=self.tela.zoom, criar_tabela=self._criar_grade if not self.celula else None,
+                                 limite_de_celulas=LIMITE_DE_CELULAS)
+
+    def _criar_grade(self, master: tk.Misc, tabela: Tabela) -> GradeDeTabela:
+        contexto = self._contexto_de_objetos()
+        return GradeDeTabela(master, tabela, self._criar_celula,
+                             ao_mudar=lambda estrutural=False, t=tabela: self._mudou_objeto(t.id, estrutural),
+                             ao_sair=lambda direcao, t=tabela: self._sair_da_tabela(t.id, direcao),
+                             ao_ativar=self._ativar_objeto, largura_px=contexto.largura_maxima_px)
+
+    def _criar_celula(self, master: tk.Misc, blocos: Sequence[Paragrafo]) -> "TextoRico":
+        celula = TextoRico(master, celula=True, dono=self, estilos=self.estilos, fontes=self.fontes,
+                           historico=Historico(relogio=self.relogio), relogio=self.relogio, arquivo=self.arquivo,
+                           ao_ativar=self.ao_ativar)
+        celula.carregar_blocos(blocos)
+        return celula
+
+    def _mudou_objeto(self, bloco_id: str, estrutural: bool = False) -> None:
+        """
+        Uma célula da tabela mudou: o bloco da tabela é relido pelo registro e o ponto é
+        sobre ela inteira — a digitação coalesce e é reconciliada com atraso (uma tabela de
+        400 células custa dezenas de ms por releitura; o `sincronizar` de quem precisar
+        antes disso a inclui, porque o id já está em `_tocados`); uma fila ou coluna a mais
+        é ponto próprio, na hora.
+        """
+        if self._em_carga or bloco_id not in self._ordem:
+            return
+        self._tocados.add(bloco_id)
+        if estrutural or self._composto:
+            self._reconciliar(coalescer=False, rotulo="tabela")
+            return
+        if self._reconciliacao_agendada is None:
+            try:
+                self._reconciliacao_agendada = self.after(ATRASO_DA_CELULA_MS, self._reconciliar_agendada)
+            except tk.TclError:
+                self._reconciliar(coalescer=True, rotulo="tabela")
+
+    def _reconciliar_agendada(self) -> None:
+        self._reconciliacao_agendada = None
+        if self._tocados:
+            self._reconciliar(coalescer=True, rotulo="tabela")
+
+    def _sair_da_tabela(self, bloco_id: str, direcao: int) -> None:
+        """`Esc` e as setas nas bordas: o cursor sai para o texto de fora (§8.6)."""
+        if bloco_id not in self._ordem:
+            return
+        if direcao < 0:
+            i = self._ordem.index(bloco_id)
+            if i > 0:
+                self.texto.mark_set("insert", f"{self._fim_de(self._ordem[i - 1])}-1c")
+            else:
+                self.texto.mark_set("insert", self._inicio_de(bloco_id))
+        elif direcao > 0:
+            seguinte = self._seguinte(bloco_id)
+            if seguinte is None or seguinte == ID_DA_FAIXA:
+                novo = Paragrafo(trechos=[])
+                self._desenhar_bloco(novo, self._fim_de(bloco_id), seguinte)
+                self.texto.mark_set("insert", self._inicio_de(novo.id))
+                self._reconciliar({novo.id})
+            else:
+                self.texto.mark_set("insert", self._inicio_de(seguinte))
+        else:
+            self.texto.mark_set("insert", self._inicio_de(bloco_id))
+        self.texto.tag_remove("sel", "1.0", "end")
+        self.foco()
+        self.texto.see("insert")
+
     def _inserir_objeto(self, objeto: Any, ptags: tuple[str, ...], inline: bool = False) -> str:
-        janela = ObjetoGenerico(self.texto, objeto, inline=inline, ao_ativar=self._ativar_objeto)
+        contexto = self._contexto_de_objetos()
+        janela = criar_objeto(self.texto, objeto, inline=inline, ao_ativar=self._ativar_objeto, contexto=contexto)
+        e_grade = isinstance(janela, GradeDeTabela)
         self.texto.window_create(MARCA_DE_INSERCAO, window=janela, align="baseline" if inline else "bottom",
                                  padx=2 if inline else 0, pady=0 if inline else 2)
         nome = str(janela)
-        self.registro.registrar(nome, objeto)
+        self.registro.registrar(nome, objeto, widget=janela, atualizar=janela.modelo if e_grade else None)
         inicio = self.texto.index(nome)
         for tag in ptags + ("objeto", "protegido"):
             self._garantir_tag(tag)
@@ -434,21 +692,36 @@ class TextoRico(ttk.Frame):
         return nome
 
     def _ativar_objeto(self, objeto: Any) -> None:
+        """A ação principal de um objeto (§7.4): quem sabe o que fazer é a janela (`ao_ativar`)."""
+        raiz = self._raiz()
+        if raiz.ao_ativar is not None:
+            raiz.ao_ativar(objeto)
         try:
             self.texto.event_generate("<<AtivarObjeto>>")
         except tk.TclError:
             pass
 
-    def _desenhar_bloco(self, bloco: Bloco, indice: str, antes_de: str | None = None) -> None:
+    def widget_do_objeto(self, bloco_id: str) -> Any:
+        nome = self.registro.nome_de(bloco_id)
+        return self.registro.widget_de(nome) if nome else None
+
+    def _desenhar_bloco(self, bloco: Bloco, indice: str, antes_de: str | None = None, *,
+                        extras: tuple[str, ...] = (), marcador: str = "", tag_do_marcador: str = "") -> None:
         """
         Desenha `bloco` em `indice`. Com `antes_de`, o bloco seguinte é esse: a marca dele
-        é reposta no fim do que entrou (ver o cabeçalho). Não registra ponto.
+        é reposta no fim do que entrou (ver o cabeçalho). `extras` são tags de parágrafo a
+        mais (o `dn:` da nota); `marcador` é um prefixo protegido (o número da nota). Não
+        registra ponto.
         """
         texto = self.texto
         inicio = texto.index(indice)
         texto.mark_set(MARCA_DE_INSERCAO, inicio)
         texto.mark_gravity(MARCA_DE_INSERCAO, "right")
-        ptags = self._ptags_de(bloco)
+        ptags = self._ptags_de(bloco) + tuple(extras)
+        if marcador:
+            estilo_do_marcador = bloco.estilo if isinstance(bloco, Paragrafo) else "corpo"
+            self._inserir_segmento(marcador, ptags, (), estilo_do_marcador,
+                                   ("marcador", "protegido") + ((tag_do_marcador,) if tag_do_marcador else ()))
         if isinstance(bloco, TIPOS_DE_OBJETO):
             self._inserir_objeto(bloco, ptags)
             self._inserir_segmento("\n", ptags, (), "corpo")
@@ -521,39 +794,57 @@ class TextoRico(ttk.Frame):
         self._reconciliar()
         if reler:
             self._reconciliar(set(self._ordem), reaplicar=False, registrar=False)
-        blocos = [self._modelo[i] for i in self._ordem if i in self._modelo]
+        blocos = [self._modelo[i] for i in self._ids_do_capitulo() if i in self._modelo]
         if self._capitulo is None:
             return blocos
         c = self._capitulo
-        return Capitulo(arquivo=c.arquivo, titulo=c.titulo, blocos=blocos, notas=list(self._notas),
+        return Capitulo(arquivo=c.arquivo, titulo=c.titulo, blocos=blocos, notas=self.notas_atuais(),
                         folhas=list(c.folhas), idioma=c.idioma, semantica=c.semantica, cabeca_extra=c.cabeca_extra,
                         avisos=list(c.avisos), namespaces=dict(c.namespaces), linear=c.linear)
 
     def _blocos_do_dump(self, ids: Iterable[str]) -> dict[str, Bloco]:
         """Relê pelo `dump` só os blocos `ids`, com os anteriores por base (um `dump` só quando são muitos)."""
         saida: dict[str, Bloco] = {}
-        registro = self.registro.como_dicionario()
+        registro = self.registro
         ids = list(ids)
         if len(ids) > 8 and len(ids) * 2 > len(self._ordem):
             pedidos = set(ids)
-            blocos, _notas = dump_mod.dump_para_blocos(self._dump("1.0", "end-1c"), registro, self._modelo)
-            return {b.id: b for b in blocos if b.id in pedidos}
+            itens = self._dump("1.0", "end-1c")
+            blocos, notas = dump_mod.dump_para_blocos(itens, registro, self._modelo)
+            saida = {b.id: b for b in blocos if b.id in pedidos}
+            for nota in notas:
+                for paragrafo in nota.blocos:
+                    if paragrafo.id in pedidos:
+                        saida[paragrafo.id] = paragrafo
+            return saida
         for bloco_id in ids:
             if bloco_id not in self._ordem:
                 continue
             ini, fim = self._inicio_de(bloco_id), self._fim_de(bloco_id)
             marca = self._marca(bloco_id)
             itens = [("mark", marca, ini)] + [it for it in self._dump(ini, fim) if it[0] != "mark"]
-            blocos, _notas = dump_mod.dump_para_blocos(itens, registro, self._modelo)
+            blocos, notas = dump_mod.dump_para_blocos(itens, registro, self._modelo)
             if blocos:
                 saida[bloco_id] = blocos[0]
+            elif notas and notas[0].blocos:
+                saida[bloco_id] = notas[0].blocos[0]
         return saida
 
     def _reconciliar(self, ids: Iterable[str] | None = None, coalescer: bool | None = None,
                      rotulo: str = "", reaplicar: bool = True, registrar: bool = True) -> None:
-        """Reaplica tags e fontes nos blocos tocados, relê o modelo deles e registra o ponto de desfazer."""
+        """
+        Reaplica tags e fontes nos blocos tocados, relê o modelo deles e registra o ponto
+        de desfazer. Um parágrafo da faixa de notas entra no ponto como a **nota** inteira.
+        Dentro de um ponto composto (`_abrir_composto`), só acumula os ids.
+        """
         if self._reconciliando:
             return
+        if self._reconciliacao_agendada is not None:
+            try:
+                self.after_cancel(self._reconciliacao_agendada)
+            except tk.TclError:
+                pass
+            self._reconciliacao_agendada = None
         tocados = set(self._tocados)
         ids = (set(ids) if ids is not None else set()) | tocados
         self._tocados.clear()
@@ -571,25 +862,96 @@ class TextoRico(ttk.Frame):
         finally:
             self._reconciliando = False
         sumidos = [i for i in ids if i not in vivos]
-        antes = [self._modelo[i] for i in sorted(ids, key=self._posicao_para_ordenar) if i in self._modelo]
-        depois = [novos[i] for i in vivos if i in novos]
-        indices = {i: self._posicoes_antigas.get(i, self._ordem.index(i) if i in self._ordem else 0) for i in ids}
+        de_nota = {i: self._nota_do_paragrafo(i) for i in ids}
+        ids_do_capitulo = [i for i in ids if not de_nota[i] and i != ID_DA_FAIXA]
+        notas_tocadas = list(dict.fromkeys(n for i in sorted(ids, key=self._posicao_para_ordenar)
+                                           if (n := de_nota[i])))
+        antes = [self._antes_forcado.pop(i, None) or self._modelo[i]
+                 for i in sorted(ids_do_capitulo, key=self._posicao_para_ordenar) if i in self._modelo]
+        for i in ids:
+            self._antes_forcado.pop(i, None)
+        antes += [copy.deepcopy(n) for n in (self._nota_cache(nid) for nid in notas_tocadas) if n is not None]
+        indices = {i: self._posicoes_antigas.get(i, self._ordem.index(i) if i in self._ordem else 0)
+                   for i in ids_do_capitulo}
+        indices.update({nid: k for k, n in enumerate(self._notas) for nid in notas_tocadas if n.id == nid})
         for bloco_id, bloco in novos.items():
             self._modelo[bloco_id] = bloco
         for bloco_id in sumidos:
             self._modelo.pop(bloco_id, None)
             self._ptags.pop(bloco_id, None)
-        if registrar and not self._em_carga and not self._em_desfazer and not modelo.igual(antes, depois):
+        depois = [novos[i] for i in vivos if i in novos and not de_nota[i]]
+        for nid in notas_tocadas:
+            montada = self._montar_nota(nid)
+            cache = self._nota_cache(nid)
+            if montada is not None:
+                depois.append(montada)
+                if cache is None:
+                    self._notas.append(montada)
+                else:
+                    self._notas[self._notas.index(cache)] = montada
+            elif cache is not None:
+                self._notas.remove(cache)
+        ids_do_ponto = sorted(ids_do_capitulo, key=self._posicao_para_ordenar) + notas_tocadas
+        if self._composto:
+            self._ids_compostos.update(ids_do_ponto)
+        elif registrar and not self._em_carga and not self._em_desfazer:
             coalescer = self._simples if coalescer is None else coalescer
-            self.historico.ponto(self.arquivo, sorted(ids, key=self._posicao_para_ordenar), antes, depois,
-                                 coalescer=coalescer, rotulo=rotulo, indices=indices)
-            self._sujo = True
-            try:
-                self.texto.event_generate("<<Mudou>>")
-            except tk.TclError:
-                pass
+            self._registrar_ponto(ids_do_ponto, antes, depois, indices, coalescer, rotulo)
         self._simples = False
         self.calha.redesenhar()
+        if self.celula:
+            self.ajustar_altura()
+
+    def _registrar_ponto(self, ids: Sequence[str], antes: list[Any], depois: list[Any], indices: dict[str, int],
+                         coalescer: bool = False, rotulo: str = "") -> bool:
+        """Um ponto no histórico, se algo mudou; avisa `<<Mudou>>`. Devolve se registrou."""
+        if antes == depois or modelo.igual(antes, depois):      # `==` é o atalho barato para o "nada mudou"
+            return False
+        self.historico.ponto(self.arquivo, list(ids), antes, depois, coalescer=coalescer, rotulo=rotulo,
+                             indices=indices)
+        self._sujo = True
+        try:
+            self.texto.event_generate("<<Mudou>>")
+        except tk.TclError:
+            pass
+        return True
+
+    # -- pontos compostos: várias edições, um desfazer --------------------------
+
+    def _abrir_composto(self, rotulo: str = "") -> None:
+        """Até `_fechar_composto`, as reconciliações só acumulam ids; o ponto sai no fim, inteiro."""
+        if self._composto == 0:
+            self._reconciliar()
+            self._ids_compostos = set()
+            self._modelo_antes = dict(self._modelo)
+            self._notas_antes = [copy.deepcopy(n) for n in self._notas]
+            self._posicoes_do_composto = {i: k for k, i in enumerate(self._ordem)}
+            self._rotulo_composto = rotulo
+        self._composto += 1
+
+    def _fechar_composto(self) -> None:
+        self._composto -= 1
+        if self._composto > 0:
+            return
+        self._reconciliar()
+        ids = set(self._ids_compostos)
+        self._ids_compostos = set()
+        if not ids or self._em_carga or self._em_desfazer:
+            return
+        notas_antes = {n.id: n for n in self._notas_antes}
+        notas_depois = {n.id: n for n in self._notas}
+        ids_de_nota = [i for i in ids if i in notas_antes or i in notas_depois]
+        ids_de_bloco = sorted((i for i in ids if i not in ids_de_nota),
+                              key=lambda i: self._posicoes_do_composto.get(i, self._posicao_para_ordenar(i)))
+        antes = [self._modelo_antes[i] for i in ids_de_bloco if i in self._modelo_antes]
+        antes += [notas_antes[i] for i in ids_de_nota if i in notas_antes]
+        depois = [self._modelo[i] for i in ids_de_bloco if i in self._modelo and i in self._ordem]
+        depois += [notas_depois[i] for i in ids_de_nota if i in notas_depois]
+        indices = {i: self._posicoes_do_composto.get(i, self._posicao_para_ordenar(i)) for i in ids_de_bloco}
+        indices.update({i: k for k, n in enumerate(self._notas_antes) for i in ids_de_nota if n.id == i})
+        self._registrar_ponto(ids_de_bloco + ids_de_nota, antes, depois, indices, False, self._rotulo_composto)
+        self._modelo_antes = {}
+        self._notas_antes = []
 
     def _posicao_para_ordenar(self, bloco_id: str) -> int:
         if bloco_id in self._ordem:
@@ -602,7 +964,8 @@ class TextoRico(ttk.Frame):
     def _remover_bloco(self, bloco_id: str) -> None:
         """Tira o bloco da ordem e do registro (o texto dele é apagado por quem chama)."""
         if bloco_id in self._ordem:
-            self._posicoes_antigas[bloco_id] = self._ordem.index(bloco_id)
+            self._posicoes_antigas[bloco_id] = len(self._ids_do_capitulo()) if self._nota_do_paragrafo(bloco_id) \
+                else self._ordem.index(bloco_id)
             self._ordem.remove(bloco_id)
         try:
             self.texto.mark_unset(self._marca(bloco_id))
@@ -688,6 +1051,19 @@ class TextoRico(ttk.Frame):
             i = texto.index(f"{i}+1c")
         return True
 
+    def _e_referencia_de_nota(self, indice: str) -> str:
+        """O id da nota se o caractere em `indice` é uma referência de nota; senão ""."""
+        return next((T.valor(t) for t in self.texto.tag_names(indice) if t.startswith("nota:")), "")
+
+    def _sobre_objeto(self, indice: str = "insert") -> str | None:
+        """O id do bloco-objeto quando o cursor está **sobre** a janela dele (antes dela), senão `None`."""
+        indice = self.texto.index(indice)
+        if "objeto" not in self.texto.tag_names(indice):
+            return None
+        bloco_id = self._bloco_em(indice)
+        bloco = self._modelo.get(bloco_id) if bloco_id else None
+        return bloco_id if isinstance(bloco, TIPOS_DE_OBJETO) else None
+
     # ------------------------------------------------------------------
     # Estado, seleção, posição
     # ------------------------------------------------------------------
@@ -746,6 +1122,7 @@ class TextoRico(ttk.Frame):
             self.selecionar_indices(a, b)
 
     def selecionar_indices(self, ini: str, fim: str) -> None:
+        self._deselecionar_objetos()
         self.texto.tag_remove("sel", "1.0", "end")
         self.texto.tag_add("sel", ini, fim)
         self.texto.mark_set("insert", fim)
@@ -761,7 +1138,42 @@ class TextoRico(ttk.Frame):
             self.selecionar_indices(self._inicio_de(bloco_id), self._fim_de(bloco_id))
 
     def selecionar_tudo(self) -> None:
-        self.selecionar_indices("1.0", "end-1c")
+        """Todo o capítulo — sem a faixa de notas, como o Ctrl+A do Word não pega as notas."""
+        fim = self._inicio_de(ID_DA_FAIXA) if self._tem_faixa() else "end-1c"
+        self.selecionar_indices("1.0", fim)
+
+    def selecionar_objeto(self, bloco_id: str) -> None:
+        """Seleciona o bloco-objeto inteiro e o realça no desenho dele (`sel-objeto`)."""
+        self.selecionar_indices(self._inicio_de(bloco_id), self._fim_de(bloco_id))
+        self.texto.mark_set("insert", self._inicio_de(bloco_id))
+        widget = self.widget_do_objeto(bloco_id)
+        if widget is not None and hasattr(widget, "selecionar"):
+            widget.selecionar(True)
+            self._objeto_selecionado = bloco_id
+
+    def _deselecionar_objetos(self) -> None:
+        if self._objeto_selecionado is not None:
+            widget = self.widget_do_objeto(self._objeto_selecionado)
+            if widget is not None and hasattr(widget, "selecionar"):
+                try:
+                    widget.selecionar(False)
+                except tk.TclError:
+                    pass
+            self._objeto_selecionado = None
+
+    def _objeto_da_selecao(self) -> str | None:
+        """O id do objeto quando a seleção é exatamente o bloco dele."""
+        selecao = self.selecao()
+        if not selecao:
+            return None
+        ini, fim = selecao
+        bloco_id = self._bloco_em(ini)
+        if bloco_id and isinstance(self._modelo.get(bloco_id), TIPOS_DE_OBJETO) \
+                and self.texto.compare(ini, "==", self._inicio_de(bloco_id)) \
+                and self.texto.compare(fim, "<=", self._fim_de(bloco_id)) \
+                and self.texto.compare(fim, ">", ini):
+            return bloco_id
+        return None
 
     def ir_para(self, bloco_id: str, deslocamento: int = 0) -> None:
         """Põe o cursor no `deslocamento`-ésimo caractere do modelo do bloco; desfaz a seleção."""
@@ -774,6 +1186,19 @@ class TextoRico(ttk.Frame):
     # ------------------------------------------------------------------
     # Edição de texto
     # ------------------------------------------------------------------
+
+    def _dentro_do_texto(self, indice: str) -> str:
+        """Um índice depois do `\n` terminal do último bloco volta para antes dele (nada fica fora de bloco)."""
+        if self._ordem and self.texto.compare(indice, ">=", "end-1c"):
+            return self.texto.index("end-2c")
+        return indice
+
+    def ir_para_o_fim(self) -> None:
+        """O cursor no fim do último bloco (antes do `\n` terminal); num widget vazio, em `1.0`."""
+        if self._ordem:
+            self.texto.mark_set("insert", f"{self._fim_de(self._ordem[-1])}-1c")
+        else:
+            self.texto.mark_set("insert", "1.0")
 
     def _tags_para_inserir(self, indice: str) -> tuple[tuple[str, ...], tuple[str, ...], str]:
         """`(ptags, ctags, estilo)` do que se digita em `indice`: as do bloco e as do caractere anterior."""
@@ -822,7 +1247,7 @@ class TextoRico(ttk.Frame):
         if not self._ordem:
             self._desenhar_bloco(Paragrafo(trechos=[]), "end-1c")
             self._tocados.clear()
-        indice = self.texto.index(indice or "insert")
+        indice = self._dentro_do_texto(self.texto.index(indice or "insert"))
         if not self._pode_editar(indice):
             return False
         while "marcador" in self.texto.tag_names(indice):
@@ -871,11 +1296,24 @@ class TextoRico(ttk.Frame):
             self._simples = False
             self._reconciliar({bloco_id} if bloco_id else None)
             return bloco_id or ""
-        if not isinstance(objeto, TIPOS_DE_OBJETO):
+        if not isinstance(objeto, TIPOS_DE_OBJETO) or isinstance(objeto, FaixaDeNotas):
             raise ValueError(f"não é um objeto: {type(objeto).__name__}")
+        if self.celula:
+            raise ValueError("uma célula de tabela não recebe figura, tabela nem ilha de bloco (sem aninhar, §8.6)")
+        if isinstance(objeto, Tabela) and len(objeto.filas) * objeto.colunas > LIMITE_DE_CELULAS:
+            raise ValueError(f"a tabela teria {len(objeto.filas) * objeto.colunas} células; o máximo é "
+                             f"{LIMITE_DE_CELULAS} (§8.6)")
+        if objeto.id in self._ordem:
+            objeto.id = modelo.id_novo()
         atual = self.bloco_atual()
-        if atual is None:
-            self._desenhar_bloco(objeto, "end-1c")
+        if self.em_nota():
+            raise ValueError("uma nota não recebe objeto de bloco: o cursor está na faixa de notas (Esc sai)")
+        if atual is None or (atual == ID_DA_FAIXA and not self._ids_do_capitulo()):
+            self._desenhar_bloco(objeto, "1.0" if self._tem_faixa() else "end-1c",
+                                 ID_DA_FAIXA if self._tem_faixa() else None)
+        elif atual == ID_DA_FAIXA:
+            anterior = self._ids_do_capitulo()[-1]
+            self._desenhar_bloco(objeto, self._fim_de(anterior), ID_DA_FAIXA)
         else:
             self._desenhar_bloco(objeto, self._fim_de(atual), self._seguinte(atual))
         self._tocados.discard(objeto.id)
@@ -884,6 +1322,308 @@ class TextoRico(ttk.Frame):
         self._reconciliar({objeto.id})
         self.texto.mark_set("insert", self._inicio_de(objeto.id))
         return objeto.id
+
+    def inserir_bloco_no_cursor(self, bloco: Bloco) -> str:
+        """
+        Um bloco **no cursor**: no meio de um parágrafo, o parágrafo é partido e o bloco
+        entra entre as metades (a quebra de página do `Ctrl+Enter`); no começo, entra
+        antes; no fim ou num objeto, depois. Devolve o id do bloco; um desfazer só.
+        """
+        atual = self.bloco_atual()
+        modelo_atual = self._modelo.get(atual) if atual else None
+        if atual is None or not isinstance(modelo_atual, Paragrafo) or isinstance(modelo_atual, TIPOS_DE_OBJETO) \
+                or self.em_nota():
+            return self.inserir_objeto(bloco)
+        desloc = self._deslocamento("insert", atual)
+        comprimento = len(modelo.texto_de(modelo_atual))
+        self._abrir_composto("inserir")
+        try:
+            if desloc == 0 and comprimento > 0:
+                if bloco.id in self._ordem:
+                    bloco.id = modelo.id_novo()
+                self._desenhar_bloco(bloco, self._inicio_de(atual), atual)
+                self._modelo.pop(bloco.id, None)
+                self._reconciliar({bloco.id})
+            else:
+                if 0 < desloc < comprimento:
+                    self.enter()
+                    self.texto.mark_set("insert", f"{self._fim_de(atual)}-1c")
+                self.inserir_objeto(bloco)
+        finally:
+            self._fechar_composto()
+        self.texto.mark_set("insert", self._inicio_de(bloco.id))
+        return bloco.id
+
+    # ------------------------------------------------------------------
+    # Quebras, separador, marca de página (§8.10)
+    # ------------------------------------------------------------------
+
+    def inserir_quebra_suave(self) -> bool:
+        """`Shift+Enter`: um `\\n` com `qs` — `quebra_antes` no trecho seguinte."""
+        if self.selecao():
+            self.apagar_selecao()
+        if not self._ids_do_capitulo():
+            self.inserir("")
+        indice = self.texto.index("insert")
+        bloco_id = self._bloco_em(indice)
+        bloco = self._modelo.get(bloco_id) if bloco_id else None
+        if bloco_id is None or isinstance(bloco, TIPOS_DE_OBJETO) or not self._pode_editar(indice):
+            return False
+        while "marcador" in self.texto.tag_names(indice):
+            indice = self.texto.index(f"{indice}+1c")
+        ptags, _c, estilo = self._tags_para_inserir(indice)
+        self.texto.mark_set(MARCA_DE_INSERCAO, indice)
+        self.texto.mark_gravity(MARCA_DE_INSERCAO, "right")
+        self._inserir_segmento("\n", ptags, (), estilo, ("qs", "quebra", "protegido"))
+        self.texto.mark_set("insert", MARCA_DE_INSERCAO)
+        self.texto.mark_unset(MARCA_DE_INSERCAO)
+        self._simples = False
+        self._reconciliar({bloco_id})
+        return True
+
+    def inserir_quebra_de_pagina(self) -> str:
+        """`Ctrl+Enter`: uma `QuebraDePagina` no cursor (parte o parágrafo); desenhada "— quebra de página —"."""
+        if self.celula:
+            raise ValueError("uma célula de tabela não recebe quebra de página")
+        return self.inserir_bloco_no_cursor(QuebraDePagina())
+
+    def inserir_separador(self) -> str:
+        return self.inserir_bloco_no_cursor(Separador())
+
+    def inserir_marca_de_pagina(self, pagina: int) -> str:
+        return self.inserir_bloco_no_cursor(MarcaDePagina(pagina=int(pagina)))
+
+    # ------------------------------------------------------------------
+    # Notas (§8.8)
+    # ------------------------------------------------------------------
+
+    def inserir_nota(self, tipo: str = "rodape") -> str:
+        """
+        Uma nota nova: a referência protegida no cursor, a nota (um parágrafo vazio) na
+        faixa, o cursor na nota (`Esc` volta). Devolve o id da nota. Numa célula, a nota
+        vai para o capítulo de fora.
+        """
+        if tipo not in TIPOS_DE_NOTA:
+            raise ValueError(f"tipo de nota desconhecido: {tipo!r} (rodape ou fim)")
+        if self.selecao():
+            self.apagar_selecao()
+        if not self._ids_do_capitulo():
+            self.inserir("")
+        indice = self.texto.index("insert")
+        if self.em_nota():
+            raise ValueError("uma nota não recebe outra nota: saia da faixa de notas (Esc)")
+        bloco_id = self._bloco_em(indice)
+        if bloco_id is None or isinstance(self._modelo.get(bloco_id), TIPOS_DE_OBJETO) \
+                or not self._pode_editar(indice):
+            raise ValueError("o cursor precisa estar num parágrafo para receber a referência da nota")
+        while "marcador" in self.texto.tag_names(indice):
+            indice = self.texto.index(f"{indice}+1c")
+        raiz = self._raiz()
+        nota = Nota(tipo=tipo, blocos=[Paragrafo(trechos=[], estilo="nota")])
+        raiz._abrir_composto("nota")
+        if raiz is not self:
+            self._abrir_composto("nota")
+        try:
+            raiz._criar_nota(nota)
+            ptags, _c, estilo = self._tags_para_inserir(indice)
+            self.texto.mark_set(MARCA_DE_INSERCAO, indice)
+            self.texto.mark_gravity(MARCA_DE_INSERCAO, "right")
+            self._inserir_segmento(self._glifo_da_nota(nota.id), ptags, (), estilo,
+                                   (T.nome("nota:", nota.id), "protegido"))
+            self.texto.mark_set("insert", MARCA_DE_INSERCAO)
+            self.texto.mark_unset(MARCA_DE_INSERCAO)
+            self._simples = False
+            self._reconciliar({bloco_id})
+            raiz._renumerar()
+        finally:
+            if raiz is not self:
+                self._fechar_composto()
+            raiz._fechar_composto()
+        raiz.ir_para_nota(nota.id)
+        return nota.id
+
+    def _criar_nota(self, nota: Nota) -> None:
+        """Põe a nota na faixa (rodapé depois do último rodapé; fim no fim) e na lista de notas."""
+        assert not self.celula and self._composto > 0      # o ponto é o composto de quem chamou
+        if nota.tipo == "rodape":
+            posicao = max((k for k, n in enumerate(self._notas) if n.tipo == "rodape"), default=-1) + 1
+        else:
+            posicao = len(self._notas)
+        self._desenhar_faixa()
+        seguinte = self._notas[posicao].id if posicao < len(self._notas) else None
+        antes_de = self._paragrafos_da_nota(seguinte)[0] if seguinte and self._paragrafos_da_nota(seguinte) else None
+        self._desenhar_nota(nota, antes_de)
+        self._notas.insert(posicao, copy.deepcopy(nota))
+        self._tocados.update(self._paragrafos_da_nota(nota.id))
+        self._reconciliar()
+        self._renumerar_na_tela()
+
+    def _renumerar(self) -> None:
+        """
+        A ordem das notas pela primeira referência (rodapé antes de fim), como
+        `modelo.renumerar_notas`; se a ordem mudou, a faixa é redesenhada; os números
+        na tela são refeitos sempre.
+        """
+        if self.celula:
+            self._raiz()._renumerar()
+            return
+        self._reconciliar()
+        if not self._notas:
+            return
+        cap = Capitulo(arquivo=self.arquivo, blocos=[self._modelo[i] for i in self._ids_do_capitulo()
+                                                    if i in self._modelo], notas=list(self._notas))
+        modelo.renumerar_notas(cap)
+        nova_ordem = [n.id for n in cap.notas]
+        if nova_ordem != [n.id for n in self._notas]:
+            self._notas = [self._nota_cache(i) for i in nova_ordem if self._nota_cache(i) is not None]
+            self._redesenhar_faixa()
+        self._renumerar_na_tela()
+
+    def _redesenhar_faixa(self) -> None:
+        """A faixa de notas de novo, na ordem de `_notas`, sem ponto (o modelo não muda)."""
+        if not self._tem_faixa():
+            return
+        posicao = self.posicao()
+        notas = [self._montar_nota(n.id) or n for n in self._notas]
+        self._em_carga = True
+        try:
+            inicio = self._inicio_de(ID_DA_FAIXA)
+            for bloco_id in [i for i in self._ordem if i == ID_DA_FAIXA or self._nota_do_paragrafo(i)]:
+                self._remover_bloco(bloco_id)
+                self._modelo.pop(bloco_id, None)
+                self._ptags.pop(bloco_id, None)
+            # Até `end-1c`, não `end`: apagar da cabeça de uma linha até `end` leva junto a quebra
+            # de linha da linha anterior (é como o Tk evita uma última linha vazia).
+            self.texto.delete(inicio, "end-1c")
+            self._desenhar_faixa()
+            for nota in notas:
+                self._desenhar_nota(nota)
+        finally:
+            self._em_carga = False
+        self._tocados.clear()
+        if posicao[0] and posicao[0] in self._ordem:
+            self.ir_para(posicao[0], posicao[1])
+
+    def _renumerar_na_tela(self) -> None:
+        """Os glifos das referências e os números dos marcadores da faixa, sem tocar o modelo."""
+        raiz = self._raiz()
+        alvos: list[TextoRico] = [self]
+        for nome in self.registro.nomes():
+            widget = self.registro.widget_de(nome)
+            if isinstance(widget, GradeDeTabela):
+                alvos.extend(c for fila in widget.celulas for c in fila)
+        for alvo in alvos:
+            texto = alvo.texto
+            alvo._em_carga = True
+            try:
+                for tag in texto.tag_names():
+                    if tag.startswith("nota:"):
+                        glifo = raiz._glifo_da_nota(T.valor(tag))
+                        faixas = texto.tag_ranges(tag)
+                        for a, b in zip(faixas[::2], faixas[1::2]):
+                            if texto.get(a, b) != glifo:
+                                tags = texto.tag_names(a)
+                                texto.delete(a, b)
+                                texto.insert(a, glifo, tags)
+                    elif tag.startswith("ncab:"):
+                        numero = f"{raiz._glifo_da_nota(T.valor(tag))} "
+                        faixas = texto.tag_ranges(tag)
+                        for a, b in zip(faixas[::2], faixas[1::2]):
+                            if texto.get(a, b) != numero:
+                                tags = texto.tag_names(a)
+                                texto.delete(a, b)
+                                texto.insert(a, numero, tags)
+            finally:
+                alvo._em_carga = False
+
+    def ir_para_nota(self, nota_id: str) -> bool:
+        """O cursor no começo do texto da nota (e a origem guardada para `voltar_da_nota`)."""
+        raiz = self._raiz()
+        ids = raiz._paragrafos_da_nota(nota_id)
+        if not ids:
+            return False
+        raiz.ir_para(ids[0], 0)
+        raiz.foco()
+        return True
+
+    def voltar_da_nota(self) -> bool:
+        """`Esc` na faixa: o cursor volta para depois da referência da nota em que está."""
+        nota_id = self.em_nota()
+        if nota_id is None:
+            return False
+        referencias = self._referencias_de(nota_id)
+        if referencias:
+            widget, indice = referencias[0]
+            widget.texto.tag_remove("sel", "1.0", "end")
+            widget.texto.mark_set("insert", f"{indice}+1c")
+            widget.texto.see("insert")
+            widget.foco()
+            return True
+        primeiro = self._ids_do_capitulo()
+        if primeiro:
+            self.ir_para(primeiro[0], 0)
+        return bool(primeiro)
+
+    def nota_no_cursor(self) -> str | None:
+        """O id da nota cuja referência está sob o cursor (antes ou depois dele)."""
+        indice = self.texto.index("insert")
+        nota = self._e_referencia_de_nota(indice)
+        if not nota and self.texto.compare(indice, ">", "1.0"):
+            nota = self._e_referencia_de_nota(f"{indice}-1c")
+        return nota or None
+
+    def apagar_nota(self, nota_id: str) -> bool:
+        """Apaga a nota e toda referência a ela (um desfazer só); renumera."""
+        raiz = self._raiz()
+        if raiz is not self:
+            return raiz.apagar_nota(nota_id)
+        if self._nota_cache(nota_id) is None and not self._referencias_de(nota_id):
+            return False
+        tag = T.nome("nota:", nota_id)
+        self._abrir_composto("apagar nota")
+        try:
+            faixas = self.texto.tag_ranges(tag)
+            for a, b in reversed(list(zip(faixas[::2], faixas[1::2]))):
+                self.texto.delete(a, b)
+            for nome in self.registro.nomes():
+                widget = self.registro.widget_de(nome)
+                if isinstance(widget, GradeDeTabela):
+                    for fila in widget.celulas:
+                        for celula in fila:
+                            f = celula.texto.tag_ranges(tag)
+                            for a, b in reversed(list(zip(f[::2], f[1::2]))):
+                                celula.texto.delete(a, b)
+                            celula._reconciliar()
+            self._reconciliar()
+            self._apagar_paragrafos_da_nota(nota_id)
+            self._reconciliar()
+            self._renumerar()
+        finally:
+            self._fechar_composto()
+        return True
+
+    def mudar_tipo_da_nota(self, nota_id: str, tipo: str) -> bool:
+        """Rodapé ↔ fim: a tag `dn:` dos parágrafos muda, a faixa é reordenada e renumerada."""
+        if tipo not in TIPOS_DE_NOTA:
+            raise ValueError(f"tipo de nota desconhecido: {tipo!r}")
+        raiz = self._raiz()
+        if raiz is not self:
+            return raiz.mudar_tipo_da_nota(nota_id, tipo)
+        ids = self._paragrafos_da_nota(nota_id)
+        cache = self._nota_cache(nota_id)
+        if not ids or cache is None or cache.tipo == tipo:
+            return False
+        nova = T.nome("dn:", f"{nota_id}|{tipo}")
+        self._abrir_composto("tipo da nota")
+        try:
+            for pid in ids:
+                self._ptags[pid] = tuple(t for t in self._ptags[pid] if not t.startswith("dn:")) + (nova,)
+                self._tocados.add(pid)
+            self._reconciliar(ids, coalescer=False)
+            self._renumerar()
+        finally:
+            self._fechar_composto()
+        return True
 
     def apagar(self, ini: str, fim: str) -> bool:
         """Apaga `[ini, fim)`; recusa o que toca uma faixa protegida. Entre blocos, junta as pontas."""
@@ -924,28 +1664,81 @@ class TextoRico(ttk.Frame):
 
     def _garantir_um_bloco(self, tocados: set[str]) -> None:
         """Um capítulo nunca fica sem bloco: apagado tudo, sobra um parágrafo vazio (e nada de texto órfão)."""
-        if self._ordem:
+        if self._ids_do_capitulo():
             return
         self._em_carga = True
         try:
-            self.texto.delete("1.0", "end")
             novo = Paragrafo(trechos=[])
-            self._desenhar_bloco(novo, "end-1c")
+            if self._tem_faixa():
+                self.texto.delete("1.0", self._inicio_de(ID_DA_FAIXA))
+                self._desenhar_bloco(novo, "1.0", ID_DA_FAIXA)
+            else:
+                self.texto.delete("1.0", "end")
+                self._desenhar_bloco(novo, "end-1c")
         finally:
             self._em_carga = False
-        self.texto.mark_set("insert", "1.0")
+        self.texto.mark_set("insert", self._inicio_de(novo.id))
         tocados.add(novo.id)
 
+    def _garantir_notas(self, tocados: set[str]) -> None:
+        """Uma nota cujos parágrafos foram todos apagados na faixa fica com um parágrafo vazio."""
+        for nota in list(self._notas):
+            if self._paragrafos_da_nota(nota.id):
+                continue
+            seguinte = next((i for i in self._ordem[self._ordem.index(ID_DA_FAIXA) + 1:]
+                             if self._numero_da_nota(self._nota_do_paragrafo(i) or "") > self._numero_da_nota(nota.id)),
+                            None) if self._tem_faixa() else None
+            vazia = Nota(id=nota.id, tipo=nota.tipo, blocos=[Paragrafo(trechos=[], estilo="nota")])
+            self._em_carga = True
+            try:
+                if not self._tem_faixa():
+                    self._desenhar_faixa()
+                self._desenhar_nota(vazia, seguinte)
+            finally:
+                self._em_carga = False
+            tocados.update(self._paragrafos_da_nota(nota.id))
+
     def apagar_selecao(self) -> bool:
-        """Apaga a seleção: um objeto selecionado inteiro sai com desfazer; texto, pela guarda."""
+        """
+        Apaga a seleção: um objeto selecionado inteiro sai com desfazer; texto, pela
+        guarda; uma referência de nota selecionada sai — e leva a nota, se era a última
+        referência dela (§8.8). A faixa de notas nunca sai: a seleção pára antes dela.
+        """
         selecao = self.selecao()
         if not selecao:
             return False
         ini, fim = selecao
+        self._deselecionar_objetos()
         self.texto.tag_remove("sel", "1.0", "end")
+        if self._tem_faixa() and self.texto.compare(ini, "<", self._inicio_de(ID_DA_FAIXA)) \
+                and self.texto.compare(fim, ">", self._inicio_de(ID_DA_FAIXA)):
+            fim = self._inicio_de(ID_DA_FAIXA)
+            if self.texto.compare(ini, ">=", fim):
+                return False
         blocos = self._blocos_entre(ini, fim)
         if self.texto.compare(self._inicio_de(blocos[-1]), ">=", fim) and len(blocos) > 1:
             blocos = blocos[:-1]          # a seleção termina exatamente onde o último começa
+        if ID_DA_FAIXA in blocos:
+            return False
+        referencias = self._referencias_entre(ini, fim)
+        raiz = self._raiz()
+        if raiz is not self:
+            raiz._abrir_composto("apagar")
+        self._abrir_composto("apagar")
+        try:
+            apagou = self._apagar_intervalo(ini, fim, blocos)
+            if apagou and referencias:
+                for nota_id in referencias:
+                    if not raiz._referencias_de(nota_id):
+                        raiz._apagar_paragrafos_da_nota(nota_id)
+                raiz._renumerar()
+        finally:
+            self._fechar_composto()
+            if raiz is not self:
+                raiz._fechar_composto()
+        return apagou
+
+    def _apagar_intervalo(self, ini: str, fim: str, blocos: list[str]) -> bool:
         inteiros = [b for b in blocos if self.texto.compare(self._inicio_de(b), ">=", ini)
                     and self.texto.compare(self._fim_de(b), "<=", fim)]
         if inteiros and len(inteiros) == len(blocos):
@@ -957,43 +1750,116 @@ class TextoRico(ttk.Frame):
             texto.mark_set("insert", ini)
             tocados = set(blocos)
             self._garantir_um_bloco(tocados)
+            self._garantir_notas(tocados)
             self._reconciliar(tocados)
             return True
         if not self._pode_editar_selecao(ini, fim, inteiros):
             return False
-        for bloco_id in inteiros:
-            pass
         if len(blocos) > 1:
             return self._apagar_entre_blocos(ini, fim, blocos)
-        return self.apagar(ini, fim)
+        return self._apagar_com_referencias(ini, fim)
+
+    def _apagar_com_referencias(self, ini: str, fim: str) -> bool:
+        """`apagar` dentro de um bloco, aceitando referências de nota no intervalo."""
+        ini, fim = self.texto.index(ini), self.texto.index(fim)
+        if self.texto.compare(ini, ">=", fim) or not self._pode_editar_selecao(ini, fim, []):
+            return False
+        self._simples = False
+        self.texto.delete(ini, fim)
+        self.texto.mark_set("insert", ini)
+        self._reconciliar()
+        return True
 
     def _pode_editar_selecao(self, ini: str, fim: str, inteiros: list[str]) -> bool:
-        """Numa seleção, o protegido só é aceitável dentro de blocos inteiramente selecionados."""
+        """
+        Numa seleção, o protegido só é aceitável dentro de blocos inteiros — ou quando é
+        uma referência de nota ou uma ilha inline (um caractere-objeto, que se apaga).
+        """
         texto = self.texto
         i, fim = texto.index(ini), texto.index(fim)
         while texto.compare(i, "<", fim):
             tags = texto.tag_names(i)
-            if "protegido" in tags and not any(T.e_quebra(t) for t in tags) and "invisivel" not in tags:
+            if "protegido" in tags and not any(T.e_quebra(t) for t in tags) and "invisivel" not in tags \
+                    and not any(t.startswith("nota:") for t in tags) and not self._e_ilha_inline(i):
                 if self._bloco_em(i) not in inteiros:
                     return False
             i = texto.index(f"{i}+1c")
         return True
 
+    def _e_ilha_inline(self, indice: str) -> bool:
+        if "objeto" not in self.texto.tag_names(indice):
+            return False
+        bloco_id = self._bloco_em(indice)
+        return bloco_id is not None and not isinstance(self._modelo.get(bloco_id), TIPOS_DE_OBJETO)
+
+    def _referencias_entre(self, ini: str, fim: str) -> list[str]:
+        """Os ids das notas referenciadas em `[ini, fim)`, na ordem, sem repetir."""
+        texto = self.texto
+        saida: list[str] = []
+        i, fim = texto.index(ini), texto.index(fim)
+        while texto.compare(i, "<", fim):
+            nota = self._e_referencia_de_nota(i)
+            if nota and nota not in saida:
+                saida.append(nota)
+            i = texto.index(f"{i}+1c")
+        return saida
+
+    def _referencias_de(self, nota_id: str) -> list[tuple["TextoRico", str]]:
+        """`(widget, índice)` de cada referência à nota, no texto de fora e nas células."""
+        tag = T.nome("nota:", nota_id)
+        saida = [(self, str(a)) for a in self.texto.tag_ranges(tag)[::2]]
+        for nome in self.registro.nomes():
+            widget = self.registro.widget_de(nome)
+            if isinstance(widget, GradeDeTabela):
+                for fila in widget.celulas:
+                    for celula in fila:
+                        saida.extend((celula, str(a)) for a in celula.texto.tag_ranges(tag)[::2])
+        return saida
+
+    def _apagar_paragrafos_da_nota(self, nota_id: str) -> None:
+        for pid in self._paragrafos_da_nota(nota_id):
+            self._apagar_bloco_sem_ponto(pid)
+            self._tocados.add(pid)
+        if self._tem_faixa() and not any(self._nota_do_paragrafo(i) for i in self._ordem):
+            self._apagar_bloco_sem_ponto(ID_DA_FAIXA)
+
     def enter(self) -> bool:
-        """Novo bloco no cursor (fora de lista e citação); item ou parágrafo interno dentro."""
+        """
+        Novo bloco no cursor (fora de lista e citação); item ou parágrafo interno dentro.
+        Sobre um objeto, a ação principal (§7.4); sobre uma referência de nota, vai à
+        nota; depois de um objeto (no `\\n` dele), abre um parágrafo a seguir.
+        """
         if self.selecao():
+            objeto = self._objeto_da_selecao()
+            if objeto is not None:
+                self._ativar_objeto(self._modelo[objeto])
+                return True
             self.apagar_selecao()
-        if not self._ordem:
+        if not self._ids_do_capitulo():
             return self.inserir("")
         indice = self.texto.index("insert")
+        nota = self._e_referencia_de_nota(indice) or (
+            self._e_referencia_de_nota(f"{indice}-1c") if self.texto.compare(indice, ">", "1.0") else "")
+        if nota and nota in self.ids_das_notas():
+            self.ir_para_nota(nota)
+            return True
         bloco_id = self._bloco_em(indice)
         bloco = self._modelo.get(bloco_id)
         if isinstance(bloco, TIPOS_DE_OBJETO):
+            if self._sobre_objeto(indice) and not isinstance(bloco, FaixaDeNotas):
+                self._ativar_objeto(bloco)
+                return True
+            seguinte = self._seguinte(bloco_id)
+            if isinstance(bloco, FaixaDeNotas) and seguinte is not None:
+                self.texto.mark_set("insert", self.indice_de(seguinte, 0) or self._inicio_de(seguinte))
+                return True
             novo = Paragrafo(trechos=[])
-            self._desenhar_bloco(novo, self._fim_de(bloco_id), self._seguinte(bloco_id))
+            self._desenhar_bloco(novo, self._fim_de(bloco_id), seguinte)
             self.texto.mark_set("insert", self._inicio_de(novo.id))
             self._reconciliar({novo.id})
             return True
+        while "marcador" in self.texto.tag_names(indice) and self.texto.compare(indice, "<", self._fim_de(bloco_id)):
+            indice = self.texto.index(f"{indice}+1c")
         if not self._pode_editar(indice):
             return False
         if isinstance(bloco, Lista):
@@ -1086,7 +1952,11 @@ class TextoRico(ttk.Frame):
         self.texto.delete(ini, fim)
 
     def backspace(self) -> bool:
-        """Apaga para trás pela guarda; no começo do bloco, junta ao anterior; no item, desce de nível."""
+        """
+        Apaga para trás pela guarda; no começo do bloco, junta ao anterior; no item, desce
+        de nível. Antes de um objeto ou de uma referência de nota, **seleciona** (o segundo
+        `BackSpace` apaga, com desfazer) — é o que o Word faz.
+        """
         if self.selecao():
             return self.apagar_selecao()
         indice = self.texto.index("insert")
@@ -1109,17 +1979,32 @@ class TextoRico(ttk.Frame):
                 self.texto.delete(f"{indice}-1c", indice)
                 self._reconciliar()
                 return True
+            if "objeto" in anterior or any(t.startswith("nota:") for t in anterior):
+                self.selecionar_indices(f"{indice}-1c", indice)
+                return False
             return False
         return self.apagar(f"{indice}-1c", indice)
 
     def _juntar_ao_anterior(self, bloco_id: str) -> bool:
+        """
+        `BackSpace` no começo do bloco. Antes de um objeto, seleciona-o; antes de uma marca
+        de página, junta os parágrafos **através** dela (a página vira `Trecho.pagina`,
+        INV-10); na faixa, só dentro da mesma nota.
+        """
         i = self._ordem.index(bloco_id)
         if i == 0:
             return False
         anterior = self._ordem[i - 1]
         bloco_anterior, bloco = self._modelo.get(anterior), self._modelo.get(bloco_id)
+        if self._nota_do_paragrafo(bloco_id) != self._nota_do_paragrafo(anterior):
+            return False
+        if isinstance(bloco_anterior, MarcaDePagina) and i >= 2 and isinstance(bloco, Paragrafo) \
+                and isinstance(self._modelo.get(self._ordem[i - 2]), Paragrafo) \
+                and not isinstance(self._modelo.get(self._ordem[i - 2]), TIPOS_DE_OBJETO):
+            return self._juntar_atraves_da_marca(self._ordem[i - 2], anterior, bloco_id)
         if isinstance(bloco_anterior, TIPOS_DE_OBJETO):
-            self.selecionar_indices(self._inicio_de(anterior), self._fim_de(anterior))
+            if not isinstance(bloco_anterior, FaixaDeNotas):
+                self.selecionar_objeto(anterior)
             return False
         if not isinstance(bloco, Paragrafo) or not isinstance(bloco_anterior, Paragrafo) \
                 or isinstance(bloco, TIPOS_DE_OBJETO):
@@ -1130,6 +2015,25 @@ class TextoRico(ttk.Frame):
         self.texto.delete(terminal, f"{terminal}+1c")
         self.texto.mark_set("insert", terminal)
         self._reconciliar({anterior, bloco_id})
+        return True
+
+    def _juntar_atraves_da_marca(self, a_id: str, marca_id: str, b_id: str) -> bool:
+        """`juntar_paragrafos(a, b, marca)`: um parágrafo só, com a página do impresso no trecho (§8.10)."""
+        a, b = self._modelo[a_id], self._modelo[b_id]
+        marca = self._modelo[marca_id]
+        assert isinstance(a, Paragrafo) and isinstance(b, Paragrafo) and isinstance(marca, MarcaDePagina)
+        juntado = modelo.juntar_paragrafos(copy.deepcopy(a), b, marca)
+        posicao = len(modelo.texto_de(a))
+        self._abrir_composto("juntar")
+        try:
+            self._apagar_bloco_sem_ponto(b_id)
+            self._tocados.add(b_id)
+            self._apagar_bloco_sem_ponto(marca_id)
+            self._tocados.add(marca_id)
+            self._reescrever_bloco(a_id, juntado)
+        finally:
+            self._fechar_composto()
+        self.ir_para(a_id, posicao)
         return True
 
     def apagar_palavra(self, direcao: int) -> bool:
@@ -1148,6 +2052,669 @@ class TextoRico(ttk.Frame):
         if not m:
             return False
         return self.apagar(indice, f"{indice}+{len(m.group(0))}c")
+
+    # ------------------------------------------------------------------
+    # Links, âncoras, ids (§8.9)
+    # ------------------------------------------------------------------
+
+    def _tag_no_cursor(self, prefixo: str) -> tuple[str, str] | None:
+        """`(tag, índice)` da tag com este prefixo sob o cursor — no caractere seguinte, senão no anterior."""
+        indice = self.texto.index("insert")
+        for i in (indice, f"{indice}-1c"):
+            if i != indice and not self.texto.compare(indice, ">", "1.0"):
+                break
+            tag = next((t for t in self.texto.tag_names(i) if t.startswith(prefixo)), None)
+            if tag:
+                return tag, self.texto.index(i)
+        return None
+
+    def _faixa_da_tag(self, tag: str, indice: str) -> tuple[str, str] | None:
+        """O intervalo contínuo da tag que contém `indice`."""
+        faixas = self.texto.tag_ranges(tag)
+        for a, b in zip(faixas[::2], faixas[1::2]):
+            if self.texto.compare(a, "<=", indice) and self.texto.compare(indice, "<", b):
+                return str(a), str(b)
+        return None
+
+    def link_no_cursor(self) -> str | None:
+        """O `href` do link sob o cursor, ou `None`."""
+        achado = self._tag_no_cursor("link:")
+        return T.valor(achado[0]) if achado else None
+
+    def inserir_link(self, href: str, rotulo: str | None = None) -> bool:
+        """
+        Com seleção, o link vai nela; sem seleção, `rotulo` (ou o href) é inserido já com o
+        link. Um link sob o cursor sem seleção é trocado inteiro.
+        """
+        href = (href or "").strip()
+        if not href:
+            raise ValueError("o link precisa de um destino (href)")
+        if self.selecao():
+            self.aplicar(link=href)
+            return True
+        achado = self._tag_no_cursor("link:")
+        if achado is not None and rotulo is None:
+            faixa = self._faixa_da_tag(achado[0], achado[1])
+            if faixa:
+                self.selecionar_indices(*faixa)
+                self.aplicar(link=href)
+                self.texto.tag_remove("sel", "1.0", "end")
+                return True
+        texto = rotulo if rotulo else href
+        self._pendente = {"link": href}
+        self._pendente_em = self.texto.index("insert")
+        ok = self.inserir(texto)
+        self._pendente = {}
+        return ok
+
+    def tirar_link(self) -> bool:
+        achado = self._tag_no_cursor("link:")
+        if achado is None:
+            return False
+        faixa = self._faixa_da_tag(achado[0], achado[1])
+        if not faixa:
+            return False
+        self.selecionar_indices(*faixa)
+        self.aplicar(link="")
+        self.texto.tag_remove("sel", "1.0", "end")
+        return True
+
+    def _renomear_bloco(self, bloco_id: str, novo_id: str, novo: Bloco) -> None:
+        """Troca o id de um bloco vivo (a marca, a ordem, as tags, o registro) e registra o ponto."""
+        if novo_id in self._ordem or novo_id in self.ids_das_notas():
+            raise ValueError(f"já há um bloco com o id {novo_id!r} neste capítulo (INV-01)")
+        self._reconciliar()
+        texto = self.texto
+        inicio = self._inicio_de(bloco_id)
+        i = self._ordem.index(bloco_id)
+        antigo = self._modelo[bloco_id]
+        texto.mark_unset(self._marca(bloco_id))
+        texto.mark_set(self._marca(novo_id), inicio)
+        texto.mark_gravity(self._marca(novo_id), "left")
+        self._ordem[i] = novo_id
+        self._ptags[novo_id] = self._ptags.pop(bloco_id, ("p:corpo",))
+        nome = self.registro.nome_de(bloco_id)
+        if nome:
+            self.registro.substituir(nome, novo)
+            widget = self.registro.widget_de(nome)
+            if widget is not None and hasattr(widget, "atualizar"):
+                widget.atualizar(novo)
+        self._modelo.pop(bloco_id, None)
+        self._modelo[novo_id] = novo
+        self._reconciliando = True
+        try:
+            self._reaplicar_tags(novo_id)
+            depois = self._blocos_do_dump([novo_id]).get(novo_id, novo)
+        finally:
+            self._reconciliando = False
+        self._modelo[novo_id] = depois
+        self._registrar_ponto([bloco_id, novo_id], [antigo], [depois], {bloco_id: i, novo_id: i}, False, "id")
+        self.calha.redesenhar()
+
+    def definir_id(self, bloco_id: str, novo_id: str) -> str:
+        """A âncora: o bloco passa a ter este `id`, persistente (§8.9). Devolve o id."""
+        novo_id = (novo_id or "").strip()
+        if not re.fullmatch(r"[^\W\d][\w.:-]*", novo_id):
+            raise ValueError(f"id inválido: {novo_id!r} — comece por letra, sem espaços")
+        bloco = self._modelo.get(bloco_id)
+        if bloco is None or isinstance(bloco, FaixaDeNotas):
+            raise ValueError("o cursor precisa estar num bloco do capítulo")
+        novo = copy.deepcopy(bloco)
+        novo.id = novo_id
+        novo.id_persistente = True
+        if novo_id == bloco_id:
+            if not bloco.id_persistente:
+                self._reescrever_bloco(bloco_id, novo)
+            return novo_id
+        self._renomear_bloco(bloco_id, novo_id, novo)
+        self.texto.mark_set("insert", self._inicio_de(novo_id))
+        return novo_id
+
+    def definir_classe(self, bloco_id: str, classe: str) -> None:
+        bloco = self._modelo.get(bloco_id)
+        if bloco is None or isinstance(bloco, FaixaDeNotas):
+            raise ValueError("o cursor precisa estar num bloco do capítulo")
+        novo = copy.deepcopy(bloco)
+        novo.classe = " ".join((classe or "").split())
+        if isinstance(bloco, TIPOS_DE_OBJETO):
+            self.substituir_objeto(bloco_id, novo)
+        else:
+            self._reescrever_bloco(bloco_id, novo)
+
+    # ------------------------------------------------------------------
+    # Objetos: substituir, ilhas, o objeto sob o cursor
+    # ------------------------------------------------------------------
+
+    def objeto_no_cursor(self) -> Bloco | None:
+        """O bloco-objeto sob o cursor (antes ou depois dele) ou selecionado; `None` senão."""
+        bloco_id = self._objeto_da_selecao() or self._sobre_objeto("insert")
+        if bloco_id is None:
+            indice = self.texto.index("insert")
+            if self.texto.compare(indice, ">", "1.0") and "objeto" in self.texto.tag_names(f"{indice}-1c"):
+                candidato = self._bloco_em(f"{indice}-1c")
+                if candidato and isinstance(self._modelo.get(candidato), TIPOS_DE_OBJETO):
+                    bloco_id = candidato
+        if bloco_id is None:
+            return None
+        bloco = self._modelo.get(bloco_id)
+        return None if isinstance(bloco, FaixaDeNotas) else bloco
+
+    def ilha_inline_no_cursor(self) -> str | None:
+        """O nome da janela da ilha inline sob o cursor (antes ou depois dele)."""
+        indice = self.texto.index("insert")
+        for i in (indice, f"{indice}-1c"):
+            if i != indice and not self.texto.compare(indice, ">", "1.0"):
+                break
+            if "objeto" not in self.texto.tag_names(i):
+                continue
+            for nome in self.texto.window_names():
+                if self.texto.compare(self.texto.index(nome), "==", i) \
+                        and isinstance(self.registro.objeto_registrado(nome), Trecho):
+                    return nome
+        return None
+
+    def substituir_objeto(self, bloco_id: str, novo: Bloco) -> str:
+        """
+        O objeto com propriedades novas (a figura com outra largura, a tabela com legenda):
+        o desenho é refeito, o registro aponta o novo modelo, e o ponto de desfazer é
+        registrado. Um id novo (a marca de página que mudou de página) é renomeado.
+        """
+        atual = self._modelo.get(bloco_id)
+        if not isinstance(atual, TIPOS_DE_OBJETO) or isinstance(atual, FaixaDeNotas):
+            raise ValueError("não há objeto com esse id")
+        if type(novo) is not type(atual):
+            self._reescrever_bloco(bloco_id, novo)
+            return novo.id
+        if novo.id != bloco_id:
+            self._renomear_bloco(bloco_id, novo.id, novo)
+            return novo.id
+        nome = self.registro.nome_de(bloco_id)
+        widget = self.registro.widget_de(nome) if nome else None
+        if nome:
+            self.registro.substituir(nome, novo)
+        if widget is not None and hasattr(widget, "atualizar"):
+            widget.atualizar(novo)
+        else:
+            self._reescrever_bloco(bloco_id, novo)
+            return bloco_id
+        self._tocados.add(bloco_id)
+        self._reconciliar({bloco_id}, coalescer=False, rotulo="propriedades")
+        return bloco_id
+
+    def substituir_ilha(self, bloco_id: str, xhtml: str) -> list[str]:
+        """
+        O XHTML editado de uma ilha de bloco: lido como fragmento, vira o(s) bloco(s) que
+        for(em) — de volta ao dialeto, se agora couber nele. Devolve os ids novos.
+        """
+        from core.editor import xhtml as xhtml_mod
+
+        blocos = xhtml_mod.ler_fragmento(xhtml.strip(), self.arquivo)
+        if not blocos:
+            raise ValueError("o fragmento não tem nenhum bloco")
+        atual = self._modelo.get(bloco_id)
+        if not isinstance(atual, IlhaBruta):
+            raise ValueError("o cursor não está sobre uma ilha")
+        ids = []
+        self._abrir_composto("ilha")
+        try:
+            primeiro = blocos[0]
+            primeiro.id = bloco_id
+            self._reescrever_bloco(bloco_id, primeiro)
+            ids.append(bloco_id)
+            anterior = bloco_id
+            for bloco in blocos[1:]:
+                if bloco.id in self._ordem:
+                    bloco.id = modelo.id_novo()
+                self._desenhar_bloco(bloco, self._fim_de(anterior), self._seguinte(anterior))
+                self._modelo.pop(bloco.id, None)
+                self._reconciliar({bloco.id})
+                ids.append(bloco.id)
+                anterior = bloco.id
+        finally:
+            self._fechar_composto()
+        return ids
+
+    def substituir_ilha_inline(self, nome: str, xhtml: str) -> bool:
+        """O XHTML editado de uma ilha inline: o fragmento novo no lugar (ou o texto, se virou dialeto)."""
+        from core.editor import xhtml as xhtml_mod
+
+        trecho = self.registro.objeto_registrado(nome)
+        if not isinstance(trecho, Trecho):
+            raise ValueError("não há ilha inline com esse nome")
+        blocos = xhtml_mod.ler_fragmento(xhtml.strip(), self.arquivo)
+        if len(blocos) != 1 or not isinstance(blocos[0], Paragrafo):
+            raise ValueError("uma ilha inline recebe só conteúdo inline (um elemento como <cite> ou <abbr>)")
+        indice = self.texto.index(nome)
+        bloco_id = self._bloco_em(indice)
+        self._abrir_composto("ilha")
+        try:
+            self._em_carga = True
+            try:
+                self.registro.esquecer(nome)
+                self.texto.nametowidget(nome).destroy()
+                self.texto.delete(indice, f"{indice}+1c")
+            finally:
+                self._em_carga = False
+            self.texto.mark_set("insert", indice)
+            self._tocados.add(bloco_id)
+            self.inserir_trechos(blocos[0].trechos)
+        finally:
+            self._fechar_composto()
+        return True
+
+    # ------------------------------------------------------------------
+    # Fragmentos: copiar e colar com formato (§8.11)
+    # ------------------------------------------------------------------
+
+    def fragmento_da_selecao(self) -> Fragmento:
+        """O modelo do que está selecionado: blocos (o primeiro e o último parciais) e as notas referenciadas."""
+        selecao = self.selecao()
+        if not selecao:
+            return Fragmento()
+        ini, fim = selecao
+        if self._tem_faixa() and self.texto.compare(ini, "<", self._inicio_de(ID_DA_FAIXA)) \
+                and self.texto.compare(fim, ">", self._inicio_de(ID_DA_FAIXA)):
+            fim = self._inicio_de(ID_DA_FAIXA)
+        blocos = self._blocos_entre(ini, fim)
+        if len(blocos) > 1 and self.texto.compare(self._inicio_de(blocos[-1]), ">=", fim):
+            blocos = blocos[:-1]
+        if not blocos or ID_DA_FAIXA in blocos:
+            return Fragmento()
+        marca = self._marca(blocos[0])
+        itens = [("mark", marca, self.texto.index(ini))]
+        itens += [it for it in self._dump(ini, fim) if it[0] != "mark" or it[1] != marca]
+        modelos, _notas = dump_mod.dump_para_blocos(itens, self.registro, self._modelo)
+        modelos = copy.deepcopy(modelos)
+        inline = len(blocos) == 1 and isinstance(self._modelo.get(blocos[0]), Paragrafo) \
+            and not isinstance(self._modelo.get(blocos[0]), TIPOS_DE_OBJETO) and len(modelos) == 1
+        notas: list[Nota] = []
+        for bloco in modelos:
+            for trecho in modelo._todos_os_trechos(bloco):
+                nota = self._raiz()._nota_cache(trecho.nota) if trecho.nota else None
+                if nota is not None and nota.id not in {n.id for n in notas}:
+                    notas.append(copy.deepcopy(nota))
+        texto = modelo.texto_de(modelos[0]) if inline else "\n".join(modelo.texto_de(b) for b in modelos)
+        fragmento = Fragmento(blocos=modelos, inline=inline, texto=texto)
+        fragmento.notas = notas
+        return fragmento
+
+    def inserir_trechos(self, trechos: Sequence[Trecho]) -> bool:
+        """Trechos com o formato deles no cursor (ilhas inline, referências de nota e quebras inclusive)."""
+        if self.selecao():
+            self.apagar_selecao()
+        if not self._ids_do_capitulo():
+            self.inserir("")
+        indice = self._dentro_do_texto(self.texto.index("insert"))
+        if not self._pode_editar(indice):
+            return False
+        while "marcador" in self.texto.tag_names(indice):
+            indice = self.texto.index(f"{indice}+1c")
+        bloco_id = self._bloco_em(indice)
+        if bloco_id is None or isinstance(self._modelo.get(bloco_id), TIPOS_DE_OBJETO):
+            return False
+        ptags, _c, estilo = self._tags_para_inserir(indice)
+        self._pendente = {}
+        self.texto.mark_set(MARCA_DE_INSERCAO, indice)
+        self.texto.mark_gravity(MARCA_DE_INSERCAO, "right")
+        notas = self.ids_das_notas()
+        for t in trechos:
+            if t.quebra_antes:
+                self._inserir_segmento("\n", ptags, (), estilo, ("qs", "quebra", "protegido"))
+            if t.pagina is not None:
+                self._inserir_segmento(SIMBOLO_DA_PAGINA, ptags, (), estilo,
+                                       (T.nome("pagina:", t.pagina), "protegido", "marcador"))
+            if t.ilha:
+                self._inserir_objeto(copy.deepcopy(t), ptags, inline=True)
+            elif t.nota:
+                if t.nota in notas:
+                    self._inserir_segmento(self._glifo_da_nota(t.nota), ptags, (), estilo,
+                                           (T.nome("nota:", t.nota), "protegido"))
+            elif t.texto:
+                self._inserir_segmento(t.texto, ptags, self._tags_do_trecho(t), estilo)
+        self.texto.mark_set("insert", MARCA_DE_INSERCAO)
+        self.texto.mark_unset(MARCA_DE_INSERCAO)
+        self._simples = False
+        self._reconciliar({bloco_id})
+        return True
+
+    def inserir_blocos(self, blocos: Sequence[Bloco]) -> list[str]:
+        """
+        Blocos no cursor: o primeiro e o último parágrafos fundem-se com o parágrafo do
+        cursor (partido nele), os do meio entram inteiros; num objeto ou lista, tudo entra
+        inteiro depois. Ids que colidem ganham outro. Um desfazer só. Devolve os ids.
+        """
+        blocos = [copy.deepcopy(b) for b in blocos]
+        if not blocos:
+            return []
+        if self.selecao():
+            self.apagar_selecao()
+        if not self._ids_do_capitulo():
+            self.inserir("")
+        usados = set(self._ordem) | set(self.ids_das_notas())
+        for bloco in blocos:
+            if bloco.id in usados or not bloco.id_persistente:
+                bloco.id = modelo.id_novo()
+            usados.add(bloco.id)
+        atual = self.bloco_atual()
+        atual_modelo = self._modelo.get(atual) if atual else None
+        e_paragrafo = isinstance(atual_modelo, Paragrafo) and not isinstance(atual_modelo, TIPOS_DE_OBJETO) \
+            and not self.em_nota()
+        ids: list[str] = []
+        self._abrir_composto("colar")
+        try:
+            if not e_paragrafo:
+                anterior = atual if atual != ID_DA_FAIXA else (self._ids_do_capitulo() or [None])[-1]
+                for bloco in blocos:
+                    self._inserir_bloco_depois(bloco, anterior)
+                    ids.append(bloco.id)
+                    anterior = bloco.id
+            else:
+                primeiro, ultimo = blocos[0], blocos[-1]
+                funde_primeiro = isinstance(primeiro, Paragrafo) and not isinstance(primeiro, Titulo) \
+                    and not isinstance(primeiro, TIPOS_DE_OBJETO)
+                funde_ultimo = len(blocos) > 1 and isinstance(ultimo, Paragrafo) and not isinstance(ultimo, Titulo) \
+                    and not isinstance(ultimo, TIPOS_DE_OBJETO)
+                meio = blocos[1:-1] if funde_ultimo else blocos[1:]
+                if funde_primeiro and len(blocos) == 1:
+                    self.inserir_trechos(primeiro.trechos)
+                    return [atual]
+                self.enter()
+                cauda = self.bloco_atual()
+                self.texto.mark_set("insert", f"{self._fim_de(atual)}-1c")
+                if funde_primeiro:
+                    self.inserir_trechos(primeiro.trechos)
+                    ids.append(atual)
+                else:
+                    meio = [primeiro] + meio
+                anterior = atual
+                for bloco in meio:
+                    self._inserir_bloco_depois(bloco, anterior)
+                    ids.append(bloco.id)
+                    anterior = bloco.id
+                if funde_ultimo:
+                    self.ir_para(cauda, 0)
+                    self.inserir_trechos(ultimo.trechos)
+                    ids.append(cauda)
+                elif cauda and not modelo.texto_de(self._modelo.get(cauda, Paragrafo(trechos=[]))).strip() \
+                        and not any(t.ilha or t.nota for t in getattr(self._modelo.get(cauda), "trechos", [])):
+                    self._apagar_bloco_sem_ponto(cauda)
+                    self._tocados.add(cauda)
+                    self.texto.mark_set("insert", f"{self._fim_de(anterior)}-1c")
+        finally:
+            self._fechar_composto()
+        return ids
+
+    def _inserir_bloco_depois(self, bloco: Bloco, anterior: str | None) -> None:
+        """Um bloco desenhado depois de `anterior` (ou no começo), como parte de um composto."""
+        if anterior is None or anterior == ID_DA_FAIXA:
+            self._desenhar_bloco(bloco, "1.0", self._ordem[0] if self._ordem else None)
+        else:
+            self._desenhar_bloco(bloco, self._fim_de(anterior), self._seguinte(anterior))
+        self._modelo.pop(bloco.id, None)
+        self._tocados.add(bloco.id)
+        self._reconciliar({bloco.id})
+        self.texto.mark_set("insert", f"{self._fim_de(bloco.id)}-1c")
+
+    def colar_fragmento(self, fragmento: Fragmento) -> bool:
+        """
+        Colar interno (§8.11): o fragmento com formato, figura e ilha; as notas
+        referenciadas nascem de novo neste capítulo (com id novo), como no Word.
+        """
+        if fragmento.vazio:
+            return False
+        raiz = self._raiz()
+        trocas: dict[str, str] = {}
+        raiz._abrir_composto("colar")
+        if raiz is not self:
+            self._abrir_composto("colar")
+        try:
+            for nota in getattr(fragmento, "notas", []) or []:
+                nova = copy.deepcopy(nota)
+                nova.id = modelo.id_novo()
+                for paragrafo in nova.blocos:
+                    paragrafo.id = modelo.id_novo()
+                trocas[nota.id] = nova.id
+                raiz._criar_nota(nova)
+            blocos = copy.deepcopy(fragmento.blocos)
+            if trocas:
+                for bloco in blocos:
+                    for trecho in modelo._todos_os_trechos(bloco):
+                        if trecho.nota:
+                            trecho.nota = trocas.get(trecho.nota, "")
+            if fragmento.inline and blocos and isinstance(blocos[0], Paragrafo):
+                ok = self.inserir_trechos(blocos[0].trechos)
+            else:
+                ok = bool(self.inserir_blocos(blocos))
+            if trocas:
+                raiz._renumerar()
+        finally:
+            if raiz is not self:
+                self._fechar_composto()
+            raiz._fechar_composto()
+        return ok
+
+    # ------------------------------------------------------------------
+    # Propriedades (o painel; §8.3, §8.6–§8.9)
+    # ------------------------------------------------------------------
+
+    def alvo_das_propriedades(self) -> dict[str, Any]:
+        """
+        O que o painel Propriedades mostra para a posição do cursor: `tipo` (`figura`,
+        `tabela`, `ilha`, `ilha_inline`, `marca`, `quebra`, `separador`, `diagrama`,
+        `nota`, `link`, `paragrafo` ou `""`), `id`, `objeto` e os `campos` editáveis.
+        """
+        objeto = self.objeto_no_cursor()
+        if objeto is not None:
+            tipo = {Figura: "figura", Tabela: "tabela", IlhaBruta: "ilha", MarcaDePagina: "marca",
+                    QuebraDePagina: "quebra", Separador: "separador", Diagrama: "diagrama"}.get(type(objeto), "")
+            campos: dict[str, Any] = {"id": objeto.id if objeto.id_persistente else "", "classe": objeto.classe}
+            if isinstance(objeto, Figura):
+                campos.update({"recurso": objeto.recurso, "alt": objeto.alt, "largura_pt": objeto.largura_pt,
+                               "alinhamento": objeto.alinhamento, "legenda": "".join(t.texto for t in objeto.legenda),
+                               "numero": objeto.numero})
+            elif isinstance(objeto, Tabela):
+                campos.update({"legenda": "".join(t.texto for t in objeto.legenda), "numero": objeto.numero,
+                               "largura_pct": objeto.largura_pct,
+                               "primeira_fila_cabecalho": objeto.primeira_fila_cabecalho,
+                               "filas": len(objeto.filas), "colunas": objeto.colunas})
+            elif isinstance(objeto, IlhaBruta):
+                campos.update({"elemento": objeto.elemento, "xhtml": objeto.xhtml})
+            elif isinstance(objeto, MarcaDePagina):
+                campos.update({"pagina": objeto.pagina})
+            elif isinstance(objeto, Diagrama):
+                campos.update({"fen": objeto.fen, "lado": objeto.lado, "orientacao": objeto.orientacao})
+            return {"tipo": tipo, "id": objeto.id, "objeto": objeto, "campos": campos}
+        nome = self.ilha_inline_no_cursor()
+        if nome is not None:
+            trecho = self.registro.objeto_registrado(nome)
+            return {"tipo": "ilha_inline", "id": nome, "objeto": trecho, "campos": {"xhtml": trecho.ilha}}
+        nota_id = self.nota_no_cursor()
+        if nota_id:
+            nota = self._raiz()._nota_cache(nota_id)
+            return {"tipo": "nota", "id": nota_id, "objeto": nota,
+                    "campos": {"tipo": nota.tipo if nota else "?", "numero": self._numero_da_nota(nota_id),
+                               "texto": modelo.texto_de(nota)[:200] if nota else "(nota inexistente)"}}
+        achado = self._tag_no_cursor("link:")
+        if achado is not None:
+            titulo = self._tag_no_cursor("tit:")
+            faixa = self._faixa_da_tag(achado[0], achado[1])
+            return {"tipo": "link", "id": achado[0], "objeto": None,
+                    "campos": {"href": T.valor(achado[0]), "titulo": T.valor(titulo[0]) if titulo else "",
+                               "texto": self.texto.get(*faixa) if faixa else ""}}
+        bloco_id = self.bloco_atual()
+        bloco = self._modelo.get(bloco_id) if bloco_id else None
+        if isinstance(bloco, Paragrafo):
+            campos = {"estilo": bloco.estilo if not isinstance(bloco, Titulo) else f"titulo{bloco.nivel}",
+                      "id": bloco.id if bloco.id_persistente else "", "classe": bloco.classe}
+            for chave in PREFIXOS_DE_PARAGRAFO:
+                campos[chave] = getattr(bloco, chave)
+            for chave in SIMPLES_DE_PARAGRAFO:
+                campos[chave] = getattr(bloco, chave)
+            return {"tipo": "paragrafo", "id": bloco_id, "objeto": bloco, "campos": campos}
+        if bloco is not None:
+            return {"tipo": type(bloco).__name__.lower(), "id": bloco_id, "objeto": bloco,
+                    "campos": {"id": bloco.id if bloco.id_persistente else "", "classe": bloco.classe}}
+        return {"tipo": "", "id": "", "objeto": None, "campos": {}}
+
+    def aplicar_propriedades(self, alvo: dict[str, Any], valores: dict[str, Any]) -> bool:
+        """
+        Grava no modelo o que o painel devolveu em "Aplicar" — só o que veio em `valores`.
+        Devolve se algo mudou. `ValueError` para valor inválido.
+        """
+        tipo, id_ = alvo.get("tipo", ""), alvo.get("id", "")
+        valores = dict(valores)
+        if tipo in ("figura", "tabela", "ilha", "marca", "quebra", "separador", "diagrama"):
+            atual = self._modelo.get(id_)
+            if atual is None:
+                raise ValueError("o objeto já não está no capítulo")
+            novo = copy.deepcopy(atual)
+            id_novo = valores.pop("id", None)
+            classe = valores.pop("classe", None)
+            if classe is not None:
+                novo.classe = " ".join(str(classe).split())
+            if isinstance(novo, Figura):
+                if "alt" in valores:
+                    novo.alt = str(valores["alt"]).strip()
+                if "largura_pt" in valores:
+                    novo.largura_pt = _numero_ou_nenhum(valores["largura_pt"], "largura")
+                if "alinhamento" in valores and valores["alinhamento"]:
+                    novo.alinhamento = str(valores["alinhamento"])
+                if "legenda" in valores:
+                    novo.legenda = [Trecho(texto=str(valores["legenda"]))] if str(valores["legenda"]).strip() else []
+                if "numero" in valores:
+                    n = _numero_ou_nenhum(valores["numero"], "número")
+                    novo.numero = int(n) if n is not None else None
+            elif isinstance(novo, Tabela):
+                if "legenda" in valores:
+                    novo.legenda = [Trecho(texto=str(valores["legenda"]))] if str(valores["legenda"]).strip() else []
+                if "numero" in valores:
+                    n = _numero_ou_nenhum(valores["numero"], "número")
+                    novo.numero = int(n) if n is not None else None
+                if "largura_pct" in valores:
+                    n = _numero_ou_nenhum(valores["largura_pct"], "largura")
+                    novo.largura_pct = int(n) if n is not None else None
+                if "primeira_fila_cabecalho" in valores:
+                    ligar = bool(valores["primeira_fila_cabecalho"])
+                    novo.primeira_fila_cabecalho = ligar
+                    for celula in (novo.filas[0] if novo.filas else []):
+                        celula.cabecalho = ligar
+            elif isinstance(novo, IlhaBruta) and "xhtml" in valores:
+                self.substituir_ilha(id_, str(valores["xhtml"]))
+                return True
+            elif isinstance(novo, MarcaDePagina) and "pagina" in valores:
+                pagina = _numero_ou_nenhum(valores["pagina"], "página")
+                if pagina is None or int(pagina) < 1:
+                    raise ValueError("a página precisa ser um inteiro positivo")
+                novo = MarcaDePagina(pagina=int(pagina), classe=novo.classe, extras=dict(novo.extras),
+                                     origem=novo.origem)
+            if id_novo is not None and str(id_novo).strip() and str(id_novo).strip() != novo.id:
+                novo.id = str(id_novo).strip()
+                if not re.fullmatch(r"[^\W\d][\w.:-]*", novo.id):
+                    raise ValueError(f"id inválido: {novo.id!r}")
+                novo.id_persistente = True
+            elif id_novo is not None and str(id_novo).strip() == novo.id:
+                novo.id_persistente = True
+            if modelo.igual(novo, atual) and novo.id == atual.id and novo.id_persistente == atual.id_persistente:
+                return False
+            self.substituir_objeto(id_, novo)
+            return True
+        if tipo == "ilha_inline":
+            if "xhtml" in valores:
+                return self.substituir_ilha_inline(id_, str(valores["xhtml"]))
+            return False
+        if tipo == "nota":
+            if "tipo" in valores:
+                return self.mudar_tipo_da_nota(id_, str(valores["tipo"]))
+            return False
+        if tipo == "link":
+            faixa = self._faixa_da_tag(id_, self._tag_no_cursor("link:")[1]) if self._tag_no_cursor("link:") else None
+            if faixa is None:
+                raise ValueError("o cursor já não está sobre o link")
+            indice = self.texto.index("insert")
+            self.selecionar_indices(*faixa)
+            atributos: dict[str, Any] = {}
+            if "href" in valores:
+                href = str(valores["href"]).strip()
+                if not href:
+                    raise ValueError("o link precisa de um destino (href); para tirá-lo, use Limpar formatação")
+                atributos["link"] = href
+            if "titulo" in valores:
+                atributos["titulo"] = str(valores["titulo"]).strip()
+            self.aplicar(**atributos)
+            self.texto.tag_remove("sel", "1.0", "end")
+            self.texto.mark_set("insert", indice)
+            return bool(atributos)
+        if tipo == "paragrafo":
+            bloco = self._modelo.get(id_)
+            if not isinstance(bloco, Paragrafo):
+                raise ValueError("o cursor já não está num parágrafo")
+            mudou = False
+            self._abrir_composto("propriedades")
+            try:
+                estilo = valores.pop("estilo", None)
+                if estilo and estilo != (f"titulo{bloco.nivel}" if isinstance(bloco, Titulo) else bloco.estilo):
+                    self.ir_para(id_, 0)
+                    self.estilo(str(estilo))
+                    mudou = True
+                props = {k: v for k, v in valores.items() if k in PREFIXOS_DE_PARAGRAFO or k in SIMPLES_DE_PARAGRAFO}
+                for chave in list(props):
+                    if chave in PREFIXOS_DE_PARAGRAFO and chave != "alinhamento":
+                        props[chave] = _numero_ou_nenhum(props[chave], chave)
+                    elif chave in SIMPLES_DE_PARAGRAFO:
+                        props[chave] = bool(props[chave])
+                    elif chave == "alinhamento":
+                        props[chave] = str(props[chave] or "")
+                if props:
+                    self.ir_para(id_, 0)
+                    self.paragrafo(**props)
+                    mudou = True
+                classe = valores.get("classe")
+                if classe is not None and " ".join(str(classe).split()) != bloco.classe:
+                    self.definir_classe(id_, str(classe))
+                    mudou = True
+                id_novo = valores.get("id")
+                if id_novo is not None and str(id_novo).strip() and (str(id_novo).strip() != bloco.id
+                                                                    or not bloco.id_persistente):
+                    self.definir_id(id_, str(id_novo))
+                    mudou = True
+            finally:
+                self._fechar_composto()
+            return mudou
+        raise ValueError("não há o que aplicar aqui")
+
+    # ------------------------------------------------------------------
+    # Células e o editor ativo
+    # ------------------------------------------------------------------
+
+    def ativo(self) -> "TextoRico":
+        """A célula de tabela com o foco, quando há; senão este widget."""
+        try:
+            foco = self.focus_get()
+        except (tk.TclError, KeyError):
+            return self
+        while foco is not None and foco is not self:
+            if isinstance(foco, TextoRico) and foco.celula:
+                return foco
+            foco = getattr(foco, "master", None)
+        return self
+
+    def ajustar_altura(self) -> int:
+        """Numa célula, a altura em linhas exibidas (`count -displaylines`), no mínimo uma."""
+        if not self.celula:
+            return 0
+        # Sem tela (widget ainda não mapeado) o Tk conta uma linha exibida por caractere: vale `-lines`.
+        unidade = "displaylines" if self.texto.winfo_ismapped() else "lines"
+        try:
+            linhas = _contagem(self.texto.count("1.0", "end-1c", unidade))
+        except tk.TclError:
+            linhas = 1
+        linhas = max(1, min(40, linhas))
+        try:
+            if int(self.texto.cget("height")) != linhas:
+                self.texto.configure(height=linhas)
+        except tk.TclError:
+            pass
+        return linhas
 
     # ------------------------------------------------------------------
     # Formatação de caractere
@@ -1416,24 +2983,33 @@ class TextoRico(ttk.Frame):
         return ids
 
     def _reescrever_bloco(self, bloco_id: str, novo: Bloco, reconciliar: bool = True) -> None:
-        """Troca o desenho de um bloco pelo de `novo` (mesmo id); o ponto sai na reconciliação."""
+        """
+        Troca o desenho de um bloco pelo de `novo` (mesmo id); o ponto sai na reconciliação,
+        com o modelo antigo como "antes" (`_antes_forcado`) e `novo` como base do que o
+        `dump` não lê das tags (classe, id persistente, extras). O cursor fica onde estava.
+        """
         novo.id = bloco_id
         ini, fim = self._inicio_de(bloco_id), self._fim_de(bloco_id)
         seguinte = self._seguinte(bloco_id)
         antigo = self._modelo.get(bloco_id)
+        no_bloco = self._bloco_em("insert") == bloco_id
+        desloc = self._deslocamento("insert", bloco_id) if no_bloco else None
+        ptags_de_nota = tuple(t for t in self._ptags.get(bloco_id, ()) if t.startswith("dn:"))
         self._remover_bloco(bloco_id)
         self._em_carga = True
         try:
             self.texto.delete(ini, fim)
-            self._desenhar_bloco(novo, ini, seguinte)
+            self._desenhar_bloco(novo, ini, seguinte, extras=ptags_de_nota)
         finally:
             self._em_carga = False
         if antigo is not None:
-            self._modelo[bloco_id] = antigo      # o "antes" do ponto; o "depois" vem do dump
+            self._antes_forcado[bloco_id] = antigo      # o "antes" do ponto; o "depois" vem do dump
         self._tocados.add(bloco_id)
         self._simples = False
         if reconciliar:
             self._reconciliar({bloco_id}, coalescer=False)
+        if desloc is not None and bloco_id in self._ordem:
+            self.ir_para(bloco_id, min(desloc, len(modelo.texto_de(self._modelo.get(bloco_id, novo)))))
 
     def lista(self, ordenada: bool = False) -> list[str]:
         """Os parágrafos da seleção viram uma lista (um item cada); uma lista do mesmo tipo volta a parágrafos."""
@@ -1525,18 +3101,19 @@ class TextoRico(ttk.Frame):
         """Só a tela: redesenha com o corpo multiplicado; o modelo não muda."""
         self.tela.zoom = max(0.5, min(4.0, float(fator)))
         self._configuradas.clear()
-        T.configurar(self.texto, self.estilos, self.fontes)
+        T.configurar(self.texto, self.estilos, self.fontes, preguicoso=self.celula)
         self._redesenhar_tudo()
         return self.tela.zoom
 
     def _redesenhar_tudo(self) -> None:
+        self._reconciliar()
         posicao = self.posicao()
-        blocos = [self._modelo[i] for i in self._ordem if i in self._modelo]
-        notas, capitulo, sujo = self._notas, self._capitulo, self._sujo
+        blocos = [self._modelo[i] for i in self._ids_do_capitulo() if i in self._modelo]
+        notas, capitulo, sujo = self.notas_atuais(), self._capitulo, self._sujo
         invisiveis = self._invisiveis
         self._invisiveis = False
-        self.carregar_blocos(blocos)
-        self._notas, self._capitulo, self._sujo = notas, capitulo, sujo
+        self.carregar_blocos(blocos, notas)
+        self._capitulo, self._sujo = capitulo, sujo
         if invisiveis:
             self.invisiveis(True)
         if posicao[0] and posicao[0] in self._ordem:
@@ -1607,6 +3184,10 @@ class TextoRico(ttk.Frame):
         self._reconciliar(ids, coalescer=False, rotulo=rotulo)
 
     def desfazer(self) -> bool:
+        """Numa célula, o desfazer é o do texto de fora (o ponto é sobre a tabela inteira)."""
+        if self.dono is not None:
+            return self._raiz().desfazer()
+        self._reconciliar()
         ponto = self.historico.desfazer(self.arquivo)
         if ponto is None:
             return False
@@ -1614,6 +3195,9 @@ class TextoRico(ttk.Frame):
         return True
 
     def refazer(self) -> bool:
+        if self.dono is not None:
+            return self._raiz().refazer()
+        self._reconciliar()
         ponto = self.historico.refazer(self.arquivo)
         if ponto is None:
             return False
@@ -1623,22 +3207,24 @@ class TextoRico(ttk.Frame):
     def _aplicar_ponto(self, ponto: Ponto, sentido: str) -> None:
         from core.editor import historico as historico_mod
 
-        self._reconciliar()
-        capitulo = Capitulo(arquivo=self.arquivo, blocos=[self._modelo[i] for i in self._ordem if i in self._modelo],
-                            notas=list(self._notas))
+        capitulo = Capitulo(arquivo=self.arquivo,
+                            blocos=[self._modelo[i] for i in self._ids_do_capitulo() if i in self._modelo],
+                            notas=[copy.deepcopy(n) for n in self._notas])
         historico_mod.aplicar(capitulo, ponto, sentido)
         self._em_desfazer = True
         try:
             invisiveis = self._invisiveis
             self._invisiveis = False
-            self.carregar_blocos(capitulo.blocos)
-            self._notas = list(capitulo.notas)
+            self.carregar_blocos(capitulo.blocos, capitulo.notas)
             if invisiveis:
                 self.invisiveis(True)
         finally:
             self._em_desfazer = False
         self._sujo = True
         alvo = next((i for i in ponto.ids if i in self._ordem), None)
+        if alvo is None:
+            nota = next((i for i in ponto.ids if self._paragrafos_da_nota(i)), None)
+            alvo = self._paragrafos_da_nota(nota)[0] if nota else None
         if alvo:
             self.ir_para(alvo, 0)
         try:
@@ -1648,10 +3234,15 @@ class TextoRico(ttk.Frame):
 
     @property
     def pode_desfazer(self) -> bool:
+        if self.dono is not None:
+            return self._raiz().pode_desfazer
+        self._reconciliar()
         return self.historico.pode_desfazer(self.arquivo)
 
     @property
     def pode_refazer(self) -> bool:
+        if self.dono is not None:
+            return self._raiz().pode_refazer
         return self.historico.pode_refazer(self.arquivo)
 
     # ------------------------------------------------------------------
@@ -1659,6 +3250,11 @@ class TextoRico(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _instalar_ligacoes(self) -> None:
+        """
+        As teclas → a API. Os handlers ficam em `self.ligacoes` (o teste os chama com um
+        evento); a bindtag de classe é ligada **uma vez** por interpretador e despacha ao
+        `TextoRico` dono do widget que recebeu a tecla (ver o cabeçalho).
+        """
         texto = self.texto
         tags = list(texto.bindtags())
         tags.insert(1, BINDTAG)
@@ -1666,9 +3262,14 @@ class TextoRico(ttk.Frame):
         q = self._quebra
         ligacoes = {
             "<Return>": lambda e: q(self.enter()), "<KP_Enter>": lambda e: q(self.enter()),
+            "<Shift-Return>": lambda e: q(self.inserir_quebra_suave()),
+            "<Control-Return>": self._tecla_quebra_de_pagina,
             "<BackSpace>": lambda e: q(self.backspace()), "<Delete>": lambda e: q(self._delete()),
             "<Key>": self._tecla,
-            "<Tab>": lambda e: q(self.nivel(1) or self.inserir("\t")), "<Shift-Tab>": lambda e: q(self.nivel(-1)),
+            "<Tab>": lambda e: q(self._tab(1)), "<Shift-Tab>": lambda e: q(self._tab(-1)),
+            "<Escape>": self._tecla_escape, "<Up>": lambda e: self._seta_vertical(-1),
+            "<Down>": lambda e: self._seta_vertical(1), "<Left>": lambda e: self._seta_horizontal(-1),
+            "<Right>": lambda e: self._seta_horizontal(1), "<MouseWheel>": self._roda,
             "<Control-b>": lambda e: q(self.alternar("negrito")), "<Control-i>": lambda e: q(self.alternar("italico")),
             "<Control-u>": lambda e: q(self.alternar("sublinhado")),
             "<Control-Shift-K>": lambda e: q(self.alternar("versalete")),
@@ -1692,12 +3293,84 @@ class TextoRico(ttk.Frame):
             "<Control-d>": lambda e: "break", "<Control-o>": lambda e: "break", "<Control-t>": lambda e: "break",
             "<Control-h>": lambda e: "break", "<Control-k>": lambda e: "break",
         }
-        for sequencia, handler in ligacoes.items():
-            texto.bind_class(BINDTAG, sequencia, handler)
         self.ligacoes = ligacoes
+        _INSTANCIAS[str(texto)] = self
+        texto.bind("<Destroy>", self._esquecer_instancia, add="+")
+        if not texto.bind_class(BINDTAG):
+            for sequencia in ligacoes:
+                texto.bind_class(BINDTAG, sequencia, _despachar(sequencia))
+
+    def _esquecer_instancia(self, evento: Any) -> None:
+        if str(getattr(evento, "widget", "")) == str(self.texto):
+            _INSTANCIAS.pop(str(self.texto), None)
 
     @staticmethod
     def _quebra(_resultado: Any = None) -> str:
+        return "break"
+
+    def _tab(self, direcao: int) -> bool:
+        """`Tab`/`Shift+Tab`: entre células numa tabela; nível do item numa lista; senão um tabulador."""
+        if self.celula and self.ao_tab is not None:
+            return bool(self.ao_tab(direcao))
+        if direcao > 0:
+            return self.nivel(1) or self.inserir("\t")
+        return self.nivel(-1)
+
+    def _tecla_escape(self, evento: Any) -> str | None:
+        """`Esc` numa célula sai da tabela; numa nota volta à referência; senão segue para a janela."""
+        if self.celula and self.ao_escape is not None:
+            self.ao_escape()
+            return "break"
+        if self.em_nota():
+            self.voltar_da_nota()
+            return "break"
+        return None
+
+    def _tecla_quebra_de_pagina(self, evento: Any) -> str:
+        if not self.celula:
+            self.inserir_quebra_de_pagina()
+        return "break"
+
+    def _seta_vertical(self, direcao: int) -> str | None:
+        """Numa célula, seta para cima na primeira linha (ou para baixo na última) sai da célula."""
+        if not self.celula or self.ao_sair_vertical is None:
+            return None
+        # `-displaylines` so vale com o widget mapeado (a largura decide onde a linha dobra); sem tela, `-lines`.
+        unidade = "displaylines" if self.texto.winfo_ismapped() else "lines"
+        fim = f"{self._fim_de(self._ordem[-1])}-1c" if self._ordem else "end-1c"
+        try:
+            if direcao < 0:
+                na_borda = _contagem(self.texto.count("1.0", "insert", unidade)) == 0
+            else:
+                na_borda = _contagem(self.texto.count("insert", fim, unidade)) == 0
+        except tk.TclError:
+            na_borda = True
+        if not na_borda:
+            return None
+        self.ao_sair_vertical(direcao)
+        return "break"
+
+    def _seta_horizontal(self, direcao: int) -> str | None:
+        if not self.celula or self.ao_sair_horizontal is None:
+            return None
+        fim = f"{self._fim_de(self._ordem[-1])}-1c" if self._ordem else "end-1c"
+        if direcao < 0 and self.texto.compare("insert", "==", "1.0"):
+            self.ao_sair_horizontal(-1)
+            return "break"
+        if direcao > 0 and self.texto.compare("insert", ">=", fim):
+            self.ao_sair_horizontal(1)
+            return "break"
+        return None
+
+    def _roda(self, evento: Any) -> str | None:
+        """A roda numa célula rola o texto de fora (§8.6)."""
+        if not self.celula or self.dono is None:
+            return None
+        delta = getattr(evento, "delta", 0) or 0
+        try:
+            self._raiz().texto.yview_scroll(-int(delta / 120) if delta else 0, "units")
+        except tk.TclError:
+            pass
         return "break"
 
     def _tecla(self, evento: Any) -> str | None:
@@ -1713,11 +3386,19 @@ class TextoRico(ttk.Frame):
         return "break"
 
     def _delete(self) -> bool:
+        """`Delete`: sobre um objeto ou uma referência de nota, seleciona; no fim do bloco, junta o seguinte."""
         if self.selecao():
             return self.apagar_selecao()
         indice = self.texto.index("insert")
         bloco_id = self._bloco_em(indice)
         if bloco_id is None:
+            return False
+        if self._sobre_objeto(indice):
+            if not isinstance(self._modelo.get(bloco_id), FaixaDeNotas):
+                self.selecionar_objeto(bloco_id)
+            return False
+        if self._e_referencia_de_nota(indice):
+            self.selecionar_indices(indice, f"{indice}+1c")
             return False
         if self.texto.compare(indice, ">=", f"{self._fim_de(bloco_id)}-1c"):
             seguinte = self._seguinte(bloco_id)
@@ -1747,6 +3428,30 @@ class TextoRico(ttk.Frame):
                 pass
             self.apagar_selecao()
         return "break"
+
+
+class _SemCalha:
+    """O que uma célula tem no lugar da calha: nada que desenhe."""
+
+    def redesenhar(self) -> None:
+        pass
+
+    def marcar(self, bloco_id: str, tipo: str | None) -> None:
+        pass
+
+    def limpar(self) -> None:
+        pass
+
+
+def _despachar(sequencia: str) -> Callable[[Any], Any]:
+    """O handler da bindtag de classe: acha o `TextoRico` do widget do evento e chama o dele."""
+    def handler(evento: Any) -> Any:
+        dono = _INSTANCIAS.get(str(getattr(evento, "widget", "")))
+        if dono is None:
+            return None
+        ligacao = dono.ligacoes.get(sequencia)
+        return ligacao(evento) if ligacao is not None else None
+    return handler
 
 
 # ----------------------------------------------------------------------

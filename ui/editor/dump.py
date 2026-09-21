@@ -14,7 +14,10 @@ carrega as tags de caractere (`b`, `i`, `link:…`); o que é só da tela (`font
 tabela, ilha, marca de página, separador) é uma janela embutida de um caractere, e o
 `RegistroDeObjetos` diz que bloco ela é: o bloco volta **intacto**, byte a byte no
 caso da ilha. A referência de nota é um caractere protegido com a tag `nota:<id>`; a
-marca de página inline, um caractere protegido com `pagina:<n>`.
+marca de página inline, um caractere protegido com `pagina:<n>`. Depois do último
+bloco pode vir a **faixa de notas** (ED-04): o marco `FaixaDeNotas` (uma janela, que não
+volta) e os parágrafos de cada nota, com a tag `dn:<id>|<tipo>` — eles voltam agrupados
+como `Nota`, e não como bloco.
 
 **Puro.** Este módulo não importa Tk: recebe a lista do `dump` (tuplas `(chave, valor,
 índice)`) e um dicionário `nome da janela → bloco ou trecho`, e é o que o teste de
@@ -26,13 +29,28 @@ from __future__ import annotations
 import base64
 import copy
 import json
-from typing import Any, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping, Sequence
 
 from core.editor import modelo
 from core.editor.modelo import (Bloco, Citacao, ItemDeLista, Lista, Nota, Paragrafo, Titulo, Trecho)
 from ui.editor import tags as T
 
 PREFIXO_DA_MARCA = "bloco:"
+#: O id do pseudo-bloco que abre a faixa de notas no fim do capítulo (ED-04, §8.8).
+ID_DA_FAIXA = "faixa:notas"
+
+
+@dataclass(kw_only=True)
+class FaixaDeNotas(Bloco):
+    """
+    O marco da faixa de notas: um pseudo-bloco desenhado como objeto ("Notas") depois do
+    último bloco do capítulo. Os parágrafos que vêm depois dele levam a tag `dn:<id da
+    nota>|<tipo>` e voltam do `dump` como `Nota`, não como bloco; o próprio marco nunca
+    volta (ED-04).
+    """
+
+    id: str = ID_DA_FAIXA
 
 
 # ----------------------------------------------------------------------
@@ -399,25 +417,47 @@ def _citacao(segmentos: Sequence[_Segmento], registro: Mapping[str, Any], base: 
     return Citacao(blocos=[p for p in paragrafos if p.trechos] or [Paragrafo(trechos=[], estilo="citacao")], **base)
 
 
+def nota_da_tag(tags: Iterable[str]) -> tuple[str, str] | None:
+    """`(id da nota, tipo)` da tag `dn:<id>|<tipo>` de um parágrafo da faixa de notas; `None` fora dela."""
+    for tag in tags:
+        if tag.startswith("dn:"):
+            id_, _, tipo = T.valor(tag).partition("|")
+            return id_, (tipo or "rodape")
+    return None
+
+
 def dump_para_blocos(itens: Sequence[tuple], registro: Mapping[str, Any],
                      anteriores: Mapping[str, Bloco] | None = None) -> tuple[list[Bloco], list[Nota]]:
     """
-    Os blocos do capítulo a partir do `dump` do widget; as notas não são desenhadas na
-    ED-03 e voltam como estavam em `anteriores` (as de `Nota`), na ordem.
+    Os blocos do capítulo a partir do `dump` do widget, e as notas da faixa de notas
+    (os parágrafos com a tag `dn:<id>|<tipo>`, agrupados por nota, na ordem em que
+    aparecem). Uma nota que está em `anteriores` e não foi desenhada volta como estava.
     """
     anteriores = dict(anteriores or {})
     blocos: list[Bloco] = []
+    notas: dict[str, Nota] = {}
     for id_, segmentos in _segmentar(itens):
         anterior = anteriores.get(id_)
-        # Um objeto: a janela embutida diz o bloco, que volta intacto.
+        # Um objeto: a janela embutida diz o bloco, que volta intacto; o marco da faixa não volta.
         janela = next((s for s in segmentos if s.tipo in ("janela", "imagem")), None)
         if janela is not None and isinstance(registro.get(janela.valor), Bloco):
-            blocos.append(registro[janela.valor])
+            objeto = registro[janela.valor]
+            if not isinstance(objeto, FaixaDeNotas):
+                blocos.append(objeto)
             continue
         segs = _sem_o_fim(segmentos)
         tags_do_bloco = _tags_do_bloco(segmentos)
         base = _base_de(anterior if isinstance(anterior, Bloco) else None, id_)
         anterior_bloco = anterior if isinstance(anterior, Bloco) else None
+        nota = nota_da_tag(tags_do_bloco)
+        if nota is not None:
+            estilo = next((T.valor(t) for t in tags_do_bloco if t.startswith("p:")), "nota") or "nota"
+            paragrafo = _paragrafo(segs, registro, estilo, _campos_de_paragrafo(tags_do_bloco), base)
+            nota_id, tipo = nota
+            if nota_id not in notas:
+                notas[nota_id] = Nota(id=nota_id, tipo=tipo, blocos=[])
+            notas[nota_id].blocos.append(paragrafo)
+            continue
         if any(t.startswith("lista:") for t in tags_do_bloco):
             blocos.append(_lista(segs, registro, tags_do_bloco, base, anterior_bloco))
             continue
@@ -426,8 +466,9 @@ def dump_para_blocos(itens: Sequence[tuple], registro: Mapping[str, Any],
             continue
         estilo = next((T.valor(t) for t in tags_do_bloco if t.startswith("p:")), "corpo") or "corpo"
         blocos.append(_paragrafo(segs, registro, estilo, _campos_de_paragrafo(tags_do_bloco), base))
-    notas = [b for b in anteriores.values() if isinstance(b, Nota)]
-    return blocos, notas
+    saida = list(notas.values())
+    saida += [b for b in anteriores.values() if isinstance(b, Nota) and b.id not in notas]
+    return blocos, saida
 
 
 # ----------------------------------------------------------------------

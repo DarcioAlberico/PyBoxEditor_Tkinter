@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-07 e ED-09 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-07 e ED-09 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -822,7 +822,81 @@ Ler: spec §8.6–§8.11, §5 (`Figura`, `Tabela`, `Nota`, `Trecho.nota`, `Quebr
 
 ```
 .venv/Scripts/python.exe -m pytest tests/test_editor_objetos.py tests/test_editor_tabela.py tests/test_editor_propriedades.py tests/test_editor_area_de_transferencia.py -q -p no:cacheprovider -o addopts=""
+.venv/Scripts/python.exe -m pytest tests/test_editor_desempenho.py -q -p no:cacheprovider -o addopts="" -m slow
+.venv/Scripts/python.exe scripts/medir_editor.py
 ```
+
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/area_de_transferencia.py`, `ui/editor/{objetos,tabela,propriedades,proxy}.py`,
+as mudanças em `ui/editor/{texto_rico,dump,tags,menus,dialogos,janela,codigo}.py`, o
+`scripts/medir_editor.py` com a tabela e cinco arquivos de teste (31 testes + 1 `slow` +
+1 `gui`; `tests/editor_ambiente.py` é o ambiente partilhado). Medido: a tabela de 20×20
+carrega como grade em ~600 ms, o `dump` dela custa 2 ms, uma tecla numa célula 1,3 ms e o
+ponto de desfazer da tabela inteira ~60 ms (adiado). Conferido na tela com o processo
+DPI-aware: a grade com o cabeçalho sombreado e a célula focada, a figura com a legenda, a
+caixa do SVG, "— página n —", "— quebra de página —", a faixa "Notas" e o painel.
+
+**O que divergiu da spec, e por quê:**
+
+- **Dois defeitos latentes das fases anteriores, consertados aqui porque a ED-04 os
+  expôs.** (1) A bindtag de classe dos dois editores (`EditorAtalhosTexto`, `EditorAtalhos`)
+  era ligada com closures sobre `self` — `bind_class` é global ao interpretador, e toda
+  tecla ia para o **último** widget criado (duas abas, ou uma célula de tabela, e a
+  digitação saía no lugar errado). Agora a classe é ligada uma vez e o handler despacha
+  pelo `evento.widget` (`_INSTANCIAS`), nos dois editores. (2) O proxy do comando Tcl era
+  um comando Python: um erro Tcl dentro dele (`index sel.first` sem seleção, que `selecao()`
+  provoca e captura) deixa o `_tkinter` com a exceção pendente e o **`mainloop` morre** na
+  volta do evento — o subprocesso da AC-ED02-7 caiu assim que o painel Propriedades leu a
+  seleção. O proxy virou um `proc` Tcl (`ui/editor/proxy.py`) com ganchos Python `antes`/
+  `depois` que engolem as próprias exceções; vale para o texto rico e para o código.
+- **A faixa de notas são blocos comuns.** Os parágrafos de cada nota entram na `_ordem`
+  depois do marco `FaixaDeNotas` (um objeto "Notas", `dump.ID_DA_FAIXA`), com a tag de
+  parágrafo `dn:<id>|<tipo>` e o número como marcador protegido no primeiro; o `dump` os
+  agrupa em `Nota`. O ponto de desfazer de uma edição na nota é sobre a **nota inteira**
+  (`Ponto.ids` traz o id da nota; `historico.aplicar` já sabia de notas). A ordem das
+  notas só é refeita (`renumerar_notas`) em edições — inserir, apagar, colar, mudar o tipo
+  —, nunca ao carregar, porque a ida e volta dos 100 capítulos gerados manda. Apagar a
+  última referência de uma nota (`BackSpace` seleciona, o segundo apaga) leva a nota; uma
+  nota cujos parágrafos foram todos apagados fica com um vazio. `Ctrl+A` pára antes da faixa.
+- **A célula de tabela é um `TextoRico(celula=True)`** com `dono`, sem calha nem barra,
+  com as tags fixas configuradas sob demanda (`tags.configurar(..., preguicoso=True)`) — 400
+  células pagariam 8.000 `tag configure`. O registro pergunta à grade o modelo atual
+  (`RegistroDeObjetos.registrar(..., atualizar=grade.modelo)`); uma tecla numa célula
+  reconcila o texto de fora com atraso (`ATRASO_DA_CELULA_MS`, 250 ms), porque reler e
+  copiar uma tabela de 400 células a cada tecla custava 60 ms. `Text.count -displaylines`
+  só vale com o widget mapeado (sem tela conta um caractere por linha): sem tela é
+  `-lines`, e a grade refaz as alturas no `<Map>`/`<Configure>`. `celula_atual()` vale
+  sem foco de verdade (o teste corre numa janela `withdraw`n).
+- **`inserir_bloco_no_cursor` ao lado de `inserir_objeto`**: a quebra de página, o separador
+  e a tabela do menu partem o parágrafo no cursor (no começo, entram antes; no fim, depois);
+  `inserir_objeto` continua a entrar **depois** do bloco do cursor (o contrato da ED-03).
+  `Enter` **sobre** um objeto (o cursor antes da janela) é a ação principal; depois dela
+  (no `\n`) abre um parágrafo — é o único jeito de escrever depois de uma figura no fim.
+- **Colar**: `Fragmento` leva as notas referenciadas (`notas`), que nascem de novo com id
+  novo ao colar (o Word faz igual); o primeiro e o último parágrafos colados fundem-se com
+  as metades do parágrafo do cursor, os do meio entram inteiros; `blocos_do_xhtml` lê o
+  miolo do `body` que `consertar` embrulha (e um documento inteiro colado é lido como
+  capítulo). O `ler_imagem` da janela é o `ImageGrab` do PIL, importado só ali.
+- **Propriedades**: `TextoRico.alvo_das_propriedades()`/`aplicar_propriedades()` são a API;
+  o painel só grava em "Aplicar" e só remonta quando o alvo (tipo, id) muda, para não
+  apagar o que se está a digitar. `_reescrever_bloco` passou a guardar o "antes" à parte
+  (`_antes_forcado`): a base do `dump` era o modelo antigo, e classe, `id_persistente` e
+  extras aplicados perdiam-se; e mantém o cursor onde estava (redesenhar o bloco o
+  empurrava para o seguinte). Um id de âncora aceita letras fora do ASCII.
+- **`seguir_link` quebrado** fica vermelho no painel, entra em Resultados (com bloco e
+  deslocamento) e é erro de entrada; `destino_existe` conhece âncoras, notas e recursos.
+- **`delete(x, "end")` do Tk come o `\n` da linha anterior** quando `x` é cabeça de linha:
+  a faixa redesenhada colava "Notas" no fim do último parágrafo — apaga-se até `end-1c`.
+- **Fora da §7.3**: "Formatar → Editar ilha de XHTML…" (a ação principal da ilha precisa
+  de item, como toda ação de contexto) e "Formatar → Apagar nota"; o submenu Tabela tem
+  oito itens; o contexto do texto ganhou "Seguir link", "Editar ilha" e "Colar como XHTML".
+  `Caixas` ganhou `abrir_imagem`, `ilha` (o mini-editor) e `tabela`.
+- **A tag `objeto` deixou de pintar fundo**: com `justify=center`, o Tk pintava a faixa
+  cinza da margem até a janela; cada desenho tem a sua cor.
+- **`atualizar()` da janela sincroniza o painel Propriedades**: o `<<NotebookTabChanged>>`
+  só chega no laço de eventos, e abrir uma aba que já existe também passa por
+  `_trocou_de_aba`.
 
 ---
 
@@ -1514,7 +1588,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-01 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | `Diagrama.imagem`; `width` no PNG; `linear`, `nav_na_espinha`, `no_manifesto`, `Pessoa.id`, `Metadados.ids/prefixos`, `zip_de_origem`; `pybox:pagina`; `href` codificado; `noteref` de fora é ilha |
 | ED-02 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag `EditorJanela` com escopos; acorde de outro modo é `break`; `Ctrl+T`/`F8`; três itens fora da §7.3; `@y` no `<<MenuSelect>>`; `modos_do_comando`; inseparáveis agora; pilha própria do código; `core/services` preguiçoso; fila nas Mensagens; `DIALOGO_DE_CONCLUSAO` |
 | ED-03 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text` em vez de `<<Modified>>`; modelo em cache + `sincronizar(reler=True)`; tags `pid:`/`pcls:`/`pex:`/`sub:` nos internos; `_fundem` por tupla; enter no título abre corpo |
-| ED-04 | a fazer | | | |
+| ED-04 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag por instância e proxy em `proc` Tcl (defeitos latentes); faixa de notas como blocos `dn:`; célula = `TextoRico(celula=True)` com reconciliação adiada; `inserir_bloco_no_cursor`; `Fragmento.notas`; `_antes_forcado`; `end-1c`; itens fora da §7.3 |
 | ED-05 | a fazer | | | |
 | ED-05b | a fazer | | | |
 | ED-06 | a fazer | | | |

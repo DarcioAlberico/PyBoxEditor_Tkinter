@@ -1,7 +1,9 @@
 """
 Mede o editor de livros: `carregar`, `sincronizar` (só o que mudou), `dump` (o
 capítulo inteiro relido do widget para o modelo) e a latência de uma tecla simulada
-num capítulo de ~20 páginas (ED-03; SPEC_EDITOR §13.1).
+num capítulo de ~20 páginas (ED-03; SPEC_EDITOR §13.1) — e, desde a ED-04, uma tabela
+de 20×20 (o limite de 400 células, §8.6): quanto custa carregá-la como grade de células
+e quanto custa uma tecla numa célula (AC-ED04-2).
 
 Os números saem no console; os `assert` moram em `tests/test_editor_desempenho.py`
 (`slow`, fora do gate padrão). Rodar:
@@ -9,8 +11,8 @@ Os números saem no console; os `assert` moram em `tests/test_editor_desempenho.
     .venv/Scripts/python.exe scripts/medir_editor.py [--paginas 20] [--repeticoes 3]
 
 O capítulo é gerado por `tests/editor_gerador.py` (prosa, títulos, listas, citações,
-quebras suaves; sem objetos, que a ED-04/05 medem), com cerca de dez blocos por
-página. A janela é `withdraw`n: o que se mede é o widget e o modelo, não a pintura.
+quebras suaves; sem objetos, que a ED-05 mede), com cerca de dez blocos por página. A
+janela é `withdraw`n: o que se mede é o widget e o modelo, não a pintura.
 """
 
 from __future__ import annotations
@@ -85,15 +87,60 @@ def medir(paginas: int = 20, repeticoes: int = 3) -> dict[str, float]:
     return saida
 
 
+def medir_tabela(filas: int = 20, colunas: int = 20, repeticoes: int = 3) -> dict[str, float]:
+    """A tabela no limite (§8.6): carregar a grade, reler o capítulo, uma tecla numa célula e o ponto dela."""
+    from core.editor import modelo as m
+    from ui.editor.texto_rico import TextoRico
+
+    raiz = tk.Tk()
+    raiz.withdraw()
+    widget = TextoRico(raiz)
+    widget.pack(fill="both", expand=True)
+    tabela = m.Tabela(filas=[[m.Celula(blocos=[m.Paragrafo(trechos=[m.Trecho(texto=f"c{f},{c}")])])
+                              for c in range(colunas)] for f in range(filas)])
+    cap = m.Capitulo(arquivo="Text/tabela.xhtml",
+                     blocos=[m.Paragrafo(trechos=[m.Trecho(texto="antes")]), tabela,
+                             m.Paragrafo(trechos=[m.Trecho(texto="depois")])])
+    tempos: dict[str, list[float]] = {"carregar_tabela": [], "dump_tabela": [], "tecla_na_celula": [],
+                                      "ponto_da_tabela": []}
+    for _ in range(repeticoes):
+        t0 = time.perf_counter()
+        widget.carregar(cap)
+        tempos["carregar_tabela"].append(time.perf_counter() - t0)
+        t0 = time.perf_counter()
+        copia = widget.sincronizar(reler=True)
+        tempos["dump_tabela"].append(time.perf_counter() - t0)
+        assert m.igual(copia, cap), "a tabela medida não fecha a ida e volta"
+        grade = widget.widget_do_objeto(tabela.id)
+        celula = grade.entrar(filas // 2, colunas // 2)
+        t0 = time.perf_counter()
+        celula.inserir("x")
+        tempos["tecla_na_celula"].append(time.perf_counter() - t0)
+        # O ponto de desfazer da tabela inteira é adiado (ATRASO_DA_CELULA_MS); `sincronizar` o cobra agora.
+        t0 = time.perf_counter()
+        widget.sincronizar()
+        tempos["ponto_da_tabela"].append(time.perf_counter() - t0)
+    raiz.destroy()
+    saida = {chave: statistics.median(v) for chave, v in tempos.items()}
+    saida["celulas"] = filas * colunas
+    return saida
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Mede carregar/sincronizar/dump/tecla do modo texto.")
+    parser = argparse.ArgumentParser(description="Mede carregar/sincronizar/dump/tecla do modo texto e a tabela.")
     parser.add_argument("--paginas", type=int, default=20)
     parser.add_argument("--repeticoes", type=int, default=3)
+    parser.add_argument("--sem-tabela", action="store_true", help="pula a medição da tabela de 20×20")
     args = parser.parse_args(argv)
     resultado = medir(args.paginas, args.repeticoes)
     print(f"capítulo de {args.paginas} páginas: {resultado['blocos']} blocos, {resultado['caracteres']} caracteres")
     for chave in ("carregar", "sincronizar", "dump", "tecla"):
-        print(f"  {chave:12s} {resultado[chave] * 1000:8.1f} ms (mediana de {args.repeticoes})")
+        print(f"  {chave:16s} {resultado[chave] * 1000:8.1f} ms (mediana de {args.repeticoes})")
+    if not args.sem_tabela:
+        tabela = medir_tabela(repeticoes=args.repeticoes)
+        print(f"tabela de 20×20: {tabela['celulas']} células")
+        for chave in ("carregar_tabela", "dump_tabela", "tecla_na_celula", "ponto_da_tabela"):
+            print(f"  {chave:16s} {tabela[chave] * 1000:8.1f} ms (mediana de {args.repeticoes})")
     return 0
 
 

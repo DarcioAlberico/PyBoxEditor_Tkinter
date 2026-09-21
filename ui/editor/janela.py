@@ -31,8 +31,19 @@ mesmo, por `after` de um segundo, com o relógio injetável do `Rascunho`.
 Cada fase liga o que entrega por `registrar_comandos({nome: função}, modos=…)` — o
 item de menu já existe (§7.3, `ui/editor/menus.py`) e acorda sozinho; até lá, ele
 diz a fase na barra de status ao ser percorrido. `modos_do_comando` restringe um
-comando registrado a um modo (`inserir_link` existe no código desde a ED-07; no
-texto chega na ED-04).
+comando registrado a um modo.
+
+## A ED-04 na janela
+
+Os objetos do modo texto (§8.6–§8.11) chegam por `_registrar_comandos_da_ed04`: a
+área de transferência (`core/editor/area_de_transferencia.py`, com o acesso ao sistema
+injetado daqui — `clipboard_get`/`clipboard_append` e o `ImageGrab` do PIL, lazy), o
+painel Propriedades (`ui/editor/propriedades.py`, que só grava em "Aplicar"), a ação
+principal de um objeto (`acao_principal`: tabela → primeira célula; nota → a nota; ilha
+→ o mini-editor; diagrama → a ED-05; o resto → o painel), "Seguir link" (que troca de
+aba e leva ao bloco; destino inexistente fica vermelho no painel e vai a Resultados),
+imagem de arquivo → recurso do livro, tabela, ilha, notas, quebras, e "Dividir capítulo
+aqui"/"Juntar com o anterior" por `livro_ops`, com as abas e o sumário recarregados.
 """
 
 from __future__ import annotations
@@ -43,13 +54,16 @@ import re
 import time
 import tkinter as tk
 import traceback
+import webbrowser
 from dataclasses import dataclass
 from tkinter import ttk
 from typing import Any, Callable, Iterable, Sequence
 
+from core.editor import area_de_transferencia as area_mod
 from core.editor import epub, livro_ops, modelo, sumario, xhtml
 from core.editor.clipes import Clipes
-from core.editor.modelo import Capitulo, Paragrafo, Pessoa
+from core.editor.modelo import (Capitulo, Celula, Diagrama, Figura, IlhaBruta, Paragrafo, Pessoa, Recurso, Tabela,
+                                Trecho)
 from core.editor.projeto import Projeto, Rascunho, Recentes
 from core.editor.xhtml import ErroDeXhtml
 from ui.editor import atalhos as atalhos_mod
@@ -60,7 +74,9 @@ from ui.editor.codigo import EditorDeCodigo
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
 from ui.editor.mensagens import PainelDeMensagens, logger
+from ui.editor.propriedades import PainelDePropriedades
 from ui.editor.resultados import PainelDeResultados, Resultado
+from ui.editor.tabela import GradeDeTabela
 from ui.editor.tags import EstiloDeTela
 from ui.editor.texto_rico import TextoRico
 
@@ -136,10 +152,14 @@ class JanelaDoEditor(tk.Toplevel):
         self._protocolo_anterior: str | None = None
         self._despacho = _Despacho(self)
         self._tema_codigo = tema_codigo or self._preferencia("tema_codigo", "claro")
+        #: A área de transferência (§8.11): o acesso ao sistema é injetado daqui (o teste troca).
+        self.area = area_mod.AreaDeTransferencia(self._ler_clipboard, self._gravar_clipboard, _imagem_do_clipboard)
+        self.abrir_url: Callable[[str], Any] = webbrowser.open
 
         self.task = task_controller if task_controller is not None else _task_controller(self)
         self._construir()
         self._registrar_comandos_da_ed02()
+        self._registrar_comandos_da_ed04()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -223,10 +243,11 @@ class JanelaDoEditor(tk.Toplevel):
 
         # Direita: Propriedades, Xadrez
         self.quadro_propriedades = ttk.LabelFrame(self.direita, text="Propriedades")
-        self.propriedades = tk.Label(self.quadro_propriedades, text="Propriedades — chega na ED-04", anchor="nw",
-                                     takefocus=1, highlightthickness=2, padx=6, pady=4, wraplength=200,
-                                     justify="left")
-        self.propriedades.pack(fill="both", expand=True)
+        self.painel_de_propriedades = PainelDePropriedades(self.quadro_propriedades, None,
+                                                           ao_acao=self._acao_das_propriedades,
+                                                           verificar_destino=self.destino_existe)
+        self.painel_de_propriedades.pack(fill="both", expand=True)
+        self.propriedades = self.painel_de_propriedades
         self.quadro_xadrez = ttk.LabelFrame(self.direita, text="Xadrez")
         self.xadrez = tk.Label(self.quadro_xadrez, text="Tabuleiro, paleta e posição — chega na ED-05", anchor="nw",
                                takefocus=1, highlightthickness=2, padx=6, pady=4, wraplength=200, justify="left")
@@ -251,7 +272,8 @@ class JanelaDoEditor(tk.Toplevel):
             "sumario": Painel("sumario", "esquerda", self.quadro_sumario, self._focar_sumario),
             "estilos": Painel("estilos", "esquerda", self.quadro_estilos, self.painel_de_estilos.lista.focus_set),
             "editor": Painel("editor", "centro", self.abas, self.foco_no_editor),
-            "propriedades": Painel("propriedades", "direita", self.quadro_propriedades, self.propriedades.focus_set),
+            "propriedades": Painel("propriedades", "direita", self.quadro_propriedades,
+                                   self.painel_de_propriedades.foco),
             "xadrez": Painel("xadrez", "direita", self.quadro_xadrez, self.xadrez.focus_set),
             "busca": Painel("busca", "inferior", self.busca, lambda: self._focar_inferior(self.busca)),
             "resultados": Painel("resultados", "inferior", self.resultados,
@@ -418,11 +440,38 @@ class JanelaDoEditor(tk.Toplevel):
         ajuda = {"atalhos": j.atalhos, "dialeto": j.dialeto, "sobre": j.sobre}
         for grupo in (arquivo, editar, exibir, inserir, formatar, ferramentas, livro, ajuda):
             self.registrar_comandos(grupo)
-        so_no_codigo = ("inserir_link", "inserir_ancora", "inserir_imagem", "dividir_capitulo", "aplicar_clipe",
-                        "bem_formado", "consertar", "reformatar", "reformatar_css", "clipes", "autocompletar",
-                        "comentar", "ir_para", "ir_ao_alvo", "voltar", "numeros_de_linha", "realce_da_linha")
+        so_no_codigo = ("aplicar_clipe", "bem_formado", "consertar", "reformatar", "reformatar_css", "clipes",
+                        "autocompletar", "comentar", "ir_para", "ir_ao_alvo", "voltar", "numeros_de_linha",
+                        "realce_da_linha")
         for nome in so_no_codigo:
             self.modos_do_comando[nome] = ("codigo",)
+
+    def _registrar_comandos_da_ed04(self) -> None:
+        """Os objetos do modo texto (§8.6–§8.11): cada comando acorda o item que a tabela de menus já tem."""
+        j = self
+        texto = {
+            "colar_como_xhtml": j.colar_como_xhtml, "seguir_link": j.seguir_link,
+            "inserir_tabela": j.inserir_tabela, "nota_de_rodape": lambda: j._texto_ativo().inserir_nota("rodape"),
+            "nota_de_fim": lambda: j._texto_ativo().inserir_nota("fim"),
+            "quebra_de_linha": lambda: j._texto_ativo().inserir_quebra_suave(),
+            "quebra_de_pagina": lambda: j._texto().inserir_quebra_de_pagina(),
+            "inserir_separador": lambda: j._texto().inserir_separador(), "inserir_ilha": j.inserir_ilha,
+            "propriedades_do_objeto": j.propriedades_do_objeto, "editar_ilha": j.editar_ilha,
+            "apagar_nota": j.apagar_nota,
+            "tabela_fila_acima": lambda: j._grade().inserir_fila(depois=False),
+            "tabela_fila_abaixo": lambda: j._grade().inserir_fila(depois=True),
+            "tabela_coluna_esquerda": lambda: j._grade().inserir_coluna(depois=False),
+            "tabela_coluna_direita": lambda: j._grade().inserir_coluna(depois=True),
+            "tabela_excluir_fila": lambda: j._grade().excluir_fila(),
+            "tabela_excluir_coluna": lambda: j._grade().excluir_coluna(),
+            "tabela_cabecalho": lambda: j._grade().alternar_cabecalho(), "tabela_excluir": j.tabela_excluir,
+        }
+        self.registrar_comandos(texto, modos=("texto",))
+        ambos = {"inserir_link": j.inserir_link, "inserir_ancora": j.inserir_ancora, "inserir_imagem": j.inserir_imagem,
+                 "dividir_capitulo": j.dividir_capitulo, "juntar_com_anterior": j.juntar_com_anterior,
+                 "colar": j.colar, "colar_sem_formatacao": j.colar_sem_formatacao, "copiar": j.copiar,
+                 "recortar": j.recortar}
+        self.registrar_comandos(ambos)
 
     # ==================================================================
     # Estado: modo, aba, editores
@@ -465,8 +514,30 @@ class JanelaDoEditor(tk.Toplevel):
             raise ValueError(f"{nome} não existe no modo {self.modo_atual()}.")
         return comando()
 
+    def _texto_ativo(self) -> TextoRico:
+        """O `TextoRico` que recebe formatação e texto: a célula de tabela com o foco, ou o capítulo."""
+        return self._texto().ativo()
+
     def _no_texto(self, nome: str) -> Any:
-        return self._texto().comandos[nome]()
+        return self._texto_ativo().comandos[nome]()
+
+    def _grade(self) -> GradeDeTabela:
+        """A grade da tabela sob o cursor (ou com uma célula focada) — o alvo de Formatar → Tabela ▸."""
+        texto = self._texto()
+        celula = texto.ativo()
+        if celula is not texto:
+            grade = celula.master
+            while grade is not None and not isinstance(grade, GradeDeTabela):
+                grade = getattr(grade, "master", None)
+            if isinstance(grade, GradeDeTabela):
+                return grade
+        objeto = texto.objeto_no_cursor()
+        if isinstance(objeto, Tabela):
+            grade = texto.widget_do_objeto(objeto.id)
+            if isinstance(grade, GradeDeTabela):
+                return grade
+            raise ValueError("esta tabela passa de 400 células e se edita no modo código (F11)")
+        raise ValueError("o cursor precisa estar numa tabela (ou numa célula dela)")
 
     def _exigir_projeto(self) -> Projeto:
         if self.projeto is None:
@@ -855,12 +926,23 @@ class JanelaDoEditor(tk.Toplevel):
     def _criar_texto(self, frame: ttk.Frame, aba: Aba, cap: Capitulo) -> TextoRico:
         assert self.projeto is not None
         widget = TextoRico(frame, estilo_de_tela=self._estilo_de_tela(), folhas=self._folhas_de(cap),
-                           historico=self.projeto.historico, relogio=self.relogio, arquivo=cap.arquivo)
+                           historico=self.projeto.historico, relogio=self.relogio, arquivo=cap.arquivo,
+                           recursos=self._dados_do_recurso, ao_ativar=self.acao_principal)
         widget.carregar(cap)
         self._ligar_editor(widget, aba)
-        widget.texto.bind("<<AtivarObjeto>>", lambda e: self.status("Objeto: a ação principal chega na ED-04"),
-                          add="+")
         return widget
+
+    def _dados_do_recurso(self, href: str) -> bytes | None:
+        """Os bytes de uma imagem do livro para o desenho da figura; `None` quando não há."""
+        if self.projeto is None:
+            return None
+        recurso = self.projeto.livro.recurso(href)
+        if recurso is None:
+            return None
+        try:
+            return epub.dados_de(self.projeto.livro, recurso)
+        except FileNotFoundError:
+            return None
 
     def _criar_codigo(self, frame: ttk.Frame, aba: Aba, texto: str, linguagem: str = "xhtml",
                       folhas: Iterable[tuple[str, str]] = ()) -> EditorDeCodigo:
@@ -906,6 +988,8 @@ class JanelaDoEditor(tk.Toplevel):
             self.abas.selecionar(existente)
             if modo is not None and existente.modo != modo:
                 self.alternar_modo(existente, para=modo)
+            else:
+                self._trocou_de_aba(existente)      # sem esperar o <<NotebookTabChanged>> do laco de eventos
             return existente
         if modo is None:
             modo = "codigo" if cap.texto_cru is not None else "texto"
@@ -1059,14 +1143,33 @@ class JanelaDoEditor(tk.Toplevel):
         self._atualizar_titulo()
         self._atualizar_estado()
         self._agendar_contagem()
+        if aba is self.aba_ativa() and isinstance(aba.widget, TextoRico) and not self._foco_no_painel_de_propriedades():
+            self.painel_de_propriedades.atualizar(forcar=True)
 
     def _cursor_moveu(self, aba: Aba) -> None:
         if aba is self.aba_ativa():
             self._atualizar_posicao(aba)
+            if isinstance(aba.widget, TextoRico) and not self._foco_no_painel_de_propriedades():
+                self.painel_de_propriedades.atualizar()
+
+    def _foco_no_painel_de_propriedades(self) -> bool:
+        try:
+            foco = self.focus_get()
+        except (tk.TclError, KeyError):
+            return False
+        while foco is not None:
+            if foco is self.painel_de_propriedades:
+                return True
+            foco = getattr(foco, "master", None)
+        return False
 
     def _trocou_de_aba(self, aba: Aba | None) -> None:
         if aba is not None and isinstance(aba.widget, TextoRico):
             self.painel_de_estilos.texto_rico = aba.widget
+            self.painel_de_propriedades.texto_rico = aba.widget
+        else:
+            self.painel_de_propriedades.texto_rico = None
+        self.painel_de_propriedades.atualizar()
         self.atualizar()
 
     def _botao_direito(self, evento: Any) -> str:
@@ -1121,25 +1224,46 @@ class JanelaDoEditor(tk.Toplevel):
     # Comandos de edição que a janela intermedeia
     # ==================================================================
 
-    def _selecao_do_editor(self) -> str:
-        editor = self.editor_ativo()
-        if editor is None:
-            raise ValueError("Nenhuma aba aberta.")
-        selecao = editor.selecao()
-        return editor.texto.get(*selecao) if selecao else ""
+    def _ler_clipboard(self) -> str:
+        try:
+            return self.clipboard_get()
+        except tk.TclError:
+            return ""
 
-    def copiar(self) -> str:
-        texto = self._selecao_do_editor()
-        if texto:
+    def _gravar_clipboard(self, texto: str) -> None:
+        try:
             self.clipboard_clear()
             self.clipboard_append(texto)
+        except tk.TclError:
+            pass
+
+    def _editor_de_edicao(self) -> Any:
+        """O editor que recebe copiar/colar: a célula com o foco, o capítulo ou o código."""
+        editor = self.editor_ativo()
+        aba = self.aba_ativa()
+        if editor is None or aba is None:
+            raise ValueError("Nenhuma aba aberta.")
+        if isinstance(editor, TextoRico):
+            return editor.ativo()
+        return editor
+
+    def copiar(self) -> str:
+        """Copiar (§8.11): o modelo fica no processo; o sistema recebe só o texto plano."""
+        editor = self._editor_de_edicao()
+        if isinstance(editor, TextoRico):
+            fragmento = editor.fragmento_da_selecao()
+            return self.area.copiar(fragmento)
+        selecao = editor.selecao()
+        texto = editor.texto.get(*selecao) if selecao else ""
+        if texto:
+            self.area.copiar(area_mod.Fragmento(blocos=[], inline=True, texto=texto))
         return texto
 
     def recortar(self) -> str:
         texto = self.copiar()
         if not texto:
             return ""
-        editor = self.editor_ativo()
+        editor = self._editor_de_edicao()
         aba = self.aba_ativa()
         if aba is not None and aba.somente_leitura:
             raise ValueError(f"{aba.nome} abre só para leitura.")
@@ -1151,20 +1275,86 @@ class JanelaDoEditor(tk.Toplevel):
                 editor.texto.delete(*selecao)
         return texto
 
-    def colar(self) -> str:
-        try:
-            conteudo = self.clipboard_get()
-        except tk.TclError:
+    def colar(self, forcar_texto: bool = False) -> str:
+        """
+        Colar (§8.11): interno (com formato, figura, ilha e notas) quando o texto do sistema
+        é o do último copiar; texto de fora vira parágrafos; imagem vira recurso e figura.
+        """
+        editor = self._editor_de_edicao()
+        aba = self.aba_ativa()
+        if aba is not None and aba.somente_leitura:
+            raise ValueError(f"{aba.nome} abre só para leitura.")
+        colagem = self.area.colar(forcar_texto=forcar_texto)
+        if colagem is None:
+            self.status("Nada para colar.")
             return ""
-        self.inserir_texto(conteudo.replace("\r\n", "\n"))
-        return conteudo
+        if not isinstance(editor, TextoRico):
+            if colagem.tipo == "imagem":
+                raise ValueError("uma imagem cola só no modo texto (F11)")
+            editor.inserir(colagem.texto)
+            return colagem.texto
+        if colagem.tipo == "interno" and colagem.fragmento is not None:
+            editor.colar_fragmento(colagem.fragmento)
+            return colagem.texto
+        if colagem.tipo == "imagem" and colagem.imagem:
+            self._colar_imagem(colagem.imagem)
+            return "(imagem)"
+        blocos = area_mod.blocos_do_texto(colagem.texto)
+        if len(blocos) <= 1:
+            texto = blocos[0].trechos[0].texto if blocos else colagem.texto.strip()
+            if editor.selecao():
+                editor.apagar_selecao()
+            editor.inserir(texto)
+        else:
+            editor.inserir_blocos(blocos)
+        return colagem.texto
+
+    def colar_sem_formatacao(self) -> str:
+        """`Ctrl+Shift+V`: sempre o texto plano do sistema."""
+        return self.colar(forcar_texto=True)
+
+    def colar_como_xhtml(self, texto: str | None = None) -> list[str]:
+        """"Colar como XHTML": o texto do sistema é consertado e lido como fragmento do dialeto."""
+        editor = self._texto_ativo()
+        if texto is None:
+            try:
+                texto = self.area.ler_sistema() or ""
+            except Exception:      # noqa: BLE001 — sem texto no sistema
+                texto = ""
+        if not texto.strip():
+            raise ValueError("não há XHTML na área de transferência")
+        blocos, avisos = area_mod.blocos_do_xhtml(texto, self.aba_ativa().arquivo if self.aba_ativa() else "")
+        for aviso in avisos:
+            self.log.info("colar como XHTML: %s", aviso)
+        if not blocos:
+            raise ValueError("o XHTML colado não tem nenhum bloco")
+        if len(blocos) == 1 and isinstance(blocos[0], Paragrafo) and not isinstance(blocos[0], modelo.Titulo) \
+                and editor.objeto_no_cursor() is None:
+            editor.inserir_trechos(blocos[0].trechos)
+            return [editor.bloco_atual() or ""]
+        return editor.inserir_blocos(blocos)
+
+    def _colar_imagem(self, png: bytes, alt: str = "") -> str:
+        """A imagem do sistema vira `Images/colada-<n>.png` no livro e uma figura no cursor (§8.7)."""
+        projeto = self._exigir_projeto()
+        pasta = epub.pasta_de_imagens(projeto.livro)
+        n = 1
+        while livro_ops.nome_livre(projeto.livro, f"{pasta}/colada-{n}.png") != f"{pasta}/colada-{n}.png":
+            n += 1
+        href = f"{pasta}/colada-{n}.png"
+        projeto.livro.recursos[href] = Recurso(caminho=href, tipo_mime=epub.MIME_PNG, dados=bytes(png))
+        projeto.marcar_sujo()
+        self.atualizar_navegador()
+        self._texto().inserir_objeto(Figura(recurso=href, alt=alt))
+        self.log.info("Imagem colada: %s (%d bytes).", href, len(png))
+        if not alt:
+            self._avisar_alt_vazio(href)
+        return href
 
     def inserir_texto(self, texto: str) -> None:
-        editor = self.editor_ativo()
+        editor = self._editor_de_edicao()
         aba = self.aba_ativa()
-        if editor is None or aba is None:
-            raise ValueError("Nenhuma aba aberta.")
-        if aba.somente_leitura:
+        if aba is not None and aba.somente_leitura:
             raise ValueError(f"{aba.nome} abre só para leitura.")
         if isinstance(editor, TextoRico):
             if editor.selecao():
@@ -1174,7 +1364,7 @@ class JanelaDoEditor(tk.Toplevel):
             editor.inserir(texto)
 
     def pincel(self) -> bool:
-        texto = self._texto()
+        texto = self._texto_ativo()
         if not self._pincel_carregado:
             texto.pincel_copiar()
             self._pincel_carregado = True
@@ -1187,7 +1377,7 @@ class JanelaDoEditor(tk.Toplevel):
         return True
 
     def fonte(self) -> dict[str, Any] | None:
-        texto = self._texto()
+        texto = self._texto_ativo()
         e = texto.estilo_no_cursor()
         atual = {"familia": e.get("fam", ""), "corpo_pt": e.get("corpo_pt"), "cor": e.get("cor", ""),
                  "fundo": e.get("fundo", ""),
@@ -1200,7 +1390,7 @@ class JanelaDoEditor(tk.Toplevel):
         return escolha
 
     def cor(self) -> str:
-        texto = self._texto()
+        texto = self._texto_ativo()
         atual = texto.estilo_no_cursor().get("cor", "")
         escolhida = self.caixas.cor(atual)
         if escolhida:
@@ -1208,7 +1398,7 @@ class JanelaDoEditor(tk.Toplevel):
         return escolhida
 
     def paragrafo(self) -> dict[str, Any] | None:
-        texto = self._texto()
+        texto = self._texto_ativo()
         bloco = texto.modelo_de(texto.bloco_atual() or "")
         atual: dict[str, Any] = {}
         if isinstance(bloco, Paragrafo):
@@ -1221,7 +1411,7 @@ class JanelaDoEditor(tk.Toplevel):
         return escolha
 
     def recuar(self, sentido: int) -> Any:
-        texto = self._texto()
+        texto = self._texto_ativo()
         if texto.nivel(sentido):
             return True
         bloco = texto.modelo_de(texto.bloco_atual() or "")
@@ -1320,11 +1510,19 @@ class JanelaDoEditor(tk.Toplevel):
         return int(linha)
 
     def inserir_link(self, href: str | None = None, rotulo: str | None = None) -> None:
-        editor = self._codigo()
-        if href is None:
+        """Link… (`Ctrl+K`): no texto, na seleção ou como texto novo (§8.9); no código, `<a href>`."""
+        if self.modo_atual() == "texto":
+            editor: Any = self._texto_ativo()
             selecao = editor.selecao()
             inicial = editor.texto.get(*selecao) if selecao else ""
-            resposta = self.caixas.formulario("Inserir link", [("href", "Destino (href):", ""),
+            atual = editor.link_no_cursor() or ""
+        else:
+            editor = self._codigo()
+            selecao = editor.selecao()
+            inicial = editor.texto.get(*selecao) if selecao else ""
+            atual = ""
+        if href is None:
+            resposta = self.caixas.formulario("Inserir link", [("href", "Destino (href):", atual),
                                                                ("rotulo", "Texto do link:", inicial)])
             if resposta is None:
                 return None
@@ -1332,42 +1530,107 @@ class JanelaDoEditor(tk.Toplevel):
             if not href:
                 raise ValueError("o link precisa de um destino (href)")
             rotulo = rotulo or None
-        editor.inserir_link(href, rotulo)
+        if isinstance(editor, TextoRico):
+            editor.inserir_link(href, rotulo if not selecao else None)
+        else:
+            editor.inserir_link(href, rotulo)
 
-    def inserir_ancora(self, id_: str | None = None) -> None:
-        editor = self._codigo()
+    def inserir_ancora(self, id_: str | None = None) -> str | None:
+        """Âncora (id)…: no texto, o `id` persistente do bloco do cursor (§8.9); no código, um `id="…"`."""
         if id_ is None:
-            id_ = self.caixas.pedir_texto("Inserir âncora", "id:", "")
+            atual = ""
+            if self.modo_atual() == "texto":
+                bloco = self._texto_ativo().modelo_de(self._texto_ativo().bloco_atual() or "")
+                atual = bloco.id if bloco is not None and bloco.id_persistente else ""
+            id_ = self.caixas.pedir_texto("Inserir âncora", "id:", atual)
             if id_ is None:
                 return None
         id_ = id_.strip()
-        if not re.fullmatch(r"[A-Za-z_][\w.:-]*", id_):
+        if not re.fullmatch(r"[^\W\d][\w.:-]*", id_):
             raise ValueError(f"id inválido: {id_!r} — comece por letra, sem espaços")
-        editor.inserir_id(id_)
+        if self.modo_atual() == "texto":
+            texto = self._texto_ativo()
+            bloco_id = texto.bloco_atual()
+            if bloco_id is None:
+                raise ValueError("o cursor precisa estar num bloco")
+            texto.definir_id(bloco_id, id_)
+            self.painel_de_propriedades.atualizar(forcar=True)
+            return id_
+        self._codigo().inserir_id(id_)
+        return id_
 
-    def inserir_imagem(self, caminho: str | None = None, alt: str | None = None) -> None:
-        editor = self._codigo()
+    def inserir_imagem(self, caminho: str | None = None, alt: str | None = None) -> str | None:
+        """
+        Imagem…: no texto, um arquivo de imagem vira recurso do livro (em `Images/`) e uma
+        `Figura` no cursor (§8.7); um recurso que já está no livro entra direto. No código,
+        um `<img>` de um recurso do livro. Devolve o href do recurso.
+        """
         projeto = self._exigir_projeto()
         aba = self.aba_ativa()
         assert aba is not None
         imagens = [c for c, r in projeto.livro.recursos.items() if r.tipo_mime.startswith("image/")]
+        if self.modo_atual() == "codigo":
+            editor = self._codigo()
+            if caminho is None:
+                if not imagens:
+                    raise ValueError("o livro não tem imagens (Livro → Adicionar arquivo… chega na ED-08)")
+                indice = self.caixas.escolher("Inserir imagem", "Imagem do livro:", imagens, "Inserir")
+                if indice is None:
+                    return None
+                caminho = imagens[indice]
+                alt = self.caixas.pedir_texto("Inserir imagem", "Texto alternativo (alt):", "") or ""
+            relativo = posixpath.relpath(caminho, posixpath.dirname(aba.arquivo) or ".")
+            editor.inserir_imagem(relativo, alt or "")
+            return caminho
+        texto = self._texto()
         if caminho is None:
-            if not imagens:
-                raise ValueError("o livro não tem imagens (Livro → Adicionar arquivo… chega na ED-08)")
-            indice = self.caixas.escolher("Inserir imagem", "Imagem do livro:", imagens, "Inserir")
-            if indice is None:
+            caminho = self.caixas.abrir_imagem(self._preferencia("diretorios", {}).get("imagens", ""))
+            if not caminho:
                 return None
-            caminho = imagens[indice]
-            alt = self.caixas.pedir_texto("Inserir imagem", "Texto alternativo (alt):", "") or ""
-        relativo = posixpath.relpath(caminho, posixpath.dirname(aba.arquivo) or ".")
-        editor.inserir_imagem(relativo, alt or "")
+            alt = self.caixas.pedir_texto("Inserir imagem", "Texto alternativo (alt):", "")
+            if alt is None:
+                return None
+        if caminho in imagens:
+            href = caminho
+        else:
+            caminho = os.path.abspath(os.fspath(caminho))
+            if not os.path.isfile(caminho):
+                raise ValueError(f"o arquivo não existe: {caminho}")
+            tipo = epub.tipo_mime_de(caminho)
+            if not tipo.startswith("image/"):
+                raise ValueError(f"{os.path.basename(caminho)} não é uma imagem (PNG, JPEG, GIF ou SVG)")
+            with open(caminho, "rb") as f:
+                dados = f.read()
+            pasta = epub.pasta_de_imagens(projeto.livro)
+            href = livro_ops.nome_livre(projeto.livro, f"{pasta}/{os.path.basename(caminho)}")
+            projeto.livro.recursos[href] = Recurso(caminho=href, tipo_mime=tipo, dados=dados)
+            projeto.marcar_sujo()
+            self.atualizar_navegador()
+            self._gravar_preferencia("diretorios", {**self._preferencia("diretorios", {}),
+                                                   "imagens": os.path.dirname(caminho)})
+            self.log.info("Imagem adicionada ao livro: %s (%d bytes).", href, len(dados))
+        texto.inserir_objeto(Figura(recurso=href, alt=(alt or "").strip()))
+        if not (alt or "").strip():
+            self._avisar_alt_vazio(href)
+        self.painel_de_propriedades.atualizar(forcar=True)
+        return href
+
+    def _avisar_alt_vazio(self, href: str) -> None:
+        self.log.warning("%s: figura sem texto alternativo (alt) — preencha em Propriedades.", href)
+        self.status(f"{posixpath.basename(href)}: sem alt — preencha o texto alternativo em Propriedades.")
 
     def dividir_capitulo(self) -> str | None:
-        """`Ctrl+Enter` no código: o texto depois do cursor vira um capítulo novo, logo a seguir (§9.5)."""
-        editor = self._codigo()
+        """
+        Dividir capítulo aqui. No texto (`Ctrl+Shift+Enter`), por `livro_ops.dividir` antes
+        do bloco do cursor (um parágrafo é partido nele); no código (`Ctrl+Enter`), o texto
+        depois do cursor vira o capítulo novo (§9.5). As abas e o sumário são recarregados.
+        """
         projeto = self._exigir_projeto()
         aba = self.aba_ativa()
         assert aba is not None
+        if aba.modo == "texto":
+            return self._dividir_no_texto(aba)
+        editor = self._codigo()
         partes = editor.dividir_no_cursor()
         if partes is None:
             raise ValueError("não dá para dividir aqui: o cursor precisa estar no corpo, entre blocos")
@@ -1384,6 +1647,247 @@ class JanelaDoEditor(tk.Toplevel):
         self.log.info("Dividido: %s → %s.", cap.arquivo, novo_nome)
         self.abrir_capitulo(novo_nome, modo="codigo")
         return novo_nome
+
+    def _dividir_no_texto(self, aba: Aba) -> str:
+        projeto = self._exigir_projeto()
+        texto = self._texto()
+        if texto.em_nota():
+            raise ValueError("o cursor está na faixa de notas: dividir se faz no corpo do capítulo (Esc)")
+        bloco_id, desloc = texto.posicao()
+        if bloco_id is None:
+            raise ValueError("o cursor precisa estar num bloco")
+        bloco = texto.modelo_de(bloco_id)
+        if isinstance(bloco, Paragrafo) and 0 < desloc < len(modelo.texto_de(bloco)):
+            texto.enter()
+            bloco_id = texto.bloco_atual()
+        ordem = texto.ordem_do_capitulo
+        i = ordem.index(bloco_id) if bloco_id in ordem else 0
+        if i == 0:
+            raise ValueError("o cursor está no primeiro bloco: não há o que deixar no capítulo de cima")
+        self._sincronizar_aba(aba)
+        novo_nome = livro_ops.dividir(projeto.livro, aba.arquivo, i)
+        projeto.marcar_sujo()
+        self._recarregar_aba(aba)
+        self.atualizar_navegador()
+        self.atualizar_sumario()
+        self.log.info("Dividido: %s → %s (antes do bloco %d).", aba.arquivo, novo_nome, i + 1)
+        self.abrir_capitulo(novo_nome)
+        return novo_nome
+
+    def juntar_com_anterior(self) -> str:
+        """Livro → Juntar com o anterior (`livro_ops.juntar`): a aba do que entrou fecha; a do alvo recarrega."""
+        projeto = self._exigir_projeto()
+        aba = self.aba_ativa()
+        if aba is None or aba.tipo != "capitulo":
+            raise ValueError("abra o capítulo que vai se juntar ao anterior")
+        self._sincronizar_tudo()
+        alvo = livro_ops.juntar(projeto.livro, aba.arquivo)
+        projeto.marcar_sujo()
+        self.abas.fechar(aba)
+        aba_do_alvo = self.abas.por_arquivo(alvo)
+        if aba_do_alvo is not None:
+            self._recarregar_aba(aba_do_alvo)
+        self.atualizar_navegador()
+        self.atualizar_sumario()
+        self.log.info("Juntado: %s → %s.", aba.arquivo, alvo)
+        self.abrir_capitulo(alvo)
+        return alvo
+
+    def _recarregar_aba(self, aba: Aba) -> None:
+        """O widget da aba redesenhado do modelo (depois de `livro_ops` mexer no capítulo)."""
+        if self.projeto is None or aba.widget is None:
+            return
+        cap = self.projeto.livro.capitulo(aba.arquivo)
+        if cap is None:
+            return
+        if isinstance(aba.widget, TextoRico):
+            if cap.texto_cru is not None:
+                cap.blocos, cap.notas = list(xhtml.ler(cap.texto_cru, cap.arquivo).blocos), []
+            aba.widget.carregar(cap)
+            aba.widget._sujo = True
+        elif isinstance(aba.widget, EditorDeCodigo):
+            texto = cap.texto_cru if cap.texto_cru is not None else \
+                xhtml.escrever(cap, pasta_de_imagens=epub.pasta_de_imagens(self.projeto.livro))
+            aba.widget.carregar(texto)
+        self.abas.rotular(aba)
+
+    # -- objetos, notas, propriedades, links (ED-04) -----------------------------
+
+    def inserir_tabela(self, filas: int | None = None, colunas: int | None = None,
+                       cabecalho: bool = False) -> str | None:
+        """Inserir → Tabela…: uma tabela vazia no cursor, e o foco na primeira célula (§8.6)."""
+        texto = self._texto()
+        if filas is None or colunas is None:
+            resposta = self.caixas.tabela()
+            if resposta is None:
+                return None
+            filas, colunas, cabecalho = resposta
+        filas, colunas = int(filas), int(colunas)
+        if filas < 1 or colunas < 1:
+            raise ValueError("a tabela precisa de pelo menos uma fila e uma coluna")
+        tabela = Tabela(filas=[[Celula(blocos=[], cabecalho=bool(cabecalho and f == 0)) for _ in range(colunas)]
+                               for f in range(filas)], primeira_fila_cabecalho=bool(cabecalho))
+        texto.inserir_bloco_no_cursor(tabela)
+        grade = texto.widget_do_objeto(tabela.id)
+        if isinstance(grade, GradeDeTabela):
+            grade.entrar(0, 0)
+        self.painel_de_propriedades.atualizar(forcar=True)
+        return tabela.id
+
+    def tabela_excluir(self) -> bool:
+        texto = self._texto()
+        grade = self._grade()
+        texto.selecionar_objeto(grade.tabela.id)
+        texto.foco()
+        return texto.apagar_selecao()
+
+    def inserir_ilha(self, xhtml_texto: str | None = None) -> list[str]:
+        """Inserir → Ilha de XHTML…: o fragmento do mini-editor entra como ilha (ou como dialeto, se couber)."""
+        editor = self._texto_ativo()
+        if xhtml_texto is None:
+            xhtml_texto = self.caixas.ilha("", "Inserir ilha de XHTML")
+            if xhtml_texto is None:
+                return []
+        blocos, avisos = area_mod.blocos_do_xhtml(xhtml_texto, self.aba_ativa().arquivo if self.aba_ativa() else "")
+        for aviso in avisos:
+            self.log.info("ilha: %s", aviso)
+        if not blocos:
+            raise ValueError("o fragmento não tem nenhum bloco")
+        if len(blocos) == 1 and isinstance(blocos[0], Paragrafo) and not isinstance(blocos[0], modelo.Titulo) \
+                and editor.objeto_no_cursor() is None:
+            editor.inserir_trechos(blocos[0].trechos)
+            return [editor.bloco_atual() or ""]
+        return editor.inserir_blocos(blocos)
+
+    def editar_ilha(self, xhtml_texto: str | None = None) -> bool:
+        """A ação principal da ilha (bloco ou inline): o mini-editor; o resultado volta ao texto."""
+        editor = self._texto_ativo()
+        alvo = editor.alvo_das_propriedades()
+        if alvo["tipo"] not in ("ilha", "ilha_inline"):
+            raise ValueError("o cursor precisa estar sobre uma ilha de XHTML")
+        if xhtml_texto is None:
+            xhtml_texto = self.caixas.ilha(alvo["campos"]["xhtml"], "Editar ilha de XHTML")
+            if xhtml_texto is None:
+                return False
+        editor.aplicar_propriedades(alvo, {"xhtml": xhtml_texto})
+        self.painel_de_propriedades.atualizar(forcar=True)
+        return True
+
+    def apagar_nota(self, nota_id: str | None = None) -> bool:
+        texto = self._texto_ativo()
+        nota_id = nota_id or texto.nota_no_cursor() or texto.em_nota()
+        if not nota_id:
+            raise ValueError("o cursor precisa estar numa referência de nota ou na nota")
+        return texto.apagar_nota(nota_id)
+
+    def propriedades_do_objeto(self) -> dict[str, Any]:
+        """`Alt+Enter`: o painel Propriedades (visível) com o objeto ou parágrafo do cursor, e o foco nele."""
+        self._texto()
+        if not self.paineis["propriedades"].visivel:
+            self.mostrar_painel("propriedades", True)
+        alvo = self.painel_de_propriedades.atualizar(forcar=True)
+        self.painel_de_propriedades.foco()
+        return alvo
+
+    def acao_principal(self, objeto: Any) -> str:
+        """
+        `Enter` sobre um objeto (§7.4): tabela → primeira célula; ilha → mini-editor;
+        diagrama → editor de posição (ED-05; por ora, o painel); os demais → propriedades.
+        """
+        texto = self._texto()
+        if isinstance(objeto, Tabela):
+            grade = texto.widget_do_objeto(objeto.id)
+            if isinstance(grade, GradeDeTabela):
+                grade.entrar(0, 0)
+                return "tabela"
+        if isinstance(objeto, (IlhaBruta, Trecho)):
+            self.editar_ilha()
+            return "ilha"
+        if isinstance(objeto, Diagrama):
+            self.status("Editar posição… chega na ED-05; por ora, as propriedades.")
+        self.propriedades_do_objeto()
+        return "propriedades"
+
+    def _acao_das_propriedades(self, nome: str, alvo: dict[str, Any]) -> Any:
+        """Os botões de ação do painel Propriedades."""
+        if nome == "seguir_link":
+            return self.executar("seguir_link")
+        if nome == "ir_para_nota":
+            texto = self._texto()
+            texto.ir_para_nota(alvo["id"])
+            return alvo["id"]
+        if nome == "entrar_na_tabela":
+            grade = self._texto().widget_do_objeto(alvo["id"])
+            if isinstance(grade, GradeDeTabela):
+                grade.entrar(0, 0)
+            return alvo["id"]
+        if nome == "editar_ilha":
+            return self.executar("editar_ilha")
+        return None
+
+    def _resolver_destino(self, href: str, de_arquivo: str) -> tuple[str, str]:
+        """`(arquivo, âncora)` de um href interno relativo ao OPF, ou `#id` do próprio capítulo."""
+        arquivo, _, ancora = href.partition("#")
+        if not arquivo:
+            arquivo = de_arquivo
+        return posixpath.normpath(arquivo), ancora
+
+    def destino_existe(self, href: str, de_arquivo: str | None = None) -> bool:
+        """Um link interno aponta para um capítulo (e um `id`) que existe? (INV-02; AC-ED04-4)"""
+        if self.projeto is None or not href:
+            return True
+        if "://" in href or href.startswith(("mailto:", "data:")):
+            return True
+        aba = self.aba_ativa()
+        arquivo, ancora = self._resolver_destino(href, de_arquivo or (aba.arquivo if aba else ""))
+        livro = self.projeto.livro
+        cap = livro.capitulo(arquivo)
+        if cap is None:
+            return livro.recurso(arquivo) is not None and not ancora
+        if not ancora:
+            return True
+        aba_do_cap = self.abas.por_arquivo(arquivo)
+        if aba_do_cap is not None and isinstance(aba_do_cap.widget, TextoRico):
+            widget = aba_do_cap.widget
+            if widget.modelo_de(ancora) is not None or ancora in widget.ids_das_notas():
+                return True
+            return any(b.id == ancora for b in modelo.blocos_do_capitulo(widget.sincronizar()))
+        if cap.texto_cru is not None:
+            return ancora in _RE_ID.findall(cap.texto_cru)
+        return any(b.id == ancora for b in modelo.blocos_do_capitulo(cap)) or cap.nota(ancora) is not None
+
+    def seguir_link(self) -> str | None:
+        """
+        Editar → Seguir link: um link externo abre no navegador; `arquivo#id` troca de aba e
+        vai ao bloco (§8.9). Destino inexistente: em vermelho no painel, em Resultados, e erro.
+        """
+        aba = self.aba_ativa()
+        if aba is None:
+            raise ValueError("Nenhuma aba aberta.")
+        if aba.modo == "codigo":
+            self._codigo().ir_ao_alvo()
+            return None
+        texto = self._texto_ativo()
+        href = texto.link_no_cursor()
+        if not href:
+            raise ValueError("o cursor não está sobre um link")
+        if "://" in href or href.startswith("mailto:"):
+            self.abrir_url(href)
+            self.log.info("Link externo: %s", href)
+            return href
+        if href.startswith("data:"):
+            raise ValueError("um link data: não se segue")
+        arquivo, ancora = self._resolver_destino(href, aba.arquivo)
+        if not self.destino_existe(href, aba.arquivo):
+            self.painel_de_propriedades.atualizar(forcar=True)
+            bloco_id, desloc = texto.posicao()
+            self.resultados.definir([Resultado(aba.arquivo, "link", f"destino inexistente: {href}",
+                                               {"bloco": bloco_id or "", "deslocamento": desloc})],
+                                    "Links quebrados")
+            self.log.warning("%s: link para destino inexistente: %s", aba.arquivo, href)
+            raise ValueError(f"o destino {href!r} não existe no livro")
+        self.ir_para_destino(f"{arquivo}#{ancora}" if ancora else arquivo)
+        return href
 
     def bem_formado(self) -> Any:
         editor = self._codigo()
@@ -1519,7 +2023,7 @@ class JanelaDoEditor(tk.Toplevel):
     def sobre(self) -> str:
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
-                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-07.")
+                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-07, ED-09.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 
@@ -1635,10 +2139,18 @@ class JanelaDoEditor(tk.Toplevel):
             self.abas.focus_set()
 
     def escape(self) -> None:
+        """`Esc`: fecha as sugestões do código; sai da célula de tabela; volta da nota; senão, foco no editor."""
         editor = self.editor_ativo()
         if isinstance(editor, EditorDeCodigo) and getattr(editor, "_popup", None) is not None:
             editor.fechar_sugestoes()
             return
+        if isinstance(editor, TextoRico):
+            celula = editor.ativo()
+            if celula is not editor and celula.ao_escape is not None:
+                celula.ao_escape()
+                return
+            if editor.em_nota() and editor.voltar_da_nota():
+                return
         self.foco_no_editor()
 
     def menu_de_contexto(self, x: int | None = None, y: int | None = None) -> tk.Menu:
@@ -1766,6 +2278,8 @@ class JanelaDoEditor(tk.Toplevel):
             if isinstance(aba.widget, TextoRico):
                 if aba.widget.modelo_de(ancora) is not None:
                     aba.widget.ir_para(ancora)
+                elif ancora in aba.widget.ids_das_notas():
+                    aba.widget.ir_para_nota(ancora)
             else:
                 indice = aba.widget.texto.search(f'id="{ancora}"', "1.0")
                 if indice:
@@ -1867,6 +2381,11 @@ class JanelaDoEditor(tk.Toplevel):
             self.variaveis["realce_da_linha"].set(aba.widget._realce_da_linha)
         if aba is not None and isinstance(aba.widget, TextoRico):
             self.variaveis["invisiveis"].set(aba.widget._invisiveis)
+            self.painel_de_propriedades.texto_rico = aba.widget
+        else:
+            self.painel_de_propriedades.texto_rico = None
+        if not self._foco_no_painel_de_propriedades():
+            self.painel_de_propriedades.atualizar()
 
     # ==================================================================
     # Preferências e layout
@@ -2052,6 +2571,25 @@ def _settings_padrao() -> Any:
     from config.settings import Settings
 
     return Settings()
+
+
+def _imagem_do_clipboard() -> bytes | None:
+    """A imagem da área de transferência como PNG, pelo `ImageGrab` do PIL (importado só aqui, DEC-07)."""
+    try:
+        from PIL import ImageGrab
+    except ImportError:
+        return None
+    try:
+        imagem = ImageGrab.grabclipboard()
+    except Exception:      # noqa: BLE001 — sem imagem, ou plataforma sem ImageGrab
+        return None
+    if imagem is None or isinstance(imagem, list):
+        return None
+    import io
+
+    buffer = io.BytesIO()
+    imagem.save(buffer, "PNG")
+    return buffer.getvalue()
 
 
 def _task_controller(widget: tk.Misc) -> Any:

@@ -45,9 +45,15 @@ from typing import Any, Callable, Sequence
 from core.editor import consertar as consertar_mod
 from core.editor import css_minima, xhtml
 from core.editor.xhtml import ErroDeXhtml
+from ui.editor import proxy as proxy_mod
 from ui.editor import realce as realce_mod
 
 BINDTAG = "EditorAtalhos"
+#: `EditorDeCodigo` por caminho do `tk.Text`: a bindtag de classe é uma só por interpretador, e o
+#: handler despacha ao editor dono do widget que recebeu a tecla (uma closure sobre `self` numa
+#: bindtag de classe serviria só o último editor criado — duas abas em código despachariam
+#: para a segunda; ED-04).
+_INSTANCIAS: dict[str, "EditorDeCodigo"] = {}
 TAGS_DE_TELA = ("linha_atual", "casamento", "erro")
 CORPO_MINIMO, CORPO_MAXIMO = 6, 40
 COALESCENCIA_S = 0.7
@@ -164,23 +170,21 @@ class EditorDeCodigo(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _instalar_proxy(self) -> None:
-        self._original = self.texto._w + "_orig"
-        self.texto.tk.call("rename", self.texto._w, self._original)
-        self.texto.tk.createcommand(self.texto._w, self._proxy)
+        """O `proc` Tcl de `ui/editor/proxy.py` (ED-04): `_antes` guarda o que um `insert`/`delete` vai mudar."""
+        self._antes: tuple | None = None
+        self._original = proxy_mod.instalar(self.texto, self._antes_do_comando, self._depois_do_comando)
 
-    def _proxy(self, comando: str, *args: Any) -> Any:
-        antes = None
-        chamar = self.texto.tk.call
+    def _antes_do_comando(self, comando: str, args: tuple[str, ...]) -> None:
+        self._antes = None
         if comando == "insert" and len(args) >= 2:
-            antes = (str(chamar(self._original, "index", args[0])), str(args[1]))
+            self._antes = (self.texto.index(args[0]), str(args[1]))
         elif comando == "delete" and args:
-            ini = str(chamar(self._original, "index", args[0]))
-            if len(args) > 1:
-                fim = str(chamar(self._original, "index", args[1]))
-            else:
-                fim = str(chamar(self._original, "index", f"{ini}+1c"))
-            antes = (ini, fim, str(chamar(self._original, "get", ini, fim)))
-        resultado = self.texto.tk.call((self._original, comando) + args)
+            ini = self.texto.index(args[0])
+            fim = self.texto.index(args[1]) if len(args) > 1 else self.texto.index(f"{ini}+1c")
+            self._antes = (ini, fim, self.texto.get(ini, fim))
+
+    def _depois_do_comando(self, comando: str, args: tuple[str, ...]) -> None:
+        antes, self._antes = self._antes, None
         if comando == "insert" and antes is not None:
             self._registrar(("insert", antes[0], antes[1]))
             self._depois_de_editar(antes[0], 0, antes[1].count("\n"))
@@ -193,7 +197,6 @@ class EditorDeCodigo(ttk.Frame):
             self._agendar_pintura()
         elif comando == "mark" and len(args) >= 3 and args[0] == "set" and args[1] == "insert":
             self._cursor_moveu()
-        return resultado
 
     def _depois_de_editar(self, indice: str, removidas: int, inseridas: int) -> None:
         linha = int(str(indice).split(".")[0]) - 1
@@ -661,9 +664,16 @@ class EditorDeCodigo(ttk.Frame):
             "<Key-Insert>": lambda e: "break", "<<PasteSelection>>": lambda e: "break",
             "<Control-d>": lambda e: "break", "<Control-o>": lambda e: "break", "<Control-t>": lambda e: "break",
         }
-        for sequencia, handler in ligacoes.items():
-            texto.bind_class(BINDTAG, sequencia, handler)
         self.ligacoes = ligacoes
+        _INSTANCIAS[str(texto)] = self
+        texto.bind("<Destroy>", self._esquecer_instancia, add="+")
+        if not texto.bind_class(BINDTAG):
+            for sequencia in ligacoes:
+                texto.bind_class(BINDTAG, sequencia, _despachar(sequencia))
+
+    def _esquecer_instancia(self, evento: Any) -> None:
+        if str(getattr(evento, "widget", "")) == str(self.texto):
+            _INSTANCIAS.pop(str(self.texto), None)
 
     @staticmethod
     def _quebra(_resultado: Any = None) -> str:
@@ -1256,6 +1266,17 @@ class EditorDeCodigo(ttk.Frame):
 # ----------------------------------------------------------------------
 # Utilidades
 # ----------------------------------------------------------------------
+
+def _despachar(sequencia: str) -> Callable[[Any], Any]:
+    """O handler da bindtag de classe: acha o editor do widget do evento e chama o handler dele."""
+    def handler(evento: Any) -> Any:
+        dono = _INSTANCIAS.get(str(getattr(evento, "widget", "")))
+        if dono is None:
+            return None
+        ligacao = dono.ligacoes.get(sequencia)
+        return ligacao(evento) if ligacao is not None else None
+    return handler
+
 
 def _depois(indice: str, n: int) -> str:
     linha, coluna = indice.split(".")

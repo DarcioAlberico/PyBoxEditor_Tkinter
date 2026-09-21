@@ -122,12 +122,13 @@ def test_ac_ed02_2_item_desabilitado_escreve_a_fase_na_barra_de_status_ao_percor
         menu, indice, item = m.itens["fonte"][0]
         assert item.modos == ("texto",)
         assert m.motivo(item, "codigo") == "Fonte…: só no modo texto"
-        menu, indice, item = m.itens["inserir_link"][0]
-        assert m.motivo(item, "texto") == "Link…: no modo texto chega na ED-04"
-        assert m.estado("inserir_link") == "disabled"
+        # (`inserir_link` chegou ao texto na ED-04; `ir_para` é o que ainda só existe no código)
+        menu, indice, item = m.itens["ir_para"][0]
+        assert m.motivo(item, "texto") == "Ir para…: no modo texto chega na ED-06"
+        assert m.estado("ir_para") == "disabled" and m.estado("inserir_link") == "normal"
         j.modo_atual = lambda: "codigo"
         m.atualizar("codigo")
-        assert m.estado("inserir_link") == "normal" and m.estado("fonte") == "disabled"
+        assert m.estado("ir_para") == "normal" and m.estado("fonte") == "disabled"
         # o item habilitado ecoa o rótulo e o atalho
         menu, indice, item = m.itens["salvar"][0]
         menu.activate(indice)

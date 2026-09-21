@@ -24,6 +24,8 @@ from typing import Any, Callable, Sequence
 
 TITULO = "Editor de livro"
 TIPOS_DE_LIVRO = (("Livro EPUB", "*.epub"), ("Todos os arquivos", "*.*"))
+TIPOS_DE_IMAGEM = (("Imagens", "*.png *.jpg *.jpeg *.gif *.svg"), ("PNG", "*.png"), ("JPEG", "*.jpg *.jpeg"),
+                   ("GIF", "*.gif"), ("SVG", "*.svg"), ("Todos os arquivos", "*.*"))
 
 
 class _Dialogo:
@@ -463,6 +465,30 @@ class Caixas:
 
         return DialogoDeConclusao(self.master, titulo, linhas, caminho, abrir_no_editor=abrir_no_editor).mostrar()
 
+    # -- ED-04: objetos --------------------------------------------------------
+
+    def abrir_imagem(self, diretorio: str = "") -> str:
+        return self.abrir(TIPOS_DE_IMAGEM, diretorio, "Inserir imagem")
+
+    def ilha(self, xhtml: str = "", titulo: str = "Ilha de XHTML") -> str | None:
+        """O mini-editor modal da ilha (ED-04): o XHTML aceito, ou `None`."""
+        from ui.editor.objetos import EditorDeIlha
+
+        return EditorDeIlha(self.master, xhtml, titulo).mostrar()
+
+    def tabela(self) -> tuple[int, int, bool] | None:
+        """"Inserir → Tabela…": `(filas, colunas, primeira fila é cabeçalho)`, ou `None`."""
+        resposta = self.formulario("Inserir tabela", [("filas", "Filas:", "3"), ("colunas", "Colunas:", "3"),
+                                                      ("cabecalho", "Primeira fila é cabeçalho (s/n):", "n")],
+                                   {"cabecalho": ("s", "n")})
+        if resposta is None:
+            return None
+        try:
+            filas, colunas = int(resposta["filas"].strip()), int(resposta["colunas"].strip())
+        except ValueError:
+            raise ValueError("filas e colunas precisam ser números inteiros") from None
+        return filas, colunas, resposta["cabecalho"].strip().lower().startswith("s")
+
 
 __all__ = ["Caixas", "DialogoDeFormulario", "DialogoDeLista", "DialogoDeTexto", "DialogoDeFalha",
-           "DialogoDeParagrafo", "TIPOS_DE_LIVRO", "TITULO"]
+           "DialogoDeParagrafo", "TIPOS_DE_LIVRO", "TIPOS_DE_IMAGEM", "TITULO"]

@@ -90,8 +90,9 @@ def test_objetos_e_ilhas_inline_atravessam_o_dump_intactos():
             cap = gerador.capitulo(semente)
             t.w.carregar(cap)
             assert m.igual(t.w.sincronizar(reler=True), cap), f"semente {semente}"
+            # ... mais o marco da faixa de notas (ED-04), quando o capítulo tem notas.
             assert len(t.w.registro) == sum(1 for b in m.blocos_do_capitulo(cap) if isinstance(b, OBJETOS)) \
-                + sum(1 for tr in m.trechos_do_capitulo(cap) if tr.ilha)
+                + sum(1 for tr in m.trechos_do_capitulo(cap) if tr.ilha) + (1 if cap.notas else 0)
 
 
 # ----------------------------------------------------------------------

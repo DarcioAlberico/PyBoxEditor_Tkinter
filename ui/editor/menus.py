@@ -288,8 +288,22 @@ FORMATAR = (
     SEP,
     _i("Propriedades do objeto…", "propriedades_do_objeto", "ED-04", TEXTO),
     _i("Propriedades do diagrama…", "editar_posicao", "ED-05", TEXTO, alias_de="editar_posicao"),
-    _sub("Tabela", "ED-04", _placeholder("ED-04"), TEXTO),
+    # -- ED-04: o submenu Tabela (§8.6) --------------------------------------------------
+    _sub("Tabela", "ED-04", (
+        _i("Inserir fila acima", "tabela_fila_acima", "ED-04", TEXTO),
+        _i("Inserir fila abaixo", "tabela_fila_abaixo", "ED-04", TEXTO),
+        _i("Inserir coluna à esquerda", "tabela_coluna_esquerda", "ED-04", TEXTO),
+        _i("Inserir coluna à direita", "tabela_coluna_direita", "ED-04", TEXTO),
+        _i("Excluir fila", "tabela_excluir_fila", "ED-04", TEXTO),
+        _i("Excluir coluna", "tabela_excluir_coluna", "ED-04", TEXTO),
+        _i("Primeira fila é cabeçalho", "tabela_cabecalho", "ED-04", TEXTO),
+        _i("Excluir tabela", "tabela_excluir", "ED-04", TEXTO),
+    ), TEXTO),
     _i("Folhas de estilo do livro…", "folhas_de_estilo", "ED-08"),
+    # -- fora da §7.3: a ação principal da ilha tem item (toda ação de contexto tem item; ED-04) --
+    SEP,
+    _i("Editar ilha de XHTML…", "editar_ilha", "ED-04", TEXTO),
+    _i("Apagar nota", "apagar_nota", "ED-04", TEXTO),
 )
 
 XADREZ = (
@@ -389,9 +403,9 @@ MENUS: tuple[tuple[str, tuple[Item, ...]], ...] = (
 
 #: O menu de contexto de cada modo: nomes de comando (e "-" para separador), todos com item na barra.
 CONTEXTO = {
-    "texto": ("desfazer", "refazer", "-", "recortar", "copiar", "colar", "colar_sem_formatacao", "-",
-              "selecionar_tudo", "selecionar_paragrafo", "-", "negrito", "italico", "sublinhado", "-",
-              "propriedades_do_objeto"),
+    "texto": ("desfazer", "refazer", "-", "recortar", "copiar", "colar", "colar_sem_formatacao", "colar_como_xhtml",
+              "-", "selecionar_tudo", "selecionar_paragrafo", "-", "negrito", "italico", "sublinhado", "-",
+              "seguir_link", "editar_ilha", "propriedades_do_objeto"),
     "codigo": ("desfazer", "refazer", "-", "recortar", "copiar", "colar", "-", "selecionar_tudo", "-",
                "comentar", "reformatar", "bem_formado", "consertar", "-", "ir_ao_alvo"),
 }

@@ -22,9 +22,15 @@ parágrafo ⊕ CSS ⊕ marcadores, com um `tkfont.Font` por combinação em cach
 - **Quebras** (todas com `quebra`+`protegido`): `qs` (suave, `<br/>`), `qp` (parágrafo
   dentro de citação ou item), `qi:<nível>` (item de lista).
 - **De parágrafo** (cobrem o bloco inteiro): `p:<estilo>`, `al:…`, `rec1:…`, `recE:…`,
-  `recD:…`, `antes:…`, `depois:…`, `entre:…`, `manter`, `manterl`, `cit`, `li:<nível>`.
+  `recD:…`, `antes:…`, `depois:…`, `entre:…`, `manter`, `manterl`, `cit`, `li:<nível>`,
+  e `dn:<id>|<tipo>` num parágrafo da faixa de notas (ED-04).
 - **De tela** (nunca vão ao modelo): `protegido`, `marcador`, `invisivel`, `orto`,
-  `notacao-ilegal`, `suspeito`, `sel-objeto`, `objeto`, e as `fonte:*`.
+  `notacao-ilegal`, `suspeito`, `sel-objeto`, `objeto`, `faixa`, `ncab:<id>` (o número
+  da nota na faixa) e as `fonte:*`.
+
+As tags fixas (`FIXAS`) são configuradas de uma vez em `configurar`; uma célula de
+tabela pede `preguicoso=True` e as recebe sob demanda (`configurar_fixa`), porque
+uma grade de 400 células não pode pagar 8.000 `tag configure` (ED-04).
 
 Os valores vão no nome da tag depois dos dois-pontos; espaço vira `%20` porque o Tk
 aceita, mas o olho não.
@@ -46,10 +52,10 @@ PREFIXOS_INDEPENDENTES = ("cor:", "fundo:", "cls:", "lang:", "tit:", "link:", "r
                           "nag:", "chave:", "pagina:")
 QUEBRAS = ("qs", "qp")
 PREFIXOS_DE_QUEBRA = ("qi:",)
-PREFIXOS_DE_PARAGRAFO = ("p:", "al:", "rec1:", "recE:", "recD:", "antes:", "depois:", "entre:", "li:")
+PREFIXOS_DE_PARAGRAFO = ("p:", "al:", "rec1:", "recE:", "recD:", "antes:", "depois:", "entre:", "li:", "dn:")
 PARAGRAFO_SIMPLES = ("manter", "manterl", "cit")
 DE_TELA = ("protegido", "marcador", "invisivel", "orto", "notacao-ilegal", "suspeito", "sel-objeto", "objeto",
-           "quebra")
+           "quebra", "faixa")
 
 #: Os tamanhos e pesos que um navegador dá aos títulos, para quando a folha não diz.
 TITULOS_PADRAO = {1: (2.0, True), 2: (1.5, True), 3: (1.17, True), 4: (1.0, True), 5: (0.83, True), 6: (0.67, True)}
@@ -343,28 +349,50 @@ def fonte_derivada(estilos: Estilos, estilo_do_paragrafo: str, tags: Iterable[st
 # Configuração das tags no widget
 # ----------------------------------------------------------------------
 
-def configurar(texto: Any, estilos: Estilos, fontes: Fontes) -> None:
-    """As tags fixas do widget: cores das independentes, das quebras e das de tela."""
+def opcoes_das_fixas(estilos: Estilos, fontes: Fontes) -> dict[str, dict[str, Any]]:
+    """As tags fixas do widget e as opções de cada uma: cores das independentes, das quebras e das de tela."""
+    tela = estilos.tela
+    return {
+        "u": {"underline": True}, "s": {"overstrike": True},
+        "code": {"font": fontes.fonte(tela.familia_mono, tela.corpo_na_tela())},
+        "marcador": {"foreground": tela.cor}, "protegido": {}, "invisivel": {"foreground": "#8a8a8a"},
+        "orto": {"underline": True, "underlinefg": "#c00000"},
+        "notacao-ilegal": {"background": "#ffb060", "bgstipple": "gray50", "relief": "raised", "borderwidth": 1},
+        "suspeito": {"background": "#fff3a0"}, "sel-objeto": {"background": "#b8d4ff"},
+        "objeto": {}, "faixa": {"spacing1": _px(1.0, tela)},
+        "cit": {"lmargin1": _px(2.0, tela), "lmargin2": _px(2.0, tela), "rmargin": _px(2.0, tela)},
+        "manter": {}, "manterl": {}, "qs": {}, "qp": {}, "quebra": {},
+    }
+
+
+FIXAS = frozenset({"u", "s", "code", "marcador", "protegido", "invisivel", "orto", "notacao-ilegal", "suspeito",
+                   "sel-objeto", "objeto", "faixa", "cit", "manter", "manterl", "qs", "qp", "quebra"})
+
+
+def e_fixa(tag: str) -> bool:
+    return tag in FIXAS
+
+
+def configurar(texto: Any, estilos: Estilos, fontes: Fontes, preguicoso: bool = False) -> None:
+    """
+    As cores do widget e as tags fixas. Com `preguicoso` (as células de tabela, que são
+    centenas), só as cores: cada tag fixa é configurada na primeira vez que entra
+    (`configurar_fixa`), para a grade de 400 células não pagar 8.000 `tag configure`.
+    """
     tela = estilos.tela
     texto.configure(background=tela.fundo, foreground=tela.cor, insertbackground=tela.cor)
-    texto.tag_configure("u", underline=True)
-    texto.tag_configure("s", overstrike=True)
-    texto.tag_configure("code", font=fontes.fonte(tela.familia_mono, tela.corpo_na_tela()))
-    texto.tag_configure("marcador", foreground=tela.cor)
-    texto.tag_configure("protegido")
-    texto.tag_configure("invisivel", foreground="#8a8a8a")
-    texto.tag_configure("orto", underline=True, underlinefg="#c00000")
-    texto.tag_configure("notacao-ilegal", background="#ffb060", bgstipple="gray50", relief="raised", borderwidth=1)
-    texto.tag_configure("suspeito", background="#fff3a0")
-    texto.tag_configure("sel-objeto", background="#b8d4ff")
-    texto.tag_configure("objeto", background=tela.fundo_protegido)
-    texto.tag_configure("cit", lmargin1=_px(2.0, tela), lmargin2=_px(2.0, tela), rmargin=_px(2.0, tela))
-    texto.tag_configure("manter")
-    texto.tag_configure("manterl")
-    texto.tag_configure("qs")
-    texto.tag_configure("qp")
-    texto.tag_configure("quebra")
+    if not preguicoso:
+        for tag, opcoes in opcoes_das_fixas(estilos, fontes).items():
+            texto.tag_configure(tag, **opcoes)
     texto.tag_raise("sel")
+
+
+def configurar_fixa(texto: Any, tag: str, estilos: Estilos, fontes: Fontes) -> None:
+    """Uma tag fixa, sob demanda (o caminho preguiçoso das células)."""
+    opcoes = opcoes_das_fixas(estilos, fontes).get(tag)
+    if opcoes is not None:
+        texto.tag_configure(tag, **opcoes)
+        texto.tag_raise("sel")
 
 
 def configurar_paragrafo(texto: Any, tag: str, estilos: Estilos, fontes: Fontes) -> None:
@@ -410,6 +438,9 @@ def configurar_paragrafo(texto: Any, tag: str, estilos: Estilos, fontes: Fontes)
     elif pref == "li:":
         nivel = int(valor(tag))
         texto.tag_configure(tag, lmargin1=_px(1.5 * nivel, tela), lmargin2=_px(1.5 * nivel + 1.2, tela))
+    elif pref == "dn:":
+        # Um paragrafo da faixa de notas (ED-04): recuado, com a margem que o numero ocupa.
+        texto.tag_configure(tag, lmargin1=_px(0.5, tela), lmargin2=_px(2.0, tela))
 
 
 def configurar_caractere(texto: Any, tag: str, estilos: Estilos, fontes: Fontes) -> None:
