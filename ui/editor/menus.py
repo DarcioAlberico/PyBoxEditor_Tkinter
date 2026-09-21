@@ -173,6 +173,14 @@ EDITAR = (
     SEP,
     _i("Ir ao alvo do link", "ir_ao_alvo", "ED-02", CODIGO),
     _i("Voltar do alvo", "voltar", "ED-02", CODIGO),
+    # -- ED-06: os botões do painel Busca que a §8.12 pede, com item para o teclado --------
+    SEP,
+    _i("Substituir e localizar", "substituir_e_localizar", "ED-06"),
+    _i("Substituir todos", "substituir_todos", "ED-06"),
+    _i("Contar ocorrências", "contar_ocorrencias", "ED-06"),
+    _i("Listar ocorrências", "listar_ocorrencias", "ED-06"),
+    _i("Marcar texto para a busca", "marcar_texto", "ED-06"),
+    _i("Marcar arquivo para a busca", "marcar_arquivo", "ED-06"),
 )
 
 EXIBIR = (

@@ -915,6 +915,35 @@ class EditorDeCodigo(ttk.Frame):
         self.inserir(texto, cursor_em=None if selecao else cursor)
         return texto
 
+    def substituir_intervalo(self, ini: str, fim: str, texto: str) -> str:
+        """`[ini, fim)` do widget trocado por `texto`, num ponto só de desfazer; devolve o índice do fim novo."""
+        with self._grupo():
+            self.texto.delete(ini, fim)
+            self.texto.insert(ini, texto)
+        fim_novo = self.texto.index(f"{ini}+{len(texto)}c")
+        self.texto.mark_set("insert", fim_novo)
+        return fim_novo
+
+    def substituir_todos(self, padrao: Any, substituto: Any) -> int:
+        """
+        Toda ocorrência de `padrao` (um `re.Pattern`) trocada por `substituto` (texto, ou
+        função de `re.Match` → texto), num ponto só de desfazer; devolve quantas. O cursor
+        fica onde estava, medido em caracteres.
+        """
+        conteudo = self.texto_todo()
+        ocorrencias = [m for m in padrao.finditer(conteudo) if m.end() > m.start()]
+        if not ocorrencias:
+            return 0
+        cursor = self.texto.count("1.0", "insert", "chars")
+        cursor = int(cursor[0]) if isinstance(cursor, (tuple, list)) else int(cursor or 0)
+        with self._grupo():
+            for m in reversed(ocorrencias):
+                novo = substituto(m) if callable(substituto) else substituto
+                self.texto.delete(f"1.0+{m.start()}c", f"1.0+{m.end()}c")
+                self.texto.insert(f"1.0+{m.start()}c", novo)
+        self.texto.mark_set("insert", f"1.0+{min(cursor, len(self.texto_todo()))}c")
+        return len(ocorrencias)
+
     def inserir(self, texto: str, cursor_em: int | None = None) -> None:
         """Insere no cursor (troca a seleção); `cursor_em` é a posição, dentro do texto, onde o cursor fica."""
         selecao = self.selecao()

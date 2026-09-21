@@ -1086,10 +1086,14 @@ class TextoRico(ttk.Frame):
 
     def posicao(self) -> tuple[str | None, int]:
         """`(id do bloco, deslocamento no texto do modelo)` do cursor."""
-        bloco_id = self.bloco_atual()
+        return self.posicao_de("insert")
+
+    def posicao_de(self, indice: str) -> tuple[str | None, int]:
+        """`(id do bloco, deslocamento no texto do modelo)` de qualquer índice do widget (a busca, ED-06)."""
+        bloco_id = self._bloco_em(indice)
         if bloco_id is None:
             return None, 0
-        return bloco_id, self._deslocamento("insert", bloco_id)
+        return bloco_id, self._deslocamento(indice, bloco_id)
 
     def _deslocamento(self, indice: str, bloco_id: str) -> int:
         """Quantos caracteres do **modelo** há do começo do bloco até `indice`."""

@@ -489,6 +489,55 @@ class Caixas:
             raise ValueError("filas e colunas precisam ser números inteiros") from None
         return filas, colunas, resposta["cabecalho"].strip().lower().startswith("s")
 
+    # -- ED-06: ortografia, dicionário, símbolos, ir para ------------------------
+
+    def ortografia(self, suspeita: Any, sugestoes: Sequence[str]) -> tuple[str, str]:
+        """
+        A caixa do `F7`, uma só para a verificação inteira: `(ação, palavra)` por suspeita.
+        `ortografia_fim()` a fecha. O teste troca este método por respostas prontas.
+        """
+        from ui.editor.ortografia import DialogoDeOrtografia
+
+        dialogo = getattr(self, "_ortografia", None)
+        if dialogo is None or dialogo.top is None:
+            dialogo = DialogoDeOrtografia(self.master)
+            self._ortografia = dialogo
+        return dialogo.perguntar(suspeita, sugestoes)
+
+    def ortografia_fim(self) -> None:
+        dialogo = getattr(self, "_ortografia", None)
+        if dialogo is not None:
+            dialogo.fechar()
+            self._ortografia = None
+
+    def dicionario(self, lexicos: Any) -> None:
+        from ui.editor.ortografia import DialogoDoDicionario
+
+        DialogoDoDicionario(self.master, lexicos).mostrar()
+
+    def simbolo(self, familia: str = "") -> str | None:
+        """Inserir → Símbolo…: o caractere escolhido, ou `None`."""
+        from ui.editor.simbolos import DialogoDeSimbolos
+
+        return DialogoDeSimbolos(self.master, familia=familia).mostrar()
+
+    def ir_para(self, tipos: Sequence[tuple[str, str]], atual: str = "", numero: int = 1) -> tuple[str, int] | None:
+        """"Ir para…": `(tipo, número)`; `tipos` são pares `(chave, rótulo)`."""
+        rotulos = {chave: rotulo for chave, rotulo in tipos}
+        resposta = self.formulario("Ir para", [("tipo", "Ir para:", rotulos.get(atual, next(iter(rotulos.values())))),
+                                              ("numero", "Número:", str(numero))],
+                                   {"tipo": list(rotulos.values())})
+        if resposta is None:
+            return None
+        chave = next((c for c, r in rotulos.items() if r == resposta["tipo"]), None)
+        if chave is None:
+            raise ValueError(f"destino desconhecido: {resposta['tipo']!r}")
+        try:
+            n = int(resposta["numero"].strip())
+        except ValueError:
+            raise ValueError(f"{resposta['numero']!r} não é um número inteiro") from None
+        return chave, n
+
 
 __all__ = ["Caixas", "DialogoDeFormulario", "DialogoDeLista", "DialogoDeTexto", "DialogoDeFalha",
            "DialogoDeParagrafo", "TIPOS_DE_LIVRO", "TIPOS_DE_IMAGEM", "TITULO"]

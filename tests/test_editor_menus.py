@@ -113,22 +113,23 @@ def test_ac_ed02_2_item_desabilitado_escreve_a_fase_na_barra_de_status_ao_percor
     with _Janela() as t:
         j = t.j
         m = j.menus
-        assert m.estado("localizar") == "disabled" and m.estado("novo") == "normal"
-        menu, indice, item = m.itens["localizar"][0]
+        assert m.estado("imprimir") == "disabled" and m.estado("novo") == "normal"
+        menu, indice, item = m.itens["imprimir"][0]
         # o Tk não ativa entrada desabilitada: a que está sob o mouse vem do `y` do evento
         m._ao_percorrer(type("E", (), {"widget": menu, "y": menu.yposition(indice) + 1})())
-        assert "ED-06" in j.campos["aviso"].cget("text")
+        assert "ED-12" in j.campos["aviso"].cget("text")
         # um item de outro modo diz o modo; um comando registrado só para um modo diz a fase do outro
         menu, indice, item = m.itens["fonte"][0]
         assert item.modos == ("texto",)
         assert m.motivo(item, "codigo") == "Fonte…: só no modo texto"
-        # (`inserir_link` chegou ao texto na ED-04; `ir_para` é o que ainda só existe no código)
-        menu, indice, item = m.itens["ir_para"][0]
-        assert m.motivo(item, "texto") == "Ir para…: no modo texto chega na ED-06"
-        assert m.estado("ir_para") == "disabled" and m.estado("inserir_link") == "normal"
+        # (`inserir_link` chegou ao texto na ED-04 e `ir_para` na ED-06; `clipes` só chega ao texto na ED-08)
+        menu, indice, item = m.itens["clipes"][0]
+        assert m.motivo(item, "texto").startswith("Clipes…: no modo texto chega na")
+        assert m.estado("clipes") == "disabled" and m.estado("inserir_link") == "normal"
+        assert m.estado("ir_para") == "normal"
         j.modo_atual = lambda: "codigo"
         m.atualizar("codigo")
-        assert m.estado("ir_para") == "normal" and m.estado("fonte") == "disabled"
+        assert m.estado("clipes") == "normal" and m.estado("fonte") == "disabled"
         # o item habilitado ecoa o rótulo e o atalho
         menu, indice, item = m.itens["salvar"][0]
         menu.activate(indice)

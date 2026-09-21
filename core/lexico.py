@@ -36,7 +36,9 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from core import notacao
+# `core.notacao` (que traz `box_service` e o cv2) é importado só em
+# `_palavras_de_prosa`, a única função que o usa: o editor de livros (ED-06) lê o
+# léxico para a ortografia e precisa abrir sem o OpenCV (SPEC_EDITOR DEC-07).
 
 
 # As duas listas empacotadas, produzidas por `importar_lexico.py` a partir do
@@ -718,6 +720,36 @@ def _indice_por_forma(lex: Lexico) -> dict:
     return lex._forma
 
 
+def sugestoes(palavra: str, lex: Lexico, n: int = 5) -> List[str]:
+    """
+    As `n` palavras do léxico mais parecidas com `palavra` (a ortografia do editor,
+    SPEC_EDITOR §8.13): `difflib.get_close_matches` sobre os baldes de
+    `_indice_por_forma` — só os comprimentos vizinhos (±2) com a mesma inicial, e, se
+    nada sair dali, os de todas as iniciais com comprimento ±1. Sem isso a comparação
+    varreria 310 mil palavras a cada suspeita. Sem léxico, nada.
+    """
+    import difflib
+
+    nuc = nucleo(palavra)[0].lower()
+    if not nuc or lex.vazio:
+        return []
+    forma = _indice_por_forma(lex)
+    comprimentos = range(max(1, len(nuc) - 2), len(nuc) + 3)
+    candidatos: List[str] = []
+    for comprimento in comprimentos:
+        candidatos.extend(forma.get((comprimento, nuc[0]), ()))
+    achadas = difflib.get_close_matches(nuc, candidatos, n=n, cutoff=0.6) if candidatos else []
+    if not achadas:
+        candidatos = []
+        for comprimento in range(max(1, len(nuc) - 1), len(nuc) + 2):
+            candidatos.extend(forma.get((comprimento, None), ()))
+        achadas = difflib.get_close_matches(nuc, candidatos, n=n, cutoff=0.75) if candidatos else []
+    # A palavra digitada com inicial maiúscula sugere a forma capitalizada.
+    if palavra[:1].isupper():
+        achadas = [a[:1].upper() + a[1:] for a in achadas]
+    return achadas
+
+
 def _trechos(mascara: Sequence[bool]) -> List[Tuple[int, int]]:
     """Os intervalos contíguos de posição mascarada."""
     saida, inicio = [], None
@@ -978,6 +1010,8 @@ def suspeitas_da_pagina(boxes: Sequence, lex: Lexico) -> List[Suspeita]:
 
 def _palavras_de_prosa(boxes: Sequence) -> List[List[Tuple[str, int]]]:
     """As palavras tipadas `outro` da página, como pares (caractere, box)."""
+    from core import notacao
+
     palavras = []
     for linha in notacao.palavras_da_pagina(boxes):
         for palavra in linha:

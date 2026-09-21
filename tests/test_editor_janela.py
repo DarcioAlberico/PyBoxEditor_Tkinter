@@ -260,8 +260,8 @@ def test_ac8_valueerror_vira_caixa_de_entrada_e_o_resto_caixa_de_falha_com_a_jan
         assert "Defeito do programa" in j.campos["aviso"].cget("text")
         assert j.executar("comando_que_nao_existe") is None and "chega na" in j.campos["aviso"].cget("text")
         # um comando de fase seguinte com item de menu diz a fase
-        j.executar("localizar")
-        assert "ED-06" in j.campos["aviso"].cget("text")
+        j.executar("imprimir")
+        assert "ED-12" in j.campos["aviso"].cget("text")
 
 
 # ----------------------------------------------------------------------
@@ -475,13 +475,13 @@ def test_dividir_capitulo_no_codigo_ir_para_linha_inserir_link_ancora_e_imagem()
         j = t.j
         livro = j.projeto.livro
         aba = j.aba_ativa()
-        # no texto, os comandos do código dizem que são do código
-        j.executar("ir_para", 3)
+        # no texto, os comandos do código dizem que são do código (ir para linha é do código; ED-06)
+        j.executar("ir_para", "linha", 3)
         assert "modo código" in t.caixas.entradas()[-1]
         j.executar("alternar_modo")
         editor = aba.widget
-        assert j.executar("ir_para", 3) == 3 and editor.posicao[0] == 3
-        t.caixas.inteiro_resposta = 2
+        assert j.executar("ir_para", "linha", 3) == 3 and editor.posicao[0] == 3
+        j.caixas.ir_para = lambda *a, **k: ("linha", 2)
         assert j.executar("ir_para") == 2
         # dividir no <h2>: a segunda metade vira capítulo novo, logo depois
         segunda = editor.texto.search("<h2", "1.0")

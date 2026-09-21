@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-07 e ED-09 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-07 e ED-09 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1054,6 +1054,72 @@ espaço/hífen inseparável e opcional; seção ED-06 em `menus.py`; testes
 .venv/Scripts/python.exe -m pytest tests/test_editor_busca.py tests/test_editor_ortografia.py tests/test_lexico_sugestoes.py tests/test_editor_estatisticas.py tests/test_editor_painel_busca.py tests/test_editor_simbolos.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/{busca,ortografia,estatisticas,simbolos}.py`, `core/lexico.py:
+sugestoes`, `ui/editor/{busca,ortografia,simbolos}.py`, as mudanças em
+`ui/editor/{janela,menus,dialogos,codigo,texto_rico}.py` e seis arquivos de teste (44
+testes). Conferido na tela com o processo DPI-aware: o painel Busca no caderno de baixo
+(cabe na janela de 1280×648), a caixa do `F7` e a caixa de símbolos.
+
+**O que divergiu da spec, e por quê:**
+
+- **A busca do modo texto corre sobre `Alvo`s** (`busca.alvos_do_capitulo`): o parágrafo
+  de cima, cada parágrafo interno de lista e de citação (com o **deslocamento** dentro do
+  bloco, o número que `TextoRico.indice_de` entende), cada parágrafo de célula, a legenda
+  de figura/tabela/diagrama e cada parágrafo de nota (que no widget é um bloco com o id
+  do próprio parágrafo). Célula e legenda não são endereçáveis pelo `indice_de`: a
+  ocorrência numa célula entra na célula (`grade.entrar`) e seleciona dentro dela; a de
+  uma legenda seleciona o objeto. A ocorrência tem uma **chave** `(índice do alvo,
+  deslocamento)` comparável com a do cursor (`ui/editor/busca.chave_do_cursor`), e é
+  assim que "próximo" e "anterior" sabem de onde partir; no código a chave é o
+  deslocamento em caracteres.
+- **Substituir preserva o formato do primeiro caractere trocado** (`substituir_em_trechos`
+  parte os trechos nas duas fronteiras e põe o texto novo no molde do primeiro de
+  dentro); a referência de nota, a ilha inline e a marca de página não têm comprimento
+  e ficam onde estão; um `\n` no substituto vira quebra suave. Na aba de texto a troca
+  passa por `_reescrever_bloco` (parágrafo, lista, citação, parágrafo de nota, parágrafo
+  de célula — pelo próprio widget da célula) ou `substituir_objeto` (legenda), e é o
+  widget que registra o ponto; "Substituir todos" na aba ativa é **um** ponto composto,
+  num capítulo fechado é um ponto por capítulo no `Historico` do projeto (a nota entra
+  inteira, como manda a ED-04), e no código é `EditorDeCodigo.substituir_todos` (um grupo
+  de desfazer). O capítulo aberto é sempre lido do widget, nunca do modelo.
+- **"Texto marcado"** é uma faixa de chaves por arquivo (`Buscador.marcas`), mostrada
+  com a tag `suspeito` (fundo amarelo); **"arquivos marcados"** é `janela.arquivos_marcados`,
+  com "✓ " no navegador. Os dois ganharam item ("Editar → Marcar texto/arquivo para a
+  busca"), e os botões do painel também (Substituir e localizar, Substituir todos,
+  Contar, Listar) — seção ED-06 no fim de Editar. "Seleção" só entra na lista de escopos
+  quando há seleção. O histórico das 20 vai para `Settings editor.buscas`.
+- **"Ir para…" vale nos dois modos** (a ED-02 só tinha a linha, no código): linha (código)
+  ou bloco (texto), diagrama, figura, tabela, página do impresso (a `MarcaDePagina` ou o
+  `Trecho.pagina`, com deslocamento) e capítulo (`busca.destino`; `Caixas.ir_para`).
+- **A peneira de notação foi copiada** para `core/editor/ortografia.py` (`e_notacao`), com
+  um teste de paridade com `core.notacao.e_token_de_notacao`: importar `core.notacao`
+  traz `box_service` e o OpenCV, e o editor abre sem eles (DEC-07). Pelo mesmo motivo
+  `core/lexico.py` passou a importar `notacao` só em `_palavras_de_prosa`. Ficam de fora
+  também o token com dígito, a palavra toda em maiúsculas (`FIDE`, `ECO`), o código, a
+  ilha e os papéis de xadrez (lance, NAG, figurina, jogador, abertura); `Black's` e
+  `Nimzo-Indian` valem por partes.
+- **`lexico.sugestoes`** só compara com os baldes de `_indice_por_forma` de comprimento
+  ±2 e mesma inicial (e, se nada sair, ±1 com qualquer inicial): a primeira chamada custa
+  0,2 s (o índice) e as seguintes milissegundos. A inicial maiúscula é devolvida.
+- **A caixa do `F7` é uma só para a verificação inteira** (`wait_variable`), com "Trocar
+  todas" além das quatro ações da spec; uma troca desloca as suspeitas seguintes do mesmo
+  alvo; no fim, o sublinhado `orto` é refeito com o que sobrou. No modo código as
+  suspeitas vão para Resultados com a `linha_fonte` do bloco. Os léxicos são um por
+  idioma (`ortografia.Lexicos`), com o dicionário do livro em todos; "Adicionar" num
+  livro sem caminho é erro de entrada ("salve o livro antes"). O `pt` fica vazio e quieto
+  até a ED-06b.
+- **`core/editor/simbolos.py`** (a parte pura: categorias, busca por nome numa faixa fixa
+  de códigos, código ↔ caractere) ao lado de `ui/editor/simbolos.py`; o `Ctrl+Shift+X`
+  sem prefixo exige de 4 a 6 dígitos em limite de palavra — o Word converte `e4` em `ä`,
+  e num livro de xadrez `e4` é um lance (`U+A0` continua valendo).
+- **A contagem da barra de status passou a ser a de `estatisticas.contar_capitulo`**
+  (notas e legendas entram): é o único jeito de "Contagem bate com o modelo" valer para a
+  barra, a caixa e o `contagem` da ED-02 ao mesmo tempo.
+- **`TextoRico.posicao_de(indice)`** (a `posicao()` de qualquer índice) e
+  **`EditorDeCodigo.substituir_intervalo`/`substituir_todos`** nasceram aqui.
+
 ---
 
 ## ED-06b — Tipografia, dicionário de português, buscas salvas
@@ -1591,7 +1657,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-04 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag por instância e proxy em `proc` Tcl (defeitos latentes); faixa de notas como blocos `dn:`; célula = `TextoRico(celula=True)` com reconciliação adiada; `inserir_bloco_no_cursor`; `Fragmento.notas`; `_antes_forcado`; `end-1c`; itens fora da §7.3 |
 | ED-05 | a fazer | | | |
 | ED-05b | a fazer | | | |
-| ED-06 | a fazer | | | |
+| ED-06 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `Alvo` com deslocamento e chave; célula/legenda não endereçáveis; formato do primeiro caractere; um ponto composto na aba, um por capítulo fechado; texto/arquivos marcados com item; "Ir para…" nos dois modos; `e_notacao` copiada; `lexico` sem `notacao` no topo; caixa única do `F7` com "Trocar todas"; `core/editor/simbolos.py`; `Ctrl+Shift+X` exige 4 dígitos; contagem da barra = `estatisticas` |
 | ED-06b | a fazer | | | |
 | ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
 | ED-08 | a fazer | | | |

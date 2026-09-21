@@ -44,6 +44,14 @@ principal de um objeto (`acao_principal`: tabela → primeira célula; nota → 
 aba e leva ao bloco; destino inexistente fica vermelho no painel e vai a Resultados),
 imagem de arquivo → recurso do livro, tabela, ilha, notas, quebras, e "Dividir capítulo
 aqui"/"Juntar com o anterior" por `livro_ops`, com as abas e o sumário recarregados.
+
+## A ED-06 na janela
+
+`_registrar_comandos_da_ed06` liga o painel Busca (`ui/editor/busca.py`: o `Buscador`
+traduz a ocorrência do modelo em seleção na aba, e procura no widget quando a aba está
+aberta e no modelo quando não está), a ortografia (`ui/editor/ortografia.py: Corretor`,
+com os léxicos por idioma em `lexicos()` e o dicionário do livro ao lado do EPUB), "Ir
+para…" nos dois modos, a caixa de símbolos, o `Ctrl+Shift+X` e as estatísticas.
 """
 
 from __future__ import annotations
@@ -60,7 +68,7 @@ from tkinter import ttk
 from typing import Any, Callable, Iterable, Sequence
 
 from core.editor import area_de_transferencia as area_mod
-from core.editor import epub, livro_ops, modelo, sumario, xhtml
+from core.editor import epub, estatisticas, livro_ops, modelo, sumario, xhtml
 from core.editor.clipes import Clipes
 from core.editor.modelo import (Capitulo, Celula, Diagrama, Figura, IlhaBruta, Paragrafo, Pessoa, Recurso, Tabela,
                                 Trecho)
@@ -70,10 +78,12 @@ from ui.editor import atalhos as atalhos_mod
 from ui.editor import barra as barra_mod
 from ui.editor import menus as menus_mod
 from ui.editor.abas import Aba, Abas
+from ui.editor.busca import Buscador, PainelDeBusca
 from ui.editor.codigo import EditorDeCodigo
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
 from ui.editor.mensagens import PainelDeMensagens, logger
+from ui.editor.ortografia import Corretor
 from ui.editor.propriedades import PainelDePropriedades
 from ui.editor.resultados import PainelDeResultados, Resultado
 from ui.editor.tabela import GradeDeTabela
@@ -90,7 +100,6 @@ FORMATOS_DE_EXPORTACAO = (("epub", "EPUB", "ED-02"), ("html", "HTML único", "ED
                           ("html-pasta", "HTML em pasta", "ED-10"), ("txt", "TXT", "ED-10"),
                           ("docx", "DOCX", "ED-12"), ("pdf", "PDF paginado", "ED-12"), ("pgn", "PGN", "ED-12"))
 IDIOMAS = ("pt", "en", "es", "fr", "de", "it", "ru")
-_RE_PALAVRA = re.compile(r"\w+")
 _RE_TAG = re.compile(r"<[^>]*>")
 _RE_ID = re.compile(r'\bid\s*=\s*"([^"]*)"')
 
@@ -155,11 +164,15 @@ class JanelaDoEditor(tk.Toplevel):
         #: A área de transferência (§8.11): o acesso ao sistema é injetado daqui (o teste troca).
         self.area = area_mod.AreaDeTransferencia(self._ler_clipboard, self._gravar_clipboard, _imagem_do_clipboard)
         self.abrir_url: Callable[[str], Any] = webbrowser.open
+        #: Os arquivos marcados no navegador para o escopo "arquivos marcados" da busca (ED-06).
+        self.arquivos_marcados: set[str] = set()
+        self._lexicos_cache: tuple[str | None, Any] | None = None
 
         self.task = task_controller if task_controller is not None else _task_controller(self)
         self._construir()
         self._registrar_comandos_da_ed02()
         self._registrar_comandos_da_ed04()
+        self._registrar_comandos_da_ed06()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -228,8 +241,9 @@ class JanelaDoEditor(tk.Toplevel):
         # Centro: abas e o caderno de baixo
         self.abas = Abas(self.centro, ao_trocar=self._trocou_de_aba)
         self.inferior = ttk.Notebook(self.centro)
-        self.busca = tk.Label(self.inferior, text="Busca — chega na ED-06", anchor="nw", takefocus=1,
-                              highlightthickness=2, padx=6, pady=4)
+        self.busca = PainelDeBusca(self.inferior, ao_executar=self.executar,
+                                   historico=self._preferencia("buscas", []) or [],
+                                   ao_gravar_historico=lambda itens: self._gravar_preferencia("buscas", itens))
         self.resultados = PainelDeResultados(self.inferior, ao_ativar=self._ativar_resultado)
         self.mensagens = PainelDeMensagens(self.inferior)
         self.validacao = PainelDeResultados(self.inferior, ao_ativar=self._ativar_resultado)
@@ -275,7 +289,7 @@ class JanelaDoEditor(tk.Toplevel):
             "propriedades": Painel("propriedades", "direita", self.quadro_propriedades,
                                    self.painel_de_propriedades.foco),
             "xadrez": Painel("xadrez", "direita", self.quadro_xadrez, self.xadrez.focus_set),
-            "busca": Painel("busca", "inferior", self.busca, lambda: self._focar_inferior(self.busca)),
+            "busca": Painel("busca", "inferior", self.busca, lambda: self._focar_inferior(self.busca, self.busca.foco)),
             "resultados": Painel("resultados", "inferior", self.resultados,
                                  lambda: self._focar_inferior(self.resultados, self.resultados.foco)),
             "mensagens": Painel("mensagens", "inferior", self.mensagens,
@@ -441,7 +455,7 @@ class JanelaDoEditor(tk.Toplevel):
         for grupo in (arquivo, editar, exibir, inserir, formatar, ferramentas, livro, ajuda):
             self.registrar_comandos(grupo)
         so_no_codigo = ("aplicar_clipe", "bem_formado", "consertar", "reformatar", "reformatar_css", "clipes",
-                        "autocompletar", "comentar", "ir_para", "ir_ao_alvo", "voltar", "numeros_de_linha",
+                        "autocompletar", "comentar", "ir_ao_alvo", "voltar", "numeros_de_linha",
                         "realce_da_linha")
         for nome in so_no_codigo:
             self.modos_do_comando[nome] = ("codigo",)
@@ -472,6 +486,17 @@ class JanelaDoEditor(tk.Toplevel):
                  "colar": j.colar, "colar_sem_formatacao": j.colar_sem_formatacao, "copiar": j.copiar,
                  "recortar": j.recortar}
         self.registrar_comandos(ambos)
+
+    def _registrar_comandos_da_ed06(self) -> None:
+        """Busca, ortografia, ir para, símbolos, código Unicode e estatísticas (§8.12–§8.15)."""
+        j = self
+        self.buscador = Buscador(self, self.busca)
+        self.corretor = Corretor(self)
+        self.registrar_comandos(self.buscador.comandos)
+        self.registrar_comandos(self.corretor.comandos)
+        self.registrar_comandos({"ir_para": j.ir_para, "inserir_simbolo": j.inserir_simbolo,
+                                 "estatisticas": j.estatisticas})
+        self.registrar_comandos({"codigo_unicode": j.codigo_unicode}, modos=("texto",))
 
     # ==================================================================
     # Estado: modo, aba, editores
@@ -653,6 +678,11 @@ class JanelaDoEditor(tk.Toplevel):
         self.arvore_do_sumario.delete(*self.arvore_do_sumario.get_children())
         self.painel_de_estilos.texto_rico = self._texto_de_reserva
         self.painel_de_estilos.folha_padrao = ""
+        self.arquivos_marcados.clear()
+        self._lexicos_cache = None
+        if hasattr(self, "buscador"):
+            self.buscador.marcas.clear()
+            self.buscador.atual = None
 
     def fechar_livro(self) -> bool:
         if self.projeto is None:
@@ -1204,15 +1234,28 @@ class JanelaDoEditor(tk.Toplevel):
             return
         dados = item.dados
         livro = self.projeto.livro
+        comprimento = int(dados.get("comprimento", 0) or 0)
         if livro.capitulo(item.arquivo) is not None:
             if "linha" in dados:
                 aba = self.abrir_capitulo(item.arquivo, modo="codigo")
                 aba.widget.ir_para(int(dados["linha"]), int(dados.get("coluna", 1)))
+                if comprimento:
+                    t = aba.widget.texto
+                    t.tag_remove("sel", "1.0", "end")
+                    t.tag_add("sel", "insert", f"insert+{comprimento}c")
             else:
                 aba = self.abrir_capitulo(item.arquivo)
                 bloco = dados.get("bloco")
                 if bloco and isinstance(aba.widget, TextoRico):
-                    aba.widget.ir_para(bloco, int(dados.get("deslocamento", 0)))
+                    if "deslocamento" in dados and bloco in aba.widget.ordem:
+                        desloc = int(dados.get("deslocamento", 0))
+                        if comprimento:
+                            aba.widget.selecionar(desloc, desloc + comprimento, bloco)
+                            aba.widget.texto.see("insert")
+                        else:
+                            aba.widget.ir_para(bloco, desloc)
+                    elif bloco in aba.widget.ordem:
+                        aba.widget.selecionar_objeto(bloco)
             aba.widget.foco()
         elif livro.recurso(item.arquivo) is not None:
             aba = self.abrir_recurso(item.arquivo)
@@ -1497,17 +1540,6 @@ class JanelaDoEditor(tk.Toplevel):
         self.painel_de_estilos.atualizar()
 
     # -- modo código ------------------------------------------------------
-
-    def ir_para(self, linha: int | None = None) -> int | None:
-        editor = self._codigo()
-        if linha is None:
-            total = int(editor.texto.index("end-1c").split(".")[0])
-            linha = self.caixas.pedir_inteiro("Ir para linha", f"Linha (1–{total}):", editor.posicao[0], 1, total)
-            if linha is None:
-                return None
-        editor.ir_para(int(linha))
-        editor.foco()
-        return int(linha)
 
     def inserir_link(self, href: str | None = None, rotulo: str | None = None) -> None:
         """Link… (`Ctrl+K`): no texto, na seleção ou como texto novo (§8.9); no código, `<a href>`."""
@@ -2023,9 +2055,125 @@ class JanelaDoEditor(tk.Toplevel):
     def sobre(self) -> str:
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
-                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-07, ED-09.")
+                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-07, ED-09.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
+
+    # -- ED-06: ir para, símbolos, código Unicode, estatísticas, léxicos ----------------
+
+    def lexicos(self) -> Any:
+        """Os léxicos da ortografia deste livro (um por idioma, com o dicionário ao lado do EPUB)."""
+        from core.editor.ortografia import Lexicos
+
+        projeto = self._exigir_projeto()
+        caminho = projeto.caminho or None
+        if self._lexicos_cache is None or self._lexicos_cache[0] != caminho:
+            self._lexicos_cache = (caminho, Lexicos(caminho))
+        return self._lexicos_cache[1]
+
+    def ir_para(self, tipo: str | None = None, n: int | None = None) -> Any:
+        """
+        Ir para… (`Ctrl+G`): linha (código), bloco (texto), diagrama, figura, tabela, página
+        do impresso ou capítulo (AC-ED06-4). Sem argumentos, pergunta.
+        """
+        from core.editor import busca as busca_mod
+
+        projeto = self._exigir_projeto()
+        aba = self.aba_ativa()
+        if aba is None:
+            raise ValueError("Nenhuma aba aberta.")
+        modo = self.modo_atual()
+        tipos = ([("linha", "Linha")] if modo == "codigo" else [("bloco", "Bloco")]) + [
+            ("diagrama", "Diagrama"), ("figura", "Figura"), ("tabela", "Tabela"), ("pagina", "Página do impresso"),
+            ("capitulo", "Capítulo")]
+        if tipo is None:
+            resposta = self.caixas.ir_para(tipos, tipos[0][0], 1)
+            if resposta is None:
+                return None
+            tipo, n = resposta
+        n = int(n if n is not None else 1)
+        if tipo == "linha":
+            editor = self._codigo()
+            total = int(editor.texto.index("end-1c").split(".")[0])
+            if not 1 <= n <= total:
+                raise ValueError(f"a linha precisa estar entre 1 e {total}")
+            editor.ir_para(n)
+            editor.foco()
+            return n
+        destino = busca_mod.destino(projeto.livro, tipo, n, aba.arquivo if aba.tipo == "capitulo" else "")
+        if destino is None:
+            rotulo = dict(tipos).get(tipo, tipo)
+            raise ValueError(f"não há {rotulo.lower()} {n} no livro")
+        alvo = self.abrir_capitulo(destino.arquivo)
+        if destino.bloco_id and alvo.widget is not None:
+            if isinstance(alvo.widget, TextoRico):
+                if destino.bloco_id in alvo.widget.ordem:
+                    bloco = alvo.widget.modelo_de(destino.bloco_id)
+                    if isinstance(bloco, Paragrafo):
+                        alvo.widget.ir_para(destino.bloco_id, destino.deslocamento)
+                    else:
+                        alvo.widget.selecionar_objeto(destino.bloco_id)
+                        alvo.widget.texto.see("insert")
+            else:
+                indice = alvo.widget.texto.search(f'id="{destino.bloco_id}"', "1.0")
+                if indice:
+                    alvo.widget.ir_para(int(indice.split(".")[0]))
+        alvo.widget.foco()
+        self.status(f"Ir para: {destino.endereco}")
+        return destino
+
+    def inserir_simbolo(self, caractere: str | None = None) -> str | None:
+        """Inserir → Símbolo…: a caixa de símbolos; o escolhido entra no editor ativo."""
+        if self.editor_ativo() is None:
+            raise ValueError("Nenhuma aba aberta.")
+        if caractere is None:
+            caractere = self.caixas.simbolo()
+            if not caractere:
+                return None
+        self.inserir_texto(caractere)
+        return caractere
+
+    def codigo_unicode(self) -> str | None:
+        """`Ctrl+Shift+X`: o hexadecimal antes do cursor vira o caractere, e o caractere vira o código."""
+        from core.editor import simbolos as simbolos_mod
+
+        texto = self._texto_ativo()
+        bloco_id, desloc = texto.posicao()
+        if bloco_id is None:
+            raise ValueError("o cursor precisa estar num bloco de texto")
+        bloco = texto.modelo_de(bloco_id)
+        if not isinstance(bloco, Paragrafo) and bloco_id not in texto.ordem:
+            raise ValueError("o cursor precisa estar num parágrafo")
+        antes = modelo.texto_de(bloco)[:desloc] if bloco is not None else ""
+        if texto.selecao():
+            antes = texto.texto.get(*texto.selecao())
+            desloc = texto.posicao_de(texto.selecao()[1])[1]
+        resultado = simbolos_mod.alternar(antes)
+        if resultado is None:
+            raise ValueError("não há nada antes do cursor para converter")
+        quantos, novo = resultado
+        texto.selecionar(desloc - quantos, desloc, bloco_id)
+        texto.apagar_selecao()
+        texto.inserir(novo)
+        self.status(f"{antes[-quantos:]!r} → {novo!r}")
+        return novo
+
+    def estatisticas(self) -> Any:
+        """Ferramentas → Estatísticas do livro…: a contagem do modelo, por capítulo e no total."""
+        from core.editor import estatisticas as estatisticas_mod
+
+        projeto = self._exigir_projeto()
+        self._sincronizar_tudo()
+        total = estatisticas_mod.contar_livro(projeto.livro)
+        linhas = [f"{projeto.nome}", ""] + total.linhas() + ["", "Por capítulo:"]
+        for cap in projeto.livro.capitulos:
+            c = estatisticas_mod.contar_capitulo(cap)
+            linhas.append(f"  {cap.arquivo}: {c.palavras} palavras, {c.caracteres} caracteres, {c.blocos} blocos")
+        if total.avisos:
+            linhas += ["", "Avisos:"] + [f"  {a}" for a in total.avisos]
+        self.caixas.texto("Estatísticas do livro", "\n".join(linhas), monoespaco=False)
+        self.status(f"{total.palavras:,} palavras no livro".replace(",", "."))
+        return total
 
     # ==================================================================
     # Painéis, barras, foco, tela
@@ -2216,7 +2364,8 @@ class JanelaDoEditor(tk.Toplevel):
         for nome, itens in grupos.items():
             no = arvore.insert("", "end", iid=f"grupo:{nome}", text=f"{nome} ({len(itens)})", open=(nome == "Texto"))
             for iid, caminho, extra in itens:
-                rotulo = posixpath.basename(caminho) + (f" — {extra}" if extra else "")
+                marca = "✓ " if caminho in self.arquivos_marcados else ""
+                rotulo = marca + posixpath.basename(caminho) + (f" — {extra}" if extra else "")
                 arvore.insert(no, "end", iid=iid, text=rotulo)
 
     def _abrir_do_navegador(self) -> Aba | None:
@@ -2348,8 +2497,8 @@ class JanelaDoEditor(tk.Toplevel):
         if aba.widget is None:
             return 0
         if isinstance(aba.widget, TextoRico):
-            return sum(len(_RE_PALAVRA.findall(modelo.texto_de(b))) for b in aba.widget.sincronizar().blocos)
-        return len(_RE_PALAVRA.findall(_RE_TAG.sub(" ", aba.widget.texto_todo())))
+            return estatisticas.contar_capitulo(aba.widget.sincronizar()).palavras
+        return estatisticas.palavras_de(_RE_TAG.sub(" ", aba.widget.texto_todo()))
 
     def atualizar(self) -> None:
         """Depois de qualquer mudança de projeto, aba ou modo: menus, barras, status, título, rótulos."""
@@ -2553,9 +2702,8 @@ def _copiar_capitulo(de: Capitulo, para: Capitulo) -> None:
 
 
 def _palavras_do_capitulo(cap: Capitulo) -> int:
-    if cap.texto_cru is not None:
-        return len(_RE_PALAVRA.findall(_RE_TAG.sub(" ", cap.texto_cru)))
-    return sum(len(_RE_PALAVRA.findall(modelo.texto_de(b))) for b in cap.blocos)
+    """A mesma contagem de `core/editor/estatisticas.py` (ED-06): notas e legendas entram (AC-ED06-5)."""
+    return estatisticas.contar_capitulo(cap).palavras
 
 
 def _e_texto(tipo_mime: str) -> bool:
