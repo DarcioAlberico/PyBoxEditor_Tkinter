@@ -645,7 +645,8 @@ class _Escritor:
 
     # -- montagem -------------------------------------------------------------
 
-    def montar(self) -> None:
+    def montar(self, sem_dados: bool = False) -> None:
+        """As entradas do zip; com `sem_dados`, só o manifesto (o OPF para ler, ED-08), sem abrir recurso."""
         livro = self.livro
         self.entradas.append(("META-INF/container.xml", _container(livro.opf).encode("utf-8")))
         capitulos: list[tuple[Capitulo, str]] = []
@@ -654,7 +655,8 @@ class _Escritor:
                 texto = cap.texto_cru.lstrip("\ufeff")
             else:
                 texto = xhtml.escrever(cap, pasta_de_imagens=self.pasta_de_imagens)
-                self._desenhar_diagramas(cap)
+                if not sem_dados:
+                    self._desenhar_diagramas(cap)
             capitulos.append((cap, texto))
         # Nav, NCX e capítulos vão antes dos recursos no zip: é a ordem em que um leitor os pede.
         nav = livro.nav or _nome_livre(livro, "nav.xhtml")
@@ -665,11 +667,14 @@ class _Escritor:
         for cap, texto in capitulos:
             self._item(cap.arquivo, MIME_XHTML, _propriedades_do_xhtml(texto), texto.encode("utf-8"))
         for href, recurso in livro.recursos.items():
-            try:
-                dados = dados_de(livro, recurso)
-            except FileNotFoundError as erro:
-                self.relatorio.aviso(f"recurso deixado de fora: {erro}")
-                continue
+            if sem_dados:
+                dados = b""
+            else:
+                try:
+                    dados = dados_de(livro, recurso)
+                except FileNotFoundError as erro:
+                    self.relatorio.aviso(f"recurso deixado de fora: {erro}")
+                    continue
             if not recurso.no_manifesto:
                 self.entradas.append((nome_no_zip(livro, href), dados))
                 continue
@@ -947,6 +952,15 @@ def _container(opf: str) -> str:
             f'    <rootfile full-path="{_attr(quote(opf, safe="/"))}" media-type="application/oebps-package+xml"/>\n'
             "  </rootfiles>\n"
             "</container>\n")
+
+
+def texto_do_opf(livro: Livro) -> str:
+    """O OPF como o escritor o gravaria agora — para a aba só de leitura do navegador (ED-08)."""
+    import copy
+
+    escritor = _Escritor(copy.deepcopy(livro), "", RelatorioDeConversao(formato="epub"))
+    escritor.montar(sem_dados=True)
+    return escritor._opf()
 
 
 def escrever(livro: Livro, caminho: str, *, ncx: bool | None = None) -> RelatorioDeConversao:

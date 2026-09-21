@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07 e ED-09 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08 e ED-09 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1359,6 +1359,78 @@ navegador.py`, `_sumario_ui.py`, `_metadados.py`, `_relatorios.py`, `_validacao.
 .venv/Scripts/python.exe -m pytest tests/test_editor_navegador.py tests/test_editor_sumario_ui.py tests/test_editor_metadados.py tests/test_editor_relatorios.py tests/test_editor_validacao.py tests/test_editor_previa.py tests/test_editor_capa.py tests/test_editor_livro_ops_ui.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/{relatorios,validacao}.py`, as operações novas de
+`core/editor/livro_ops.py` (`definir_capa`, `definir_semantica`, `definir_marco`,
+`novo_capitulo`, `nova_folha`, `adicionar_arquivo`, `dimensoes_da_imagem`),
+`epub.texto_do_opf`, `ui/editor/{navegador,sumario,metadados,previa,operacoes}.py`,
+`ui/fontes.registrar_arquivo`, as mudanças em `ui/editor/{janela,menus,dialogos}.py`, os
+extras `epub-validacao` e `editor-previa` no `pyproject.toml`, e oito arquivos de teste
+(33 testes, três `slow` com o epubcheck de verdade). Conferido na tela com o processo
+DPI-aware: o navegador com a capa e a semântica, a prévia ao lado do código, o editor de
+sumário e a caixa de metadados (616 px, cabe).
+
+**O que divergiu da spec, e por quê:**
+
+- **O menu Livro inteiro mora em `ui/editor/operacoes.py: OperacoesDoLivro`**, não na
+  janela: o alvo de cada comando é o arquivo focado no navegador (senão a aba ativa), a
+  mudança vai por `livro_ops`, e `_depois()` recarrega navegador, sumário e as abas do que
+  mudou. O navegador e o sumário viraram painéis (`Navegador`, `PainelDeSumario`) que só
+  chamam a janela por comando; `janela.navegador` e `janela.arvore_do_sumario` continuam
+  sendo os `Treeview`. O menu de contexto do navegador é montado dos itens da barra
+  (`navegador.CONTEXTO`) e ganhou o item "Abrir o arquivo do navegador" (seção ED-08 no
+  fim de Livro) — toda ação de contexto tem item. Arrastar reordena a espinha por
+  `reordenar_capitulos`, um comando interno sem item (como `_buscas_salvas_*`).
+- **A capa é `livro_ops.definir_capa`**: o invólucro SVG do Sigil (`viewBox` do tamanho
+  da imagem, lido do cabeçalho PNG/GIF/JPEG/SVG sem PIL — `dimensoes_da_imagem`), num
+  capítulo `Text/capa.xhtml` em `texto_cru` com `epub:type="cover"`, `linear="no"` e
+  primeiro na espinha; `properties="svg"`, `cover-image` e `<meta name="cover">` já eram
+  do escritor da ED-01. Definir de novo reescreve o mesmo arquivo.
+- **A semântica é um `epub:type` no corpo e um marco** (`definir_semantica`): as únicas
+  (`cover`, `toc`, `bodymatter`…) saem do capítulo que as tinha; `chapter` não é marco;
+  ligar a mesma de novo desliga. Num capítulo em `texto_cru` o atributo entra no `<body>`
+  por texto. O submenu "Semântica do capítulo ▸" é dinâmico (✓ na atual).
+- **"Sumário → Gravar"** não grava no disco (o nav é regenerado ao salvar, DEC-01):
+  confere os destinos, refaz a aba de leitura do `nav.xhtml` e marca sujo. "Sumário como
+  página" reescreve o `sumario.xhtml` que já existe (o capítulo com semântica `toc`).
+- **O OPF abre só para leitura** (`epub.texto_do_opf`, o escritor com `montar(sem_dados=
+  True)`, que não abre recurso), como o nav e o NCX.
+- **Metadados completos com a forma curta preservada**: `metadados(título, autor,
+  idioma)` da ED-02 continua valendo (a ED-02 tem teste). A caixa não toca em `extras`,
+  `ids` e `prefixos`; uma pessoa que já existia guarda o `id` (os `refines` apontam para
+  ele); uma capa que não está no livro é erro de entrada.
+- **Relatórios sem `fitz` no topo**: só "Fontes e glifos" e a cobertura de "Caracteres"
+  importam o `fitz` (`Font.has_glyph`), quando rodam, sobre as fontes embutidas extraídas
+  para uma pasta temporária; sem fonte embutida não há o que conferir. "Apagar classes não
+  usadas" corta regras pelo texto (`regras_da_folha`: um varredor que entra em `@media` e
+  pula comentários e strings), nunca por `css_minima.escrever`; só regras cujos seletores
+  são **todos** de classes sem uso saem. Ativar uma linha de folha em Resultados abre a
+  folha na linha da regra (`dados["inicio"]`, um deslocamento → linha).
+- **A validação roda o `epubcheck.jar` do pacote `epubcheck` com `--json`** (ou um
+  `epubcheck` no PATH), e o `path` de cada mensagem volta como href relativo ao OPF;
+  `comando=[]` é "sem epubcheck" (a mensagem da AC-ED08-8), `None` descobre. Corre
+  **síncrona** com o cursor de espera (3,5 s no livro completo) — o `TaskController`
+  fica para quando houver um livro em que isso doa. O `correr` é injetável
+  (`operacoes.correr_epubcheck`), e é assim que o teste sem Java simula o JSON.
+- **A prévia é o `TextoRico` só de leitura** sobre `xhtml.ler` (DEC-05): mal-formado mantém
+  a anterior e escreve o erro no rodapé; `<<CursorMoveu>>` do código leva ao bloco pela
+  `linha_fonte`; o clique devolve a linha. Os dois ficam lado a lado com `side="left"`
+  nos dois (o editor é repackado): um `side="right"` depois de um `fill=both, expand`
+  ficava com largura zero. O `tkinterweb` é só um extra declarado.
+- **"Abrir com…" vigia o arquivo exportado** (`after` de 1,5 s) e traz de volta o que
+  mudou no disco — um capítulo volta em `texto_cru`; o lançador é injetável.
+- **`ui/fontes.registrar_arquivo`** lê a família na tabela `name` do TTF/OTF à mão (sem
+  `fitz` nem `fontTools`) e registra com `AddFontResourceExW`; o editor a importa só
+  quando precisa, porque `ui/fontes.py` traz `chess_pdf_processor` (fitz) no topo.
+- **Clipes no modo texto**: o texto do clipe (com `\0`…`\9` da seleção) é lido como
+  fragmento (`blocos_do_xhtml`) e entra como trechos ou blocos; `clipes` e `aplicar_clipe`
+  deixaram de ser só do código.
+- **Testes que a fase mexeu**: o `gui` da AC-ED02-3 passou a esperar `sumario_editar` em
+  `Ctrl+T` e `substituir` em `Ctrl+H` (o editor de sumário é modal e travava a suíte); a
+  AC-ED02-2 simula o "comando só de um modo" restringindo `modos_do_comando`, porque não
+  sobrou comando assim; o OPF abre em vez de avisar.
+
 ---
 
 ## ED-09 — DOCX: escrever a partir do modelo (núcleo)
@@ -1709,7 +1781,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-06 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `Alvo` com deslocamento e chave; célula/legenda não endereçáveis; formato do primeiro caractere; um ponto composto na aba, um por capítulo fechado; texto/arquivos marcados com item; "Ir para…" nos dois modos; `e_notacao` copiada; `lexico` sem `notacao` no topo; caixa única do `F7` com "Trocar todas"; `core/editor/simbolos.py`; `Ctrl+Shift+X` exige 4 dígitos; contagem da barra = `estatisticas` |
 | ED-06b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `pt.hunspell.gz` + `core/afixos.py` em vez de lista chã (10,4 M formas); `Lexico.flexoes`; desempate por prefixo; propor/aplicar com prévia; espaço só antes de lance; bloco marcado `pybox:hifenizar` na folha; buscas salvas com comandos internos |
 | ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
-| ED-08 | a fazer | | | |
+| ED-08 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | menu Livro em `operacoes.py`; navegador e sumário como painéis; capa por `definir_capa` com invólucro SVG; semântica = `epub:type` + marco; "Gravar" só refaz o nav; OPF só de leitura; forma curta de `metadados`; relatórios sem fitz no topo; classes apagadas por texto; validação síncrona com `comando=[]`; prévia = `TextoRico`; "Abrir com" vigia; clipes no texto |
 | ED-09 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | estilos do Word `builtin`; `STYLEREF 1`; `OS/2` v3 na Merida; folga de 1,5 pt na caixa; `notas="rodape"` respeita o tipo; quebra de capítulo pelo estilo; só alvo existente vira marcador; sumário 1–3 |
 | ED-09b | a fazer | | | |
 | ED-10 | a fazer | | | |

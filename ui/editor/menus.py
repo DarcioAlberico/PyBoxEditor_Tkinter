@@ -352,7 +352,15 @@ FERRAMENTAS = (
     _i("Contagem de palavras", "contagem", "ED-02"),
     _i("Estatísticas do livro…", "estatisticas", "ED-06"),
     _i("Buscas salvas…", "buscas_salvas", "ED-06b"),
-    _sub("Relatórios", "ED-08", _placeholder("ED-08")),
+    _sub("Relatórios", "ED-08", (
+        _i("Arquivos", "relatorio_arquivos", "ED-08"),
+        _i("Imagens", "relatorio_imagens", "ED-08"),
+        _i("Classes CSS", "relatorio_classes", "ED-08"),
+        _i("Links e referências", "relatorio_links", "ED-08"),
+        _i("Caracteres", "relatorio_caracteres", "ED-08"),
+        _i("Fontes e glifos", "relatorio_fontes", "ED-08"),
+        _i("Diagramas", "relatorio_diagramas", "ED-08"),
+    )),
     SEP,
     _i("Verificar bem-formado", "bem_formado", "ED-02", CODIGO),
     _i("Consertar HTML", "consertar", "ED-02", CODIGO),
@@ -373,7 +381,7 @@ LIVRO = (
         _i("Editar…", "sumario_editar", "ED-08"),
         _i("Gravar", "sumario_gravar", "ED-08"),
     )),
-    _sub("Semântica do capítulo", "ED-08", _placeholder("ED-08")),
+    _sub("Semântica do capítulo", "ED-08", dinamico="semantica"),
     _i("Marcos…", "marcos", "ED-08"),
     _i("Vincular folhas de estilo…", "vincular_folhas", "ED-08"),
     SEP,
@@ -395,6 +403,9 @@ LIVRO = (
     _i("Abrir com…", "abrir_com", "ED-08"),
     SEP,
     _i("Formato de página…", "formato_de_pagina", "ED-12"),
+    # -- ED-08: o "Abrir" do menu de contexto do navegador (toda ação de contexto tem item) ----------
+    SEP,
+    _i("Abrir o arquivo do navegador", "abrir_do_navegador", "ED-08"),
 )
 
 AJUDA = (

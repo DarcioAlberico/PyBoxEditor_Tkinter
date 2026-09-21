@@ -52,6 +52,15 @@ traduz a ocorrência do modelo em seleção na aba, e procura no widget quando a
 aberta e no modelo quando não está), a ortografia (`ui/editor/ortografia.py: Corretor`,
 com os léxicos por idioma em `lexicos()` e o dicionário do livro ao lado do EPUB), "Ir
 para…" nos dois modos, a caixa de símbolos, o `Ctrl+Shift+X` e as estatísticas.
+
+## A ED-08 na janela
+
+O navegador e o sumário viraram painéis próprios (`ui/editor/navegador.py`,
+`ui/editor/sumario.py`) que chamam a janela por comando; o menu Livro inteiro, os
+relatórios, a validação, as limpezas, a prévia (`F12`) e os metadados completos moram
+em `ui/editor/operacoes.py: OperacoesDoLivro`, registrado por
+`_registrar_comandos_da_ed08`. O OPF abre só para leitura (`epub.texto_do_opf`), e os
+clipes passam a valer no modo texto (o fragmento vira modelo).
 """
 
 from __future__ import annotations
@@ -65,7 +74,7 @@ import traceback
 import webbrowser
 from dataclasses import dataclass
 from tkinter import ttk
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable
 
 from core.editor import area_de_transferencia as area_mod
 from core.editor import epub, estatisticas, livro_ops, modelo, sumario, xhtml
@@ -84,9 +93,12 @@ from ui.editor.codigo import EditorDeCodigo
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
 from ui.editor.mensagens import PainelDeMensagens, logger
+from ui.editor.navegador import Navegador
+from ui.editor.operacoes import OperacoesDoLivro
 from ui.editor.ortografia import Corretor
 from ui.editor.propriedades import PainelDePropriedades
 from ui.editor.resultados import PainelDeResultados, Resultado
+from ui.editor.sumario import PainelDeSumario
 from ui.editor.tabela import GradeDeTabela
 from ui.editor.tags import EstiloDeTela
 from ui.editor.tipografia import Tipografo
@@ -152,7 +164,8 @@ class JanelaDoEditor(tk.Toplevel):
         self.modos_do_comando: dict[str, tuple[str, ...]] = {}
         self.variaveis: dict[str, tk.BooleanVar] = {}
         self.itens_dinamicos: dict[str, Callable[[], list[tuple[str, Callable[[], Any] | None]]]] = {
-            "recentes": self._itens_recentes, "clipes": self._itens_de_clipes}
+            "recentes": self._itens_recentes, "clipes": self._itens_de_clipes,
+            "semantica": lambda: self.operacoes.itens_de_semantica()}
         self.paineis: dict[str, Painel] = {}
         self.ultimo_erro: tuple[str, str] | None = None
         self._tique_id: str | None = None
@@ -176,6 +189,7 @@ class JanelaDoEditor(tk.Toplevel):
         self._registrar_comandos_da_ed04()
         self._registrar_comandos_da_ed06()
         self._registrar_comandos_da_ed06b()
+        self._registrar_comandos_da_ed08()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -218,21 +232,13 @@ class JanelaDoEditor(tk.Toplevel):
 
         # Esquerda: Navegador, Sumário, Estilos
         self.quadro_navegador = ttk.LabelFrame(self.esquerda, text="Navegador")
-        self.navegador = ttk.Treeview(self.quadro_navegador, show="tree", selectmode="browse", height=10)
-        barra_n = ttk.Scrollbar(self.quadro_navegador, orient="vertical", command=self.navegador.yview)
-        self.navegador.configure(yscrollcommand=barra_n.set)
-        self.navegador.pack(side="left", fill="both", expand=True)
-        barra_n.pack(side="right", fill="y")
-        self.navegador.bind("<Double-Button-1>", lambda e: self._abrir_do_navegador())
-        self.navegador.bind("<Return>", lambda e: self._abrir_do_navegador())
+        self.painel_navegador = Navegador(self.quadro_navegador, self)
+        self.painel_navegador.pack(fill="both", expand=True)
+        self.navegador = self.painel_navegador.arvore
         self.quadro_sumario = ttk.LabelFrame(self.esquerda, text="Sumário")
-        self.arvore_do_sumario = ttk.Treeview(self.quadro_sumario, show="tree", selectmode="browse", height=8)
-        barra_s = ttk.Scrollbar(self.quadro_sumario, orient="vertical", command=self.arvore_do_sumario.yview)
-        self.arvore_do_sumario.configure(yscrollcommand=barra_s.set)
-        self.arvore_do_sumario.pack(side="left", fill="both", expand=True)
-        barra_s.pack(side="right", fill="y")
-        self.arvore_do_sumario.bind("<Double-Button-1>", lambda e: self._ir_pelo_sumario())
-        self.arvore_do_sumario.bind("<Return>", lambda e: self._ir_pelo_sumario())
+        self.painel_sumario = PainelDeSumario(self.quadro_sumario, self)
+        self.painel_sumario.pack(fill="both", expand=True)
+        self.arvore_do_sumario = self.painel_sumario.arvore
         self.quadro_estilos = ttk.LabelFrame(self.esquerda, text="Estilos")
         self._texto_de_reserva = TextoRico(self.quadro_estilos)          # o alvo do painel sem aba aberta
         self.painel_de_estilos = PainelDeEstilos(self.quadro_estilos, self._texto_de_reserva, "",
@@ -457,9 +463,8 @@ class JanelaDoEditor(tk.Toplevel):
         ajuda = {"atalhos": j.atalhos, "dialeto": j.dialeto, "sobre": j.sobre}
         for grupo in (arquivo, editar, exibir, inserir, formatar, ferramentas, livro, ajuda):
             self.registrar_comandos(grupo)
-        so_no_codigo = ("aplicar_clipe", "bem_formado", "consertar", "reformatar", "reformatar_css", "clipes",
-                        "autocompletar", "comentar", "ir_ao_alvo", "voltar", "numeros_de_linha",
-                        "realce_da_linha")
+        so_no_codigo = ("bem_formado", "consertar", "reformatar", "reformatar_css", "autocompletar", "comentar",
+                        "ir_ao_alvo", "voltar", "numeros_de_linha", "realce_da_linha")
         for nome in so_no_codigo:
             self.modos_do_comando[nome] = ("codigo",)
 
@@ -500,6 +505,13 @@ class JanelaDoEditor(tk.Toplevel):
         self.registrar_comandos({"ir_para": j.ir_para, "inserir_simbolo": j.inserir_simbolo,
                                  "estatisticas": j.estatisticas})
         self.registrar_comandos({"codigo_unicode": j.codigo_unicode}, modos=("texto",))
+
+    def _registrar_comandos_da_ed08(self) -> None:
+        """O livro no modo código (§9): o menu Livro, relatórios, validação, prévia, metadados completos."""
+        self.operacoes = OperacoesDoLivro(self)
+        self.registrar_comandos(self.operacoes.comandos)
+        self.registrar_comandos({"ir_para_destino": self.ir_para_destino, "clipes": self.clipes_comando,
+                                 "aplicar_clipe": self.aplicar_clipe})
 
     def _registrar_comandos_da_ed06b(self) -> None:
         """Tipografia, juntar hifenizadas e buscas salvas (ED-06b, §8.12 e §8.14)."""
@@ -690,6 +702,8 @@ class JanelaDoEditor(tk.Toplevel):
         self.painel_de_estilos.folha_padrao = ""
         self.arquivos_marcados.clear()
         self._lexicos_cache = None
+        if hasattr(self, "operacoes"):
+            self.operacoes.vigiados.clear()
         if hasattr(self, "buscador"):
             self.buscador.marcas.clear()
             self.buscador.atual = None
@@ -1071,15 +1085,17 @@ class JanelaDoEditor(tk.Toplevel):
         return aba
 
     def abrir_leitura(self, arquivo: str) -> Aba:
-        """O `nav.xhtml` ou o NCX regenerados do modelo, só para ler (DEC-01)."""
+        """O `nav.xhtml`, o NCX ou o OPF regenerados do modelo, só para ler (DEC-01)."""
         projeto = self._exigir_projeto()
         livro = projeto.livro
         if arquivo == livro.nav:
             texto = sumario.escrever_nav(livro)
         elif livro.ncx and arquivo == livro.ncx:
             texto = sumario.escrever_ncx(livro)
+        elif arquivo == livro.opf:
+            texto = epub.texto_do_opf(livro)
         else:
-            raise ValueError(f"{arquivo} não é o nav nem o NCX do livro")
+            raise ValueError(f"{arquivo} não é o nav, o NCX nem o OPF do livro")
         existente = self.abas.por_arquivo(arquivo)
         if existente is not None:
             self.abas.selecionar(existente)
@@ -1271,6 +1287,9 @@ class JanelaDoEditor(tk.Toplevel):
             aba = self.abrir_recurso(item.arquivo)
             if "linha" in dados:
                 aba.widget.ir_para(int(dados["linha"]), int(dados.get("coluna", 1)))
+            elif "inicio" in dados:
+                linha = aba.widget.texto_todo()[:int(dados["inicio"])].count("\n") + 1
+                aba.widget.ir_para(linha)
             aba.widget.foco()
 
     # ==================================================================
@@ -1978,7 +1997,8 @@ class JanelaDoEditor(tk.Toplevel):
 
     def clipes_comando(self) -> Any:
         """`Ctrl+Shift+J`: mostra a barra de clipes (a ED-07 a desenha) e leva o foco ao primeiro."""
-        self._codigo()
+        if self.editor_ativo() is None:
+            raise ValueError("Nenhuma aba aberta.")
         if self.barra_de_clipes is None:
             from ui.editor.clipes import BarraDeClipes
 
@@ -1991,8 +2011,26 @@ class JanelaDoEditor(tk.Toplevel):
         return self.barra_de_clipes
 
     def aplicar_clipe(self, clipe: Any) -> str:
-        editor = self._codigo()
-        return editor.aplicar_clipe(clipe)
+        """No código, o texto do clipe; no texto, o fragmento vira modelo (`blocos_do_xhtml`) — AC-ED08-9."""
+        if self.modo_atual() == "codigo":
+            return self._codigo().aplicar_clipe(clipe)
+        editor = self._texto_ativo()
+        selecao = editor.selecao()
+        conteudo = editor.texto.get(*selecao) if selecao else ""
+        texto, _cursor = clipe.aplicar(conteudo)
+        blocos, avisos = area_mod.blocos_do_xhtml(texto, self.aba_ativa().arquivo if self.aba_ativa() else "")
+        for aviso in avisos:
+            self.log.info("clipe: %s", aviso)
+        if not blocos:
+            raise ValueError("o clipe não produziu nenhum bloco")
+        if selecao:
+            editor.apagar_selecao()
+        if len(blocos) == 1 and isinstance(blocos[0], Paragrafo) and not isinstance(blocos[0], modelo.Titulo) \
+                and editor.objeto_no_cursor() is None:
+            editor.inserir_trechos(blocos[0].trechos)
+        else:
+            editor.inserir_blocos(blocos)
+        return texto
 
     def _itens_de_clipes(self) -> list[tuple[str, Callable[[], Any] | None]]:
         return [(f"{c.grupo}: {c.nome}", (lambda c=c: self.executar("aplicar_clipe", c))) for c in self.clipes]
@@ -2072,7 +2110,7 @@ class JanelaDoEditor(tk.Toplevel):
     def sobre(self) -> str:
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
-                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-09.")
+                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08, ED-09.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 
@@ -2357,39 +2395,14 @@ class JanelaDoEditor(tk.Toplevel):
     # ==================================================================
 
     def atualizar_navegador(self) -> None:
-        arvore = self.navegador
-        arvore.delete(*arvore.get_children())
-        if self.projeto is None:
-            return
-        livro = self.projeto.livro
-        grupos = {"Texto": [], "Estilos": [], "Imagens": [], "Fontes": [], "Outros": []}
-        for cap in livro.capitulos:
-            grupos["Texto"].append((cap.arquivo, cap.arquivo, cap.titulo_efetivo))
-        for caminho, recurso in livro.recursos.items():
-            if recurso.tipo_mime == epub.MIME_CSS:
-                grupos["Estilos"].append((caminho, caminho, ""))
-            elif recurso.tipo_mime.startswith("image/"):
-                grupos["Imagens"].append((caminho, caminho, ""))
-            elif "font" in recurso.tipo_mime:
-                grupos["Fontes"].append((caminho, caminho, ""))
-            elif caminho not in (livro.nav, livro.ncx):
-                grupos["Outros"].append((caminho, caminho, ""))
-        grupos["Outros"].append((livro.nav, livro.nav, "(regenerado)"))
-        if livro.ncx:
-            grupos["Outros"].append((livro.ncx, livro.ncx, "(regenerado)"))
-        grupos["Outros"].append((livro.opf, livro.opf, "(regenerado ao salvar)"))
-        for nome, itens in grupos.items():
-            no = arvore.insert("", "end", iid=f"grupo:{nome}", text=f"{nome} ({len(itens)})", open=(nome == "Texto"))
-            for iid, caminho, extra in itens:
-                marca = "✓ " if caminho in self.arquivos_marcados else ""
-                rotulo = marca + posixpath.basename(caminho) + (f" — {extra}" if extra else "")
-                arvore.insert(no, "end", iid=iid, text=rotulo)
+        self.painel_navegador.atualizar(self.projeto.livro if self.projeto is not None else None,
+                                        self.arquivos_marcados)
 
     def _abrir_do_navegador(self) -> Aba | None:
-        iid = self.navegador.focus()
-        if not iid or iid.startswith("grupo:") or self.projeto is None:
+        href = self.painel_navegador.selecionado()
+        if href is None or self.projeto is None:
             return None
-        return self.abrir_arquivo(iid)
+        return self.operacoes.abrir_do_navegador(href)
 
     def abrir_arquivo(self, caminho: str) -> Aba | None:
         """Qualquer entrada do navegador: capítulo, folha, nav/NCX; imagem e OPF avisam."""
@@ -2400,35 +2413,23 @@ class JanelaDoEditor(tk.Toplevel):
         if caminho in (livro.nav, livro.ncx):
             return self.abrir_leitura(caminho)
         if caminho == livro.opf:
-            raise ValueError("o OPF é regenerado do modelo ao salvar (DEC-01); "
-                             "os metadados ficam em Livro → Metadados…")
+            return self.abrir_leitura(caminho)
         recurso = livro.recurso(caminho)
         if recurso is None:
             raise ValueError(f"{caminho} não está no livro")
         if recurso.tipo_mime.startswith("image/"):
-            raise ValueError(f"{caminho}: uma imagem se insere pelo modo código (Inserir → Imagem…) "
-                             "ou, na ED-04, no texto")
+            raise ValueError(f"{caminho}: uma imagem se insere por Inserir → Imagem… (ou vira capa por Livro → Capa…)")
         return self.abrir_recurso(caminho)
 
     def atualizar_sumario(self) -> None:
-        arvore = self.arvore_do_sumario
-        arvore.delete(*arvore.get_children())
-        self._destinos: dict[str, str] = {}
-        if self.projeto is None:
-            return
+        self.painel_sumario.atualizar(self.projeto.livro.sumario if self.projeto is not None else [])
 
-        def inserir(entradas: Sequence[Any], pai: str, prefixo: str) -> None:
-            for k, entrada in enumerate(entradas):
-                iid = f"{prefixo}{k}"
-                arvore.insert(pai, "end", iid=iid, text=entrada.rotulo, open=True)
-                self._destinos[iid] = entrada.destino
-                inserir(entrada.filhos, iid, iid + ".")
-
-        inserir(self.projeto.livro.sumario, "", "s")
+    @property
+    def _destinos(self) -> dict[str, str]:
+        return self.painel_sumario.destinos
 
     def _ir_pelo_sumario(self) -> Aba | None:
-        iid = self.arvore_do_sumario.focus()
-        destino = self._destinos.get(iid) if iid else None
+        destino = self.painel_sumario.destino_selecionado()
         if not destino:
             return None
         return self.ir_para_destino(destino)
@@ -2689,6 +2690,8 @@ class JanelaDoEditor(tk.Toplevel):
         if self.projeto is not None:
             self.projeto.fechar()
         self._desinstalar_guarda_no_parent()
+        if hasattr(self, "operacoes"):
+            self.operacoes.fechar()
         self.mensagens.desinstalar(self.log)
         try:
             self.task.shutdown()

@@ -31,6 +31,10 @@ ml = ["torch>=2.0", "easyocr>=1.7"]
 paddle = ["paddlepaddle>=3.0", "paddleocr>=3.0"]
 dev = ["pytest>=8.0", "ruff>=0.6", "build>=1.2"]
 tools = ["fonttools>=4.50"]
+# O editor de livros (ED-08): a validação com o epubcheck (precisa de Java) e, opcional, um
+# navegador embutido para a prévia — a prévia própria (TextoRico) não depende dele.
+epub-validacao = ["epubcheck>=0.4"]
+editor-previa = ["tkinterweb>=3.24"]
 all = [
     "python-docx>=1.1",
     "pytesseract>=0.3.10",

@@ -122,14 +122,18 @@ def test_ac_ed02_2_item_desabilitado_escreve_a_fase_na_barra_de_status_ao_percor
         menu, indice, item = m.itens["fonte"][0]
         assert item.modos == ("texto",)
         assert m.motivo(item, "codigo") == "Fonte…: só no modo texto"
-        # (`inserir_link` chegou ao texto na ED-04 e `ir_para` na ED-06; `clipes` só chega ao texto na ED-08)
+        # (`inserir_link` chegou ao texto na ED-04, `ir_para` na ED-06 e `clipes` na ED-08: um comando
+        # registrado só para um modo é simulado restringindo `modos_do_comando`)
         menu, indice, item = m.itens["clipes"][0]
+        j.modos_do_comando["clipes"] = ("codigo",)
+        m.atualizar("texto")
         assert m.motivo(item, "texto").startswith("Clipes…: no modo texto chega na")
         assert m.estado("clipes") == "disabled" and m.estado("inserir_link") == "normal"
         assert m.estado("ir_para") == "normal"
         j.modo_atual = lambda: "codigo"
         m.atualizar("codigo")
         assert m.estado("clipes") == "normal" and m.estado("fonte") == "disabled"
+        del j.modos_do_comando["clipes"]
         # o item habilitado ecoa o rótulo e o atalho
         menu, indice, item = m.itens["salvar"][0]
         menu.activate(indice)

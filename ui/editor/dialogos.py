@@ -378,6 +378,137 @@ def _numero(valor: Any) -> str:
     return f"{float(valor):g}"
 
 
+class DialogoDeMarcarVarios(_Dialogo):
+    """Uma lista com caixas de marcar (ED-08: folhas a vincular, recursos a apagar); o resultado são os índices."""
+
+    def __init__(self, master: tk.Misc, titulo: str, rotulo: str, opcoes: Sequence[str],
+                 marcadas: Sequence[int] = (), ok: str = "OK"):
+        super().__init__(master, titulo)
+        self.rotulo = rotulo
+        self.opcoes = list(opcoes)
+        self.marcadas_iniciais = set(marcadas)
+        self.ok = ok
+        self.variaveis: list[tk.BooleanVar] = []
+
+    def _construir(self) -> tk.Toplevel:
+        top = self._abrir((True, True))
+        corpo = ttk.Frame(top, padding=12)
+        corpo.grid(row=0, column=0, sticky="nsew")
+        top.rowconfigure(0, weight=1)
+        top.columnconfigure(0, weight=1)
+        ttk.Label(corpo, text=self.rotulo, wraplength=440, justify="left").grid(row=0, column=0, sticky="w",
+                                                                                pady=(0, 6))
+        moldura = ttk.Frame(corpo)
+        moldura.grid(row=1, column=0, sticky="nsew")
+        corpo.rowconfigure(1, weight=1)
+        corpo.columnconfigure(0, weight=1)
+        tela = tk.Canvas(moldura, highlightthickness=0, height=min(320, 26 * max(1, len(self.opcoes)) + 8), width=440)
+        barra = ttk.Scrollbar(moldura, orient="vertical", command=tela.yview)
+        tela.configure(yscrollcommand=barra.set)
+        tela.pack(side="left", fill="both", expand=True)
+        barra.pack(side="right", fill="y")
+        lista = ttk.Frame(tela)
+        tela.create_window((0, 0), window=lista, anchor="nw")
+        lista.bind("<Configure>", lambda e: tela.configure(scrollregion=tela.bbox("all")))
+        for k, opcao in enumerate(self.opcoes):
+            var = tk.BooleanVar(master=top, value=k in self.marcadas_iniciais)
+            self.variaveis.append(var)
+            ttk.Checkbutton(lista, text=opcao, variable=var).grid(row=k, column=0, sticky="w", pady=1)
+        botoes_extra = ttk.Frame(corpo)
+        botoes_extra.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(botoes_extra, text="Marcar todas", command=lambda: self.marcar_todas(True)).pack(side="left")
+        ttk.Button(botoes_extra, text="Desmarcar todas", command=lambda: self.marcar_todas(False)).pack(
+            side="left", padx=(6, 0))
+        self._botoes(corpo, self.ok).grid(row=3, column=0, sticky="e", pady=(12, 0))
+        return top
+
+    def marcar(self, indice: int, valor: bool = True) -> None:
+        self.variaveis[indice].set(bool(valor))
+
+    def marcar_todas(self, valor: bool) -> None:
+        for var in self.variaveis:
+            var.set(bool(valor))
+
+    def _ler(self) -> list[int]:
+        return [k for k, var in enumerate(self.variaveis) if var.get()]
+
+
+class DialogoDeMarcos(_Dialogo):
+    """"Livro → Marcos…": os marcos (`landmarks`) do livro, tipo → destino, com trocar e tirar (ED-08)."""
+
+    def __init__(self, master: tk.Misc, marcos: Sequence[tuple[str, str]], tipos: Sequence[tuple[str, str]],
+                 destinos: Sequence[str], titulo: str = "Marcos"):
+        super().__init__(master, titulo)
+        self.marcos = list(marcos)
+        self.tipos = list(tipos)
+        self.destinos = list(destinos)
+        self.arvore: ttk.Treeview | None = None
+
+    def _construir(self) -> tk.Toplevel:
+        top = self._abrir((True, True))
+        corpo = ttk.Frame(top, padding=12)
+        corpo.grid(row=0, column=0, sticky="nsew")
+        top.rowconfigure(0, weight=1)
+        top.columnconfigure(0, weight=1)
+        corpo.rowconfigure(0, weight=1)
+        corpo.columnconfigure(0, weight=1)
+        self.arvore = ttk.Treeview(corpo, columns=("tipo", "destino"), show="headings", selectmode="browse",
+                                   height=10)
+        self.arvore.heading("tipo", text="Marco")
+        self.arvore.heading("destino", text="Destino")
+        self.arvore.column("tipo", width=160)
+        self.arvore.column("destino", width=300)
+        self.arvore.grid(row=0, column=0, columnspan=3, sticky="nsew")
+        self.recarregar()
+        ttk.Label(corpo, text="Marco:").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.var_tipo = tk.StringVar(master=top, value=self.tipos[0][0] if self.tipos else "")
+        ttk.Combobox(corpo, textvariable=self.var_tipo, values=[t for t, _r in self.tipos], width=20).grid(
+            row=1, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(corpo, text="Destino:").grid(row=2, column=0, sticky="w")
+        self.var_destino = tk.StringVar(master=top, value=self.destinos[0] if self.destinos else "")
+        ttk.Combobox(corpo, textvariable=self.var_destino, values=list(self.destinos), width=40).grid(
+            row=2, column=1, sticky="ew")
+        botoes = ttk.Frame(corpo)
+        botoes.grid(row=1, column=2, rowspan=2, sticky="n", padx=(8, 0), pady=(8, 0))
+        ttk.Button(botoes, text="Definir", command=self._definir).pack(fill="x")
+        ttk.Button(botoes, text="Tirar", command=self._tirar).pack(fill="x", pady=(4, 0))
+        self._botoes(corpo).grid(row=3, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        return top
+
+    def recarregar(self) -> None:
+        assert self.arvore is not None
+        self.arvore.delete(*self.arvore.get_children())
+        for k, (tipo, destino) in enumerate(self.marcos):
+            self.arvore.insert("", "end", iid=str(k), values=(tipo, destino))
+
+    def definir(self, tipo: str, destino: str) -> None:
+        tipo, destino = tipo.strip(), destino.strip()
+        if not tipo or not destino:
+            raise ValueError("o marco precisa de tipo e destino")
+        self.marcos = [(t, d) for t, d in self.marcos if t != tipo] + [(tipo, destino)]
+        if self.arvore is not None:
+            self.recarregar()
+
+    def tirar(self, tipo: str) -> bool:
+        antes = len(self.marcos)
+        self.marcos = [(t, d) for t, d in self.marcos if t != tipo]
+        if self.arvore is not None:
+            self.recarregar()
+        return len(self.marcos) != antes
+
+    def _definir(self) -> None:
+        self.definir(self.var_tipo.get(), self.var_destino.get())
+
+    def _tirar(self) -> None:
+        assert self.arvore is not None
+        selecao = self.arvore.selection()
+        if selecao:
+            self.tirar(self.marcos[int(selecao[0])][0])
+
+    def _ler(self) -> list[tuple[str, str]]:
+        return list(self.marcos)
+
+
 class Caixas:
     """O ponto de injeção: a janela chama estes métodos; o teste os troca."""
 
@@ -527,6 +658,35 @@ class Caixas:
 
         return DialogoDeTipografia(self.master, propostas, regras, hifenizar).mostrar()
 
+    # -- ED-08: o livro no modo código -----------------------------------------------
+
+    def marcar_varios(self, titulo: str, rotulo: str, opcoes: Sequence[str], marcadas: Sequence[int] = (),
+                      ok: str = "OK") -> list[int] | None:
+        """Uma lista com caixas de marcar; os índices marcados, ou `None`."""
+        if not opcoes:
+            return None
+        return DialogoDeMarcarVarios(self.master, titulo, rotulo, opcoes, marcadas, ok).mostrar()
+
+    def sumario(self, entradas: Sequence[Any], livro: Any = None, destino_atual: str = "") -> list | None:
+        """Livro → Sumário → Editar…: a lista nova de entradas, ou `None`."""
+        from ui.editor.sumario import EditorDeSumario
+
+        return EditorDeSumario(self.master, entradas, livro, destino_atual).mostrar()
+
+    def metadados_completos(self, metadados: Any, imagens: Sequence[str] = ()) -> dict[str, str] | None:
+        from ui.editor.metadados import DialogoDeMetadados
+
+        return DialogoDeMetadados(self.master, metadados, imagens).mostrar()
+
+    def marcos(self, marcos: Sequence[tuple[str, str]], tipos: Sequence[tuple[str, str]],
+               destinos: Sequence[str]) -> list[tuple[str, str]] | None:
+        return DialogoDeMarcos(self.master, marcos, tipos, destinos).mostrar()
+
+    def abrir_qualquer(self, titulo: str = "Adicionar arquivo", diretorio: str = "") -> str:
+        return self.abrir((("Todos os arquivos", "*.*"), ("XHTML", "*.xhtml *.html *.htm"), ("CSS", "*.css"),
+                           ("Imagens", "*.png *.jpg *.jpeg *.gif *.svg"), ("Fontes", "*.ttf *.otf *.woff *.woff2")),
+                          diretorio, titulo)
+
     def ir_para(self, tipos: Sequence[tuple[str, str]], atual: str = "", numero: int = 1) -> tuple[str, int] | None:
         """"Ir para…": `(tipo, número)`; `tipos` são pares `(chave, rótulo)`."""
         rotulos = {chave: rotulo for chave, rotulo in tipos}
@@ -546,4 +706,5 @@ class Caixas:
 
 
 __all__ = ["Caixas", "DialogoDeFormulario", "DialogoDeLista", "DialogoDeTexto", "DialogoDeFalha",
-           "DialogoDeParagrafo", "TIPOS_DE_LIVRO", "TIPOS_DE_IMAGEM", "TITULO"]
+           "DialogoDeParagrafo", "DialogoDeMarcarVarios", "DialogoDeMarcos", "TIPOS_DE_LIVRO", "TIPOS_DE_IMAGEM",
+           "TITULO"]

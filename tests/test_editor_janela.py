@@ -453,9 +453,9 @@ def test_abas_capitulo_vizinho_fechar_aba_recurso_css_e_sumario():
         assert aba_nav.somente_leitura and str(aba_nav.widget.texto.cget("state")) == "disabled"
         j.executar("negrito")
         assert "só para leitura" in t.caixas.entradas()[-1]
-        # o OPF e uma imagem avisam
-        with pytest.raises(ValueError):
-            j.abrir_arquivo(livro.opf)
+        # o OPF abre só para leitura (ED-08); uma imagem avisa
+        aba_opf = j.abrir_arquivo(livro.opf)
+        assert aba_opf.somente_leitura and "<package" in aba_opf.widget.texto_todo()
         with pytest.raises(ValueError):
             j.abrir_arquivo(next(c for c, r in livro.recursos.items() if r.tipo_mime.startswith("image/")))
         # navegador e sumário
@@ -605,14 +605,14 @@ ACORDES = ["<Control-d>", "<Control-h>", "<Control-i>", "<Control-k>", "<Control
            "<Control-Next>", "<Control-Prior>", "<Shift-Insert>", "<Insert>", "<Control-BackSpace>",
            "<Control-Delete>"]
 ESPERADOS = {
-    "texto": {"<Control-d>": "fonte", "<Control-h>": None, "<Control-i>": "italico", "<Control-k>": None,
-              "<Control-o>": "abrir", "<Control-t>": None, "<Control-space>": "limpar_caractere",
+    "texto": {"<Control-d>": "fonte", "<Control-h>": "substituir", "<Control-i>": "italico", "<Control-k>": None,
+              "<Control-o>": "abrir", "<Control-t>": "sumario_editar", "<Control-space>": "limpar_caractere",
               "<Control-Shift-space>": "espaco_inseparavel", "<Control-slash>": None, "<Control-a>": "selecionar_tudo",
               "<Control-Tab>": None, "<Control-Next>": "capitulo_seguinte", "<Control-Prior>": "capitulo_anterior",
               "<Shift-Insert>": "colar", "<Insert>": None, "<Control-BackSpace>": "apagar_palavra_anterior",
               "<Control-Delete>": "apagar_palavra_seguinte"},
-    "codigo": {"<Control-d>": None, "<Control-h>": None, "<Control-i>": "italico", "<Control-k>": "inserir_link",
-               "<Control-o>": "abrir", "<Control-t>": None, "<Control-space>": "autocompletar",
+    "codigo": {"<Control-d>": None, "<Control-h>": "substituir", "<Control-i>": "italico", "<Control-k>": "inserir_link",
+               "<Control-o>": "abrir", "<Control-t>": "sumario_editar", "<Control-space>": "autocompletar",
                "<Control-Shift-space>": None, "<Control-slash>": "comentar", "<Control-a>": "selecionar_tudo",
                "<Control-Tab>": None, "<Control-Next>": "capitulo_seguinte", "<Control-Prior>": "capitulo_anterior",
                "<Shift-Insert>": "colar", "<Insert>": None, "<Control-BackSpace>": "apagar_palavra_anterior",

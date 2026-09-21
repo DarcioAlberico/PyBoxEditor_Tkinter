@@ -664,6 +664,266 @@ def juntar_por_titulo(livro: Livro, nivel: int = 1) -> list[str]:
     return cabecas
 
 
+# ----------------------------------------------------------------------
+# ED-08: capa, semântica, marcos, arquivos novos
+# ----------------------------------------------------------------------
+
+#: A semântica de capítulo da §9.7 (`epub:type` do `<body>`), com o rótulo do menu.
+SEMANTICAS: tuple[tuple[str, str], ...] = (
+    ("cover", "Capa"), ("titlepage", "Folha de rosto"), ("copyright-page", "Página de direitos"),
+    ("dedication", "Dedicatória"), ("epigraph", "Epígrafe"), ("foreword", "Apresentação"), ("preface", "Prefácio"),
+    ("introduction", "Introdução"), ("toc", "Sumário"), ("bodymatter", "Início do texto"), ("chapter", "Capítulo"),
+    ("glossary", "Glossário"), ("bibliography", "Bibliografia"), ("index", "Índice"), ("appendix", "Apêndice"),
+    ("acknowledgments", "Agradecimentos"), ("colophon", "Colofão"), ("endnotes", "Notas de fim"),
+)
+#: As semânticas que são marco (`landmarks` do nav) além de `epub:type` do corpo; `chapter` não é marco.
+SEMANTICAS_QUE_SAO_MARCO = frozenset(s for s, _r in SEMANTICAS if s != "chapter")
+#: As que só um capítulo pode ter (pôr num, tira do outro).
+SEMANTICAS_UNICAS = frozenset({"cover", "titlepage", "toc", "bodymatter", "copyright-page", "index", "glossary",
+                               "bibliography", "colophon", "endnotes"})
+_RE_PNG = re.compile(rb"^\x89PNG\r\n\x1a\n.{4}IHDR(.{4})(.{4})", re.S)
+
+
+def dimensoes_da_imagem(dados: bytes) -> tuple[int, int] | None:
+    """`(largura, altura)` de um PNG, GIF ou JPEG pelo cabeçalho; SVG pelos atributos; `None` se não dá."""
+    m = _RE_PNG.match(dados)
+    if m:
+        return int.from_bytes(m.group(1), "big"), int.from_bytes(m.group(2), "big")
+    if dados[:6] in (b"GIF87a", b"GIF89a") and len(dados) >= 10:
+        return int.from_bytes(dados[6:8], "little"), int.from_bytes(dados[8:10], "little")
+    if dados[:2] == b"\xff\xd8":
+        i = 2
+        while i + 9 < len(dados):
+            if dados[i] != 0xFF:
+                i += 1
+                continue
+            marcador = dados[i + 1]
+            if marcador in (0xD8, 0x01) or 0xD0 <= marcador <= 0xD7:
+                i += 2
+                continue
+            tamanho = int.from_bytes(dados[i + 2:i + 4], "big")
+            if marcador in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                altura = int.from_bytes(dados[i + 5:i + 7], "big")
+                largura = int.from_bytes(dados[i + 7:i + 9], "big")
+                return largura, altura
+            i += 2 + tamanho
+        return None
+    cabeca = dados[:2000].decode("utf-8", errors="replace")
+    if "<svg" in cabeca:
+        w = re.search(r'\bwidth="(\d+(?:\.\d+)?)', cabeca)
+        h = re.search(r'\bheight="(\d+(?:\.\d+)?)', cabeca)
+        if w and h:
+            return int(float(w.group(1))), int(float(h.group(1)))
+        vb = re.search(r'viewBox="[\d.\s-]*?([\d.]+)\s+([\d.]+)"', cabeca)
+        if vb:
+            return int(float(vb.group(1))), int(float(vb.group(2)))
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(dados)) as imagem:
+            return int(imagem.width), int(imagem.height)
+    except Exception:      # noqa: BLE001 — sem PIL, ou formato que ele não abre
+        return None
+
+
+def xhtml_da_capa(href_da_imagem: str, arquivo: str, largura: int, altura: int, titulo: str = "Capa") -> str:
+    """O invólucro SVG da capa (o do Sigil): a imagem ocupa a página inteira, proporção mantida."""
+    from xml.sax.saxutils import escape
+
+    relativo = posixpath.relpath(href_da_imagem, posixpath.dirname(arquivo) or ".")
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">\n'
+        f"<head>\n<title>{escape(titulo)}</title>\n"
+        "<style type=\"text/css\">body { margin: 0; padding: 0; text-align: center; } "
+        "svg { max-width: 100%; max-height: 100%; }</style>\n</head>\n"
+        '<body epub:type="cover">\n'
+        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" '
+        f'width="100%" height="100%" viewBox="0 0 {largura} {altura}" preserveAspectRatio="xMidYMid meet">\n'
+        f'<image width="{largura}" height="{altura}" xlink:href="{relativo}"/>\n</svg>\n</body>\n</html>\n'
+    )
+
+
+def definir_capa(livro: Livro, href_da_imagem: str, dados: bytes | None = None, arquivo: str | None = None,
+                 titulo: str = "Capa") -> str:
+    """
+    A imagem vira a capa do livro: `Metadados.capa` (o `cover-image` e o `<meta name="cover">`
+    ficam com o escritor), um capítulo `Text/capa.xhtml` com o invólucro SVG (`epub:type=
+    "cover"`, `linear="no"`, primeiro na espinha) e o marco `cover`. Um capítulo de capa que
+    já existia é reescrito. Devolve o href do capítulo.
+    """
+    recurso = livro.recursos.get(href_da_imagem)
+    if recurso is None:
+        raise ValueError(f"a imagem {href_da_imagem} não está no livro")
+    if not recurso.tipo_mime.startswith("image/"):
+        raise ValueError(f"{href_da_imagem} não é uma imagem")
+    if dados is None:
+        dados = recurso.dados
+        if dados is None:
+            from core.editor import epub
+
+            dados = epub.dados_de(livro, recurso)
+    tamanho = dimensoes_da_imagem(dados or b"") or (600, 900)
+    existente = next((c for c in livro.capitulos if c.semantica == "cover"), None)
+    if arquivo is None:
+        arquivo = existente.arquivo if existente is not None else nome_livre(
+            livro, posixpath.join(_pasta_de_texto(livro), "capa.xhtml"))
+    texto = xhtml_da_capa(href_da_imagem, arquivo, *tamanho, titulo=titulo)
+    if existente is not None and existente.arquivo == arquivo:
+        cap = existente
+        cap.texto_cru = texto
+        cap.blocos, cap.notas = [], []
+    else:
+        cap = Capitulo(arquivo=arquivo, titulo=titulo, texto_cru=texto, semantica="cover", linear=False)
+        livro.capitulos.insert(0, cap)
+        if livro.nav_na_espinha is not None:
+            livro.nav_na_espinha += 1
+    cap.linear = False
+    cap.semantica = "cover"
+    livro.metadados.capa = href_da_imagem
+    livro.marcos = [(t, d) for t, d in livro.marcos if t != "cover"] + [("cover", arquivo)]
+    return arquivo
+
+
+def _pasta_de_texto(livro: Livro) -> str:
+    for cap in livro.capitulos:
+        pasta = posixpath.dirname(cap.arquivo)
+        if pasta:
+            return pasta
+    return "Text" if posixpath.dirname(livro.opf) else ""
+
+
+def definir_semantica(livro: Livro, href: str, tipo: str, ligar: bool = True) -> str:
+    """
+    O `epub:type` do corpo do capítulo (§9.7) e o marco correspondente. Ligar uma
+    semântica única (`cover`, `toc`…) tira-a do capítulo que a tinha; `ligar=False`
+    desliga. Um capítulo em `texto_cru` recebe o atributo no `<body>`. Devolve a semântica.
+    """
+    tipos = {t for t, _r in SEMANTICAS}
+    if tipo not in tipos:
+        raise ValueError(f"semântica desconhecida: {tipo!r}")
+    cap = _capitulo(livro, href)
+    if ligar and tipo in SEMANTICAS_UNICAS:
+        for outro in livro.capitulos:
+            if outro is not cap and outro.semantica == tipo:
+                _por_semantica(outro, "")
+        livro.marcos = [(t, d) for t, d in livro.marcos if t != tipo]
+    _por_semantica(cap, tipo if ligar else "")
+    livro.marcos = [(t, d) for t, d in livro.marcos if not (d.split("#")[0] == href and t == tipo)]
+    if ligar and tipo in SEMANTICAS_QUE_SAO_MARCO:
+        livro.marcos.append((tipo, href))
+    return cap.semantica
+
+
+_RE_BODY = re.compile(r"<body\b([^>]*)>", re.I)
+_RE_EPUB_TYPE = re.compile(r'\s+epub:type\s*=\s*"[^"]*"')
+
+
+def _por_semantica(cap: Capitulo, tipo: str) -> None:
+    cap.semantica = tipo
+    if cap.texto_cru is None:
+        return
+
+    def trocar(m: re.Match) -> str:
+        atributos = _RE_EPUB_TYPE.sub("", m.group(1))
+        return "<body" + atributos + (f' epub:type="{tipo}"' if tipo else "") + ">"
+
+    cap.texto_cru = _RE_BODY.sub(trocar, cap.texto_cru, count=1)
+    if tipo and "xmlns:epub" not in cap.texto_cru:
+        cap.texto_cru = cap.texto_cru.replace("<html ", '<html xmlns:epub="http://www.idpf.org/2007/ops" ', 1)
+
+
+def definir_marco(livro: Livro, tipo: str, destino: str) -> None:
+    """Um marco (`landmarks`) para `destino` (`arquivo` ou `arquivo#id`); troca o que o tipo tinha."""
+    arquivo = destino.split("#")[0]
+    if arquivo not in {c.arquivo for c in livro.capitulos}:
+        raise ValueError(f"o marco aponta para um capítulo que não existe: {arquivo}")
+    livro.marcos = [(t, d) for t, d in livro.marcos if t != tipo] + [(tipo, destino)]
+
+
+def tirar_marco(livro: Livro, tipo: str) -> bool:
+    antes = len(livro.marcos)
+    livro.marcos = [(t, d) for t, d in livro.marcos if t != tipo]
+    return len(livro.marcos) != antes
+
+
+def novo_capitulo(livro: Livro, depois_de: str | None = None, titulo: str = "Capítulo novo",
+                  arquivo: str | None = None) -> str:
+    """Um capítulo com um título, depois de `depois_de` (ou no fim), com as folhas do vizinho."""
+    from core.editor.modelo import Titulo, Trecho
+
+    vizinho = livro.capitulo(depois_de) if depois_de else (livro.capitulos[-1] if livro.capitulos else None)
+    pasta = posixpath.dirname(vizinho.arquivo) if vizinho is not None else _pasta_de_texto(livro)
+    if arquivo is None:
+        n = len(livro.capitulos) + 1
+        arquivo = nome_livre(livro, posixpath.join(pasta, f"cap-{n:04d}.xhtml") if pasta else f"cap-{n:04d}.xhtml")
+    elif arquivo in hrefs_usados(livro):
+        raise ValueError(f"já existe no livro: {arquivo}")
+    cap = Capitulo(arquivo=arquivo, blocos=[Titulo(trechos=[Trecho(texto=titulo)], nivel=1)],
+                   folhas=list(vizinho.folhas) if vizinho is not None else list(livro.folhas[:1]),
+                   idioma=vizinho.idioma if vizinho is not None else "")
+    posicao = livro.capitulos.index(vizinho) + 1 if vizinho is not None else len(livro.capitulos)
+    livro.capitulos.insert(posicao, cap)
+    if livro.nav_na_espinha is not None and livro.nav_na_espinha >= posicao:
+        livro.nav_na_espinha += 1
+    return arquivo
+
+
+def nova_folha(livro: Livro, arquivo: str | None = None, texto: str = "", padrao: bool = False) -> str:
+    """Uma folha de estilo nova (vazia, ou com `texto`); com `padrao`, vira a primeira do livro."""
+    pasta = posixpath.dirname(livro.folhas[0]) if livro.folhas else ("Styles" if posixpath.dirname(livro.opf) else "")
+    if arquivo is None:
+        arquivo = nome_livre(livro, posixpath.join(pasta, "estilo.css") if pasta else "estilo.css")
+    elif arquivo in hrefs_usados(livro):
+        raise ValueError(f"já existe no livro: {arquivo}")
+    livro.recursos[arquivo] = Recurso(caminho=arquivo, tipo_mime="text/css", texto_cru=texto,
+                                      dados=texto.encode("utf-8"))
+    if padrao or not livro.folhas:
+        livro.folhas.insert(0, arquivo)
+    else:
+        livro.folhas.append(arquivo)
+    return arquivo
+
+
+def adicionar_arquivo(livro: Livro, nome: str, dados: bytes, tipo_mime: str = "",
+                      pasta: str | None = None) -> str:
+    """
+    Um arquivo de fora entra no livro: XHTML vira capítulo (no fim da espinha), CSS vira
+    folha, o resto vira recurso na pasta do seu tipo (`Images/`, `Fonts/`…). Devolve o href.
+    """
+    from core.editor import epub, xhtml
+
+    tipo = tipo_mime or epub.tipo_mime_de(nome)
+    base = posixpath.basename(nome.replace("\\", "/"))
+    if tipo == epub.MIME_XHTML or base.lower().endswith((".xhtml", ".html", ".htm")):
+        arquivo = nome_livre(livro, posixpath.join(pasta if pasta is not None else _pasta_de_texto(livro), base)
+                             if (pasta if pasta is not None else _pasta_de_texto(livro)) else base)
+        texto = dados.decode("utf-8", errors="replace").lstrip("﻿")
+        erro = xhtml.bem_formado(texto)
+        cap = Capitulo(arquivo=arquivo, texto_cru=texto)
+        if erro is not None:
+            cap.avisos.append(f"XHTML mal-formado: {erro}")
+        livro.capitulos.append(cap)
+        return arquivo
+    if tipo == "text/css":
+        return nova_folha(livro, nome_livre(livro, posixpath.join(pasta, base) if pasta else
+                                            (posixpath.join(posixpath.dirname(livro.folhas[0]), base)
+                                             if livro.folhas else base)),
+                          dados.decode("utf-8", errors="replace"))
+    if pasta is None:
+        if tipo.startswith("image/"):
+            pasta = epub.pasta_de_imagens(livro)
+        elif "font" in tipo:
+            pasta = "Fonts" if posixpath.dirname(livro.opf) else ""
+        else:
+            pasta = "Misc" if posixpath.dirname(livro.opf) else ""
+    arquivo = nome_livre(livro, posixpath.join(pasta, base) if pasta else base)
+    livro.recursos[arquivo] = Recurso(caminho=arquivo, tipo_mime=tipo, dados=bytes(dados))
+    return arquivo
+
+
 def blocos_do_livro(livro: Livro) -> list[tuple[Capitulo, modelo.Bloco]]:
     """Todo bloco do livro com o seu capítulo, na ordem de leitura (para quem conta ou busca)."""
     return [(cap, bloco) for cap in livro.capitulos for bloco in modelo.blocos_do_capitulo(cap)]
