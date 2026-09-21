@@ -63,7 +63,7 @@ from typing import Iterable
 from urllib.parse import quote, unquote
 from xml.sax.saxutils import escape
 
-from core.editor import css_minima, dialeto, modelo, sumario, xhtml
+from core.editor import css_minima, dialeto, fontes, modelo, sumario, xhtml
 from core.editor.conversao import Cronometro, RelatorioDeConversao
 from core.editor.modelo import (Capitulo, Diagrama, Figura, FormatoDePagina, Livro, Metadados,
                                 OrigemDoLivro, Pessoa, Recurso, Titulo, Trecho)
@@ -109,9 +109,14 @@ GUIDE_DO_MARCO = {
 }
 MARCO_DO_GUIDE = {v: k for k, v in GUIDE_DO_MARCO.items()}
 
+#: Um `Titulo` que é só "Página 12" não é navegação estrutural (§10.1, ED-10).
+_RE_TITULO_DE_PAGINA = re.compile(r"^\s*p[áa]g(?:ina)?\.?\s*\d+\s*$", re.IGNORECASE)
+
 #: As propriedades do EPUB 2 que viram `Pessoa`.
 _RE_PREFIXO = re.compile(r"([A-Za-z_][\w.-]*):\s*(\S+)")
 _RE_PROPRIEDADE_COM_PREFIXO = re.compile(r'(?:property|scheme)="([A-Za-z_][\w.-]*):')
+_RE_ENTIDADE_NOMEADA = re.compile(rb"&[A-Za-z][A-Za-z0-9]*;")
+_RE_ENTIDADE_DO_XML = re.compile(rb"&(?:lt|gt|amp|quot|apos);")
 
 
 class ErroDeEpub(ValueError):
@@ -649,6 +654,8 @@ class _Escritor:
         """As entradas do zip; com `sem_dados`, só o manifesto (o OPF para ler, ED-08), sem abrir recurso."""
         livro = self.livro
         self.entradas.append(("META-INF/container.xml", _container(livro.opf).encode("utf-8")))
+        if not sem_dados:
+            self._embutir_fontes()
         capitulos: list[tuple[Capitulo, str]] = []
         for cap in livro.capitulos:
             if cap.texto_cru is not None:
@@ -691,6 +698,22 @@ class _Escritor:
             id_ = _id_de_manifesto(href, self.ids)
         self.manifesto.append((id_, href, mime, props))
         self.entradas.append((nome_no_zip(self.livro, href), dados))
+
+    def _embutir_fontes(self) -> None:
+        """As fontes de diagrama e de símbolos que o livro usa entram como recurso, com o `@font-face` (ED-10)."""
+        livro = self.livro
+
+        def ler(recurso: Recurso) -> str:
+            return dados_de(livro, recurso).decode("utf-8", errors="replace").lstrip("\ufeff")
+
+        try:
+            novas, avisos = fontes.embutir(livro, ler_recurso=ler)
+        except Exception as erro:      # noqa: BLE001 — uma fonte que não se lê não derruba a gravação
+            novas, avisos = [], [f"fontes não embutidas ({erro})"]
+        for aviso in avisos:
+            self.relatorio.aviso(aviso)
+        for href in novas:
+            self.relatorio.aviso(f"fonte embutida: {href}")
 
     def _desenhar_diagramas(self, cap: Capitulo) -> None:
         """Os PNG dos diagramas em imagem que ninguém desenhou ainda viram recursos do livro."""
@@ -856,8 +879,8 @@ class _Escritor:
                     diagramas += 1
                     if bloco.modo == "png":
                         imagens += 1
-                elif isinstance(bloco, Titulo):
-                    titulos = True
+                elif isinstance(bloco, Titulo) and not _RE_TITULO_DE_PAGINA.match(modelo.texto_de(bloco)):
+                    titulos = True      # "Página 12" não é navegação estrutural
         if livro.metadados.capa:
             imagens += 1
         saida = ['<meta property="schema:accessMode">textual</meta>']
@@ -1054,13 +1077,26 @@ def validar_estrutura(caminho: str) -> list[str]:
         if not leitor.metadados.modificado:
             problemas.append("sem dcterms:modified")
         tem_nav = False
+        capas = 0
+        hrefs_vistos: set[str] = set()
         for id_, (href, mime, props) in leitor.itens.items():
             nome = posixpath.normpath(posixpath.join(pasta, href)) if pasta else href
+            if href in hrefs_vistos:
+                problemas.append(f"manifesto com href repetido: {href}")
+            hrefs_vistos.add(href)
             if nome not in nomes:
                 problemas.append(f"manifesto aponta para arquivo ausente: {href}")
                 continue
             if "nav" in props.split():
                 tem_nav = True
+                if mime != MIME_XHTML:
+                    problemas.append(f"{href}: o nav não é XHTML")
+                else:
+                    texto_do_nav = z.read(nome).decode("utf-8", errors="replace")
+                    if 'epub:type="toc"' not in texto_do_nav and "epub:type='toc'" not in texto_do_nav:
+                        problemas.append(f"{href}: nav sem <nav epub:type=\"toc\">")
+            if "cover-image" in props.split():
+                capas += 1
             if mime == MIME_XHTML:
                 dados = z.read(nome)
                 if dados.startswith(b"\xef\xbb\xbf"):
@@ -1068,13 +1104,32 @@ def validar_estrutura(caminho: str) -> list[str]:
                 erro = xhtml.bem_formado(dados)
                 if erro is not None:
                     problemas.append(f"{href}: {erro}")
+                elif _RE_ENTIDADE_NOMEADA.search(_RE_ENTIDADE_DO_XML.sub(b"", dados)):
+                    problemas.append(f"{href}: entidade nomeada (o EPUB 3 só aceita as cinco do XML)")
+            elif mime == MIME_CSS:
+                problema = problema_da_css(z.read(nome).decode("utf-8", errors="replace"))
+                if problema:
+                    problemas.append(f"{href}: CSS com problema ({problema})")
         if not tem_nav:
             problemas.append("sem item com properties=\"nav\"")
+        if capas > 1:
+            problemas.append(f"{capas} itens com properties=\"cover-image\" (só pode haver um)")
+        vistos_na_espinha: set[str] = set()
         for id_, _linear in leitor.espinha:
             if id_ not in leitor.itens:
                 problemas.append(f"espinha aponta para id inexistente: {id_}")
+                continue
+            if id_ in vistos_na_espinha:
+                problemas.append(f"espinha repete o item {id_}")
+            vistos_na_espinha.add(id_)
+            href, mime, _props = leitor.itens[id_]
+            if mime not in (MIME_XHTML, "image/svg+xml"):
+                problemas.append(f"espinha com item que não é XHTML: {href} ({mime})")
         if not leitor.espinha:
             problemas.append("espinha vazia")
+        if leitor.toc_da_espinha and leitor.toc_da_espinha not in leitor.itens:
+            problemas.append(f"spine toc aponta para id inexistente: {leitor.toc_da_espinha}")
+        # Um arquivo fora do manifesto (`sobra.txt`) é aviso no epubcheck, não erro: fica para o leitor.
     return problemas
 
 

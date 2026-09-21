@@ -52,9 +52,13 @@ def test_a_caixa_das_letras_e_o_fechamento_orfao():
     saida, avisos = consertar.consertar('<html><body><svg viewBox="0 0 1 1"><rect width="1"/></svg></p></body></html>')
     assert 'viewBox="0 0 1 1"' in saida and '<rect width="1"/>' in saida
     assert any("</p> sem abertura" in a for a in avisos) and xhtml.bem_formado(saida) is None
+    # o fechamento opcional do HTML5 (ED-10): `<p>um<p>dois` são dois parágrafos, não um dentro do outro
     saida, avisos = consertar.consertar("<html><body><p>um<p>dois")
-    assert saida.endswith("<p>um<p>dois</p></p></body></html>") and xhtml.bem_formado(saida) is None
-    assert sum("fechado no fim" in a for a in avisos) == 4
+    assert saida.endswith("<p>um</p><p>dois</p></body></html>") and xhtml.bem_formado(saida) is None
+    assert sum("fechado no fim" in a for a in avisos) == 3 and any("fechamento opcional" in a for a in avisos)
+    saida, _avisos = consertar.consertar("<html><body><ul><li>a<li>b</ul><table><tr><td>1<td>2<tr><td>3</table>")
+    assert ("<ul><li>a</li><li>b</li></ul><table><tr><td>1</td><td>2</td></tr><tr><td>3</td></tr></table>" in saida
+            and xhtml.bem_formado(saida) is None)
 
 
 def test_reformatar_css_e_idempotente_e_guarda_os_comentarios():

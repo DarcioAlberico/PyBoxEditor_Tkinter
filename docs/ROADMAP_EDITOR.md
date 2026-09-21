@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08 e ED-09 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08, ED-09 e ED-10 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1624,6 +1624,71 @@ testes `tests/test_editor_epub_completo.py`, `_html.py`, `_txt.py`, `_menus_ed10
 .venv/Scripts/python.exe -m pytest tests/test_editor_epub_completo.py tests/test_editor_html.py tests/test_editor_txt.py tests/test_editor_menus_ed10.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/{fontes,html_io,txt_io}.py` (novos), `epub.py` (fontes embutidas
+ao gravar, `structuralNavigation` só com título de verdade, `validar_estrutura` completo),
+`consertar.py` (o fechamento opcional do HTML5), `xhtml.py` (a fatia do elemento vazio),
+`relatorios.py` (as fontes necessárias contam como usadas), `ui/editor/conversoes.py`
+(novo: `Conversoes`), `ui/editor/{janela,dialogos}.py`, `ui/fontes.py` (a leitura da
+família mudou para o `core`) e quatro arquivos de teste (19 testes, um `slow` com o
+epubcheck). Conferido na tela com o processo DPI-aware: o HTML solto importado para
+dentro do livro (negrito, itálico, figura e ilha no modo texto; os dois capítulos no
+navegador e no sumário) e a caixa Exportar com os sete formatos e a fase dos que faltam.
+
+**O que divergiu da spec, e por quê:**
+
+- **As fontes entram pelo `core/editor/fontes.py`, que lê o TTF/OTF à mão** (tabelas
+  `name` e `cmap`, formatos 4 e 12 — conferido contra o `fitz` em seis fontes, zero
+  diferenças) e o mapa das fontes de diagrama pelo JSON de `render_diagrama` sem
+  importá-lo: a gravação do EPUB continua sem `fitz` e sem `cv2` (DEC-07). A escolha da
+  fonte de símbolos é a de `exportar.fonte_dos_simbolos` (a maior cobertura, o recorte
+  em empate), medida no texto. `ui/fontes.familia_do_arquivo` (ED-08) passou a delegar.
+- **O `@font-face` vai num bloco marcado `/* pybox:fontes */` na folha padrão**,
+  regenerado a cada gravação (como o `pybox:hifenizar` da ED-06b) e com a `src` relativa
+  **à folha**; uma família que alguma folha já declara (o EPUB de hoje, com `fonts/`)
+  não é declarada de novo, e a fonte que já está no livro (pelo nome do arquivo) não
+  entra duas vezes. A pasta é a que o livro usa (`Fonts/` no novo, `fonts/` no de hoje).
+  Sem folha padrão as fontes entram com aviso e sem `@font-face`.
+- **O HTML5 sai da árvore, não do texto**: o capítulo escrito por `xhtml.escrever` é
+  relido por `xhtml.analisar` e serializado como HTML5 — um `<span epub:type="pagebreak"/>`
+  vazio tem de sair `<span></span>`, senão engole o parágrafo num `text/html`. Os `id`
+  do arquivo único levam o prefixo `<arquivo>__` (INV-01: `id="title"` em todo capítulo
+  do Calibre) e o `role` derivado fica onde o `epub:type` estava. O arquivo único ganha
+  `<header>` e `<nav role="doc-toc">` gerado dos títulos quando não há sumário.
+- **`html_io.ler` volta pelo nosso próprio arquivo único**: as `<section role="doc-…"
+  id="<arquivo>">` viram capítulos com os ids e links desprefixados, o `<style>` inline
+  vira folha `Styles/inline-n.css`, e o `role="doc-…"` sem `epub:type` ganha o
+  `epub:type` de volta (para nota, marca de página e referência serem dialeto). Um
+  `<p>` que só tem `<img>` vira `Figura` (no dialeto seria ilha inline, DEC-02) — é o
+  jeito do HTML solto de pôr figura, e a AC-ED10-3 pede figura. O `<title>` do arquivo
+  é o título do **livro**, não o do capítulo.
+- **`consertar` ganhou o fechamento opcional do HTML5** (`<p>um<p>dois` são dois
+  parágrafos; `li`, `td`/`th`/`tr`, `dt`/`dd`, `option`): sem isso todo HTML solto
+  virava um parágrafo com o resto do arquivo dentro. O teste da ED-07 que esperava o
+  aninhamento foi atualizado. E o `xhtml.analisar` tinha um defeito latente: a fatia
+  de um elemento vazio seguido de `</p>` (`<img/></p>`) engolia o `</p>` — corrigido
+  olhando a própria tag de abertura (`/>`).
+- **O TXT é o formato mínimo que ainda volta** (cabeçalho de `txt_io.py`): `#` por
+  nível, `> `, `- `/`1. ` por recuo, tabela ` | ` com `--- | ---` e legenda, `[Página n]`,
+  `[Quebra de página]`, `* * *`, `[Figura n: alt]`, `[Diagrama n: FEN]` e as notas `[n]`
+  no fim do capítulo; a quebra suave é quebra de linha. Na volta a figura vira parágrafo
+  (o texto não carrega imagem), a ilha vira o seu texto, o `Diagrama.lado` fica `""`
+  (DEC-06) e o idioma vem de fora (a janela passa o de `idioma_ortografia`).
+- **"Importar" anexa ao livro aberto; sem livro aberto, vira o livro** (um projeto sem
+  caminho, sujo, que "Salvar" pergunta onde gravar); "Abrir…" aceita `.html`/`.xhtml`/
+  `.txt` pelo mesmo caminho. A conclusão da importação vai a Mensagens e à barra, não à
+  caixa de conclusão (que tem "Abrir arquivo", coisa de exportação).
+- **A exportação pode sujar o livro**: HTML e EPUB embutem as fontes e desenham os PNG
+  dos diagramas, e esses recursos ficam (são do livro); quando entra recurso novo o
+  projeto fica sujo e o navegador é refeito. O EPUB exportado continua sendo cópia.
+- **Os relatórios contam as fontes necessárias como usadas** (`recursos_referenciados`),
+  senão "Apagar recursos não usados" tirava a SkakNew de um livro sem `url()` na folha.
+- **`validar_estrutura`** não aponta arquivo fora do manifesto (é aviso no epubcheck,
+  e o `sobra.txt` do EPUB de fora é mantido de propósito).
+- **Nada novo em `ui/editor/menus.py`**: todos os itens da fase já estavam na tabela
+  (ED-02) e acordaram com o registro; a "seção ED-10" é `Conversoes.comandos`.
+
 ---
 
 ## ED-11 — A ponte com o documento editorial e o resto do fluxo de exportação
@@ -1784,7 +1849,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-08 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | menu Livro em `operacoes.py`; navegador e sumário como painéis; capa por `definir_capa` com invólucro SVG; semântica = `epub:type` + marco; "Gravar" só refaz o nav; OPF só de leitura; forma curta de `metadados`; relatórios sem fitz no topo; classes apagadas por texto; validação síncrona com `comando=[]`; prévia = `TextoRico`; "Abrir com" vigia; clipes no texto |
 | ED-09 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | estilos do Word `builtin`; `STYLEREF 1`; `OS/2` v3 na Merida; folga de 1,5 pt na caixa; `notas="rodape"` respeita o tipo; quebra de capítulo pelo estilo; só alvo existente vira marcador; sumário 1–3 |
 | ED-09b | a fazer | | | |
-| ED-10 | a fazer | | | |
+| ED-10 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | fontes lidas à mão (`core/editor/fontes.py`) e bloco `pybox:fontes` na folha; HTML5 pela árvore com ids prefixados; `ler` volta pelas seções; `<p><img>` = figura; fechamento opcional no `consertar`; fatia do elemento vazio no `xhtml`; TXT mínimo que volta; importar anexa ou vira o livro; exportar pode sujar; fontes necessárias contam como usadas |
 | ED-11 | a fazer | | | |
 | ED-12 | a fazer | | | |
 | ED-13 | a fazer | | | |

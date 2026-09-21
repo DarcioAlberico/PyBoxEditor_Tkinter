@@ -217,11 +217,31 @@ class _Analisador:
     def _fim(self, nome: str) -> None:
         no = self.pilha.pop()
         indice = self.p.CurrentByteIndex
-        if self.dados[indice:indice + 2] == b"</":
+        # Num elemento vazio (`<img …/>`) o índice já aponta depois do `/>` — e o que vem
+        # a seguir pode ser o `</p>` do pai. Só a própria tag de abertura diz se era vazio.
+        if self.dados[indice:indice + 2] == b"</" and not self._tag_vazia(no.inicio):
             fecha = self.dados.find(b">", indice)
             no.fim = fecha + 1 if fecha >= 0 else len(self.dados)
         else:
             no.fim = indice
+
+    def _tag_vazia(self, inicio: int) -> bool:
+        """A tag de abertura em `inicio` termina em `/>`? (as aspas dos atributos são respeitadas)."""
+        dados = self.dados
+        aspas = b""
+        i = inicio + 1
+        n = len(dados)
+        while i < n:
+            c = dados[i:i + 1]
+            if aspas:
+                if c == aspas:
+                    aspas = b""
+            elif c in (b'"', b"'"):
+                aspas = c
+            elif c == b">":
+                return dados[i - 1:i] == b"/"
+            i += 1
+        return False
 
     def _texto(self, texto: str) -> None:
         if not self.pilha:

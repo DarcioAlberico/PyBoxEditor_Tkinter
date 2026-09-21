@@ -188,59 +188,14 @@ _arquivos_registrados: Dict[str, str] = {}
 
 def familia_do_arquivo(caminho: str) -> Optional[str]:
     """
-    O nome da família na tabela `name` de um TTF/OTF (nameID 1, o de preferência em
-    inglês), lido à mão — sem `fitz` e sem `fontTools`, porque é só isto que o Tk
-    precisa para pedir a fonte pelo nome. `None` se o arquivo não é uma fonte SFNT.
+    O nome da família na tabela `name` de um TTF/OTF, lido à mão — sem `fitz` e sem
+    `fontTools`, porque é só isto que o Tk precisa para pedir a fonte pelo nome. A
+    leitura mora em `core/editor/fontes.py` desde a ED-10 (o EPUB também precisa dela);
+    `None` se o arquivo não é uma fonte SFNT.
     """
-    import struct
+    from core.editor import fontes as fontes_do_livro
 
-    try:
-        with open(caminho, "rb") as f:
-            dados = f.read()
-    except OSError:
-        return None
-    if len(dados) < 12:
-        return None
-    if dados[:4] == b"ttcf":
-        deslocamento = struct.unpack(">I", dados[12:16])[0]
-    else:
-        deslocamento = 0
-    versao = dados[deslocamento:deslocamento + 4]
-    if versao not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
-        return None
-    numero_de_tabelas = struct.unpack(">H", dados[deslocamento + 4:deslocamento + 6])[0]
-    tabela_name = None
-    for k in range(numero_de_tabelas):
-        registro = deslocamento + 12 + 16 * k
-        tag = dados[registro:registro + 4]
-        if tag == b"name":
-            inicio, tamanho = struct.unpack(">II", dados[registro + 8:registro + 16])
-            tabela_name = dados[inicio:inicio + tamanho]
-            break
-    if not tabela_name or len(tabela_name) < 6:
-        return None
-    _formato, quantos, inicio_das_strings = struct.unpack(">HHH", tabela_name[:6])
-    candidatos: Dict[int, str] = {}
-    for k in range(quantos):
-        registro = 6 + 12 * k
-        if registro + 12 > len(tabela_name):
-            break
-        plataforma, codificacao, idioma, name_id, comprimento, desloc = struct.unpack(
-            ">HHHHHH", tabela_name[registro:registro + 12])
-        if name_id not in (1, 16):
-            continue
-        bruto = tabela_name[inicio_das_strings + desloc:inicio_das_strings + desloc + comprimento]
-        try:
-            texto = bruto.decode("utf-16-be") if plataforma in (0, 3) else bruto.decode("latin-1")
-        except UnicodeDecodeError:
-            continue
-        # A preferência: a família tipográfica (16) em inglês (idioma 0x409), depois a comum (1).
-        prioridade = (0 if name_id == 16 else 1) * 10 + (0 if idioma in (0x409, 0) else 1)
-        if texto.strip() and (prioridade not in candidatos):
-            candidatos[prioridade] = texto.strip()
-    if not candidatos:
-        return None
-    return candidatos[min(candidatos)]
+    return fontes_do_livro.familia_do_arquivo(caminho)
 
 
 def registrar_arquivo(caminho: str) -> Optional[str]:

@@ -137,6 +137,17 @@ def recursos_referenciados(livro: Livro, ler: LerRecurso | None = None) -> dict[
         usar(livro.metadados.capa, "capa")
     for folha in livro.folhas:
         usar(folha, "livro")
+    # As fontes que o livro precisa (diagrama em fonte, símbolos) são usadas mesmo sem `url()`
+    # numa folha: a gravação as embute e regenera o `@font-face` (ED-10).
+    from core.editor import fontes as fontes_mod
+
+    diagramas, simbolos, _avisos = fontes_mod.necessarias(livro)
+    nomes = {os.path.basename(a).lower() for a in diagramas.values()}
+    if simbolos:
+        nomes.add(os.path.basename(simbolos[1]).lower())
+    for href in livro.recursos:
+        if posixpath.basename(href).lower() in nomes:
+            usar(href, "fontes do livro")
     return usos
 
 

@@ -61,6 +61,13 @@ relatórios, a validação, as limpezas, a prévia (`F12`) e os metadados comple
 em `ui/editor/operacoes.py: OperacoesDoLivro`, registrado por
 `_registrar_comandos_da_ed08`. O OPF abre só para leitura (`epub.texto_do_opf`), e os
 clipes passam a valer no modo texto (o fragmento vira modelo).
+
+## A ED-10 na janela
+
+`ui/editor/conversoes.py: Conversoes` é dona de "Exportar…" (EPUB, HTML único, HTML em
+pasta, TXT), de "Importar ▸" (HTML/XHTML e TXT viram capítulos do livro aberto, ou o
+livro, sem livro aberto; EPUB é anexado) e de "Juntar/Dividir em capítulos por título" e
+"Dividir nos marcadores"; `abrir` aceita `.html`/`.xhtml`/`.txt` e os abre como livro.
 """
 
 from __future__ import annotations
@@ -90,6 +97,7 @@ from ui.editor.abas import Aba, Abas
 from ui.editor.busca import Buscador, PainelDeBusca
 from ui.editor.buscas_salvas import BuscasSalvas
 from ui.editor.codigo import EditorDeCodigo
+from ui.editor.conversoes import EXTENSOES_DE_HTML, EXTENSOES_DE_TXT, FORMATOS, Conversoes
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
 from ui.editor.mensagens import PainelDeMensagens, logger
@@ -110,9 +118,8 @@ INTERVALO_DO_RASCUNHO_S = 60.0
 #: A ordem lógica de tabulação da §7.1 — fixa, independente do encaixe.
 ORDEM_DOS_PAINEIS = ("navegador", "sumario", "estilos", "editor", "propriedades", "xadrez", "busca", "resultados",
                      "mensagens", "validacao")
-FORMATOS_DE_EXPORTACAO = (("epub", "EPUB", "ED-02"), ("html", "HTML único", "ED-10"),
-                          ("html-pasta", "HTML em pasta", "ED-10"), ("txt", "TXT", "ED-10"),
-                          ("docx", "DOCX", "ED-12"), ("pdf", "PDF paginado", "ED-12"), ("pgn", "PGN", "ED-12"))
+#: (formato, rótulo, fase) — a tabela inteira mora em `ui/editor/conversoes.py` desde a ED-10.
+FORMATOS_DE_EXPORTACAO = tuple((f, r, fase) for f, r, fase, _e, _t in FORMATOS)
 IDIOMAS = ("pt", "en", "es", "fr", "de", "it", "ru")
 _RE_TAG = re.compile(r"<[^>]*>")
 _RE_ID = re.compile(r'\bid\s*=\s*"([^"]*)"')
@@ -190,6 +197,7 @@ class JanelaDoEditor(tk.Toplevel):
         self._registrar_comandos_da_ed06()
         self._registrar_comandos_da_ed06b()
         self._registrar_comandos_da_ed08()
+        self._registrar_comandos_da_ed10()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -513,6 +521,11 @@ class JanelaDoEditor(tk.Toplevel):
         self.registrar_comandos({"ir_para_destino": self.ir_para_destino, "clipes": self.clipes_comando,
                                  "aplicar_clipe": self.aplicar_clipe})
 
+    def _registrar_comandos_da_ed10(self) -> None:
+        """Exportar (EPUB/HTML/TXT), importar (HTML/TXT/EPUB), juntar e dividir por título (ED-10)."""
+        self.conversoes = Conversoes(self)
+        self.registrar_comandos(self.conversoes.comandos)
+
     def _registrar_comandos_da_ed06b(self) -> None:
         """Tipografia, juntar hifenizadas e buscas salvas (ED-06b, §8.12 e §8.14)."""
         self.tipografo = Tipografo(self)
@@ -643,6 +656,8 @@ class JanelaDoEditor(tk.Toplevel):
         if not os.path.isfile(caminho):
             self.recentes.remover(caminho)
             raise ValueError(f"o arquivo não existe: {caminho}")
+        if caminho.lower().endswith(EXTENSOES_DE_HTML + EXTENSOES_DE_TXT):
+            return self.conversoes.abrir_como_livro(caminho)          # ED-10: §10.6 "Abrir / importar"
         if not self._confirmar_descarte():
             return None
         pendentes = Rascunho.pendentes(caminho)
@@ -917,45 +932,8 @@ class JanelaDoEditor(tk.Toplevel):
         return relatorio
 
     def exportar(self, formato: str | None = None, caminho: str | None = None) -> str | None:
-        """A caixa de formato (§7.3); nesta fase só o EPUB (uma cópia, o projeto continua onde está)."""
-        projeto = self._exigir_projeto()
-        if formato is None:
-            rotulos = [f"{rotulo}" + (f"  (chega na {fase})" if fase != "ED-02" else "")
-                       for _f, rotulo, fase in FORMATOS_DE_EXPORTACAO]
-            indice = self.caixas.escolher("Exportar", "Formato:", rotulos, "Exportar…")
-            if indice is None:
-                return None
-            formato = FORMATOS_DE_EXPORTACAO[indice][0]
-        fase = next((f for c, _r, f in FORMATOS_DE_EXPORTACAO if c == formato), None)
-        if fase is None:
-            raise ValueError(f"formato desconhecido: {formato!r}")
-        if fase != "ED-02":
-            raise ValueError(f"exportar em {formato} chega na {fase}")
-        if caminho is None:
-            sugestao = _nome_seguro(projeto.livro.metadados.titulo) + ".epub"
-            caminho = self.caixas.salvar_como(sugestao, titulo="Exportar EPUB",
-                                              diretorio=self._preferencia("diretorios", {}).get("exportar", ""))
-            if not caminho:
-                return None
-        caminho = os.path.abspath(caminho)
-        self._validar_abas_de_codigo()
-        self._sincronizar_tudo()
-        zip_antes = projeto.livro.zip_de_origem
-        try:
-            relatorio = epub.escrever(projeto.livro, caminho, ncx=self._preferencia("ncx", None))
-        finally:
-            projeto.livro.zip_de_origem = zip_antes
-        self._gravar_preferencia("diretorios", {**self._preferencia("diretorios", {}),
-                                               "exportar": os.path.dirname(caminho)})
-        linhas = [f"Capítulos: {relatorio.capitulos}", f"Blocos: {relatorio.blocos}",
-                  f"Diagramas: {relatorio.diagramas_png} em imagem, {relatorio.diagramas_fonte} em fonte",
-                  f"Figuras: {relatorio.figuras} · Notas: {relatorio.notas} · Ilhas: {relatorio.ilhas}",
-                  f"Tempo: {relatorio.tempo_s:.1f} s"]
-        if relatorio.avisos:
-            linhas += ["", f"Avisos ({len(relatorio.avisos)}):"] + [f"  {a}" for a in relatorio.avisos[:20]]
-        self.log.info("Exportado EPUB: %s.", caminho)
-        self.caixas.conclusao("Livro exportado", linhas, caminho)
-        return caminho
+        """A caixa de formato (§7.3) — desde a ED-10 mora em `ui/editor/conversoes.py`."""
+        return self.conversoes.exportar(formato, caminho)
 
     # ==================================================================
     # Abas: abrir capítulo, recurso, leitura; trocar de modo; fechar

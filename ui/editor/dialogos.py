@@ -23,7 +23,8 @@ from tkinter import colorchooser, filedialog, messagebox, ttk
 from typing import Any, Callable, Sequence
 
 TITULO = "Editor de livro"
-TIPOS_DE_LIVRO = (("Livro EPUB", "*.epub"), ("Todos os arquivos", "*.*"))
+TIPOS_DE_LIVRO = (("Livro EPUB", "*.epub"), ("HTML/XHTML (vira livro)", "*.html *.htm *.xhtml"),
+                  ("Texto (vira livro)", "*.txt"), ("Todos os arquivos", "*.*"))
 TIPOS_DE_IMAGEM = (("Imagens", "*.png *.jpg *.jpeg *.gif *.svg"), ("PNG", "*.png"), ("JPEG", "*.jpg *.jpeg"),
                    ("GIF", "*.gif"), ("SVG", "*.svg"), ("Todos os arquivos", "*.*"))
 
@@ -545,6 +546,11 @@ class Caixas:
                                             initialfile=os.path.basename(sugestao) if sugestao else None,
                                             initialdir=diretorio or (os.path.dirname(sugestao) if sugestao else None),
                                             parent=self.master) or ""
+
+    def escolher_pasta(self, titulo: str = "Escolher pasta", diretorio: str = "") -> str:
+        """Uma pasta (o HTML em pasta da ED-10); `""` se cancelou."""
+        return filedialog.askdirectory(title=titulo, initialdir=diretorio or None, mustexist=False,
+                                       parent=self.master) or ""
 
     # -- formulários -----------------------------------------------------------
 

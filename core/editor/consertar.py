@@ -42,6 +42,30 @@ NS_EPUB = "http://www.idpf.org/2007/ops"
 #: Elementos vazios do HTML: sem `/>` o XML não os aceita.
 VAZIOS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
           "source", "track", "wbr"}
+#: Os fechamentos que o HTML5 dispensa (§13.1.2.4 "Optional tags"): ao abrir a chave, um
+#: valor aberto fecha antes — é o que faz `<p>um<p>dois` virar dois parágrafos, e não um
+#: dentro do outro. Um `<p>` fecha diante de qualquer bloco; `<li>` diante de `<li>`;
+#: `<td>`/`<th>`/`<tr>` diante dos seus pares; `<dt>`/`<dd>` e `<option>` idem.
+_BLOCOS = {"address", "article", "aside", "blockquote", "details", "div", "dl", "fieldset", "figcaption",
+           "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "main",
+           "menu", "nav", "ol", "p", "pre", "section", "table", "ul"}
+FECHAMENTO_OPCIONAL: dict[str, tuple[set[str], set[str]]] = {
+    # ao abrir <chave>: (o que fecha, os contêineres que interrompem a busca)
+    **{bloco: ({"p"}, {"div", "section", "article", "aside", "blockquote", "li", "td", "th", "figure",
+                       "table", "ol", "ul", "dl", "body", "form", "fieldset", "details", "main", "nav",
+                       "header", "footer"}) for bloco in _BLOCOS},
+    "li": ({"li"}, {"ol", "ul", "menu", "body"}),
+    "dt": ({"dt", "dd"}, {"dl", "body"}),
+    "dd": ({"dt", "dd"}, {"dl", "body"}),
+    "tr": ({"td", "th", "tr"}, {"table", "body"}),
+    "td": ({"td", "th"}, {"tr", "table", "body"}),
+    "th": ({"td", "th"}, {"tr", "table", "body"}),
+    "thead": ({"td", "th", "tr", "thead", "tbody", "tfoot"}, {"table", "body"}),
+    "tbody": ({"td", "th", "tr", "thead", "tbody", "tfoot"}, {"table", "body"}),
+    "tfoot": ({"td", "th", "tr", "thead", "tbody", "tfoot"}, {"table", "body"}),
+    "option": ({"option"}, {"select", "datalist", "optgroup", "body"}),
+    "optgroup": ({"option", "optgroup"}, {"select", "body"}),
+}
 
 _RE_ATRIBUTO = re.compile(r"""([^\s=/>"']+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?""")
 _RE_NOME_DA_TAG = re.compile(r"<\s*([^\s/>]+)")
@@ -108,8 +132,36 @@ class _Consertador(HTMLParser):
             if not cru.rstrip().endswith("/>"):
                 self.avisos.append(f"linha {self._linha()}: <{nome}> fechado com />")
             return
+        self._fechar_opcionais(tag)
         self.saida.append(f"<{nome}{atributos}>")
         self.pilha.append((tag, nome))
+
+    def _fechar_opcionais(self, tag: str) -> None:
+        """O fechamento opcional do HTML5: o que `tag` fecha implicitamente sai da pilha antes dela."""
+        regra = FECHAMENTO_OPCIONAL.get(tag)
+        if regra is None:
+            return
+        fecha, contentores = regra
+        alvo = None
+        for i in range(len(self.pilha) - 1, -1, -1):
+            minusculo = self.pilha[i][0]
+            if minusculo in contentores:
+                break
+            if minusculo in fecha:
+                alvo = i          # o mais externo dos que fecham, antes do contêiner
+        if alvo is None:
+            return
+        # O espaço em branco antes de um fechamento que o HTML dispensa não é conteúdo
+        # (o navegador o descarta): `<p>a\n<p>b` fecha em `a`, não em `a\n`.
+        while self.saida and not self.saida[-1].strip() and not self.saida[-1].startswith("<"):
+            self.saida.pop()
+        if self.saida and not self.saida[-1].startswith("<"):
+            self.saida[-1] = self.saida[-1].rstrip()
+        while len(self.pilha) > alvo:
+            _minusculo, nome = self.pilha.pop()
+            self.saida.append(f"</{nome}>")
+            self.avisos.append(f"linha {self._linha()}: <{nome}> fechado antes de <{tag}> "
+                               "(fechamento opcional do HTML)")
 
     def handle_startendtag(self, tag: str, attrs: list) -> None:
         cru = self.get_starttag_text() or f"<{tag}/>"
