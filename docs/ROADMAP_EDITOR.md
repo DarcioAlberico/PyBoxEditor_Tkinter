@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b e ED-10 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b e ED-10 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -980,6 +980,59 @@ Ler: spec §4 (DEC-06, DEC-07), §5 (`Diagrama`, `Trecho.nag/chave/ref`), §6.1,
 .venv/Scripts/python.exe -m pytest tests/test_editor_xadrez.py tests/test_editor_diagrama.py tests/test_editor_tabuleiro.py tests/test_editor_paleta.py tests/test_f82_tabuleiro.py tests/test_f71_diagrama.py tests/test_f83_treino_diagrama.py tests/test_nags.py tests/test_editor_janela.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/xadrez.py` (tokens, segmentos, `posicao_apos`, `validar`,
+figurinas ↔ letras, marcar lances/NAGs/jogador/abertura, legenda de lado, cabeçalho em
+legenda, referências, fontes do livro, `diagrama_dos_lances`), `core/nags.py`
+(`NAGS_POR_FAMILIA`/`NAGS`, que `ui/main_window.py` reimporta), `core/diagrama_modelo.py`
+(`Casa`, `Rotulos`, `Titulo`, `Leitura`, sem `cv2`; `core/diagrama.py` os reexporta),
+`core/tabuleiro_edicao.py` (`de_fen`, import leve), `core/render_diagrama.py`
+(`lado_a_jogar`, `marcas`, `setas`, `largura_em_casas(indicador=)`),
+`ui/editor/{tabuleiro,diagrama,paleta,xadrez}.py`, `ui/dialogo_diagrama.py` sobre o
+`TabuleiroEditavel`, as mudanças em `ui/editor/{texto_rico,tags,objetos,janela,menus,
+dialogos}.py` e `core/editor/{epub,xhtml}.py`, e quatro arquivos de teste (22 testes; o
+AC-ED02-7 repetido sem `cv2`, `fitz`, `numpy`, `core.diagrama` nem `core.notacao`).
+Conferido na tela com o processo DPI-aware: os diagramas desenhados no texto (o
+quadradinho do lado, as coordenadas, o girado com marca e seta, o aviso do lado
+desconhecido), a validação com o `Bb6` pontilhado e o `✗` na calha, o painel Xadrez, a
+barra de xadrez e a caixa "Editar posição" com o tabuleiro, o FEN e a legalidade.
+
+**O que divergiu da spec, e por quê:**
+
+- **O diagrama na tela é um `Canvas`** com as figuras de `pieces/*.png` (`ui/pecas.py`),
+  não o PNG do `render_diagrama`: o `fitz` fica fora do processo do editor (DEC-07). O PNG
+  do `render_diagrama` continua sendo o que vai ao EPUB (`epub.png_do_diagrama`, agora com
+  o lado, as marcas e as setas), e é nele que o pixel do quadradinho é conferido.
+- **`melhor_lance_legal`/`custo_da_troca` copiados** para `core/editor/xadrez.py` (como o
+  `e_notacao` da ED-06) em vez de importar `core.notacao`, que puxa a cadeia do OCR. O
+  desempate ganhou o **prefixo comum**: `Bb6` sugere `Bb5`, e não `Ba6` (mesmo custo).
+- **`DialogoDeDiagrama` sem o painel de amostra** que a §11.1 desenha ao lado: a prévia é o
+  próprio tabuleiro editável — o que se vê é o que se grava — e a caixa cabe em 1280×700.
+- **`diagrama_dos_lances` grava o lado** (a linha sabe quem joga; `lado_indicador` vem
+  da preferência); a legenda sugerida da ED-05b continua só **propondo**.
+- **`NAGS_AMBIGUOS = {"=", "∞", "+", "#"}`**: `marcar_nags` os deixa como estão e os
+  lista; `codigo_do_simbolo` não os adivinha. `Segmento.aviso` leva o "diagrama n não
+  bate com a linha" (a `posicao_apos` o repete nos avisos).
+- **`JOGADORES_CONHECIDOS`**: a chave "Sobrenome, Nome" dos que o livro traz só pelo
+  sobrenome ("Kasparov – Karpov" → "Kasparov, Garry").
+- **`TextoRico`** ganhou `ao_fechar_token` (o gancho das figurinas ao digitar, chamado
+  quando entra um separador), `inserir_formatado(texto, **atributos)`, `apagar_bloco` e
+  `NAO_SE_ESTENDEM`: link, referência, NAG com código, figurina, chave de índice e a
+  fonte de símbolos **não** se estendem ao que se digita depois — o " Nc6" depois do `⩲`
+  não vira NAG.
+- **Dois itens de menu além da §7.3**: "Validar notação da seleção" e "… do livro" (os
+  escopos que a spec enumera entre parênteses); `Enter` sobre o diagrama abre o editor
+  de posição (o teste da ED-04 foi atualizado).
+- **`TabuleiroEdicao.de_fen(fen, lado="")`**: o lado do FEN **não** vira lado conhecido
+  (`lado_informado` só com o argumento) — DEC-06; sem lado, sem indicador (na caixa e no
+  `_trocar` do controlador).
+- **`_pintar_grade` devolve `(imagem, x0, y0)`** para as marcas e setas saberem onde o
+  tabuleiro está no recorte da grade (fonte com glifos de borda, F99).
+- **`core/diagrama.py` e `ui/main_window.py`** levam só o hunk da ED-05 sobre o HEAD
+  `cf6f152` (cópias montadas à mão para o índice); a árvore de trabalho do usuário, com o
+  trabalho dele nos dois, fica como está.
+
 ---
 
 ## ED-05b — Marcas, setas, legenda sugerida e chave de símbolos
@@ -1886,7 +1939,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-02 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag `EditorJanela` com escopos; acorde de outro modo é `break`; `Ctrl+T`/`F8`; três itens fora da §7.3; `@y` no `<<MenuSelect>>`; `modos_do_comando`; inseparáveis agora; pilha própria do código; `core/services` preguiçoso; fila nas Mensagens; `DIALOGO_DE_CONCLUSAO` |
 | ED-03 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text` em vez de `<<Modified>>`; modelo em cache + `sincronizar(reler=True)`; tags `pid:`/`pcls:`/`pex:`/`sub:` nos internos; `_fundem` por tupla; enter no título abre corpo |
 | ED-04 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag por instância e proxy em `proc` Tcl (defeitos latentes); faixa de notas como blocos `dn:`; célula = `TextoRico(celula=True)` com reconciliação adiada; `inserir_bloco_no_cursor`; `Fragmento.notas`; `_antes_forcado`; `end-1c`; itens fora da §7.3 |
-| ED-05 | a fazer | | | |
+| ED-05 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | diagrama na tela em `Canvas` (o PNG do `render_diagrama` fica para o EPUB); `melhor_lance_legal` copiado, com desempate por prefixo; caixa sem painel de amostra; `diagrama_dos_lances` grava o lado; `NAGS_AMBIGUOS`; `Segmento.aviso`; `ao_fechar_token`/`inserir_formatado`/`apagar_bloco`/`NAO_SE_ESTENDEM` no `TextoRico`; dois escopos de validar no menu; `de_fen` não promove o lado do FEN; hunks de `core/diagrama.py` e `ui/main_window.py` sobre `cf6f152` |
 | ED-05b | a fazer | | | |
 | ED-06 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `Alvo` com deslocamento e chave; célula/legenda não endereçáveis; formato do primeiro caractere; um ponto composto na aba, um por capítulo fechado; texto/arquivos marcados com item; "Ir para…" nos dois modos; `e_notacao` copiada; `lexico` sem `notacao` no topo; caixa única do `F7` com "Trocar todas"; `core/editor/simbolos.py`; `Ctrl+Shift+X` exige 4 dígitos; contagem da barra = `estatisticas` |
 | ED-06b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `pt.hunspell.gz` + `core/afixos.py` em vez de lista chã (10,4 M formas); `Lexico.flexoes`; desempate por prefixo; propor/aplicar com prévia; espaço só antes de lance; bloco marcado `pybox:hifenizar` na folha; buscas salvas com comandos internos |

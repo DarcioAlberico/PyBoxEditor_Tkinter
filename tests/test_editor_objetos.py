@@ -357,7 +357,7 @@ def test_os_desenhos_de_cada_objeto_sao_focaveis_e_descrevem_o_objeto():
         w = t.w
         tipos = [type(w.widget_do_objeto(b.id)).__name__ for b in blocos[:-1]]
         assert tipos == ["ObjetoDeFigura", "ObjetoDeIlha", "ObjetoDeQuebra", "ObjetoDeMarcaDePagina",
-                         "ObjetoDeSeparador", "GradeDeTabela", "ObjetoGenerico", "ObjetoGenerico"]
+                         "ObjetoDeSeparador", "GradeDeTabela", "ObjetoGenerico", "ObjetoDeDiagrama"]   # ED-05
         for b in blocos[:-1]:
             janela = w.widget_do_objeto(b.id)
             if isinstance(janela, GradeDeTabela):
@@ -399,10 +399,12 @@ def test_enter_sobre_o_objeto_faz_a_acao_principal_e_depois_dele_abre_paragrafo(
         assert texto.enter() and texto.em_nota() == "n1"
         j.executar("escape")
         assert texto.em_nota() is None and texto.bloco_atual() == paragrafo.id
-        # O diagrama ainda não tem editor (ED-05): a ação principal cai nas propriedades.
+        # Sobre o diagrama, Enter abre o editor de posição (ED-05): a caixa injetada devolve o diagrama novo.
         diagrama = t.bloco(lambda b: isinstance(b, m.Diagrama))
         texto.selecionar_objeto(diagrama.id)
-        assert j.acao_principal(diagrama) == "propriedades" and j.painel_de_propriedades.alvo["tipo"] == "diagrama"
+        t.caixas.diagrama_resposta = m.Diagrama(fen="8/8/8/8/8/8/8/K6k w - - 0 1", lado="w")
+        assert j.acao_principal(diagrama) == "diagrama" and t.caixas.chamadas[-1][0] == "diagrama"
+        assert t.bloco(lambda b: b.id == diagrama.id).fen == "8/8/8/8/8/8/8/K6k w - - 0 1"
 
 
 def test_inserir_link_ancora_e_seguir_link_no_texto_e_o_link_externo_vai_ao_navegador():

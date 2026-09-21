@@ -575,7 +575,9 @@ def png_do_diagrama(d: Diagrama) -> tuple[bytes, int, int]:
             _CACHE_DE_PNG.clear()
         _CACHE_DE_PNG[chave] = render_diagrama.desenhar(
             d.fen, fonte=d.fonte, lado_px=render_diagrama.LADO_PADRAO, coordenadas=d.coordenadas,
-            moldura=d.moldura, cantos=d.cantos, orientacao=d.orientacao)
+            moldura=d.moldura, cantos=d.cantos, orientacao=d.orientacao,
+            lado_a_jogar=d.lado if d.lado_indicador == "marca" and d.lado in ("w", "b") else None,
+            marcas=list(d.marcas), setas=list(d.setas))
     return _CACHE_DE_PNG[chave]
 
 

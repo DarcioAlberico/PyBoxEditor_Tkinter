@@ -34,11 +34,16 @@ aviso passa a dizer que vieram de quem editou. En passant continua fora: não
 está no diagrama e não é dedutível dele.
 """
 
+from __future__ import annotations
+
 from typing import List, Optional, Tuple
 
 import chess
 
-from core import diagrama as diag
+# `core.diagrama_modelo`, e não `core.diagrama`: as classes são as mesmas (aquele as
+# reexporta), mas este não traz `cv2` — e é o que deixa o editor de posição do livro
+# (`ui/editor/tabuleiro.py`) abrir sem o OCR (ED-05, DEC-07).
+from core import diagrama_modelo as diag
 
 
 #: Ordem da paleta: brancas, depois pretas. É a ordem em que a notação as
@@ -108,6 +113,32 @@ class TabuleiroEdicao:
 
         self._historico = [self._estado()]
         self._indice = 0
+
+    @classmethod
+    def de_fen(cls, fen: str, lado: str = "") -> "TabuleiroEdicao":
+        """
+        O tabuleiro de um FEN (ED-05): as peças, o roque que o FEN traz, e o lado a
+        jogar — `lado` vazio quer dizer "desconhecido" (DEC-06): fica `w` no FEN, sem
+        contar como informado. Um FEN que não é FEN levanta `ValueError`.
+        """
+        try:
+            board = chess.Board(fen if len(fen.split()) >= 2 else fen.split()[0] + " w - - 0 1")
+        except (ValueError, IndexError) as erro:
+            raise ValueError(f"FEN inválido: {fen!r} ({erro})") from None
+        t = cls()
+        for casa in t.casas:
+            peca = board.piece_at(chess.square(casa.coluna, 7 - casa.linha))
+            casa.simbolo = peca.symbol() if peca else None
+            casa.confianca = 1.0 if peca else 0.0
+        lado_efetivo = lado or ("b" if board.turn == chess.BLACK and len(fen.split()) >= 2 else "w")
+        t.lado = lado_efetivo if lado_efetivo in ("w", "b") else "w"
+        t.lado_informado = lado in ("w", "b")
+        t.roque = "".join(letra for letra in "KQkq" if letra in board.castling_xfen()
+                          and letra in t.roques_possiveis())
+        t.roque_informado = bool(t.roque)
+        t._historico = [t._estado()]
+        t._indice = 0
+        return t
 
     # ------------------------------------------------------------------
     # Acesso

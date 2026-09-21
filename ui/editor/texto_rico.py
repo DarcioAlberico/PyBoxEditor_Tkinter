@@ -108,6 +108,13 @@ PREFIXOS_DE_PARAGRAFO = {"alinhamento": "al:", "recuo_primeira_em": "rec1:", "re
                          "entrelinha": "entre:"}
 SIMPLES_DE_PARAGRAFO = {"manter_com_proximo": "manter", "manter_linhas": "manterl"}
 _RE_PALAVRA_ANTES = re.compile(r"(\w+|\W+)$")
+#: Tags de caractere que **não** se estendem ao que se digita depois delas: o link e a
+#: referência (ED-04), e os átomos de xadrez (ED-05) — o NAG com código, a figurina, a
+#: chave de índice e a fonte de símbolos valem para o símbolo, não para o " Nc6" que vem.
+NAO_SE_ESTENDEM = ("link:", "ref:", "nag:", "chave:", "papel:nag", "papel:figurina", "papel:jogador",
+                   "papel:abertura", "fam:simbolos")
+#: O que fecha um token de notação ao digitar (ED-05): espaço e a pontuação que segue um lance.
+SEPARADORES_DE_TOKEN = frozenset(" \t,;:.)]!?")
 _RE_PALAVRA_DEPOIS = re.compile(r"\w+|\W+")
 
 
@@ -159,6 +166,9 @@ class TextoRico(ttk.Frame):
         self.registro = RegistroDeObjetos()
         #: Os ganchos que a grade de tabela põe numa célula (ED-04, §8.6).
         self.ao_tab: Callable[[int], Any] | None = None
+        #: O gancho das figurinas ao digitar (ED-05, §11.5): `(id do bloco, deslocamento antes do
+        #: separador) -> bool` — chamado depois de um espaço ou pontuação entrar num parágrafo.
+        self.ao_fechar_token: Callable[[str, int], bool] | None = None
         self.ao_escape: Callable[[], Any] | None = None
         self.ao_sair_vertical: Callable[[int], Any] | None = None
         self.ao_sair_horizontal: Callable[[int], Any] | None = None
@@ -1217,8 +1227,8 @@ class TextoRico(ttk.Frame):
         for tag in anterior:
             if not T.e_de_caractere(tag) or tag.startswith(("nota:", "pagina:")):
                 continue
-            if tag.startswith(("link:", "ref:")) and tag not in seguinte:
-                continue           # o link não se estende ao que se digita depois dele
+            if tag.startswith(NAO_SE_ESTENDEM) and tag not in seguinte:
+                continue           # o link, o NAG, a figurina… não se estendem ao que se digita depois deles
             ctags.append(tag)
         li = next((t for t in anterior if t.startswith("li:")), None) or \
             next((t for t in seguinte if t.startswith("li:")), None)
@@ -1274,7 +1284,30 @@ class TextoRico(ttk.Frame):
                 self.texto.mark_set("insert", MARCA_DE_INSERCAO)
                 self.texto.mark_unset(MARCA_DE_INSERCAO)
                 self._reconciliar()
+                if self.ao_fechar_token is not None and len(parte) == 1 and parte in SEPARADORES_DE_TOKEN:
+                    self._fechou_token()
         return True
+
+    def _fechou_token(self) -> None:
+        """Um separador acabou de entrar: o gancho (figurinas ao digitar) vê o token que ficou antes dele."""
+        bloco_id, desloc = self.posicao()
+        if bloco_id is None or desloc <= 1 or self.ao_fechar_token is None:
+            return
+        try:
+            self.ao_fechar_token(bloco_id, desloc - 1)
+        except Exception:      # noqa: BLE001 — um gancho que falha não pode travar a digitação
+            pass
+
+    def inserir_formatado(self, texto: str, **atributos: Any) -> bool:
+        """Insere `texto` já com os atributos de trecho (`papel`, `nag`, `familia`, `ref`, `link`…)."""
+        if self.selecao():
+            self.apagar_selecao()
+        self._pendente = dict(atributos)
+        self._pendente_em = self.texto.index("insert")
+        try:
+            return self.inserir(texto)
+        finally:
+            self._pendente = {}
 
     def inserir_objeto(self, objeto: Bloco | Trecho) -> str:
         """
@@ -1642,6 +1675,12 @@ class TextoRico(ttk.Frame):
         self.texto.mark_set("insert", ini)
         self._reconciliar()
         return True
+
+    def apagar_bloco(self, bloco_id: str) -> bool:
+        """Apaga um bloco inteiro pela API (respeita `protegido`); é o que "Cabeçalho em legenda" usa (ED-05)."""
+        if bloco_id not in self._ordem:
+            return False
+        return self.apagar(self._inicio_de(bloco_id), self._fim_de(bloco_id))
 
     def _apagar_entre_blocos(self, ini: str, fim: str, blocos: list[str]) -> bool:
         """

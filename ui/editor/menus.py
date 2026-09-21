@@ -246,8 +246,8 @@ INSERIR = (
     _i("Dividir capítulo aqui", "dividir_capitulo", "ED-04"),
     _i("Sumário como página do livro", "sumario_como_pagina", "ED-08"),
     SEP,
-    _sub("Figurina", "ED-05", _placeholder("ED-05")),
-    _sub("NAG", "ED-05", _placeholder("ED-05")),
+    _sub("Figurina", "ED-05", dinamico="figurinas"),
+    _sub("NAG", "ED-05", dinamico="nags"),
     _i("Símbolo…", "inserir_simbolo", "ED-06"),
     _sub("Clipe", "ED-02", dinamico="clipes"),
 )
@@ -320,16 +320,16 @@ XADREZ = (
     _i("Diagrama a partir dos lances", "diagrama_dos_lances", "ED-05"),
     _i("Girar", "girar_diagrama", "ED-05"),
     _i("Coordenadas", "coordenadas_do_diagrama", "ED-05"),
-    _sub("Lado a jogar", "ED-05", _placeholder("ED-05")),
+    _sub("Lado a jogar", "ED-05", dinamico="lado"),
     _i("Marcas e setas…", "marcas_e_setas", "ED-05b"),
     SEP,
     _i("Validar notação", "validar_notacao", "ED-05"),
     _check("Figurinas ao digitar", "figurinas_ao_digitar", "figurinas_ao_digitar", "ED-05"),
-    _sub("Figurinas ↔ letras", "ED-05", _placeholder("ED-05")),
+    _sub("Figurinas ↔ letras", "ED-05", dinamico="figurinas_letras"),
     _i("Marcar lances", "marcar_lances", "ED-05"),
     _i("Marcar NAGs", "marcar_nags", "ED-05"),
     _i("Marcar jogador/abertura…", "marcar_jogador", "ED-05"),
-    _sub("Numerar", "ED-05", _placeholder("ED-05")),
+    _sub("Numerar", "ED-05", dinamico="numerar"),
     _i("Cabeçalho em legenda", "cabecalho_em_legenda", "ED-05"),
     _i("Legenda sugerida", "legenda_sugerida", "ED-05b"),
     SEP,
@@ -341,6 +341,10 @@ XADREZ = (
     SEP,
     _sub("Índice", "ED-12", _placeholder("ED-12")),
     _i("Exportar PGN do capítulo…", "exportar_pgn", "ED-12"),
+    # -- ED-05: os dois escopos de "Validar notação" que a §7.3 enumera entre parênteses ---------
+    SEP,
+    _i("Validar notação da seleção", "validar_notacao_selecao", "ED-05", TEXTO),
+    _i("Validar notação do livro", "validar_notacao_livro", "ED-05"),
 )
 
 FERRAMENTAS = (

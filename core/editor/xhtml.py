@@ -1542,7 +1542,8 @@ def largura_do_png_pt(d: Diagrama) -> float | None:
 
     try:
         casas = render_diagrama.largura_em_casas(d.fen, d.fonte, d.orientacao, d.moldura, d.cantos,
-                                                 d.coordenadas)
+                                                 d.coordenadas,
+                                                 indicador=d.lado_indicador == "marca" and d.lado in ("w", "b"))
     except (render_diagrama.FonteDesconhecida, render_diagrama.FonteIncompleta, OSError):
         return None
     return round(casas * d.corpo_pt, 2)

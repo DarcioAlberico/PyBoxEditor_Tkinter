@@ -276,35 +276,9 @@ LEARNER_THRESHOLD_NEURAL = 0.30
 # `chess_pdf_processor.CHESS_FONT_CANDIDATES`, não tem `⩲`, `⩱`, `⌓` — nem o `⨀`
 # que já estava aqui antes. Glifo ausente vira caixa vazia sem aviso, que é o
 # defeito do `·` da SPEC §4.2.
-NAGS_POR_FAMILIA = [
-    ("Avaliação", [
-        ("⩲", "Brancas ligeiramente melhor"), ("⩱", "Negras ligeiramente melhor"),
-        ("±", "Brancas melhor"), ("∓", "Negras melhor"),
-        ("+-", "Brancas vencem"), ("-+", "Negras vencem"),
-        ("=", "Igualdade"), ("∞", "Posição incerta"),
-    ]),
-    ("Lance", [
-        ("!", "Boa jogada"), ("!!", "Excelente"), ("?", "Erro"), ("??", "Erro grave"),
-        ("!?", "Interessante"), ("?!", "Duvidoso"),
-        ("□", "Lance único"), ("#", "Mate"),
-    ]),
-    ("Ideia", [
-        # `⯹` é o U+2BF9, um igual sobre um infinito — o desenho impresso, que a
-        # "Key to symbols used" destes livros põe logo acima do `∞` sozinho de
-        # *unclear*. Escreveu-se `≡` aqui enquanto nenhuma das 559 famílias de
-        # `C:\Windows\Fonts` o desenhava; quem o desenha é a `NotoSansSymbols2`
-        # empacotada em `assets/fonts/`, que `ui.fontes` registra no processo
-        # para o Tk alcançar. Trocá-lo de novo é mexer numa linha desta tabela.
-        ("⯹", "Com compensação"), ("⇄", "Com contrajogo"),
-        ("⌓", "Melhor é"), ("Δ", "Com ideia de"), ("⨀", "Zugzwang"),
-    ]),
-    ("Lado", [
-        ("△", "Brancas jogam"), ("▼", "Negras jogam"),
-    ]),
-]
-
-#: A lista achatada, que é o que o menu de contexto e os testes consomem.
-NAGS = [par for _, familia in NAGS_POR_FAMILIA for par in familia]
+# A tabela mora em `core/nags.py` desde a ED-05 (o editor de livros a usa sem esta
+# janela); continua aqui com o mesmo nome para quem já a importava daqui.
+from core.nags import NAGS, NAGS_POR_FAMILIA  # noqa: E402,F401
 
 # As figurinas de peça, ao lado dos NAGs e pela mesma razão que eles existem:
 # são caracteres que o teclado não tem e que aparecem em quase toda linha de

@@ -21,6 +21,15 @@ e se despacham cliques.
 apagasse a casa transformaria a conferência num campo minado. Com uma peça
 escolhida na paleta o clique passa a pintar, e clicar na peça escolhida de novo
 volta ao modo seguro.
+
+## O tabuleiro é o `TabuleiroEditavel` (ED-05)
+
+O canvas, o desenho, o clique, o arrasto e as teclas moram em
+`ui/editor/tabuleiro.py` desde a ED-05, porque o editor de livros precisa do mesmo
+tabuleiro sem esta janela (e sem o `cv2` que ela traz pelo `core.diagrama`). Este
+diálogo o embute e mantém o que era seu: o recorte, a paleta, o lado, o roque, o
+treino e o FEN. `canvas`, `figuras`, `selecionada` e `pincel` continuam acessíveis
+daqui — delegam ao widget.
 """
 
 import tkinter as tk
@@ -33,36 +42,21 @@ from PIL import Image, ImageTk
 from core import diagrama as diag
 from core.tabuleiro_edicao import SIMBOLOS, TabuleiroEdicao
 from ui import pecas
+from ui.editor.tabuleiro import (  # noqa: F401 — LADO_CASA, GLIFOS e SEM_FIGURAS continuam importáveis daqui
+    CONFIANCA_BAIXA, GLIFOS, LADO_CASA, PALETAS, SEM_FIGURAS, TabuleiroEditavel)
 
-
-LADO_CASA = 44
-
-#: Margem da figura dentro da casa, e o lado do botão da paleta.
-FOLGA_DA_CASA = 4
+#: O lado do botão da paleta.
 LADO_PALETA = 30
-COR_CLARA = "#F0D9B5"
-COR_ESCURA = "#B58863"
+COR_CLARA, COR_ESCURA = PALETAS["normal"]
 COR_ARBITRADA = "#E53935"       # a legalidade mexeu nesta casa
 COR_DUVIDA = "#FB8C00"
 COR_CORRIGIDA = "#2E7D32"       # a mão do usuário mexeu nesta casa (F8.2)
 COR_SELECAO = "#1E88E5"
 
-#: Glifos Unicode das peças. O tabuleiro desenhado usa fonte do sistema; se ela
-#: não tiver as figurinas, o `_FALLBACK` mantém a posição legível com letras.
-GLIFOS = {"K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘", "P": "♙",
-          "k": "♚", "q": "♛", "r": "♜", "b": "♝", "n": "♞", "p": "♟"}
-
-#: Abaixo disto a leitura da casa é duvidosa mesmo quando ninguém a arbitrou.
-CONFIANCA_BAIXA = 0.55
-
 AJUDA = ("Clique numa casa e digite a letra (maiúscula = branca, minúscula = "
          "preta); Delete esvazia. Ou escolha uma peça na paleta e clique para "
          "pintar — clicando de novo na mesma casa ela alterna entre a peça e "
          "vazia. Arrastar move a peça. Ctrl+Z desfaz.")
-
-SEM_FIGURAS = ("as figuras não foram encontradas em pieces/ — o tabuleiro está "
-               "usando os símbolos da fonte")
-
 
 class DialogoDiagrama:
     """Mostra e edita as leituras de uma página. Devolve o FEN escolhido."""
@@ -81,14 +75,39 @@ class DialogoDiagrama:
         # Um tabuleiro por leitura, criado na primeira visita: trocar de
         # diagrama e voltar não pode perder o que já foi corrigido.
         self.tabuleiros = {}
-        self.selecionada = None      # (linha, coluna) em edição
-        self.pincel = None           # peça da paleta, ou None (modo seguro)
-        self._arrasto = None
+        self.editavel: Optional[TabuleiroEditavel] = None
         self.guardadas = {}          # diagrama -> amostras gravadas
-        # As figuras do tabuleiro e as da paleta, em tamanhos diferentes.
+        # As figuras da paleta (as do tabuleiro são do `TabuleiroEditavel`).
         # Ficam no diálogo, e não num cache de módulo: ver `ui/pecas.py`.
-        self.figuras = {}
         self.figuras_paleta = {}
+
+    # -- o que era do diálogo e passou ao tabuleiro editável (ED-05) ------------------
+
+    @property
+    def canvas(self):
+        return self.editavel.canvas
+
+    @property
+    def figuras(self):
+        return self.editavel.figuras if self.editavel is not None else {}
+
+    @property
+    def selecionada(self):
+        return self.editavel.selecionada if self.editavel is not None else None
+
+    @selecionada.setter
+    def selecionada(self, valor):
+        if self.editavel is not None:
+            self.editavel.selecionada = valor
+
+    @property
+    def pincel(self):
+        return self.editavel.pincel if self.editavel is not None else None
+
+    @pincel.setter
+    def pincel(self, valor):
+        if self.editavel is not None:
+            self.editavel.pincel = valor
 
     # ------------------------------------------------------------------
 
@@ -104,7 +123,6 @@ class DialogoDiagrama:
         self.top.transient(self.parent)
 
         # Depois do Toplevel: `PhotoImage` precisa de uma janela viva.
-        self.figuras = pecas.carregar(LADO_CASA - FOLGA_DA_CASA)
         self.figuras_paleta = pecas.carregar(LADO_PALETA)
 
         cabecalho = ttk.Frame(self.top, padding=(10, 8))
@@ -128,12 +146,8 @@ class DialogoDiagrama:
         direita = ttk.LabelFrame(corpo, text="o que foi lido — clique para corrigir",
                                  padding=6)
         direita.pack(side="left")
-        self.canvas = tk.Canvas(direita, width=8 * LADO_CASA,
-                                height=8 * LADO_CASA, highlightthickness=0)
-        self.canvas.pack()
-        self.canvas.bind("<ButtonPress-1>", self._no_clique)
-        self.canvas.bind("<ButtonRelease-1>", self._no_solta)
-        self.canvas.bind("<Button-3>", self._no_direito)
+        self.editavel = TabuleiroEditavel(direita, self.tabuleiro(), ao_mudar=self._depois_do_tabuleiro)
+        self.editavel.pack()
 
         self._construir_paleta(corpo)
 
@@ -179,6 +193,12 @@ class DialogoDiagrama:
         self.top.protocol("WM_DELETE_WINDOW", self._fechar)
         self._desenhar()
         return self.top
+
+    def _depois_do_tabuleiro(self):
+        """O tabuleiro editável mudou (clique, tecla, arrasto): o resto da janela acompanha."""
+        if self._desenhando or self.editavel is None:
+            return
+        self._desenhar(so_o_resto=True)
 
     def _construir_paleta(self, corpo):
         """A paleta, o lado a jogar e o roque — tudo que não é a casa."""
@@ -251,66 +271,29 @@ class DialogoDiagrama:
     # Editar
     # ------------------------------------------------------------------
 
-    def _casa_do_ponto(self, x, y):
-        linha, coluna = int(y) // LADO_CASA, int(x) // LADO_CASA
-        if 0 <= linha < 8 and 0 <= coluna < 8:
-            return linha, coluna
-        return None
-
     def _no_clique(self, evento):
-        """
-        Com pincel escolhido, o clique pinta — e o clique seguinte alterna.
-
-        Clicar de novo numa casa que já tem a peça escolhida esvazia; clicar
-        outra vez põe de volta. É o que torna a paleta suficiente para os dois
-        movimentos da conferência (trocar a peça errada e apagar a que não
-        existe) sem trocar de ferramenta no meio.
-
-        A borracha não alterna: ela só apaga. Fazê-la alternar significaria
-        escolher uma peça para pôr de volta, e a borracha não tem peça.
-        """
-        alvo = self._casa_do_ponto(evento.x, evento.y)
-        if alvo is None:
-            return
-        self._arrasto = alvo
-        if self.pincel:
-            atual = self.tabuleiro().casa(*alvo)
-            novo = None if atual and atual.simbolo == self.pincel else self.pincel
-            self.tabuleiro().colocar(*alvo, novo)
-        elif self.pincel == "":
-            self.tabuleiro().limpar(*alvo)
-        self.selecionada = alvo
-        self._desenhar()
+        """O clique no tabuleiro (ver `TabuleiroEditavel._no_clique`): pinta com pincel, senão seleciona."""
+        self.editavel._no_clique(evento)
 
     def _no_solta(self, evento):
-        """Soltar noutra casa é mover a peça; na mesma casa, só selecionar."""
-        origem, self._arrasto = self._arrasto, None
-        destino = self._casa_do_ponto(evento.x, evento.y)
-        if origem is None or destino is None or origem == destino:
-            return
-        if self.pincel is None and self.tabuleiro().mover(origem, destino):
-            self.selecionada = destino
-            self._desenhar()
+        self.editavel._no_solta(evento)
 
     def _no_direito(self, evento):
-        alvo = self._casa_do_ponto(evento.x, evento.y)
-        if alvo and self.tabuleiro().limpar(*alvo):
-            self.selecionada = alvo
-            self._desenhar()
+        self.editavel._no_direito(evento)
 
     def _na_tecla(self, evento):
         """
-        A letra da peça escreve na casa selecionada. Maiúscula é branca.
-
-        `Delete` e `Backspace` esvaziam. Só age quando há casa selecionada —
-        senão a tecla cairia num tabuleiro inteiro sem alvo.
+        A letra da peça escreve na casa selecionada. Maiúscula é branca (a caixa do
+        caractere, como sempre foi aqui; no `TabuleiroEditavel` focado, o `Shift`).
+        `Delete` e `Backspace` esvaziam. Só age quando há casa selecionada.
         """
-        if self.selecionada is None or evento.state & 0x4:      # Ctrl: não
+        if self.selecionada is None or (getattr(evento, "state", 0) or 0) & 0x4:      # Ctrl: não
             return
-        tecla = evento.char
+        tecla = getattr(evento, "char", "")
+        keysym = getattr(evento, "keysym", "")
         if tecla in SIMBOLOS:
             self.tabuleiro().colocar(*self.selecionada, tecla)
-        elif evento.keysym in ("Delete", "BackSpace", "space"):
+        elif keysym in ("Delete", "BackSpace", "space"):
             self.tabuleiro().limpar(*self.selecionada)
         else:
             return
@@ -319,8 +302,7 @@ class DialogoDiagrama:
 
     def _escolher(self, simbolo):
         """Escolhe (ou desescolhe) o pincel da paleta."""
-        self.pincel = None if self.pincel == simbolo else simbolo
-        self._desenhar()
+        self.editavel.escolher(simbolo)
 
     def _mudar_lado(self):
         self.tabuleiro().definir_lado(self.var_lado.get())
@@ -379,6 +361,7 @@ class DialogoDiagrama:
     def _ir(self, passo):
         if len(self.leituras) > 1:
             self.atual = (self.atual + passo) % len(self.leituras)
+            self.editavel.tabuleiro = self.tabuleiro()
             self.selecionada = None
             # "Conferi" vale para o diagrama que estava na tela, e não para o
             # próximo: levá-lo junto faria o gesto explícito virar automático.
@@ -410,13 +393,21 @@ class DialogoDiagrama:
             partes.append(leitura.rotulos.resumo())
         return "  —  ".join(partes)
 
-    def _desenhar(self):
+    _desenhando = False
+
+    def _desenhar(self, so_o_resto: bool = False):
         tabuleiro = self.tabuleiro()
         self.lbl_titulo.config(text=self._cabecalho())
         self.var_fen.set(tabuleiro.fen())
         self.lbl_avisos.config(text="\n".join(tabuleiro.avisos()))
         self._desenhar_recorte()
-        self._desenhar_tabuleiro(tabuleiro)
+        if not so_o_resto:
+            self._desenhando = True
+            try:
+                self.editavel.desenhar()
+            finally:
+                self._desenhando = False
+        self._legenda_do_tabuleiro(tabuleiro)
         self._atualizar_controles(tabuleiro)
 
     def _desenhar_recorte(self):
@@ -431,45 +422,7 @@ class DialogoDiagrama:
             self._fotos.append(foto)
             self.lbl_recorte.config(image=foto)
 
-    def _desenhar_tabuleiro(self, tabuleiro):
-        self.canvas.delete("all")
-        for casa in tabuleiro.casas:
-            x, y = casa.coluna * LADO_CASA, casa.linha * LADO_CASA
-            fundo = COR_CLARA if (casa.linha + casa.coluna) % 2 == 0 else COR_ESCURA
-            self.canvas.create_rectangle(x, y, x + LADO_CASA, y + LADO_CASA,
-                                         fill=fundo, outline="")
-
-            # A cor conta uma coisa só, e a mais recente ganha: uma casa
-            # corrigida à mão não é mais "trocada pela legalidade".
-            if casa.corrigida:
-                borda = COR_CORRIGIDA
-            elif casa.arbitrada:
-                borda = COR_ARBITRADA
-            elif casa.simbolo and casa.confianca < CONFIANCA_BAIXA:
-                borda = COR_DUVIDA
-            else:
-                borda = None
-            if borda:
-                self.canvas.create_rectangle(x + 2, y + 2, x + LADO_CASA - 2,
-                                             y + LADO_CASA - 2, outline=borda,
-                                             width=3)
-            if (casa.linha, casa.coluna) == self.selecionada:
-                self.canvas.create_rectangle(x + 1, y + 1, x + LADO_CASA - 1,
-                                             y + LADO_CASA - 1,
-                                             outline=COR_SELECAO, width=2)
-            if casa.simbolo:
-                figura = self.figuras.get(casa.simbolo)
-                if figura is not None:
-                    self.canvas.create_image(x + LADO_CASA // 2,
-                                             y + LADO_CASA // 2,
-                                             image=figura)
-                else:
-                    self.canvas.create_text(
-                        x + LADO_CASA // 2, y + LADO_CASA // 2,
-                        text=GLIFOS.get(casa.simbolo, casa.simbolo),
-                        font=("Segoe UI Symbol", int(LADO_CASA * 0.62)),
-                        fill="black")
-
+    def _legenda_do_tabuleiro(self, tabuleiro):
         legenda = []
         if not self.figuras:
             legenda.append(SEM_FIGURAS)

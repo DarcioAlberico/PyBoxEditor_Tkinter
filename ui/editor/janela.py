@@ -62,6 +62,14 @@ em `ui/editor/operacoes.py: OperacoesDoLivro`, registrado por
 `_registrar_comandos_da_ed08`. O OPF abre só para leitura (`epub.texto_do_opf`), e os
 clipes passam a valer no modo texto (o fragmento vira modelo).
 
+## A ED-05 na janela
+
+`ui/editor/xadrez.py: Xadrez` é dono do menu Xadrez (`_registrar_comandos_da_ed05`): o
+diagrama entra e se edita pela `DialogoDeDiagrama` (`ui/editor/diagrama.py`), o painel
+Xadrez e a barra de xadrez são a paleta (`ui/editor/paleta.py`), a validação vai a
+Resultados com a tag `notacao-ilegal` e o `✗` na calha, e o gancho `ao_fechar_token` do
+`TextoRico` faz as figurinas ao digitar. `Enter` sobre um diagrama abre o editor de posição.
+
 ## A ED-10 na janela
 
 `ui/editor/conversoes.py: Conversoes` é dona de "Exportar…" (EPUB, HTML único, HTML em
@@ -111,6 +119,7 @@ from ui.editor.tabela import GradeDeTabela
 from ui.editor.tags import EstiloDeTela
 from ui.editor.tipografia import Tipografo
 from ui.editor.texto_rico import TextoRico
+from ui.editor.xadrez import Xadrez
 
 TITULO = "Editor de livro"
 CHAVE_DAS_PREFERENCIAS = "editor"
@@ -198,6 +207,7 @@ class JanelaDoEditor(tk.Toplevel):
         self._registrar_comandos_da_ed06b()
         self._registrar_comandos_da_ed08()
         self._registrar_comandos_da_ed10()
+        self._registrar_comandos_da_ed05()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -520,6 +530,16 @@ class JanelaDoEditor(tk.Toplevel):
         self.registrar_comandos(self.operacoes.comandos)
         self.registrar_comandos({"ir_para_destino": self.ir_para_destino, "clipes": self.clipes_comando,
                                  "aplicar_clipe": self.aplicar_clipe})
+
+    def _registrar_comandos_da_ed05(self) -> None:
+        """Xadrez no editor (ED-05, §11): o menu Xadrez, Inserir → Referência/Figurina/NAG, a paleta e a barra."""
+        self.xadrez_controlador = Xadrez(self)
+        self.registrar_comandos(self.xadrez_controlador.comandos)
+        for nome in self.xadrez_controlador.so_no_texto:
+            self.modos_do_comando[nome] = ("texto",)
+        self.registrar_comandos({"validar_notacao_selecao": lambda: self.xadrez_controlador.validar_notacao("selecao"),
+                                 "validar_notacao_livro": lambda: self.xadrez_controlador.validar_notacao("livro")})
+        self.modos_do_comando["validar_notacao_selecao"] = ("texto",)
 
     def _registrar_comandos_da_ed10(self) -> None:
         """Exportar (EPUB/HTML/TXT), importar (HTML/TXT/EPUB), juntar e dividir por título (ED-10)."""
@@ -960,6 +980,8 @@ class JanelaDoEditor(tk.Toplevel):
         widget = TextoRico(frame, estilo_de_tela=self._estilo_de_tela(), folhas=self._folhas_de(cap),
                            historico=self.projeto.historico, relogio=self.relogio, arquivo=cap.arquivo,
                            recursos=self._dados_do_recurso, ao_ativar=self.acao_principal)
+        if hasattr(self, "xadrez_controlador"):
+            widget.ao_fechar_token = self.xadrez_controlador.ao_fechar_token       # figurinas ao digitar (ED-05)
         widget.carregar(cap)
         self._ligar_editor(widget, aba)
         return widget
@@ -1838,7 +1860,7 @@ class JanelaDoEditor(tk.Toplevel):
     def acao_principal(self, objeto: Any) -> str:
         """
         `Enter` sobre um objeto (§7.4): tabela → primeira célula; ilha → mini-editor;
-        diagrama → editor de posição (ED-05; por ora, o painel); os demais → propriedades.
+        diagrama → editor de posição (ED-05); os demais → propriedades.
         """
         texto = self._texto()
         if isinstance(objeto, Tabela):
@@ -1850,7 +1872,9 @@ class JanelaDoEditor(tk.Toplevel):
             self.editar_ilha()
             return "ilha"
         if isinstance(objeto, Diagrama):
-            self.status("Editar posição… chega na ED-05; por ora, as propriedades.")
+            texto.selecionar_objeto(objeto.id)
+            self.executar("editar_posicao")
+            return "diagrama"
         self.propriedades_do_objeto()
         return "propriedades"
 
@@ -2088,7 +2112,8 @@ class JanelaDoEditor(tk.Toplevel):
     def sobre(self) -> str:
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
-                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08, ED-09.")
+                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-06, ED-06b, ED-07, ED-08, ED-09, "
+                 "ED-09b, ED-10.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 

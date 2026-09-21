@@ -82,6 +82,7 @@ class Caixas:
         self.ilha_resposta = None
         self.tabela_resposta = None
         self.imagem_resposta = ""
+        self.diagrama_resposta = None
         c = janela.caixas
         c.entrada = lambda mensagem, *a, **k: self.chamadas.append(("entrada", mensagem))
         c.falha = lambda mensagem, detalhe: self.chamadas.append(("falha", mensagem, detalhe))
@@ -99,6 +100,8 @@ class Caixas:
         c.salvar_como = lambda *a, **k: ""
         c.ilha = lambda xhtml="", titulo="": (self.chamadas.append(("ilha", xhtml)), self.ilha_resposta)[1]
         c.tabela = lambda: self.tabela_resposta
+        c.diagrama = lambda diagrama=None, **k: (self.chamadas.append(("diagrama", diagrama)),
+                                                 self.diagrama_resposta)[1]
 
     def entradas(self):
         return [c[1] for c in self.chamadas if c[0] == "entrada"]

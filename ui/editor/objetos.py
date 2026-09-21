@@ -579,6 +579,10 @@ def criar_objeto(master: tk.Misc, objeto: Any, inline: bool = False, ao_ativar: 
     if isinstance(objeto, Tabela) and contexto.criar_tabela is not None \
             and len(objeto.filas) * objeto.colunas <= contexto.limite_de_celulas:
         return contexto.criar_tabela(master, objeto)
+    if isinstance(objeto, Diagrama):
+        from ui.editor.diagrama import ObjetoDeDiagrama      # ED-05; importado aqui: o módulo traz o tabuleiro
+
+        return ObjetoDeDiagrama(master, objeto, inline, ao_ativar, contexto)
     return ObjetoGenerico(master, objeto, inline, ao_ativar, contexto)
 
 

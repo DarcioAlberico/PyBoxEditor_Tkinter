@@ -460,10 +460,20 @@ def lado_efetivo(lado_px: int) -> int:
 #: (fonte, moldura, cantos) → casas de largura do diagrama em grade, medidas uma vez.
 _LARGURA_DA_GRADE: dict = {}
 
+#: A calha do indicador de lado a jogar, em casas, à direita do tabuleiro (ED-05).
+#:
+#: **É a convenção do ChessBase e dos livros que ele produz**: um quadradinho ao lado
+#: do tabuleiro, embaixo para as brancas e em cima para as pretas, branco ou preto —
+#: e nunca no meio do diagrama, onde tampararia uma casa. A calha só existe quando o
+#: indicador é pedido, e por isso entra em `largura_em_casas` como as coordenadas.
+GUTTER_INDICADOR = 0.6
+#: O lado do quadradinho, em casas.
+LADO_DO_INDICADOR = 0.38
+
 
 def largura_em_casas(fen: str, fonte: str = FONTE_PADRAO, orientacao: str = "branca",
                      moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO,
-                     coordenadas: bool = False) -> float:
+                     coordenadas: bool = False, indicador: bool = False) -> float:
     """
     Quantas casas de largura `desenhar` daria a esta figura — sem desenhá-la.
 
@@ -479,6 +489,7 @@ def largura_em_casas(fen: str, fonte: str = FONTE_PADRAO, orientacao: str = "bra
     """
     moldura = normalizar_moldura(moldura)
     cantos = normalizar_cantos(cantos)
+    calha = GUTTER_INDICADOR if indicador else 0.0
     if coordenadas:
         mapa = mapa_da_fonte(fonte)
         if grade(fen, mapa, orientacao, moldura, cantos) is not None:
@@ -489,18 +500,27 @@ def largura_em_casas(fen: str, fonte: str = FONTE_PADRAO, orientacao: str = "bra
                                                   coordenadas=True, moldura=moldura,
                                                   cantos=cantos, orientacao=orientacao)
                 _LARGURA_DA_GRADE[chave] = largura * 8.0 / lado
-            return _LARGURA_DA_GRADE[chave]
+            return _LARGURA_DA_GRADE[chave] + calha
     _tracos, margem = filetes(moldura, 1.0)
-    return 8.0 + (GUTTER_ROTULO if coordenadas else 0.0) + 2.0 * margem
+    return 8.0 + (GUTTER_ROTULO if coordenadas else 0.0) + 2.0 * margem + calha
 
 
 def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
              coordenadas: bool = False, moldura=MOLDURA_PADRAO,
              cantos: str = CANTO_PADRAO,
-             orientacao: str = "branca", tons: int = TONS
+             orientacao: str = "branca", tons: int = TONS,
+             lado_a_jogar: Optional[str] = None,
+             marcas: Sequence[str] = (), setas: Sequence[Tuple[str, str]] = ()
              ) -> Tuple[bytes, int, int]:
     """
     (PNG, largura, altura) do diagrama.
+
+    `lado_a_jogar` (`"w"`/`"b"`; `None` = sem indicador) põe o quadradinho de quem
+    joga numa calha à direita — embaixo e branco para as brancas, em cima e preto
+    para as pretas (ED-05, DEC-06: só quando o livro **sabe** o lado). `marcas`
+    (`"e4"`) e `setas` (`("g1", "f3")`) são desenhadas por cima das casas (ED-05b):
+    a marca é um anel na casa, a seta um traço com ponta, os dois em cinza escuro
+    para saírem em qualquer impressão.
 
     `coordenadas` é **falso por padrão**: o livro imprime `a`–`h` e `8`–`1` para
     quem vai falar da posição em voz alta, e num arquivo que se lê no tablet
@@ -528,10 +548,17 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
 
     em_grade = grade(fen, f, orientacao, moldura, cantos) if coordenadas else None
     if em_grade is not None:
-        imagem = _pintar_grade(em_grade, f, casa)
+        imagem, x0, y0 = _pintar_grade(em_grade, f, casa)
     else:
         imagem = _pintar_com_caneta(linhas(fen, f, orientacao), f, casa, lado,
                                     moldura, cantos, coordenadas, orientacao)
+        _tracos, margem = filetes(moldura, casa)
+        x0 = (casa * GUTTER_ROTULO if coordenadas else 0.0) + margem
+        y0 = margem
+    if marcas or setas:
+        imagem = _marcar(imagem, x0, y0, casa, orientacao, marcas, setas)
+    if lado_a_jogar in ("w", "b"):
+        imagem = _indicador_de_lado(imagem, y0, lado, casa, lado_a_jogar)
 
     if tons and tons < 256:
         imagem = imagem.quantize(colors=tons)
@@ -569,11 +596,76 @@ def _pintar_grade(em_grade: Sequence[str], fonte: Fonte, casa: float) -> Image.I
 
     tinta = ImageChops.invert(imagem).getbbox()
     if tinta is None:
-        return imagem
+        return imagem, casa, casa
     folga = max(1, int(round(casa * SANGRIA_DA_GRADE)))
-    return imagem.crop((max(0, tinta[0] - folga), max(0, tinta[1] - folga),
-                        min(imagem.width, tinta[2] + folga),
-                        min(imagem.height, tinta[3] + folga)))
+    esquerda, topo = max(0, tinta[0] - folga), max(0, tinta[1] - folga)
+    recortada = imagem.crop((esquerda, topo, min(imagem.width, tinta[2] + folga),
+                             min(imagem.height, tinta[3] + folga)))
+    # O tabuleiro de verdade ocupa as casas 1–8 da grade de dez: a origem é (casa, casa)
+    # antes do recorte, e o recorte só a desloca.
+    return recortada, casa - esquerda, casa - topo
+
+
+def _pintar_grade_imagem(em_grade: Sequence[str], fonte: Fonte, casa: float) -> Image.Image:
+    """Só a imagem, para quem não precisa da origem (compatibilidade)."""
+    return _pintar_grade(em_grade, fonte, casa)[0]
+
+
+def _casa_xy(nome: str, x0: float, y0: float, casa: float, orientacao: str) -> Tuple[float, float]:
+    """O centro da casa `e4` na imagem, respeitando a orientação."""
+    coluna, fila = "abcdefgh".index(nome[0]), int(nome[1]) - 1
+    if orientacao == "preta":
+        coluna, fila = 7 - coluna, 7 - fila
+    return x0 + (coluna + 0.5) * casa, y0 + (7 - fila + 0.5) * casa
+
+
+def _marcar(imagem: Image.Image, x0: float, y0: float, casa: float, orientacao: str,
+            marcas: Sequence[str], setas: Sequence[Tuple[str, str]]) -> Image.Image:
+    """As marcas (anel na casa) e as setas (traço com ponta) por cima do tabuleiro (ED-05b)."""
+    import math
+
+    from PIL import ImageDraw
+
+    desenho = ImageDraw.Draw(imagem)
+    cinza = 70
+    traco = max(2, int(round(casa * 0.09)))
+    for nome in marcas:
+        if len(nome) != 2 or nome[0] not in "abcdefgh" or nome[1] not in "12345678":
+            continue
+        cx, cy = _casa_xy(nome, x0, y0, casa, orientacao)
+        raio = casa * 0.40
+        desenho.ellipse((cx - raio, cy - raio, cx + raio, cy + raio), outline=cinza, width=traco)
+    for de, para in setas:
+        if any(len(n) != 2 or n[0] not in "abcdefgh" or n[1] not in "12345678" for n in (de, para)) or de == para:
+            continue
+        ax, ay = _casa_xy(de, x0, y0, casa, orientacao)
+        bx, by = _casa_xy(para, x0, y0, casa, orientacao)
+        angulo = math.atan2(by - ay, bx - ax)
+        recuo = casa * 0.30                      # a ponta para antes do centro da casa de destino
+        bx2, by2 = bx - recuo * math.cos(angulo), by - recuo * math.sin(angulo)
+        desenho.line((ax, ay, bx2, by2), fill=cinza, width=traco)
+        ponta = casa * 0.32
+        for desvio in (math.pi * 5 / 6, -math.pi * 5 / 6):
+            px = bx2 + ponta * math.cos(angulo + desvio)
+            py = by2 + ponta * math.sin(angulo + desvio)
+            desenho.line((bx2, by2, px, py), fill=cinza, width=traco)
+    return imagem
+
+
+def _indicador_de_lado(imagem: Image.Image, y0: float, lado: int, casa: float, lado_a_jogar: str) -> Image.Image:
+    """A calha à direita com o quadradinho de quem joga: embaixo/branco (brancas), em cima/preto (pretas)."""
+    from PIL import ImageDraw
+
+    calha = int(round(casa * GUTTER_INDICADOR))
+    nova = Image.new(imagem.mode, (imagem.width + calha, imagem.height), 255)
+    nova.paste(imagem, (0, 0))
+    desenho = ImageDraw.Draw(nova)
+    quadro = casa * LADO_DO_INDICADOR
+    x = imagem.width + (calha - quadro) / 2
+    y = (y0 + lado - quadro) if lado_a_jogar == "w" else y0
+    desenho.rectangle((x, y, x + quadro, y + quadro), fill=255 if lado_a_jogar == "w" else 0, outline=0,
+                      width=max(1, int(round(casa * 0.05))))
+    return nova
 
 
 def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,

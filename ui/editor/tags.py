@@ -357,7 +357,7 @@ def opcoes_das_fixas(estilos: Estilos, fontes: Fontes) -> dict[str, dict[str, An
         "code": {"font": fontes.fonte(tela.familia_mono, tela.corpo_na_tela())},
         "marcador": {"foreground": tela.cor}, "protegido": {}, "invisivel": {"foreground": "#8a8a8a"},
         "orto": {"underline": True, "underlinefg": "#c00000"},
-        "notacao-ilegal": {"background": "#ffb060", "bgstipple": "gray50", "relief": "raised", "borderwidth": 1},
+        "notacao-ilegal": {"background": "#ffb060", "bgstipple": "gray25", "relief": "raised", "borderwidth": 1},
         "suspeito": {"background": "#fff3a0"}, "sel-objeto": {"background": "#b8d4ff"},
         "objeto": {}, "faixa": {"spacing1": _px(1.0, tela)},
         "cit": {"lmargin1": _px(2.0, tela), "lmargin2": _px(2.0, tela), "rmargin": _px(2.0, tela)},

@@ -693,6 +693,15 @@ class Caixas:
                            ("Imagens", "*.png *.jpg *.jpeg *.gif *.svg"), ("Fontes", "*.ttf *.otf *.woff *.woff2")),
                           diretorio, titulo)
 
+    # -- ED-05: o diagrama -------------------------------------------------------------
+
+    def diagrama(self, diagrama: Any = None, recorte: Any = None, idioma: str = "en",
+                 titulo: str = "Diagrama") -> Any:
+        """Inserir/editar diagrama (§11.1–§11.2): o `Diagrama` novo, ou `None`."""
+        from ui.editor.diagrama import DialogoDeDiagrama
+
+        return DialogoDeDiagrama(self.master, diagrama, recorte=recorte, idioma=idioma, titulo=titulo).mostrar()
+
     def ir_para(self, tipos: Sequence[tuple[str, str]], atual: str = "", numero: int = 1) -> tuple[str, int] | None:
         """"Ir para…": `(tipo, número)`; `tipos` são pares `(chave, rótulo)`."""
         rotulos = {chave: rotulo for chave, rotulo in tipos}

@@ -10,11 +10,14 @@ livro do Informator precisa do `⌓` da segunda lista tanto quanto do `±` da pr
 Os intervalos que a especificação reserva sem definir (`$149`–`$219`, `$222`–`$237`)
 não aparecem: não há o que anotar com eles.
 
-## Esta tabela não é a mesma que a `ui.main_window.NAGS_POR_FAMILIA`
+## Duas tabelas: a barra rápida e o padrão inteiro
 
-Aquela é o "Key to symbols used" **destes livros**: 23 símbolos, quatro famílias, os
-botões da barra rápida. Esta é o padrão inteiro, 169 entradas, e serve de referência
-— a maioria delas nunca vai ser digitada.
+`NAGS_POR_FAMILIA` é o "Key to symbols used" **destes livros**: 23 símbolos, quatro
+famílias, os botões da barra rápida. Morava em `ui/main_window.py` até a ED-05, e veio
+para cá porque o editor de livros (`core/editor/xadrez.py`, `ui/editor/paleta.py`) a usa
+num processo que não carrega a janela principal (SPEC_EDITOR DEC-07); a janela
+principal a reimporta daqui. `FAMILIAS`/`TABELA` é o padrão inteiro, 169 entradas, e
+serve de referência — a maioria delas nunca vai ser digitada.
 
 Onde as duas se encontram, **o ponto de código é o da barra rápida**, e isso não é
 detalhe de estilo. `Δ` (U+0394, que a barra usa) e `∆` (U+2206, que a Wikipedia
@@ -68,6 +71,41 @@ def _lados(codigo: int, molde: str, simbolo: str = "",
     """
     return [Nag(codigo, simbolo, molde.format(lado[0])),
             Nag(codigo + 1, "", molde.format(lado[1]))]
+
+
+# ----------------------------------------------------------------------
+# A barra rápida: os 23 símbolos destes livros, por família
+# ----------------------------------------------------------------------
+
+NAGS_POR_FAMILIA = [
+    ("Avaliação", [
+        ("⩲", "Brancas ligeiramente melhor"), ("⩱", "Negras ligeiramente melhor"),
+        ("±", "Brancas melhor"), ("∓", "Negras melhor"),
+        ("+-", "Brancas vencem"), ("-+", "Negras vencem"),
+        ("=", "Igualdade"), ("∞", "Posição incerta"),
+    ]),
+    ("Lance", [
+        ("!", "Boa jogada"), ("!!", "Excelente"), ("?", "Erro"), ("??", "Erro grave"),
+        ("!?", "Interessante"), ("?!", "Duvidoso"),
+        ("□", "Lance único"), ("#", "Mate"),
+    ]),
+    ("Ideia", [
+        # `⯹` é o U+2BF9, um igual sobre um infinito — o desenho impresso, que a
+        # "Key to symbols used" destes livros põe logo acima do `∞` sozinho de
+        # *unclear*. Escreveu-se `≡` aqui enquanto nenhuma das 559 famílias de
+        # `C:\Windows\Fonts` o desenhava; quem o desenha é a `NotoSansSymbols2`
+        # empacotada em `assets/fonts/`, que `ui.fontes` registra no processo
+        # para o Tk alcançar. Trocá-lo de novo é mexer numa linha desta tabela.
+        ("⯹", "Com compensação"), ("⇄", "Com contrajogo"),
+        ("⌓", "Melhor é"), ("Δ", "Com ideia de"), ("⨀", "Zugzwang"),
+    ]),
+    ("Lado", [
+        ("△", "Brancas jogam"), ("▼", "Negras jogam"),
+    ]),
+]
+
+#: A lista achatada, que é o que o menu de contexto e os testes consomem.
+NAGS = [par for _, familia in NAGS_POR_FAMILIA for par in familia]
 
 
 # ----------------------------------------------------------------------
