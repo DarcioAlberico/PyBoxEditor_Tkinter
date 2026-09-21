@@ -54,6 +54,7 @@ from typing import Any, Sequence
 
 from core.editor import dialeto, epub, modelo, xhtml
 from core.editor.conversao import Cronometro, OpcoesDeConversao, RelatorioDeConversao
+from core.editor.docx_leitura import ler  # noqa: F401 — `docx_io.ler` (ED-09b) mora em `docx_leitura.py`
 from core.editor.modelo import (Bloco, Capitulo, Citacao, Diagrama, Figura, IlhaBruta, Lista, Livro,
                                 MarcaDePagina, Nota, Paragrafo, QuebraDePagina, Separador, Tabela, Titulo, Trecho)
 from core.editor.xhtml import ErroDeXhtml
@@ -1336,4 +1337,5 @@ class _Escritor:
                 _por_na_ordem(settings, pr, ORDEM_DOS_SETTINGS)
 
 
-__all__ = ["escrever", "INSTRUCAO_DE_INSTALACAO", "MARCADORES", "ESTILOS_DE_CARACTERE", "ORDEM_DOS_SETTINGS"]
+__all__ = ["escrever", "ler", "INSTRUCAO_DE_INSTALACAO", "MARCADORES", "ESTILOS_DE_CARACTERE",
+           "ORDEM_DOS_SETTINGS"]

@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08, ED-09 e ED-10 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b e ED-10 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1580,6 +1580,51 @@ Ler: spec §10.4, §6.2 (coluna DOCX), §10.7, DEC-06; `core/editor/docx_io.py: 
 .venv/Scripts/python.exe -m pytest tests/test_editor_docx_ler.py tests/test_editor_docx.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/docx_leitura.py` (novo; `docx_io.ler` é ele) e
+`tests/test_editor_docx_ler.py` (4 testes). Sem tela: a fase é só de `core/` (o item
+"Importar ▸ DOCX…" é da ED-12, como a tabela de menus já diz).
+
+**O que divergiu da spec, e por quê:**
+
+- **A leitura não usa o `python-docx`**: o pacote é lido com `zipfile` + `xml.etree`
+  (`document.xml`, `styles.xml`, `numbering.xml`, `footnotes.xml`, `endnotes.xml`,
+  `settings.xml`, os `.rels`, `word/media/*`, `docProps/core.xml`). O `python-docx` não
+  expõe nota, marcador, campo, sombreado, idioma nem numeração — seria XML de qualquer
+  jeito —, e assim um DOCX abre sem o extra `[docx]` (DEC-07); há um teste que esconde o
+  `docx` e lê.
+- **O bloco vem do nome do estilo com a cadeia `basedOn` resolvida** (um "Meu Título"
+  baseado em `Heading 1` é título; um estilo baseado em `Normal` é corpo, sem aviso; um
+  estilo sem base conhecida é corpo **com** aviso, uma vez). O nível também vem do
+  `outlineLvl`. `Strong`/`Emphasis` do Word viram negrito/itálico.
+- **A legenda é casada pela posição, como o escritor a põe**: `Caption` "Tabela n: …"
+  **antes** da tabela; "Figura n: …" e "Diagrama n: …" **depois** do objeto; o marcador
+  `_Ref<n>` que envolve "Tabela n" passa ao objeto, e é ele que o `REF` aponta
+  (`Trecho.ref` com o tipo do alvo). Uma `Caption` que não é "Rótulo n" vira parágrafo
+  no estilo `legenda`.
+- **O diagrama em fonte volta com a orientação que reproduz as linhas** (como o
+  `div.diagrama` da ED-00): o FEN vem do `tblDescription` quando há, senão de
+  `fen_de_linhas`; sem descrição e sem glifo de moldura fica `estado="revisar"`. O PNG
+  cujo `descr` é FEN vira `Diagrama(modo="png")` **sem** guardar a imagem (o FEN é a
+  verdade; a imagem seria redesenhada). `lado=""` sempre (DEC-06).
+- **Oito (ou dez) parágrafos seguidos numa fonte de diagrama, no corpo, também são um
+  diagrama** (§10.4 "corpo e tabela 1×1"); se não decodificam, voltam como texto
+  naquela família.
+- **O `pg-n` no começo do parágrafo é `MarcaDePagina` antes dele; no meio, `Trecho.pagina`**
+  — o inverso exato de `_abrir_paragrafo` e `_trechos` do escritor. Quebra de página no
+  fim de um parágrafo com texto vira o parágrafo e depois a `QuebraDePagina`.
+- **O texto no estilo `Ilha` volta como texto** (aviso): a ilha original não está no
+  DOCX (§10.7) — é a única diferença de texto na ida e volta, e o teste a nomeia.
+- **Célula mesclada (`gridSpan`) vira células vazias ao lado** (INV-04: a tabela tem de
+  ser retangular), com aviso. Controle de alterações: inserções aceitas, exclusões
+  descartadas, um aviso cada. Cabeçalho/rodapé com texto: um aviso ("o livro os
+  regenera"). O `w:sdt` do sumário é pulado; `PAGE`/`PAGEREF`/`TOC` não viram texto; o
+  resultado em cache de `SEQ`/`REF` vira texto (é o que o leitor lê).
+- **O formato de página volta** (`FormatoDePagina`: `pgSz`, `pgMar`, `mirrorMargins`,
+  `autoHyphenation`); o idioma vem de `docProps/core.xml` (`dc:language`), o título do
+  `dc:title` ou do primeiro `Heading 1`.
+
 ---
 
 ## ED-10 — HTML e EPUB completos, importadores, TXT, e os seus itens de menu
@@ -1848,7 +1893,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
 | ED-08 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | menu Livro em `operacoes.py`; navegador e sumário como painéis; capa por `definir_capa` com invólucro SVG; semântica = `epub:type` + marco; "Gravar" só refaz o nav; OPF só de leitura; forma curta de `metadados`; relatórios sem fitz no topo; classes apagadas por texto; validação síncrona com `comando=[]`; prévia = `TextoRico`; "Abrir com" vigia; clipes no texto |
 | ED-09 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | estilos do Word `builtin`; `STYLEREF 1`; `OS/2` v3 na Merida; folga de 1,5 pt na caixa; `notas="rodape"` respeita o tipo; quebra de capítulo pelo estilo; só alvo existente vira marcador; sumário 1–3 |
-| ED-09b | a fazer | | | |
+| ED-09b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | leitura sem `python-docx` (zip + etree); estilo pela cadeia `basedOn`; legenda casada pela posição; orientação que reproduz as linhas; PNG-FEN sem guardar a imagem; `pg-n` começo/meio; texto `Ilha` volta como texto; `gridSpan` = células vazias; formato de página |
 | ED-10 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | fontes lidas à mão (`core/editor/fontes.py`) e bloco `pybox:fontes` na folha; HTML5 pela árvore com ids prefixados; `ler` volta pelas seções; `<p><img>` = figura; fechamento opcional no `consertar`; fatia do elemento vazio no `xhtml`; TXT mínimo que volta; importar anexa ou vira o livro; exportar pode sujar; fontes necessárias contam como usadas |
 | ED-11 | a fazer | | | |
 | ED-12 | a fazer | | | |
