@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03 e ED-07 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-07 e ED-09 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1215,6 +1215,79 @@ hifenização; ilhas em `Ilha`); `tests/test_editor_docx.py` (XML do zip);
 .venv/Scripts/python.exe -m pytest tests/test_editor_docx.py tests/test_f111_arquivo.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/docx_io.py` (`escrever(livro, caminho, opcoes) ->
+RelatorioDeConversao`), `tests/editor_livros.livro_completo` (o livro sintético da
+AC-ED09-1), `tests/test_editor_docx.py` (8 testes) e o golden de
+`tests/dados/editor/docx_golden/` (`document.xml`, `footnotes.xml`, `endnotes.xml`,
+`numbering.xml`; regrava-se com `python tests/test_editor_docx.py --gravar-golden`), e
+`docs/roteiros/editor_docx.md`. Medido: o livro completo (56 blocos, 4 diagramas, 3 fontes
+embutidas) sai em 0,6 s; o Word 16.0.14334 abre o arquivo sem diálogo de reparo, conta 1
+nota de rodapé, 1 de fim, 22 campos, 28 marcadores, 1 sumário (atualizado: seis entradas
+com página), 8 hiperlinks e 3 listas, e o PDF que ele exporta traz a Merida embutida.
+
+**O que divergiu da spec, e por quê:**
+
+- **Os estilos com nome interno do Word nascem `builtin`** (`add_style(..., builtin=True)`,
+  sem `w:customStyle`): com `customStyle="1"` o Word 16 tratou "footnote text", "toc 1" e
+  "Hyperlink" como estilos do usuário com nome reservado e criou "Texto de nota de
+  rodapé1", "Sumário 11", "Hyperlink1" ao lado dos dele — exatamente a duplicação que a
+  §6.3 quer evitar. Os `styleId` são limpos (`ComentarioCaractere`, `CabecalhoDeDiagrama`).
+- **`STYLEREF 1`, e não `STYLEREF "Heading 1"`**, no cabeçalho ímpar: o nome do estilo
+  dentro do campo é o nome **local** — no Word em português dá "Erro! Use a guia Página
+  Inicial…"; o nível é o mesmo em qualquer idioma.
+- **A `ChessMerida-Diagram.ttf` ganhou `OS/2` versão 3** (`gerar_fonte_de_diagrama.py`
+  `subir_os2`, fonte regravada, sha novo em `fontes_de_diagrama.json`): o Word embute uma
+  fonte com `OS/2` versão 0 (a de 1998) sem reclamar e **a ignora ao desenhar** — o run
+  continua dizendo `ChessMerida-Diagram` e as casas saem em Arial. Medido em quatro
+  variantes do mesmo DOCX pelo PDF que o Word exporta: só a `OS/2` v3 resolve; renomear
+  ou apagar os registros de nome de símbolo não muda nada. Os 97 contornos continuam byte
+  a byte os de 1998; PNG e EPUB não mudam (65 testes de F58/F97/F99/F59 verdes). É defeito
+  de antes desta fase (o `exportar.para_docx` da F99 embute a mesma fonte).
+- **A caixa do diagrama em fonte leva 1,5 pt de folga** (`FOLGA_DA_CAIXA_PT`): com a
+  largura exata `corpo × colunas`, o Word 16.0.14334 dobra a oitava casa da SkakNew para
+  a linha seguinte (0,5 pt dobra, 1 pt não). O `exportar.para_docx` de hoje tem o mesmo
+  dobra e ficou como está — os testes F97/F99 fixam a largura em twips; a ED-12 decide.
+- **`OpcoesDeConversao.notas`**: `"rodape"` (padrão) respeita o `Nota.tipo` de cada nota
+  (o livro sintético tem rodapé **e** fim, como a AC pede); `"fim"` leva todas para o fim.
+  A spec dizia só "decide se as notas saem no rodapé ou no fim".
+- **`modo_de_diagrama` decide por todos os diagramas do livro**, como a §10.8 diz para o
+  DOCX; o diagrama em fonte cai para PNG (com aviso) quando a fonte não está disponível
+  ou quando tem coordenadas sem moldura em glifo (SkakNew); em `png`, o PNG já desenhado
+  do livro (`Diagrama.imagem` com a chave corrente) é reaproveitado, senão
+  `epub.png_do_diagrama`.
+- **O capítulo abre página pelo estilo** (`Heading 1` com `pageBreakBefore`), e não por
+  `w:br`: a AC-ED09-1 pede `w:br type="page"` só onde há `QuebraDePagina`. As marcas de
+  página são marcadores `pg-n` no começo do parágrafo seguinte (ou num parágrafo vazio no
+  fim do capítulo); `Trecho.pagina` vira o marcador no lugar do trecho.
+- **Só alvo que existe vira marcador**: link ou `ref` para capítulo ou id que não há sai
+  como texto, com aviso — um `w:hyperlink w:anchor` para marcador inexistente é link morto
+  sem erro. Os alvos de link levam `bm_<índice do capítulo>_<id>` (o id é único por
+  capítulo, INV-01); o capítulo inteiro, `bm_<índice>_inicio`.
+- **A nota é escrita com os mesmos runs do corpo** e movida para a parte `footnotes.xml`
+  (os parágrafos nascem no corpo e saem por `lxml`); um hiperlink dentro da nota ganha
+  relacionamento na parte da nota (`word/_rels/footnotes.xml.rels`). As partes são
+  `docx.opc.part.Part` relacionadas ao documento — o `python-docx` escreve o `Override`
+  do `[Content_Types].xml` sozinho; o `settings.xml` recebe `footnotePr`/`endnotePr`,
+  `mirrorMargins`, `autoHyphenation` e `updateFields` **na ordem do esquema**
+  (`ORDEM_DOS_SETTINGS`; fora de lugar o Word acusa arquivo corrompido).
+- **Numeração**: um `abstractNum` de nove níveis por lista (o marcador de cada nível vem
+  da primeira sublista daquela profundidade; sem marcador, disco/círculo/quadrado ou
+  decimal) e um `num` por lista com `startOverride` só nos níveis com `inicio != 1`; os
+  parágrafos de continuação de um item saem sem `numPr`, recuados.
+- **Sumário**: só os níveis 1–3 (o `\o "1-3"` do campo), com `PAGEREF` em cache "1…n" e
+  `w:updateFields` para o Word refazer ao abrir — o Word pergunta se atualiza os campos.
+- **Tabela**: legenda **antes** (convenção do Word), `tblHeader` na primeira fila quando
+  `primeira_fila_cabecalho`, `largura_pct` em `tblW type="pct"`; célula de cabeçalho em
+  negrito; um parágrafo de 1 pt separa tabelas coladas (o truque do `exportar`).
+- **Ilha** (de bloco e inline) sai como o texto do fragmento no estilo de caractere
+  `Ilha`, com aviso; SVG de figura é rasterizado pelo `fitz` a 200 dpi, com aviso;
+  figura sem `alt` avisa e usa a legenda ou o nome do arquivo como `descr`.
+- **Roteiro**: a coluna do Word está preenchida por automação COM (PowerShell) — o Word
+  abriu, contou e exportou o PDF; a do LibreOffice fica vazia porque ele não está
+  instalado nesta máquina (dito no roteiro, não suposto).
+
 ---
 
 ## ED-09b — DOCX: ler para o modelo (núcleo)
@@ -1448,7 +1521,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-06b | a fazer | | | |
 | ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
 | ED-08 | a fazer | | | |
-| ED-09 | a fazer | | | |
+| ED-09 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | estilos do Word `builtin`; `STYLEREF 1`; `OS/2` v3 na Merida; folga de 1,5 pt na caixa; `notas="rodape"` respeita o tipo; quebra de capítulo pelo estilo; só alvo existente vira marcador; sumário 1–3 |
 | ED-09b | a fazer | | | |
 | ED-10 | a fazer | | | |
 | ED-11 | a fazer | | | |

@@ -1,0 +1,1719 @@
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:mo="http://schemas.microsoft.com/office/mac/office/2008/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:mv="urn:schemas-microsoft-com:mac:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">
+  <w:body>
+    <w:sdt>
+      <w:sdtPr>
+        <w:docPartObj>
+          <w:docPartGallery w:val="Table of Contents"/>
+          <w:docPartUnique/>
+        </w:docPartObj>
+      </w:sdtPr>
+      <w:sdtContent>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOCHeading"/>
+          </w:pPr>
+          <w:r>
+            <w:t>Sumário</w:t>
+          </w:r>
+        </w:p>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOC1"/>
+            <w:tabs>
+              <w:tab w:pos="6123" w:val="right" w:leader="dot"/>
+            </w:tabs>
+          </w:pPr>
+          <w:r>
+            <w:fldChar w:fldCharType="begin"/>
+          </w:r>
+          <w:r>
+            <w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText>
+          </w:r>
+          <w:r>
+            <w:fldChar w:fldCharType="separate"/>
+          </w:r>
+          <w:hyperlink w:anchor="_Toc1" w:history="1">
+            <w:r>
+              <w:t xml:space="preserve">Capítulo um</w:t>
+            </w:r>
+            <w:r>
+              <w:tab/>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="begin"/>
+            </w:r>
+            <w:r>
+              <w:instrText xml:space="preserve"> PAGEREF _Toc1 \h </w:instrText>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="separate"/>
+            </w:r>
+            <w:r>
+              <w:t xml:space="preserve">1</w:t>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="end"/>
+            </w:r>
+          </w:hyperlink>
+        </w:p>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOC2"/>
+            <w:tabs>
+              <w:tab w:pos="6123" w:val="right" w:leader="dot"/>
+            </w:tabs>
+          </w:pPr>
+          <w:hyperlink w:anchor="_Toc2" w:history="1">
+            <w:r>
+              <w:t xml:space="preserve">Título 2</w:t>
+            </w:r>
+            <w:r>
+              <w:tab/>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="begin"/>
+            </w:r>
+            <w:r>
+              <w:instrText xml:space="preserve"> PAGEREF _Toc2 \h </w:instrText>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="separate"/>
+            </w:r>
+            <w:r>
+              <w:t xml:space="preserve">2</w:t>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="end"/>
+            </w:r>
+          </w:hyperlink>
+        </w:p>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOC3"/>
+            <w:tabs>
+              <w:tab w:pos="6123" w:val="right" w:leader="dot"/>
+            </w:tabs>
+          </w:pPr>
+          <w:hyperlink w:anchor="_Toc3" w:history="1">
+            <w:r>
+              <w:t xml:space="preserve">Título 3</w:t>
+            </w:r>
+            <w:r>
+              <w:tab/>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="begin"/>
+            </w:r>
+            <w:r>
+              <w:instrText xml:space="preserve"> PAGEREF _Toc3 \h </w:instrText>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="separate"/>
+            </w:r>
+            <w:r>
+              <w:t xml:space="preserve">3</w:t>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="end"/>
+            </w:r>
+          </w:hyperlink>
+        </w:p>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOC1"/>
+            <w:tabs>
+              <w:tab w:pos="6123" w:val="right" w:leader="dot"/>
+            </w:tabs>
+          </w:pPr>
+          <w:hyperlink w:anchor="_Toc7" w:history="1">
+            <w:r>
+              <w:t xml:space="preserve">Capítulo dois</w:t>
+            </w:r>
+            <w:r>
+              <w:tab/>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="begin"/>
+            </w:r>
+            <w:r>
+              <w:instrText xml:space="preserve"> PAGEREF _Toc7 \h </w:instrText>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="separate"/>
+            </w:r>
+            <w:r>
+              <w:t xml:space="preserve">4</w:t>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="end"/>
+            </w:r>
+          </w:hyperlink>
+        </w:p>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOC2"/>
+            <w:tabs>
+              <w:tab w:pos="6123" w:val="right" w:leader="dot"/>
+            </w:tabs>
+          </w:pPr>
+          <w:hyperlink w:anchor="_Toc8" w:history="1">
+            <w:r>
+              <w:t xml:space="preserve">Seção</w:t>
+            </w:r>
+            <w:r>
+              <w:tab/>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="begin"/>
+            </w:r>
+            <w:r>
+              <w:instrText xml:space="preserve"> PAGEREF _Toc8 \h </w:instrText>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="separate"/>
+            </w:r>
+            <w:r>
+              <w:t xml:space="preserve">5</w:t>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="end"/>
+            </w:r>
+          </w:hyperlink>
+        </w:p>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="TOC3"/>
+            <w:tabs>
+              <w:tab w:pos="6123" w:val="right" w:leader="dot"/>
+            </w:tabs>
+          </w:pPr>
+          <w:hyperlink w:anchor="_Toc9" w:history="1">
+            <w:r>
+              <w:t xml:space="preserve">Subseção</w:t>
+            </w:r>
+            <w:r>
+              <w:tab/>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="begin"/>
+            </w:r>
+            <w:r>
+              <w:instrText xml:space="preserve"> PAGEREF _Toc9 \h </w:instrText>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="separate"/>
+            </w:r>
+            <w:r>
+              <w:t xml:space="preserve">6</w:t>
+            </w:r>
+            <w:r>
+              <w:fldChar w:fldCharType="end"/>
+            </w:r>
+          </w:hyperlink>
+          <w:r>
+            <w:fldChar w:fldCharType="end"/>
+          </w:r>
+        </w:p>
+      </w:sdtContent>
+    </w:sdt>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="1" w:name="_Toc1"/>
+      <w:bookmarkStart w:id="2" w:name="_Ref4"/>
+      <w:r>
+        <w:t>Capítulo um</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="2"/>
+      <w:bookmarkEnd w:id="1"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Primeira"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Primeira linha sem recuo.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+        </w:rPr>
+        <w:t>neg</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:i/>
+        </w:rPr>
+        <w:t xml:space="preserve"> ita</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:u w:val="single"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> sub</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:strike/>
+        </w:rPr>
+        <w:t xml:space="preserve"> tach</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:smallCaps/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Versalete</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:vertAlign w:val="superscript"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> x</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:vertAlign w:val="subscript"/>
+        </w:rPr>
+        <w:t>2</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rFonts w:ascii="Simbolos de Xadrez" w:hAnsi="Simbolos de Xadrez" w:cs="Simbolos de Xadrez" w:eastAsia="Simbolos de Xadrez"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> ♕</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial" w:eastAsia="Arial"/>
+          <w:color w:val="FF0000"/>
+          <w:sz w:val="18"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> arial</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:color w:val="FFFFFF"/>
+          <w:shd w:val="clear" w:color="auto" w:fill="003366"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> escuro</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:shd w:val="clear" w:color="auto" w:fill="FFFF00"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> amarelo</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:lang w:val="en"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> english</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="Lance"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> 23.Nf3</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="NAG"/>
+        </w:rPr>
+        <w:t>!?</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="Figurina"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> ♘</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="ComentarioCaractere"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> (comentário)</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="Jogador"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Carlsen</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="Abertura"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Siciliana</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas" w:eastAsia="Consolas"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> cod</w:t>
+      </w:r>
+      <w:r>
+        <w:br/>
+      </w:r>
+      <w:r>
+        <w:t>nova linha</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:r>
+        <w:t xml:space="preserve">Página marcada </w:t>
+      </w:r>
+      <w:bookmarkStart w:id="3" w:name="pg-7"/>
+      <w:bookmarkEnd w:id="3"/>
+      <w:r>
+        <w:t>aqui</w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve"> e uma ilha </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="Ilha"/>
+        </w:rPr>
+        <w:t>Obra</w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve"> e um link </w:t>
+      </w:r>
+      <w:hyperlink r:id="rId13" w:history="1">
+        <w:r>
+          <w:rPr>
+            <w:rStyle w:val="Hyperlink"/>
+          </w:rPr>
+          <w:t>externo</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:t xml:space="preserve"> e outro </w:t>
+      </w:r>
+      <w:hyperlink w:anchor="bm_1_alvo" w:history="1">
+        <w:r>
+          <w:rPr>
+            <w:rStyle w:val="Hyperlink"/>
+          </w:rPr>
+          <w:t>interno</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:t xml:space="preserve"> e ver </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> REF _Ref1 \h </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">Tabela 1</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">, </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> REF _Ref2 \h </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">Figura 1</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">, </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> REF _Ref3 \h </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">Diagrama 1</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve"> e </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> REF _Ref4 \h </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">Capítulo um</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:r>
+        <w:t>.</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="FootnoteReference"/>
+        </w:rPr>
+        <w:footnoteReference w:id="1"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve"> fim</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="EndnoteReference"/>
+        </w:rPr>
+        <w:endnoteReference w:id="1"/>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Notacao"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo notacao.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Comentario"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo comentario.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Caption"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo legenda.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Destaque"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo destaque.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Epigrafe"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo epigrafe.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Assinatura"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo assinatura.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="CabecalhoDeDiagrama"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Parágrafo cabecalho-diagrama.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:keepNext/>
+        <w:keepLines/>
+        <w:spacing w:before="220" w:after="110" w:lineRule="auto" w:line="360"/>
+        <w:ind w:firstLine="0" w:left="330" w:right="110"/>
+        <w:jc w:val="right"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Formatado.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="4" w:name="_Toc2"/>
+      <w:r>
+        <w:t>Título 2</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="4"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="5" w:name="_Toc3"/>
+      <w:r>
+        <w:t>Título 3</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="5"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="6" w:name="_Toc4"/>
+      <w:r>
+        <w:t>Título 4</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="6"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading5"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="7" w:name="_Toc5"/>
+      <w:r>
+        <w:t>Título 5</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="7"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading6"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="8" w:name="_Toc6"/>
+      <w:r>
+        <w:t>Título 6</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="8"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Quote"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Citação um.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Quote"/>
+      </w:pPr>
+      <w:r>
+        <w:t>Citação dois.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="10"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>item a</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="10"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>item b</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:ind w:left="440"/>
+      </w:pPr>
+      <w:r>
+        <w:t>continuação de b</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="1"/>
+          <w:numId w:val="10"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>sub b1</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="11"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>primeiro</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="11"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>segundo</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="12"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>um</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Caption"/>
+        <w:keepNext/>
+      </w:pPr>
+      <w:bookmarkStart w:id="9" w:name="_Ref1"/>
+      <w:r>
+        <w:t xml:space="preserve">Tabela </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> SEQ Tabela \* ARABIC </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">1</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:bookmarkEnd w:id="9"/>
+      <w:r>
+        <w:t xml:space="preserve">: </w:t>
+      </w:r>
+      <w:r>
+        <w:t>Resultados</w:t>
+      </w:r>
+    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblStyle w:val="TableGrid"/>
+        <w:tblW w:type="pct" w:w="4000"/>
+        <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="3061"/>
+        <w:gridCol w:w="3061"/>
+      </w:tblGrid>
+      <w:tr>
+        <w:trPr>
+          <w:tblHeader/>
+        </w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3061"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+              </w:rPr>
+              <w:t>Jogador</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3061"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="right"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+              </w:rPr>
+              <w:t>Pontos</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3061"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:t>A</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3061"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="right"/>
+            </w:pPr>
+            <w:r>
+              <w:t>1</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3061"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:t>B</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3061"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="right"/>
+            </w:pPr>
+            <w:r>
+              <w:t>½</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>
+        <w:ind w:firstLine="0"/>
+      </w:pPr>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:keepNext/>
+        <w:ind w:firstLine="0"/>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <wp:extent cx="1524000" cy="1143000"/>
+            <wp:docPr id="1" name="Picture 1" descr="Uma foto"/>
+            <wp:cNvGraphicFramePr>
+              <a:graphicFrameLocks noChangeAspect="1"/>
+            </wp:cNvGraphicFramePr>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image.png"/>
+                    <pic:cNvPicPr/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId16"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="1524000" cy="1143000"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Caption"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="10" w:name="_Ref2"/>
+      <w:r>
+        <w:t xml:space="preserve">Figura </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> SEQ Figura \* ARABIC </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">1</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:bookmarkEnd w:id="10"/>
+      <w:r>
+        <w:t xml:space="preserve">: </w:t>
+      </w:r>
+      <w:r>
+        <w:t>A foto</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:keepNext/>
+        <w:ind w:firstLine="0"/>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <wp:extent cx="512064" cy="384048"/>
+            <wp:docPr id="2" name="Picture 2" descr="Um desenho"/>
+            <wp:cNvGraphicFramePr>
+              <a:graphicFrameLocks noChangeAspect="1"/>
+            </wp:cNvGraphicFramePr>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image.png"/>
+                    <pic:cNvPicPr/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId17"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="512064" cy="384048"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:type="dxa" w:w="2590"/>
+        <w:jc w:val="center"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+        <w:tblCaption w:val="Diagrama"/>
+        <w:tblDescription w:val="r1bqk2r/pp2bppp/2n1pn2/3p4/3P4/2N1PN2/PP2BPPP/R1BQK2R w - - 0 1"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="2590"/>
+      </w:tblGrid>
+      <w:tr>
+        <w:trPr>
+          <w:cantSplit/>
+        </w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="2590"/>
+            <w:tcBorders>
+              <w:top w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+              <w:left w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+              <w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+              <w:right w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+            </w:tcBorders>
+            <w:tcMar>
+              <w:top w:w="0" w:type="dxa"/>
+              <w:left w:w="0" w:type="dxa"/>
+              <w:bottom w:w="0" w:type="dxa"/>
+              <w:right w:w="0" w:type="dxa"/>
+            </w:tcMar>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>rZblkZ0s</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>opZ0apop</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>0ZnZpm0Z</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Z0ZpZ0Z0</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>0Z0O0Z0Z</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Z0M0ONZ0</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>PO0ZBOPO</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>S0AQJ0ZR</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>
+        <w:ind w:firstLine="0"/>
+      </w:pPr>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Caption"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="11" w:name="_Ref3"/>
+      <w:r>
+        <w:t xml:space="preserve">Diagrama </w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="begin"/>
+      </w:r>
+      <w:r>
+        <w:instrText xml:space="preserve"> SEQ Diagrama \* ARABIC </w:instrText>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="separate"/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">1</w:t>
+      </w:r>
+      <w:r>
+        <w:fldChar w:fldCharType="end"/>
+      </w:r>
+      <w:bookmarkEnd w:id="11"/>
+      <w:r>
+        <w:t xml:space="preserve">: </w:t>
+      </w:r>
+      <w:r>
+        <w:t>Posição</w:t>
+      </w:r>
+    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:type="dxa" w:w="2590"/>
+        <w:jc w:val="center"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+        <w:tblCaption w:val="Diagrama"/>
+        <w:tblDescription w:val="r1bqk2r/pp2bppp/2n1pn2/3p4/3P4/2N1PN2/PP2BPPP/R1BQK2R w - - 0 1"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="2590"/>
+      </w:tblGrid>
+      <w:tr>
+        <w:trPr>
+          <w:cantSplit/>
+        </w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="2590"/>
+            <w:tcBorders>
+              <w:top w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+              <w:left w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+              <w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+              <w:right w:val="single" w:sz="6" w:space="0" w:color="000000"/>
+            </w:tcBorders>
+            <w:tcMar>
+              <w:top w:w="0" w:type="dxa"/>
+              <w:left w:w="0" w:type="dxa"/>
+              <w:bottom w:w="0" w:type="dxa"/>
+              <w:right w:w="0" w:type="dxa"/>
+            </w:tcMar>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>rZblkZ0s</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>opZ0apop</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>0ZnZpm0Z</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Z0ZpZ0Z0</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>0Z0O0Z0Z</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Z0M0ONZ0</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>PO0ZBOPO</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="SkakNew-Diagram" w:hAnsi="SkakNew-Diagram" w:cs="SkakNew-Diagram" w:eastAsia="SkakNew-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>S0AQJ0ZR</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>
+        <w:ind w:firstLine="0"/>
+      </w:pPr>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:keepNext/>
+        <w:ind w:firstLine="0"/>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <wp:extent cx="1788160" cy="1788160"/>
+            <wp:docPr id="3" name="Picture 3" descr="r1bqk2r/pp2bppp/2n1pn2/3p4/3P4/2N1PN2/PP2BPPP/R1BQK2R w - - 0 1"/>
+            <wp:cNvGraphicFramePr>
+              <a:graphicFrameLocks noChangeAspect="1"/>
+            </wp:cNvGraphicFramePr>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image.png"/>
+                    <pic:cNvPicPr/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId18"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="1788160" cy="1788160"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:type="dxa" w:w="3230"/>
+        <w:jc w:val="center"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+        <w:tblCaption w:val="Diagrama"/>
+        <w:tblDescription w:val="r1bqk2r/pp2bppp/2n1pn2/3p4/3P4/2N1PN2/PP2BPPP/R1BQK2R w - - 0 1"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="3230"/>
+      </w:tblGrid>
+      <w:tr>
+        <w:trPr>
+          <w:cantSplit/>
+        </w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:type="dxa" w:w="3230"/>
+            <w:tcBorders>
+              <w:top w:val="nil" w:sz="0" w:space="0" w:color="000000"/>
+              <w:left w:val="nil" w:sz="0" w:space="0" w:color="000000"/>
+              <w:bottom w:val="nil" w:sz="0" w:space="0" w:color="000000"/>
+              <w:right w:val="nil" w:sz="0" w:space="0" w:color="000000"/>
+            </w:tcBorders>
+            <w:tcMar>
+              <w:top w:w="0" w:type="dxa"/>
+              <w:left w:w="0" w:type="dxa"/>
+              <w:bottom w:w="0" w:type="dxa"/>
+              <w:right w:w="0" w:type="dxa"/>
+            </w:tcMar>
+          </w:tcPr>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>1222222223</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Àr+ KqB R5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>ÁPpPb+ Pp5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Â +nP N +5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Ã+ + P + 5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Ä + +o+ +5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>Å+ Mo+m+ 5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>ÆoOoV +oO5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>ÇT +lWv+t5</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr>
+              <w:spacing w:before="0" w:after="0" w:line="320" w:lineRule="exact"/>
+              <w:ind w:firstLine="0"/>
+              <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="ChessMerida-Diagram" w:hAnsi="ChessMerida-Diagram" w:cs="ChessMerida-Diagram" w:eastAsia="ChessMerida-Diagram"/>
+                <w:sz w:val="32"/>
+              </w:rPr>
+              <w:t>7ÏÎÍÌËÊÉÈ9</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>
+        <w:ind w:firstLine="0"/>
+      </w:pPr>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pBdr>
+          <w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/>
+        </w:pBdr>
+      </w:pPr>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="Ilha"/>
+        </w:rPr>
+        <w:t>SVG solto</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="12" w:name="pg-11"/>
+      <w:bookmarkEnd w:id="12"/>
+      <w:r>
+        <w:t>Texto da página 11.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="13" w:name="pg-12"/>
+      <w:bookmarkEnd w:id="13"/>
+      <w:r>
+        <w:t>Texto da página 12.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="14" w:name="pg-13"/>
+      <w:bookmarkEnd w:id="14"/>
+      <w:r>
+        <w:t>Texto da página 13.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="15" w:name="pg-14"/>
+      <w:bookmarkEnd w:id="15"/>
+      <w:r>
+        <w:t>Texto da página 14.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="16" w:name="pg-15"/>
+      <w:bookmarkEnd w:id="16"/>
+      <w:r>
+        <w:t>Texto da página 15.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="17" w:name="pg-16"/>
+      <w:bookmarkEnd w:id="17"/>
+      <w:r>
+        <w:t>Texto da página 16.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="18" w:name="pg-17"/>
+      <w:bookmarkEnd w:id="18"/>
+      <w:r>
+        <w:t>Texto da página 17.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="19" w:name="pg-18"/>
+      <w:bookmarkEnd w:id="19"/>
+      <w:r>
+        <w:t>Texto da página 18.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="20" w:name="pg-19"/>
+      <w:bookmarkEnd w:id="20"/>
+      <w:r>
+        <w:t>Texto da página 19.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="21" w:name="pg-20"/>
+      <w:bookmarkEnd w:id="21"/>
+      <w:r>
+        <w:t>Texto da página 20.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="22" w:name="pg-21"/>
+      <w:bookmarkEnd w:id="22"/>
+      <w:r>
+        <w:t>Texto da página 21.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="23" w:name="pg-22"/>
+      <w:bookmarkEnd w:id="23"/>
+      <w:r>
+        <w:t>Texto da página 22.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:br w:type="page"/>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:r>
+        <w:t>Depois da quebra.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="24" w:name="_Toc7"/>
+      <w:r>
+        <w:t>Capítulo dois</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="24"/>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:bookmarkStart w:id="25" w:name="bm_1_alvo"/>
+      <w:bookmarkEnd w:id="25"/>
+      <w:r>
+        <w:t>Alvo do link.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="26" w:name="_Toc8"/>
+      <w:r>
+        <w:t>Seção</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="26"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="27" w:name="_Toc9"/>
+      <w:r>
+        <w:t>Subseção</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="27"/>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+      </w:pPr>
+      <w:bookmarkStart w:id="28" w:name="_Toc10"/>
+      <w:r>
+        <w:t>Fora do sumário</w:t>
+      </w:r>
+      <w:bookmarkEnd w:id="28"/>
+    </w:p>
+    <w:p>
+      <w:pPr/>
+      <w:r>
+        <w:t>Fim.</w:t>
+      </w:r>
+    </w:p>
+    <w:sectPr w:rsidR="00FC693F" w:rsidRPr="0006063C" w:rsidSect="00034616">
+      <w:headerReference w:type="default" r:id="rId9"/>
+      <w:headerReference w:type="even" r:id="rId10"/>
+      <w:footerReference w:type="default" r:id="rId11"/>
+      <w:footerReference w:type="even" r:id="rId12"/>
+      <w:pgSz w:w="7937" w:h="11906"/>
+      <w:pgMar w:top="850" w:right="680" w:bottom="1020" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/>
+      <w:cols w:space="720"/>
+      <w:docGrid w:linePitch="360"/>
+    </w:sectPr>
+  </w:body>
+</w:document>

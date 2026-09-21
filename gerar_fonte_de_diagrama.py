@@ -29,9 +29,17 @@ entraria em conflito com esta. A licença permite: a Chess Merida é freeware de
 Armando Hernández Marroquín (1998), e a redistribuição em
 `github.com/vasiliyaltunin/chess-merida-font` é MPL-2.0, que autoriza modificar.
 
-**Os glifos não são tocados.** Só a tabela de cmap e a de nomes mudam; o
-contorno de cada peça é byte a byte o de 1998, e é isso que o `--conferir`
+**Os glifos não são tocados.** Só a tabela de cmap, a de nomes e a `OS/2` mudam;
+o contorno de cada peça é byte a byte o de 1998, e é isso que o `--conferir`
 mede — se um dia o remendo mexer num desenho, a conta de glifos acusa.
+
+**A `OS/2` sobe para a versão 3, e isso é o que faz o Word usar a fonte embutida
+(ED-09).** A tabela de 1998 é a versão 0, sem as faixas de página de código; o
+Word 16 embute uma fonte assim sem reclamar, mas na hora de desenhar a ignora — o
+run continua dizendo `ChessMerida-Diagram` e as casas saem em Arial, sem erro, e
+só se vê abrindo (medido: quatro variantes do mesmo DOCX, e a única em que o PDF
+do Word traz a fonte embutida é a da `OS/2` versão 3; renomear ou apagar os
+registros de nome de símbolo não muda nada). A `SkakNew-Diagram` já vem assim.
 """
 
 import argparse
@@ -127,6 +135,8 @@ def remendar(caminho_origem: str, caminho_destino: str) -> dict:
             fonte["name"].setName(valor, nome_id, plataforma, codificacao,
                                   idioma)
 
+    subir_os2(fonte["OS/2"])
+
     pasta = os.path.dirname(os.path.abspath(caminho_destino))
     if pasta:
         os.makedirs(pasta, exist_ok=True)
@@ -134,6 +144,27 @@ def remendar(caminho_origem: str, caminho_destino: str) -> dict:
     fonte.close()
 
     return {"glifos": glifos_antes, "codepoints": len(mapa)}
+
+
+VERSAO_MINIMA_DA_OS2 = 3
+
+
+def subir_os2(os2) -> None:
+    """
+    A `OS/2` na versão 3, com o que as versões 1–3 acrescentaram (ver o cabeçalho).
+
+    Só a página de código Latin-1 é declarada — a fonte não tem letras, e a faixa
+    serve para o Word admitir a fonte, não para descrever o alfabeto dela. Os
+    campos de altura de x e de capitular ficam em zero, que é "desconhecido".
+    """
+    if os2.version >= VERSAO_MINIMA_DA_OS2:
+        return
+    os2.version = VERSAO_MINIMA_DA_OS2
+    for atributo, valor in (("ulCodePageRange1", 0x1), ("ulCodePageRange2", 0),
+                            ("sxHeight", 0), ("sCapHeight", 0), ("usDefaultChar", 0),
+                            ("usBreakChar", 32), ("usMaxContext", 0)):
+        if not hasattr(os2, atributo):
+            setattr(os2, atributo, valor)
 
 
 def conferir(caminho: str) -> list:
@@ -160,6 +191,9 @@ def conferir(caminho: str) -> list:
             f"{remendada['maxp'].numGlyphs} — o remendo mexeu no desenho")
     if remendada["head"].unitsPerEm != original["head"].unitsPerEm:
         queixas.append("o em mudou — a casa deixaria de ser o quadrado do em")
+    if remendada["OS/2"].version < VERSAO_MINIMA_DA_OS2:
+        queixas.append(f"a OS/2 está na versão {remendada['OS/2'].version} — o "
+                       "Word ignora a fonte embutida abaixo da 3")
     remendada.close()
     original.close()
     return queixas

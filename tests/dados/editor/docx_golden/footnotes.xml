@@ -1,0 +1,52 @@
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:footnote w:type="separator" w:id="-1">
+    <w:p>
+      <w:pPr>
+        <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
+      </w:pPr>
+      <w:r>
+        <w:separator/>
+      </w:r>
+    </w:p>
+  </w:footnote>
+  <w:footnote w:type="continuationSeparator" w:id="0">
+    <w:p>
+      <w:pPr>
+        <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
+      </w:pPr>
+      <w:r>
+        <w:continuationSeparator/>
+      </w:r>
+    </w:p>
+  </w:footnote>
+  <w:footnote w:id="1">
+    <w:p xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+      <w:pPr>
+        <w:pStyle w:val="FootnoteText"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rStyle w:val="FootnoteReference"/>
+        </w:rPr>
+        <w:footnoteRef/>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve"> </w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">Nota de rodapé com </w:t>
+      </w:r>
+      <w:hyperlink r:id="rId1" w:history="1">
+        <w:r>
+          <w:rPr>
+            <w:rStyle w:val="Hyperlink"/>
+          </w:rPr>
+          <w:t>link</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:t>.</w:t>
+      </w:r>
+    </w:p>
+  </w:footnote>
+</w:footnotes>

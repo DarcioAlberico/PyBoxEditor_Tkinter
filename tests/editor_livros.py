@@ -12,6 +12,11 @@ Os livros de prova da ED-01, compartilhados por `test_editor_epub.py`,
   manifesto e um `META-INF/com.apple.ibooks.display-options.xml`.
 - `livro_de_teste()`: um `Livro` de três capítulos com notas, links cruzados, sumário,
   marcos, uma figura e uma folha — o que as operações de livro precisam.
+- `livro_completo()`: o livro sintético da ED-09 — todo estilo de parágrafo e todo
+  atributo de trecho da §6.2/§6.3, listas (aninhada, alfabética a partir de 3, romana),
+  tabela com cabeçalho e legenda, figura PNG e SVG, diagrama em imagem e em fonte (com e
+  sem coordenadas, nas duas fontes), notas de rodapé e de fim, doze marcas de página, uma
+  quebra de página, separador, ilha de bloco e inline, links e referências cruzadas.
 """
 
 from __future__ import annotations
@@ -268,3 +273,111 @@ def livro_de_teste() -> m.Livro:
     )
     livro.sumario = sumario.gerar_dos_titulos(livro)
     return livro
+
+
+# ----------------------------------------------------------------------
+# O livro sintético completo (ED-09; AC-ED09-1)
+# ----------------------------------------------------------------------
+
+FEN_COMPLETO = FEN
+#: Um PNG 40×30 vermelho, para a figura (o `PNG_MINIMO` é 1×1).
+PNG_40x30 = None
+
+
+def _png_40x30() -> bytes:
+    global PNG_40x30
+    if PNG_40x30 is None:
+        import io as _io
+
+        from PIL import Image
+
+        buffer = _io.BytesIO()
+        Image.new("RGB", (40, 30), (200, 30, 30)).save(buffer, "PNG")
+        PNG_40x30 = buffer.getvalue()
+    return PNG_40x30
+
+
+def _t(texto: str = "", **kw) -> m.Trecho:
+    return m.Trecho(texto=texto, **kw)
+
+
+def _par(*trechos, **kw) -> m.Paragrafo:
+    return m.Paragrafo(trechos=[t if isinstance(t, m.Trecho) else _t(t) for t in trechos], **kw)
+
+
+def livro_completo() -> m.Livro:
+    """Ver o cabeçalho. Dois capítulos: o primeiro tem tudo; o segundo é o alvo dos links."""
+    blocos: list = []
+    blocos.append(m.Titulo(trechos=[_t("Capítulo um")], nivel=1, id="cap1-t", id_persistente=True))
+    blocos.append(_par("Primeira linha sem recuo.", estilo="primeira"))
+    blocos.append(_par(
+        _t("neg", negrito=True), _t(" ita", italico=True), _t(" sub", sublinhado=True), _t(" tach", tachado=True),
+        _t(" Versalete", versalete=True), _t(" x", posicao="sobre"), _t("2", posicao="sub"),
+        _t(" ♕", familia="simbolos"), _t(" arial", familia="Arial", corpo_pt=9, cor="#ff0000"),
+        _t(" escuro", fundo="#003366"), _t(" amarelo", fundo="#ffff00"), _t(" english", lang="en"),
+        _t(" 23.Nf3", papel="lance"), _t("!?", papel="nag", nag=5), _t(" ♘", papel="figurina"),
+        _t(" (comentário)", papel="comentario"), _t(" Carlsen", papel="jogador", chave="carlsen"),
+        _t(" Siciliana", papel="abertura", chave="B90"), _t(" cod", codigo=True),
+        _t("nova linha", quebra_antes=True)))
+    blocos.append(_par(
+        _t("Página marcada "), _t("aqui", pagina=7), _t(" e uma ilha "), _t(ilha="<cite>Obra</cite>"),
+        _t(" e um link "), _t("externo", link="https://example.org/x"), _t(" e outro "),
+        _t("interno", link="cap2.xhtml#alvo"), _t(" e ver "), _t("Tabela 1", ref="tabela", link="#tab1"),
+        _t(", "), _t("Figura 1", ref="figura", link="#fig1"), _t(", "), _t("Diagrama 1", ref="diagrama", link="#dia1"),
+        _t(" e "), _t("Capítulo um", ref="titulo", link="#cap1-t"), _t("."), _t(nota="n1"), _t(" fim"), _t(nota="n2")))
+    for estilo in ("notacao", "comentario", "legenda", "destaque", "epigrafe", "assinatura", "cabecalho-diagrama"):
+        blocos.append(_par(f"Parágrafo {estilo}.", estilo=estilo))
+    blocos.append(_par("Formatado.", alinhamento="direita", recuo_primeira_em=0, recuo_esquerda_em=1.5,
+                       recuo_direita_em=0.5, antes_em=1, depois_em=0.5, entrelinha=1.5, manter_com_proximo=True,
+                       manter_linhas=True))
+    for n in range(2, 7):
+        blocos.append(m.Titulo(trechos=[_t(f"Título {n}")], nivel=n))
+    blocos.append(m.Citacao(blocos=[_par("Citação um."), _par("Citação dois.")]))
+    blocos.append(m.Lista(ordenada=False, itens=[
+        m.ItemDeLista(paragrafos=[_par("item a")]),
+        m.ItemDeLista(paragrafos=[_par("item b"), _par("continuação de b")],
+                      filhos=m.Lista(ordenada=False, itens=[m.ItemDeLista(paragrafos=[_par("sub b1")])])),
+    ]))
+    blocos.append(m.Lista(ordenada=True, inicio=3, marcador="alfa", itens=[
+        m.ItemDeLista(paragrafos=[_par("primeiro")]), m.ItemDeLista(paragrafos=[_par("segundo")])]))
+    blocos.append(m.Lista(ordenada=True, marcador="romano", itens=[m.ItemDeLista(paragrafos=[_par("um")])]))
+    blocos.append(m.Tabela(id="tab1", id_persistente=True, primeira_fila_cabecalho=True, numero=1,
+                           legenda=[_t("Resultados")], largura_pct=80, filas=[
+        [m.Celula(blocos=[_par("Jogador")], cabecalho=True),
+         m.Celula(blocos=[_par("Pontos")], cabecalho=True, alinhamento="direita")],
+        [m.Celula(blocos=[_par("A")]), m.Celula(blocos=[_par("1")], alinhamento="direita")],
+        [m.Celula(blocos=[_par("B")]), m.Celula(blocos=[_par("½")], alinhamento="direita")]]))
+    blocos.append(m.Figura(id="fig1", id_persistente=True, recurso="Images/foto.png", alt="Uma foto",
+                           legenda=[_t("A foto")], largura_pt=120))
+    blocos.append(m.Figura(recurso="Images/desenho.svg", alt="Um desenho"))
+    blocos.append(m.Diagrama(id="dia1", id_persistente=True, fen=FEN, legenda=[_t("Posição")], modo="png"))
+    blocos.append(m.Diagrama(fen=FEN, fonte="SkakNew-Diagram", modo="fonte"))
+    blocos.append(m.Diagrama(id="dia-skak-coord", fen=FEN, fonte="SkakNew-Diagram", coordenadas=True, modo="fonte"))
+    blocos.append(m.Diagrama(fen=FEN, fonte="ChessMerida-Diagram", coordenadas=True, modo="fonte",
+                             orientacao="preta"))
+    blocos.append(m.Separador())
+    blocos.append(m.IlhaBruta(xhtml='<svg xmlns="http://www.w3.org/2000/svg"><text>SVG solto</text></svg>',
+                              elemento="svg"))
+    for k in range(1, 13):
+        blocos.append(m.MarcaDePagina(pagina=k + 10))
+        blocos.append(_par(f"Texto da página {k + 10}."))
+    blocos.append(m.QuebraDePagina())
+    blocos.append(_par("Depois da quebra."))
+    notas = [m.Nota(id="n1", tipo="rodape",
+                    blocos=[_par("Nota de rodapé com ", _t("link", link="https://example.org/n"), ".")]),
+             m.Nota(id="n2", tipo="fim", blocos=[_par("Nota de fim."), _par("Segundo parágrafo.")])]
+    cap1 = m.Capitulo(arquivo="cap1.xhtml", blocos=blocos, notas=notas, idioma="pt-BR")
+    cap2 = m.Capitulo(arquivo="cap2.xhtml", blocos=[
+        m.Titulo(trechos=[_t("Capítulo dois")], nivel=1),
+        _par("Alvo do link.", id="alvo", id_persistente=True),
+        m.Titulo(trechos=[_t("Seção")], nivel=2), m.Titulo(trechos=[_t("Subseção")], nivel=3),
+        m.Titulo(trechos=[_t("Fora do sumário")], nivel=4),
+        _par("Fim.")])
+    svg = (b'<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">'
+           b'<rect width="40" height="30" fill="blue"/></svg>')
+    recursos = {"Images/foto.png": m.Recurso(caminho="Images/foto.png", tipo_mime="image/png", dados=_png_40x30()),
+                "Images/desenho.svg": m.Recurso(caminho="Images/desenho.svg", tipo_mime="image/svg+xml", dados=svg)}
+    return m.Livro(metadados=m.Metadados(titulo="Livro completo", autores=[m.Pessoa(nome="Autora")], idioma="pt-BR"),
+                   capitulos=[cap1, cap2], recursos=recursos,
+                   pagina=m.FormatoDePagina(largura_mm=140, altura_mm=210, margens_mm=(15, 12, 18, 20),
+                                            espelhadas=True, hifenizar=True))

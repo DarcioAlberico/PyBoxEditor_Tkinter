@@ -42,9 +42,9 @@
     },
     "ChessMerida-Diagram": {
       "arquivo": "fonts/ChessMerida-Diagram.ttf",
-      "sha256": "6d4461c7ecab4be16e4c31408a8a4c0289b6a0611a70db10731b0b3fbe14bec1",
+      "sha256": "8ce5b7c5355f1405db81bb1f712dbff70358ac2e5ffef3575a30d3f28a0fcc06",
       "em": 2048,
-      "licenca": "Freeware, (c) 1998 Armando Hernandez Marroquin (Circulo Lasallista de Ajedrez). Redistribuicao MPL-2.0 em github.com/vasiliyaltunin/chess-merida-font, que autoriza modificar. Esta copia ganhou cmap Unicode do gerar_fonte_de_diagrama.py -- os 97 contornos sao byte a byte os de 1998, e so o cmap e a tabela de nomes mudaram.",
+      "licenca": "Freeware, (c) 1998 Armando Hernandez Marroquin (Circulo Lasallista de Ajedrez). Redistribuicao MPL-2.0 em github.com/vasiliyaltunin/chess-merida-font, que autoriza modificar. Esta copia ganhou cmap Unicode do gerar_fonte_de_diagrama.py -- os 97 contornos sao byte a byte os de 1998, e so o cmap, a tabela de nomes e a OS/2 mudaram (a OS/2 sobe para a versao 3 porque o Word ignora fonte embutida com a versao 0 -- ED-09).",
       "origem": "mapa de teclado publicado com a fonte (fonts/LEEME__D.TXT, secao PIEZAS, e a tabela em fonts/Merida.jpg), conferido pela geometria dos glifos e pelas quatro provas do medir_fonte_diagrama.py",
       "nota_do_cmap": "A MERIFONT.TTF original so tem cmap Mac Roman (1,0) e Symbol (3,0), com os caracteres em 0xF020-0xF0EF. Varridos os 65536 codepoints do plano basico, o fitz enxerga ZERO glifos nela e desenha um ponto no lugar de cada peca -- o modo de falha da SPEC 4.2. Nao usar a MERIFONT.TTF direto.",
       "casas": {
