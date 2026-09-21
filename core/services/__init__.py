@@ -1,7 +1,12 @@
-"""Serviços de negócio para desacoplar a UI da lógica de OCR, ML e I/O."""
-from .box_service import BoxService
-from .ocr_service import OCRService, preprocess_for_easyocr
-from .pdf_service import PDFService
+"""
+Serviços de negócio para desacoplar a UI da lógica de OCR, ML e I/O.
+
+Nenhum serviço é importado aqui no topo: `box_service`, `ocr_service` e
+`pdf_service` trazem cv2, numpy e PyMuPDF, e um processo que só quer o
+`TaskController` (o editor de livros, `appy.py --editor`, SPEC_EDITOR DEC-07)
+pagava esses três só por importar `core.services.task_controller`. Os nomes do
+pacote continuam existindo — carregados na primeira vez que alguém os pede.
+"""
 
 __all__ = [
     "BoxService",
@@ -11,11 +16,20 @@ __all__ = [
     "LearningService",
 ]
 
+_ONDE = {
+    "BoxService": ".box_service",
+    "OCRService": ".ocr_service",
+    "preprocess_for_easyocr": ".ocr_service",
+    "PDFService": ".pdf_service",
+    "LearningService": ".learning_service",
+}
+
 
 def __getattr__(name):
-    """Carrega o serviço de ML somente quando ele for realmente utilizado."""
-    if name == "LearningService":
-        from .learning_service import LearningService
+    """Carrega o serviço só quando ele for realmente utilizado."""
+    modulo = _ONDE.get(name)
+    if modulo is None:
+        raise AttributeError(name)
+    from importlib import import_module
 
-        return LearningService
-    raise AttributeError(name)
+    return getattr(import_module(modulo, __name__), name)

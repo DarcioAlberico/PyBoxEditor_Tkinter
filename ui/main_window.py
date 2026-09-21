@@ -26,6 +26,7 @@ from core.services.navigation_controller import NavigationController
 from core.services.task_controller import TaskController
 
 from ui.canvas_view import CanvasView
+from ui.dialogo_de_conclusao import DialogoDeConclusao
 from ui.dialogo_diagrama import DialogoDiagrama
 from ui.dialogo_do_diagrama import DialogoDoDiagrama
 from ui.dialogo_semelhantes import DialogoSemelhantes
@@ -432,6 +433,9 @@ class MainWindow(tk.Frame):
 
         # Trabalho pesado roda em thread separada; a UI só lê a fila.
         self.task = TaskController(self)
+
+        # A janela de edição de livros (ED-02), quando aberta; ver `abrir_editor_de_livro`.
+        self.editor = None
 
         self._build_layout()
         self._build_menu()
@@ -924,6 +928,9 @@ class MainWindow(tk.Frame):
         m_file.add_separator()
         m_file.add_command(label="Gravar rascunho agora", accelerator="Ctrl+B",
                            command=self.salvar_rascunho_agora)
+        m_file.add_separator()
+        m_file.add_command(label="Editor de livro...", underline=0,
+                           command=self.abrir_editor_de_livro)
         m_file.add_separator()
         m_file.add_command(label="Sair", command=self._on_close)
         menubar.add_cascade(label="Arquivo", menu=m_file)
@@ -1809,6 +1816,28 @@ class MainWindow(tk.Frame):
     #: Costura de teste, como a do `DIALOGO_DIAGRAMA`.
     DIALOGO_DO_DIAGRAMA = DialogoDoDiagrama
 
+    #: A caixa do fim de "Exportar livro" (ED-02); o teste põe um dublê no lugar.
+    DIALOGO_DE_CONCLUSAO = DialogoDeConclusao
+
+    def abrir_editor_de_livro(self, caminho=None):
+        """
+        Arquivo → Editor de livro... (ED-02): a janela de edição, separada e sem
+        bloquear esta (SPEC_EDITOR DEC-09). Uma só por vez — chamada de novo, traz
+        a que existe para a frente e, com `caminho`, abre o livro nela. O import
+        fica aqui dentro para a janela principal não carregar o editor (nem o
+        editor carregar o OCR) antes de alguém pedir.
+        """
+        from ui.editor.janela import JanelaDoEditor
+
+        if self.editor is not None and self.editor.winfo_exists():
+            self.editor.deiconify()
+            self.editor.lift()
+        else:
+            self.editor = JanelaDoEditor(self.parent, task_controller=None)
+        if caminho:
+            self.editor.executar("abrir", caminho)
+        return self.editor
+
     def exportar_livro_action(self):
         """
         Lê o PDF **como imagem** e escreve um EPUB ou DOCX.
@@ -2097,8 +2126,13 @@ class MainWindow(tk.Frame):
                 linhas += ["", f"Para revisão: {coletor.resumo()}",
                            f"em {os.path.abspath(coletor.pasta)}"]
             linhas += ["", "O texto veio do nosso OCR — a camada de texto do "
-                       "PDF foi ignorada.", f"Arquivo salvo em:\n{saida}"]
-            messagebox.showinfo("Livro exportado", "\n".join(linhas))
+                       "PDF foi ignorada."]
+            # A caixa termina com o arquivo aberto — no leitor, na pasta ou, se
+            # for EPUB, no editor de livros (ED-02, SPEC_EDITOR §7.2).
+            self.DIALOGO_DE_CONCLUSAO(
+                self.parent, "Livro exportado", linhas, saida,
+                abrir_no_editor=(self.abrir_editor_de_livro
+                                 if formato == "epub" else None)).mostrar()
 
         self._run_task("Exportar livro", trabalho, concluir)
 

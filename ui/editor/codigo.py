@@ -115,6 +115,8 @@ class EditorDeCodigo(ttk.Frame):
         self.columnconfigure(1, weight=1)
 
         self._realce = realce_mod.Realce(linguagem)
+        self._numeros_de_linha = True
+        self._realce_da_linha = True
         self._sujo = False
         self._em_carga = False
         self._em_desfazer = False
@@ -204,6 +206,8 @@ class EditorDeCodigo(ttk.Frame):
         self._pintar_faixa()
         self._desenhar_calha()
         self._cursor_moveu()
+        if not self._em_carga:
+            self._avisar("<<Mudou>>")
 
     # ------------------------------------------------------------------
     # Desfazer próprio
@@ -466,10 +470,42 @@ class EditorDeCodigo(ttk.Frame):
     def _cursor_moveu(self) -> None:
         texto = self.texto
         texto.tag_remove("linha_atual", "1.0", "end")
-        texto.tag_add("linha_atual", "insert linestart", "insert lineend+1c")
+        if self._realce_da_linha:
+            texto.tag_add("linha_atual", "insert linestart", "insert lineend+1c")
         self._casar()
         if self.texto.winfo_ismapped():
             self._desenhar_calha()
+        self._avisar("<<CursorMoveu>>")
+
+    def _avisar(self, evento: str) -> None:
+        """`<<Mudou>>` e `<<CursorMoveu>>` para a janela (ED-02); num widget destruído, nada."""
+        try:
+            self.texto.event_generate(evento)
+        except tk.TclError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Tela: números de linha, realce da linha atual, quebra automática (ED-02)
+    # ------------------------------------------------------------------
+
+    def numeros_de_linha(self, mostrar: bool) -> bool:
+        """Mostra ou esconde a calha com os números; devolve o estado."""
+        self._numeros_de_linha = bool(mostrar)
+        if self._numeros_de_linha:
+            self.calha.grid()
+        else:
+            self.calha.grid_remove()
+        return self._numeros_de_linha
+
+    def realce_da_linha(self, ligar: bool) -> bool:
+        self._realce_da_linha = bool(ligar)
+        self._cursor_moveu()
+        return self._realce_da_linha
+
+    def quebra_automatica(self, ligar: bool) -> bool:
+        """`wrap="word"` (ligada) ou `"none"` (desligada, com a barra horizontal)."""
+        self.texto.configure(wrap="word" if ligar else "none")
+        return bool(ligar)
 
     def _casar(self) -> None:
         """Realça o par da tag (ou do parêntese/chave) junto ao cursor."""

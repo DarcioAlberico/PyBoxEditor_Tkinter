@@ -1,7 +1,8 @@
+import argparse
+import os
 import sys
 import time
 import tkinter as tk
-from ui.main_window import MainWindow
 
 
 import traceback
@@ -127,7 +128,73 @@ def _instalar_relator_de_callbacks(root):
     root.report_callback_exception = relatar
 
 
-def main():
+def _argumentos(argv=None):
+    """
+    `appy.py` abre a janela principal; `appy.py --editor [livro.epub]` abre só o editor
+    de livros (SPEC_EDITOR §7.2), sem `MainWindow` nem modelo neural — é por isso que
+    o `from ui.main_window import MainWindow` mora dentro de `main()`, e não no topo.
+    """
+    parser = argparse.ArgumentParser(prog="appy.py", description="PyBoxEditor")
+    parser.add_argument("--editor", nargs="?", const="", default=None, metavar="ARQUIVO",
+                        help="abre só o editor de livros, com o EPUB dado (opcional)")
+    parser.add_argument("--fechar-apos", type=float, default=None, metavar="N",
+                        help="fecha sozinho depois de N segundos (para conferência automática)")
+    parser.add_argument("--diagnostico-modulos", action="store_true",
+                        help="imprime os módulos pesados que estão carregados (deve ser nenhum no editor)")
+    return parser.parse_args(argv)
+
+
+MODULOS_PESADOS = ("torch", "easyocr", "cv2", "numpy", "fitz", "PIL", "docx", "ui.main_window")
+
+
+def _diagnostico_de_modulos():
+    carregados = sorted(m for m in MODULOS_PESADOS if m in sys.modules)
+    print("modulos pesados carregados:", carregados or "nenhum", flush=True)
+    return carregados
+
+
+def editor(arquivo="", fechar_apos=None, diagnostico=False):
+    """
+    Só o editor de livros (ED-02): a raiz fica escondida e a `JanelaDoEditor` é a
+    janela; fechar o editor encerra o processo. `fechar_apos` descarta sem perguntar
+    — é o caminho da conferência por subprocesso (AC-ED02-7).
+    """
+    _declarar_dpi()
+    from ui.editor.janela import JanelaDoEditor
+
+    root = tk.Tk()
+    _ajustar_escala(root)
+    _instalar_relator_de_callbacks(root)
+    root.withdraw()
+    # `PYBOXEDITOR_SETTINGS` aponta outro settings.json (o teste por subprocesso usa um temporário).
+    settings = None
+    if os.environ.get("PYBOXEDITOR_SETTINGS"):
+        from config.settings import Settings
+
+        settings = Settings(os.environ["PYBOXEDITOR_SETTINGS"])
+    janela = JanelaDoEditor(root, ao_fechar=root.destroy, settings=settings)
+    if "layout" not in (janela.settings.get("editor") or {}):
+        janela.geometry(_geometria_que_cabe(root))
+    janela.minsize(min(LARGURA_MINIMA, root.winfo_screenwidth()), min(ALTURA_MINIMA, root.winfo_screenheight()))
+    if arquivo:
+        janela.executar("abrir", arquivo)
+    if diagnostico:
+        _diagnostico_de_modulos()
+    if fechar_apos is not None:
+        def fechar():
+            janela.caixas.pergunta = lambda *a, **k: False
+            janela.fechar()
+        root.after(int(max(0.0, fechar_apos) * 1000), fechar)
+    root.mainloop()
+
+
+def main(argv=None):
+    argumentos = _argumentos(argv)
+    if argumentos.editor is not None:
+        editor(argumentos.editor, argumentos.fechar_apos, argumentos.diagnostico_modulos)
+        return
+    from ui.main_window import MainWindow
+
     _declarar_dpi()
     try:
         root = tk.Tk()

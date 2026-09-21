@@ -454,6 +454,21 @@ class _DiagramaFixo:
         return self.resposta
 
 
+def _conclusao_fixa(avisos):
+    """
+    No lugar da `DialogoDeConclusao` (ED-02), que é modal: o relatório vai para
+    `avisos`, que é o que `rodar` espera para saber que a exportação acabou.
+    """
+    class _Caixa:
+        def __init__(self, parent, titulo, linhas, caminho, **kw):
+            self.texto = "\n".join(list(linhas) + [f"Arquivo salvo em:\n{caminho}"])
+
+        def mostrar(self):
+            avisos.append(self.texto)
+
+    return _Caixa
+
+
 class _App:
     """
     MainWindow com os diálogos capturados e o modelo neural fora do caminho.
@@ -520,6 +535,7 @@ class _App:
         # verdade não há candidatas: lista vazia é "não tenho substituta", e a
         # leitura fica como o dublê a deu.
         self.win.learning_service.candidatas = lambda crop, k=3: []
+        self.win.DIALOGO_DE_CONCLUSAO = _conclusao_fixa(self.avisos)
         duble = type("_Duble", (_DiagramaFixo,), {"resposta": self.diagrama})
         self.win.DIALOGO_DO_DIAGRAMA = duble
         return self

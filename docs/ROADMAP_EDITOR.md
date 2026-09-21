@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-03 e ED-07 implementadas** (2026-09-19)
+Status: **ED-00, ED-01, ED-02, ED-03 e ED-07 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -534,6 +534,90 @@ Ler: spec §7, §13.2, §13.3, §13.4, §14; `ui/main_window.py` (`_build_menu` 
 ```
 .venv/Scripts/python.exe -m pytest tests/test_editor_janela.py tests/test_editor_atalhos.py tests/test_editor_menus.py tests/test_editor_resultados.py tests/test_dialogo_de_conclusao.py tests/test_f35_atalhos.py -q -p no:cacheprovider -o addopts=""
 ```
+
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `ui/editor/{atalhos,menus,janela,abas,barra,resultados,mensagens,dialogos}.py`,
+`ui/dialogo_de_conclusao.py`, `appy.py --editor`, a integração na janela principal
+(`abrir_editor_de_livro`, "Arquivo → Editor de livro…", `DIALOGO_DE_CONCLUSAO` no fim de
+"Exportar livro") e cinco arquivos de teste (30 testes, dois deles `gui`). Medido: a
+janela se constrói em 0,09 s e abre o EPUB de hoje em 0,09 s; `appy.py --editor
+livro.epub --fechar-apos 1 --diagnostico-modulos` imprime "nenhum" (sem torch, easyocr,
+cv2, numpy, fitz, PIL, docx nem `ui.main_window`). Conferido na tela com o processo
+DPI-aware: 1280×648 cabe na tela de 1360×768 a 125%, nos dois modos.
+
+**O que divergiu da spec, e por quê:**
+
+- **A bindtag da janela é `EditorJanela<caminho da toplevel>`**, e não `EditorAtalhos`:
+  esse nome já é o do modo código (ED-07), e `bind_class` é global ao interpretador —
+  duas janelas com a mesma bindtag despachariam para os comandos da última. A tabela da
+  §7.4 ganhou um **escopo** por acorde: `janela` (arquivo, exibir, navegação, ajuda —
+  entra na frente dos editores **e** na própria janela, para valer com o foco em
+  qualquer painel), `editor` (recortar, colar, negrito… — só na frente dos editores,
+  senão `Ctrl+V` numa caixa de busca colaria no capítulo) e `fundo` (`Esc` — só na
+  janela, depois de o widget ter a sua vez: fecha a lista de sugestões antes de devolver
+  o foco).
+- **Acorde de outro modo devolve `"break"`**, não `None`: `Ctrl+Shift+Space` no código
+  caía no `Ctrl+Space` do próprio widget (o Tk casa `<Control-space>` com o Shift a mais)
+  e abria as sugestões. Um acorde, um comando por modo — só o que a tabela não conhece
+  (o `<Control-Key>` genérico com outro dígito) segue para o widget. E `Ctrl+Tab`/
+  `Ctrl+Shift+Tab` ("nativos") são tratados por `ligar` — `tk_focusNext`/`Prev` —,
+  porque o `<Tab>` do texto rico casaria com eles e inseriria um tabulador.
+- **`Ctrl+T` é `sumario_editar`** (Livro → Sumário → Editar…, ED-08) e **`F8` é
+  `metadados`**, que a ED-02 entrega no mínimo (título, autor, idioma; a caixa completa,
+  com capa, editora e coleção, é da ED-08). A §7.4 dizia só "sumário / metadados".
+- **Três itens fora da §7.3**: "Exibir → Alternar modo" (o `F11` precisava de um item,
+  AC-ED02-1; "Modo texto"/"Modo código" continuam) e "Editar → Ir ao alvo do link" /
+  "Voltar do alvo" (o *Go to link/style, and back* da §9, que o menu de contexto do código
+  usa — e toda ação de contexto tem item). O menu de contexto é montado da mesma tabela
+  (`menus.CONTEXTO`).
+- **`<<MenuSelect>>` numa entrada desabilitada**: o Tk não ativa entrada desabilitada
+  (`activate` deixa a ativa em `none`), então a entrada sob o mouse vem de `index @y`.
+- **`modos_do_comando`** (novo): um comando registrado só para um modo — `inserir_link`,
+  `inserir_ancora`, `inserir_imagem`, `dividir_capitulo` e `ir_para` existem no código
+  desde a ED-07; no texto chegam na ED-04/ED-06, e o item diz "no modo texto chega na
+  ED-04". Os acordes consultam a mesma disponibilidade (`_Despacho`).
+- **Espaço e hífens inseparáveis chegaram agora** (a §7.3 os punha na ED-06): são um
+  `inserir` do editor ativo. O menu de contexto, os botões e os acordes passam todos por
+  `executar(nome)`, e é ali que as duas camadas de erro moram (§13.3): `ValueError` →
+  `Caixas.entrada`; o resto → `Caixas.falha` com o traceback dobrado e "Copiar".
+  `Caixas` (`ui/editor/dialogos.py`) é o ponto de injeção único dos testes.
+- **O modo código fica com a pilha de desfazer própria** (a decisão que a ED-07 deixou):
+  é por operação de texto; a `Historico` do projeto é por bloco, e converter uma na outra
+  a cada tecla não vale o que custa. O texto rico usa a `Historico` do projeto.
+- **`EditorDeCodigo` ganhou `<<Mudou>>`, `<<CursorMoveu>>`** (o roadmap dizia que os dois
+  editores os expunham; o código não os gerava) **e os três toggles** `numeros_de_linha`,
+  `realce_da_linha`, `quebra_automatica` — os itens de Exibir que a §7.3 atribuía à ED-07.
+- **`core/services/__init__.py` ficou preguiçoso**: importava `box_service`,
+  `ocr_service` e `pdf_service` no topo, e `TaskController` trazia cv2, numpy e fitz
+  para o editor (AC-ED02-7 reprovava). Os nomes do pacote continuam existindo, por
+  `__getattr__`. As operações de arquivo desta fase são síncronas, com o cursor de espera;
+  o `TaskController` próprio existe para as tarefas longas das fases seguintes (validar
+  EPUB, exportar).
+- **Mensagens de outra thread vão por fila esvaziada por `after`**: chamar `after` de
+  outra thread fora do `mainloop` levanta "main thread is not in main loop" (era engolido
+  em silêncio). Na thread da interface, o registro entra na hora.
+- **O caderno de baixo é um painel só** ("Busca e mensagens"), e uma lateral sem painel
+  visível some da janela e volta quando um reaparece; `insert` no fim de um
+  `PanedWindow` vazio é erro no Tk — `_por_em` faz `add` nesse caso.
+- **O painel Estilos exige um `TextoRico` na construção**: há um de reserva, escondido;
+  a troca de aba aponta `texto_rico` para o editor ativo.
+- **`nav.xhtml` e o NCX abrem só para leitura**, regenerados do modelo; o OPF não abre
+  (ED-08). Qualquer recurso de texto (`tipo="recurso"`) edita em código e volta a
+  `Recurso.texto_cru`; uma imagem avisa como se insere.
+- **Salvar valida as abas de código antes de tocar o disco** (`xhtml.bem_formado`): o erro
+  vai para Validação com o arquivo, linha e coluna, e o cursor vai à linha; a recusa é
+  erro de entrada, não defeito.
+- **Rascunho**: fechar a principal força a gravação **antes** da guarda; "não salvar"
+  apaga o rascunho (quem descartou escolheu descartar); cancelar o deixa. Abrir um EPUB
+  com rascunho pendente pergunta antes de ler o disco.
+- **Exportar… nesta fase é só EPUB** — uma cópia, com `zip_de_origem` preservado como no
+  checkpoint; os outros formatos da caixa dizem a fase (ED-10/ED-12).
+- **A integração na principal** vai pelo atributo de classe `DIALOGO_DE_CONCLUSAO` (como
+  `DIALOGO_DO_DIAGRAMA`), porque a caixa é modal e `tests/test_f26_livro.py` espera o
+  desfecho por `showinfo`; o teste ganhou o dublê `_conclusao_fixa`. As hunks entraram
+  no índice a partir do HEAD (`git hash-object -w` + `update-index`), com o trabalho
+  não commitado da árvore fora do commit.
 
 ---
 
@@ -1355,7 +1439,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-pré | a fazer (usuário) | | | |
 | ED-00 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | entidade numérica na leitura; `Capitulo.namespaces`; notas rodapé-primeiro; `span.com`; `Ponto.indices`; `mapa_da_fonte` |
 | ED-01 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | `Diagrama.imagem`; `width` no PNG; `linear`, `nav_na_espinha`, `no_manifesto`, `Pessoa.id`, `Metadados.ids/prefixos`, `zip_de_origem`; `pybox:pagina`; `href` codificado; `noteref` de fora é ilha |
-| ED-02 | a fazer | | | |
+| ED-02 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag `EditorJanela` com escopos; acorde de outro modo é `break`; `Ctrl+T`/`F8`; três itens fora da §7.3; `@y` no `<<MenuSelect>>`; `modos_do_comando`; inseparáveis agora; pilha própria do código; `core/services` preguiçoso; fila nas Mensagens; `DIALOGO_DE_CONCLUSAO` |
 | ED-03 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text` em vez de `<<Modified>>`; modelo em cache + `sincronizar(reler=True)`; tags `pid:`/`pcls:`/`pex:`/`sub:` nos internos; `_fundem` por tupla; enter no título abre corpo |
 | ED-04 | a fazer | | | |
 | ED-05 | a fazer | | | |
