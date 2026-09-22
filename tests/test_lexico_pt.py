@@ -57,9 +57,18 @@ def lex_pt():
 
 
 def test_o_pacote_carrega_rapido_e_conhece_flexoes(lex_pt):
+    """
+    O pacote abre junto com o editor, então o custo dele é custo de abrir.
+
+    **O teto é 8 s, e a medida é 0,42 s** (2026-09-22, Ryzen 5 3600, máquina
+    ociosa, três leituras seguidas). O teto não é o orçamento: é a régua contra
+    regressão de ordem de grandeza. Era 3 s e acusava falso na suíte inteira —
+    4,06 s medidos ali —, porque a suíte satura a máquina com GUI e torch e o
+    que ela media era a carga, não o carregador.
+    """
     inicio = time.perf_counter()
     a = afixos.Afixos.carregar(PACOTE)
-    assert time.perf_counter() - inicio < 3.0 and len(a) > 300_000
+    assert time.perf_counter() - inicio < 8.0 and len(a) > 300_000
     assert os.path.getsize(PACOTE) < 2_000_000
     for palavra in ("cavalo", "cavalos", "bispo", "jogaram", "jogariam", "desfizeram", "rainha", "peões", "torres",
                     "amaríamos", "rapidamente", "xeque-mate", "abertura", "aberturas"):

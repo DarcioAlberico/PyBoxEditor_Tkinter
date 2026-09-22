@@ -477,6 +477,67 @@ figura, tabela, título e parágrafo com negrito volta bloco a bloco igual) e
 `test_o_epub_do_round_trip_e_byte_identico` (com `SOURCE_DATE_EPOCH`, que é a
 convenção de build reprodutível da F111). Suíte inteira: 2.878 passando.
 
+### 4.8 O garimpo dos erros confiantes (item 5, primeira metade, 2026-09-22)
+
+A OCR-14 é o resíduo que nada alcança: a cadeia lê `±` onde está impresso `⩲`,
+`♕c1` por `♕e1`, e **com confiança 1,00** — a medição da F22 já registrara
+mediana 1,00 nos tokens errados, que é o que derrubou a ideia de gatear uma
+segunda opinião pela confiança. Para o programa não são dúvida; são afirmação.
+A fila de suspeitas (4.5) pega o que hesita, e por construção não pega isto.
+
+O que resolve é treino dirigido, e treino dirigido precisa antes de uma lista:
+*que par de glifos a cadeia troca, quantas vezes, e onde está cada recorte*.
+Ela não existia. Agora existe:
+
+- **`core/ocr14.py`** alinha o que a cadeia leu com a referência humana — tokens
+  pela mesma régua do A/B (`ocr_ab.alinhar_tokens`), caracteres dentro do token
+  depois — e devolve, por divergência, o esperado, o lido, a confiança, o
+  domínio (lance ou prosa) e **a caixa do glifo na página**. A dobra tipográfica
+  é a do A/B, feita caractere a caractere para o mapa das caixas não escorregar
+  quando ela cresce (`…` vira `...`). Troca, buraco (a cadeia comeu) e invenção
+  (a cadeia pôs) são espécies próprias: são material de treino diferente.
+- **`scripts/erros_confiantes.py`** roda isso sobre as páginas de referência,
+  lendo **só pela cadeia** (sem Tesseract, sem fusão: o que se mede é o
+  classificador, que é o que se quer treinar), imprime a tabela de confusão e as
+  classes que mais ganhariam com amostra nova, e com `--recortes` põe cada
+  recorte trocado numa **quarentena** por classe esperada. Quarentena, e não
+  `training_data/`: o rótulo veio de um alinhamento, não de olho humano, e
+  `core/coleta.py` documenta em detalhe por que rotular sozinho é treinar o
+  modelo no próprio erro.
+
+**O que as quatro páginas dizem** (2026-09-22, cadeia sozinha, piso 0,90):
+
+| página | confiantes na página | em lance | o que aparece |
+|---|---:|---:|---|
+| Aagaard p. 30 | 177 | **23** | `±` por `⩲`; `a` por `♘`; `w` por `c` |
+| Nunn p. 237 (tabela) | 281 | **137** | `(`/`!`/`)` das células, `♖` e `♔` inventados |
+| Yusupov p. 34 | 38 | **9** | o `1` e o `-` de `1-0` comidos |
+| Yusupov p. 47 | 140 | **4** | idem |
+
+Duas leituras destes números, e as duas importam:
+
+1. **A conta é do classificador, não do livro.** A fusão por palavra dá a prosa
+   ao motor e guarda o lance da cadeia, então os 154 erros de prosa da p. 30 não
+   chegam ao arquivo — o CER de notação do modo `palavra` ali é 3,14%, e não o
+   que estes 177 sugeririam. É por isso que o padrão do script é `--dominio
+   notation`: o erro confiante **em lance** é o que sobrevive à exportação.
+2. **O maior bolo é a página de tabela do Nunn**, onde a cadeia sozinha se perde
+   na pontuação das células (`W: Win (1 ♖e1!)`). Fine-tuning de glifo não é a
+   resposta ali — a resposta é a célula, que a F72 já trata e que o roteador já
+   manda ao motor. O resíduo de verdade, o que o item 5 descreve, são as 23 da
+   p. 30 e as 13 do Yusupov.
+
+**O que fica do item 5**, e por que não foi feito aqui: a etapa do meio é
+humana. A quarentena precisa ser conferida antes de virar base, e trinta e seis
+recortes de quatro páginas não movem um classificador de 317 classes com 19 mil
+amostras por figurina — `⩲` já tem 1.974 e `±`, 789, então o par não é falta de
+classe, é discriminação fina. O caminho é o item 6 (o corpus de trinta páginas)
+alimentando esta mesma peneira, e só então o fine-tuning, medido no A/B das
+mesmas páginas com `evaluate_holdout` da `ocr_phase7`.
+
+Aceite: `tests/test_ocr14.py` (15), de mesa — montam a leitura caractere a
+caractere, sem PDF, sem modelo e sem torch.
+
 ## 5. O que fica, em ordem
 
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
@@ -511,7 +572,13 @@ ordem indicada.
    `g16`/`gxh6`, `1–0`): fine-tuning direcionado do modelo de glifos, medido
    no mesmo A/B; o CRNN só volta com dataset por livro, split de
    `ocr_phase7`, seed, confiança calibrada e `evaluate_holdout` contra a
-   fusão atual.
+   fusão atual. **Metade feita** (4.8): o garimpo existe
+   (`core/ocr14.py`, `scripts/erros_confiantes.py`) e mediu o resíduo nas
+   quatro páginas — 23 erros confiantes em lance na p. 30 do Aagaard, 13 no
+   Yusupov, e a página de tabela do Nunn, que é outro assunto. O que falta é
+   dado: conferir a quarentena à mão e alimentá-la com o item 6, porque
+   trinta e seis recortes não movem um classificador em que `⩲` já tem 1.974
+   amostras e `±`, 789 — o par não é falta de classe, é discriminação fina.
 6. **Corpus de referência**: as quatro páginas viram trinta, por livro e por
    família de layout, conferidas contra o impresso; `benchmarks/` ganha o
    relatório por rodada. Só depois disso a promessa "superior ao ABBYY nestes
