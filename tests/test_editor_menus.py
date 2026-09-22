@@ -113,11 +113,19 @@ def test_ac_ed02_2_item_desabilitado_escreve_a_fase_na_barra_de_status_ao_percor
     with _Janela() as t:
         j = t.j
         m = j.menus
-        assert m.estado("preferencias") == "disabled" and m.estado("novo") == "normal"      # a ED-13 ainda falta
-        menu, indice, item = m.itens["preferencias"][0]
-        # o Tk não ativa entrada desabilitada: a que está sob o mouse vem do `y` do evento
-        m._ao_percorrer(type("E", (), {"widget": menu, "y": menu.yposition(indice) + 1})())
-        assert "ED-13" in j.campos["aviso"].cget("text")
+        # todas as fases estão entregues: o teste tira um comando do registro para ver o item desabilitado
+        original = j.comandos.pop("preferencias")
+        m.atualizar(j.modo_atual())
+        try:
+            assert m.estado("preferencias") == "disabled" and m.estado("novo") == "normal"
+            menu, indice, item = m.itens["preferencias"][0]
+            # o Tk não ativa entrada desabilitada: a que está sob o mouse vem do `y` do evento
+            m._ao_percorrer(type("E", (), {"widget": menu, "y": menu.yposition(indice) + 1})())
+            assert "ED-13" in j.campos["aviso"].cget("text")
+        finally:
+            j.comandos["preferencias"] = original
+            m.atualizar(j.modo_atual())
+        assert m.estado("preferencias") == "normal"
         # um item de outro modo diz o modo; um comando registrado só para um modo diz a fase do outro
         menu, indice, item = m.itens["fonte"][0]
         assert item.modos == ("texto",)

@@ -348,6 +348,8 @@ class DialogoDeDiagrama(_Dialogo):
         self._sincronizando = True
         try:
             self.var_fen.set(self._fen_atual())
+            if hasattr(self, "var_orientacao"):
+                self.var_orientacao.set(self.tabuleiro.orientacao)      # o F do tabuleiro gira a caixa também
             self._atualizar_legalidade()
         finally:
             self._sincronizando = False

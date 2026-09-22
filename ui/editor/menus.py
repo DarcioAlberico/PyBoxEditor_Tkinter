@@ -413,6 +413,7 @@ LIVRO = (
 )
 
 AJUDA = (
+    _i("Ajuda…", "ajuda", "ED-13"),
     _i("Atalhos de teclado…", "atalhos"),
     _i("O dialeto do livro", "dialeto"),
     _i("Sobre", "sobre"),

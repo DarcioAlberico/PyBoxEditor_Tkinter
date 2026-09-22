@@ -259,9 +259,14 @@ def test_ac8_valueerror_vira_caixa_de_entrada_e_o_resto_caixa_de_falha_com_a_jan
         assert j.ultimo_erro[0] == "falha" and j.winfo_exists()
         assert "Defeito do programa" in j.campos["aviso"].cget("text")
         assert j.executar("comando_que_nao_existe") is None and "chega na" in j.campos["aviso"].cget("text")
-        # um comando de fase seguinte com item de menu diz a fase (a ED-13 é a última que falta)
-        j.executar("preferencias")
-        assert "ED-13" in j.campos["aviso"].cget("text")
+        # um comando ainda não registrado, com item de menu, diz a fase do item (todas as fases estão
+        # entregues: o teste tira o comando do registro para ver a mensagem)
+        original = j.comandos.pop("preferencias")
+        try:
+            assert j.executar("preferencias") is None
+            assert "ED-13" in j.campos["aviso"].cget("text")
+        finally:
+            j.comandos["preferencias"] = original
 
 
 # ----------------------------------------------------------------------

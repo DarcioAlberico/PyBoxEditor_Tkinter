@@ -17,6 +17,7 @@ from tkinter import ttk
 from typing import Any, Callable
 
 from core.editor import css_minima, dialeto
+from ui.editor.barra import AnelDeFoco
 from ui.editor.texto_rico import TextoRico
 
 ROTULOS = {
@@ -43,15 +44,20 @@ class PainelDeEstilos(ttk.Frame):
         barra = ttk.Scrollbar(self, orient="vertical", command=self.lista.yview)
         barra.grid(row=0, column=2, sticky="ns")
         self.lista.configure(yscrollcommand=barra.set)
-        self.botao_aplicar = ttk.Button(self, text="Aplicar", command=self.aplicar)
-        self.botao_aplicar.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=4)
-        self.botao_selecionar = ttk.Button(self, text="Selecionar tudo com este estilo",
-                                           command=self.selecionar_tudo_com)
-        self.botao_selecionar.grid(row=1, column=1, columnspan=2, sticky="ew", pady=4)
+        # Os botões `ttk` dentro de um `AnelDeFoco` (§13.2, AC-006): o tema `vista` não desenha o foco.
+        anel_aplicar = AnelDeFoco(self, lambda pai: ttk.Button(pai, text="Aplicar", command=self.aplicar))
+        anel_aplicar.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=4)
+        self.botao_aplicar = anel_aplicar.widget
+        anel_selecionar = AnelDeFoco(self, lambda pai: ttk.Button(pai, text="Selecionar tudo com este estilo",
+                                                                  command=self.selecionar_tudo_com))
+        anel_selecionar.grid(row=1, column=1, columnspan=2, sticky="ew", pady=4)
+        self.botao_selecionar = anel_selecionar.widget
         self.entrada_nome = ttk.Entry(self)
         self.entrada_nome.grid(row=2, column=0, sticky="ew", padx=(0, 2))
-        self.botao_novo = ttk.Button(self, text="Novo estilo a partir da seleção", command=self._novo_do_botao)
-        self.botao_novo.grid(row=2, column=1, columnspan=2, sticky="ew")
+        anel_novo = AnelDeFoco(self, lambda pai: ttk.Button(pai, text="Novo estilo a partir da seleção",
+                                                            command=self._novo_do_botao))
+        anel_novo.grid(row=2, column=1, columnspan=2, sticky="ew")
+        self.botao_novo = anel_novo.widget
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)

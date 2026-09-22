@@ -50,6 +50,22 @@ Pesos treinados devem ser distribuídos como pacote verificável por
 O Tesseract continua sendo um executável externo e precisa estar instalado no
 sistema quando o caminho Tesseract for usado.
 
+## Editor de livro (extras)
+
+O editor de livros (`python appy.py --editor`) roda com a instalação básica: Pillow,
+PyMuPDF (o PDF paginado e a medição de fontes) e `chess` (a validação da notação, o
+PGN) estão em `requirements.txt`. Os extras:
+
+```text
+python -m pip install -e ".[docx]"             # escrever DOCX (python-docx); ler DOCX não precisa
+python -m pip install -e ".[epub-validacao]"   # epubcheck (precisa de Java no PATH)
+```
+
+Sem `python-docx`, "Exportar… DOCX" diz o que falta; sem Java, "Validar EPUB" confere a
+estrutura sem o epubcheck e a caixa diz isso. O Tesseract e o modelo neural do OCR não
+são necessários para o editor (DEC-07 da `docs/SPEC_EDITOR.md`): `appy.py --editor
+--diagnostico-modulos` lista o que foi carregado.
+
 ## PaddleOCR (opcional)
 
 O reconhecimento por PaddleOCR usa o módulo `TextRecognition` e não substitui
@@ -75,6 +91,7 @@ python -m compileall -q appy.py core ui config scripts
 python -m ruff check core ui appy.py config scripts
 python -m pytest --collect-only -q
 python -m pytest -q -m "not ml and not gui"
+python -m pytest -q -p no:cacheprovider -o addopts="" tests/test_editor_ac_globais.py -m "not slow"
 ```
 
 Os testes `ml` exigem PyTorch/modelos e os testes `gui` exigem um display

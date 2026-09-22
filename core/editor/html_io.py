@@ -810,6 +810,26 @@ def _livro_de(capitulos: list[Capitulo], metadados: Metadados, pasta_do_arquivo:
 _contador_de_embutidas = [0]
 
 
+def embutir_imagens_data(livro: Livro, blocos: Sequence[Any], relatorio: RelatorioDeConversao) -> int:
+    """As imagens `data:` das figuras e diagramas de `blocos` viram recursos de `livro`; devolve quantas."""
+    n = 0
+    for bloco in blocos:
+        for interno in modelo.blocos_do_capitulo(Capitulo(arquivo="x", blocos=[bloco])):
+            if isinstance(interno, Figura) and interno.recurso.startswith("data:"):
+                novo = _recurso_de_imagem(livro, interno.recurso, "", relatorio)
+                if novo:
+                    interno.recurso = novo
+                    n += 1
+            elif isinstance(interno, Diagrama):
+                for campo in ("recorte", "imagem"):
+                    valor = getattr(interno, campo)
+                    if valor.startswith("data:"):
+                        novo = _recurso_de_imagem(livro, valor, "", relatorio)
+                        setattr(interno, campo, novo or "")
+                        n += 1 if novo else 0
+    return n
+
+
 def _recurso_de_imagem(livro: Livro, href: str, pasta: str, relatorio: RelatorioDeConversao,
                        capitulo: str = "Text/cap-0001.xhtml") -> str | None:
     if href.startswith("data:"):

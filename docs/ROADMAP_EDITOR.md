@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-pré commitada; ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b, ED-10, ED-11 e ED-12 implementadas** (2026-09-21)
+Status: **todas as fases implementadas** — ED-pré commitada; ED-00…ED-13 (com 05b, 06b, 09b) entregues (2026-09-19 → 2026-09-22)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -2105,6 +2105,57 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 .venv/Scripts/python.exe scripts/smoke_release.py dist/pyboxeditor-0.1.0-py3-none-any.whl --editor
 ```
 
+### Registro — 2026-09-22 — IMPLEMENTADA
+
+Entregue em `tests/test_editor_ac_globais.py` (AC-001…AC-010, uma função por AC, o AC-005
+`slow`), `tests/test_editor_teclado.py` + `docs/roteiros/editor_teclado.md` (o `F6` de
+verdade no teste `gui`, o mapa do tabuleiro, a tabela de atalhos, o roteiro com o que o
+teste cobre e o que fica por conferir à mão), `tests/test_editor_ed13.py` (AC-ED13-2 e
+AC-ED13-3), `scripts/medir_editor.py --livro` (o livro do AC-005 e os orçamentos),
+`core/editor/area_de_transferencia.py` (`fragmento_cf_html`, `html_do_windows` por
+`ctypes`, `blocos_do_html`; `Colagem.html`) e `html_io.embutir_imagens_data`, o colar de
+HTML em `ui/editor/janela.py`, `ui/editor/preferencias.py` ("Preferências…", "Ajuda…"),
+`AnelDeFoco` nos botões dos painéis Estilos e Busca, `scripts/smoke_release.py --editor`,
+`docs/OPERATIONS.md` ("Editor de livro", máquina de referência, orçamentos) e
+`docs/SETUP.md` (extras do editor).
+
+**A tabela final (2026-09-22, máquina de referência: Ryzen 5 3600, 16 GB, Windows 10,
+Python 3.13.2):**
+
+| Passo do gate | Resultado |
+|---|---|
+| `compileall -q appy.py core ui config scripts` | ✅ |
+| `ruff check core ui appy.py config scripts` | ✅ "All checks passed" |
+| `pytest -m "not slow"` (a suíte inteira) | ✅ 2823 passed, 9 deselected, 212 s |
+| `pytest -m slow` | ✅ 9 passed, 25 s |
+| `scripts/medir_editor.py --livro` | ✅ abrir 0,72 s · capítulo 0,04 s · modo 0,05 s · busca 0,01 s · salvar 0,19 s · RSS 124 MB (orçamentos 3 / 0,5 / 1 / 2 / 5 s / 600 MB); tecla 1,6 ms · `dump` 4 ms · tabela 20×20 430 ms |
+| wheel + `smoke_release.py <wheel> --editor` | ✅ `{"valid": true, "editor": {"ok": true, "codigo": 0, "modulos_pesados": []}}` |
+| suíte do editor (`tests/test_editor_*.py`, `-m "not slow"`) | ✅ 399 passed (8 `slow` à parte) |
+
+**O que divergiu da spec, e por quê:**
+
+- **O `CF_HTML` só inline vira um parágrafo** (`<b>forte</b> e fraco` não é um bloco por
+  trecho): sem elemento de bloco, o fragmento é embrulhado num `<p>`; com blocos, cada um
+  entra como bloco; as imagens `data:` viram `Images/embutida-n.png` do livro. Fora do
+  Windows não há `CF_HTML`: `html_do_windows` devolve `None` e o colar continua o de texto.
+- **As preferências aplicam na hora só o que é de tela** (fonte, corpo, zoom, largura de
+  leitura, o intervalo do rascunho, as figurinas ao digitar); o tema e a tabulação do
+  código valem nas abas que abrirem depois — a barra de status diz. A caixa é o
+  formulário genérico (`Caixas.formulario`), com combos para as escolhas.
+- **`AnelDeFoco` nos botões `ttk` dos painéis Estilos e Busca**: o AC-006 varre a janela e
+  os achou sem anel (a ED-03 e a ED-06 os criaram antes da regra ser verificada).
+- **O `F` do tabuleiro sincroniza a orientação da caixa** (`var_orientacao`): o teste do
+  teclado achou a caixa gravando "branca" depois de girar.
+- **O gate constrói o wheel com `pip wheel . --no-deps --no-build-isolation -w dist`**: o
+  `python -m build` da linha antiga cai no `build/` da raiz (namespace package que sombreia
+  o pacote `build`, que tampouco está no `.venv`); `docs/OPERATIONS.md` diz as duas formas.
+- **A medição do AC-005 corre na raiz Tk da sessão** quando chamada pelo teste (`raiz=`):
+  uma segunda `tk.Tk()` no mesmo processo dos outros testes `slow` travava numa caixa de
+  falha; a caixa agora levanta em vez de esperar.
+- **O roteiro do teclado diz o que é teste e o que é mão**: nenhuma linha foi marcada como
+  conferida à mão nesta sessão — está escrito o que falta.
+- **ED-13b** não foi necessária: nenhum orçamento foi ultrapassado.
+
 ---
 
 ## Registro de execução
@@ -2128,4 +2179,4 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-10 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | fontes lidas à mão (`core/editor/fontes.py`) e bloco `pybox:fontes` na folha; HTML5 pela árvore com ids prefixados; `ler` volta pelas seções; `<p><img>` = figura; fechamento opcional no `consertar`; fatia do elemento vazio no `xhtml`; TXT mínimo que volta; importar anexa ou vira o livro; exportar pode sujar; fontes necessárias contam como usadas |
 | ED-11 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `page_break` no meio da página vira `QuebraDePagina`; `Figura` sem posição leva o aviso em `alt`/`title`; suspeita = códigos em `data-suspeito`, frases e leituras vindas do documento; a tabela ignora o preenchimento retangular; o `Diagrama` só gera evento quando a colocação ou a orientação muda; um EPUB exportado vira o caminho do projeto; o EPUB salvo religa o JSON ao reabrir; `page_break`/`header`/`footer` não geram `reject`; a fila com "Exportar" desabilitado pelo `aviso_da_exportacao`; `cv2` entra no editor só ao salvar um livro com ponte |
 | ED-12 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | um `Story` para o livro inteiro com ids prefixados por capítulo; cabeçalho/rodapé por `insert_text` (Helvetica, Latin-1); notas no fim do capítulo; PGN pelo `chess.pgn` com um exportador por partida, título sem lances não é partida, ambíguo vira comentário; índice `p.indice` refeito no lugar, alvo com `id_persistente`, `role` pelo HTML; opções de DOCX/PDF das preferências (sem caixa); "Imprimir…" = PDF temporário aberto; decisão da medição: **convive** |
-| ED-13 | a fazer | | | |
+| ED-13 | **implementada** | 2026-09-22 | (ver "Registro" da fase) | o `CF_HTML` só inline vira um parágrafo; as preferências aplicam na hora só o que é de tela (tema/tabulação nas abas novas); os botões `ttk` dos painéis Estilos e Busca ganharam `AnelDeFoco`; o `F` do tabuleiro sincroniza a orientação da caixa; o gate usa `pip wheel` porque `build/` estala o `python -m build`; a medição do AC-005 corre na raiz da sessão |

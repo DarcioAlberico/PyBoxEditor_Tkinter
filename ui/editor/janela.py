@@ -62,6 +62,13 @@ em `ui/editor/operacoes.py: OperacoesDoLivro`, registrado por
 `_registrar_comandos_da_ed08`. O OPF abre só para leitura (`epub.texto_do_opf`), e os
 clipes passam a valer no modo texto (o fragmento vira modelo).
 
+## A ED-13 na janela
+
+"Preferências…" e "Ajuda…" moram em `ui/editor/preferencias.py`; o colar passou a ler o
+`CF_HTML` do sistema (`area_de_transferencia.html_do_windows`, injetável): o HTML do
+navegador ou do Word entra como blocos do dialeto, com as imagens `data:` viradas
+recursos do livro.
+
 ## A ED-11 na janela
 
 A ponte com o documento editorial mora em `Projeto` (`documento_editorial`, `diario`,
@@ -121,6 +128,7 @@ from ui.editor.mensagens import PainelDeMensagens, logger
 from ui.editor.navegador import Navegador
 from ui.editor.operacoes import OperacoesDoLivro
 from ui.editor.ortografia import Corretor
+from ui.editor.preferencias import Preferencias
 from ui.editor.propriedades import PainelDePropriedades
 from ui.editor.resultados import PainelDeResultados, Resultado
 from ui.editor.sumario import PainelDeSumario
@@ -202,7 +210,8 @@ class JanelaDoEditor(tk.Toplevel):
         self._despacho = _Despacho(self)
         self._tema_codigo = tema_codigo or self._preferencia("tema_codigo", "claro")
         #: A área de transferência (§8.11): o acesso ao sistema é injetado daqui (o teste troca).
-        self.area = area_mod.AreaDeTransferencia(self._ler_clipboard, self._gravar_clipboard, _imagem_do_clipboard)
+        self.area = area_mod.AreaDeTransferencia(self._ler_clipboard, self._gravar_clipboard, _imagem_do_clipboard,
+                                                 area_mod.html_do_windows)
         self.abrir_url: Callable[[str], Any] = webbrowser.open
         #: Os arquivos marcados no navegador para o escopo "arquivos marcados" da busca (ED-06).
         self.arquivos_marcados: set[str] = set()
@@ -217,6 +226,7 @@ class JanelaDoEditor(tk.Toplevel):
         self._registrar_comandos_da_ed08()
         self._registrar_comandos_da_ed10()
         self._registrar_comandos_da_ed05()
+        self._registrar_comandos_da_ed13()
         self.menus = menus_mod.Menus(self)
         self.configure(menu=self.menus.barra)
         atalhos_mod.ligar(self, atalhos_mod.TABELA, self._despacho, self.modo_atual, escopos=("janela", "fundo"),
@@ -555,6 +565,11 @@ class JanelaDoEditor(tk.Toplevel):
         """Exportar (EPUB/HTML/TXT), importar (HTML/TXT/EPUB), juntar e dividir por título (ED-10)."""
         self.conversoes = Conversoes(self)
         self.registrar_comandos(self.conversoes.comandos)
+
+    def _registrar_comandos_da_ed13(self) -> None:
+        """Preferências e Ajuda (ED-13, §7.6, §7.3 "Ajuda")."""
+        self.preferencias_controlador = Preferencias(self)
+        self.registrar_comandos(self.preferencias_controlador.comandos)
 
     def _registrar_comandos_da_ed06b(self) -> None:
         """Tipografia, juntar hifenizadas e buscas salvas (ED-06b, §8.12 e §8.14)."""
@@ -1388,6 +1403,8 @@ class JanelaDoEditor(tk.Toplevel):
         if colagem.tipo == "imagem" and colagem.imagem:
             self._colar_imagem(colagem.imagem)
             return "(imagem)"
+        if colagem.tipo == "html" and colagem.html:
+            return self._colar_html(editor, colagem)
         blocos = area_mod.blocos_do_texto(colagem.texto)
         if len(blocos) <= 1:
             texto = blocos[0].trechos[0].texto if blocos else colagem.texto.strip()
@@ -1397,6 +1414,38 @@ class JanelaDoEditor(tk.Toplevel):
         else:
             editor.inserir_blocos(blocos)
         return colagem.texto
+
+    def _colar_html(self, editor: TextoRico, colagem: Any) -> str:
+        """O `CF_HTML` do sistema (ED-13): blocos do dialeto, com as imagens `data:` como recursos do livro."""
+        projeto = self._exigir_projeto()
+        aba = self.aba_ativa()
+        try:
+            blocos, avisos = area_mod.blocos_do_html(colagem.html, projeto.livro,
+                                                     aba.arquivo if aba is not None else "")
+        except ValueError as erro:
+            self.log.warning("colar HTML: %s — colado como texto", erro)
+            blocos, avisos = area_mod.blocos_do_texto(colagem.texto), []
+        for aviso in avisos:
+            self.log.info("colar HTML: %s", aviso)
+        if not blocos:
+            if not colagem.texto.strip():
+                self.status("Nada para colar.")
+                return ""
+            blocos = area_mod.blocos_do_texto(colagem.texto)
+        recursos_novos = any(isinstance(b, Figura) for b in modelo.blocos_do_capitulo(Capitulo(arquivo="x",
+                                                                                                blocos=blocos)))
+        if editor.selecao():
+            editor.apagar_selecao()
+        if len(blocos) == 1 and isinstance(blocos[0], Paragrafo) and not isinstance(blocos[0], modelo.Titulo) \
+                and editor.objeto_no_cursor() is None:
+            editor.inserir_trechos(blocos[0].trechos)
+        else:
+            editor.inserir_blocos(blocos)
+        if recursos_novos:
+            projeto.marcar_sujo()
+            self.atualizar_navegador()
+        self.status(f"Colado HTML: {len(blocos)} bloco(s)")
+        return colagem.texto or "(html)"
 
     def colar_sem_formatacao(self) -> str:
         """`Ctrl+Shift+V`: sempre o texto plano do sistema."""
@@ -2169,7 +2218,7 @@ class JanelaDoEditor(tk.Toplevel):
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
                  "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, "
-                 "ED-09b, ED-10, ED-11, ED-12.")
+                 "ED-09b, ED-10, ED-11, ED-12, ED-13.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 

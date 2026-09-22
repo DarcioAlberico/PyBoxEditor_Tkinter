@@ -21,6 +21,7 @@ from typing import Any, Callable, Sequence
 
 from core.editor import busca as busca_mod
 from core.editor.busca import Opcoes
+from ui.editor.barra import AnelDeFoco
 
 CAMPOS_BOOLEANOS = (("maiusculas", "Maiúsculas"), ("palavra_inteira", "Palavra inteira"), ("regex", "Regex"),
                     ("dotall", "Dotall"), ("minimo", "Mínimo"), ("espaco_casa_nbsp", "Espaço casa inseparável"),
@@ -69,9 +70,10 @@ class PainelDeBusca(ttk.Frame):
         botoes.grid(row=0, column=2, rowspan=2, sticky="ne", padx=(8, 6), pady=(4, 0))
         self.botoes: dict[str, ttk.Button] = {}
         for k, (comando, rotulo, _atalho) in enumerate(BOTOES):
-            botao = ttk.Button(botoes, text=rotulo, command=lambda c=comando: self._executar(c), width=20)
-            botao.grid(row=k // 4, column=k % 4, padx=1, pady=1, sticky="ew")
-            self.botoes[comando] = botao
+            anel = AnelDeFoco(botoes, lambda pai, r=rotulo, c=comando: ttk.Button(
+                pai, text=r, command=lambda: self._executar(c), width=20))       # foco visível (§13.2)
+            anel.grid(row=k // 4, column=k % 4, padx=1, pady=1, sticky="ew")
+            self.botoes[comando] = anel.widget
         self.campo_texto.bind("<Return>", lambda e: self._executar("localizar_proximo"))
         self.campo_texto.bind("<Shift-Return>", lambda e: self._executar("localizar_anterior"))
         self.campo_substituto.bind("<Return>", lambda e: self._executar("substituir_e_localizar"))
