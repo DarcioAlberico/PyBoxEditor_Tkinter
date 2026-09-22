@@ -62,6 +62,14 @@ em `ui/editor/operacoes.py: OperacoesDoLivro`, registrado por
 `_registrar_comandos_da_ed08`. O OPF abre só para leitura (`epub.texto_do_opf`), e os
 clipes passam a valer no modo texto (o fragmento vira modelo).
 
+## A ED-11 na janela
+
+A ponte com o documento editorial mora em `Projeto` (`documento_editorial`, `diario`,
+`ponte`) e em `core/editor/importar_ir.py`; aqui ficam "Importar ▸ JSON editorial…" e
+`abrir_documento_editorial` (`ui/editor/conversoes.py`), "Abrir…" com `.json`, o
+`descrever_suspeita` que o painel Propriedades usa para mostrar motivos e leituras do
+bloco suspeito, a ação "Marcar como revisto" e as linhas da ponte no log ao salvar.
+
 ## A ED-05 na janela
 
 `ui/editor/xadrez.py: Xadrez` é dono do menu Xadrez (`_registrar_comandos_da_ed05`): o
@@ -105,7 +113,7 @@ from ui.editor.abas import Aba, Abas
 from ui.editor.busca import Buscador, PainelDeBusca
 from ui.editor.buscas_salvas import BuscasSalvas
 from ui.editor.codigo import EditorDeCodigo
-from ui.editor.conversoes import EXTENSOES_DE_HTML, EXTENSOES_DE_TXT, FORMATOS, Conversoes
+from ui.editor.conversoes import EXTENSOES_DE_HTML, EXTENSOES_DE_JSON, EXTENSOES_DE_TXT, FORMATOS, Conversoes
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
 from ui.editor.mensagens import PainelDeMensagens, logger
@@ -286,7 +294,8 @@ class JanelaDoEditor(tk.Toplevel):
         self.quadro_propriedades = ttk.LabelFrame(self.direita, text="Propriedades")
         self.painel_de_propriedades = PainelDePropriedades(self.quadro_propriedades, None,
                                                            ao_acao=self._acao_das_propriedades,
-                                                           verificar_destino=self.destino_existe)
+                                                           verificar_destino=self.destino_existe,
+                                                           descrever_suspeita=self.descrever_suspeita)
         self.painel_de_propriedades.pack(fill="both", expand=True)
         self.propriedades = self.painel_de_propriedades
         self.quadro_xadrez = ttk.LabelFrame(self.direita, text="Xadrez")
@@ -678,6 +687,8 @@ class JanelaDoEditor(tk.Toplevel):
             raise ValueError(f"o arquivo não existe: {caminho}")
         if caminho.lower().endswith(EXTENSOES_DE_HTML + EXTENSOES_DE_TXT):
             return self.conversoes.abrir_como_livro(caminho)          # ED-10: §10.6 "Abrir / importar"
+        if caminho.lower().endswith(EXTENSOES_DE_JSON):
+            return self.conversoes.importar_json(caminho)             # ED-11: o documento editorial
         if not self._confirmar_descarte():
             return None
         pendentes = Rascunho.pendentes(caminho)
@@ -860,6 +871,9 @@ class JanelaDoEditor(tk.Toplevel):
             self.log.warning("%s", aviso)
         self.log.info("Salvo: %s (%d capítulos, %.1f s).", self.projeto.caminho, getattr(relatorio, "capitulos", 0),
                       getattr(relatorio, "tempo_s", 0.0))
+        ponte = getattr(self.projeto, "ponte", None)
+        if ponte is not None:
+            self.status(f"Salvo: {self.projeto.nome} — ponte: {ponte.eventos} evento(s) no diário")
         self.atualizar()
 
     def reverter(self) -> Any:
@@ -1896,7 +1910,43 @@ class JanelaDoEditor(tk.Toplevel):
         if nome == "editar_posicao":
             self._texto().selecionar_objeto(alvo["id"])
             return self.executar("editar_posicao")
+        if nome == "limpar_suspeita":
+            feito = self._texto().limpar_suspeita(alvo["id"])
+            self.painel_de_propriedades.atualizar(forcar=True)
+            self.status("Bloco marcado como revisto" if feito else "O bloco não estava marcado como suspeito")
+            return feito
         return None
+
+    def descrever_suspeita(self, bloco: Any) -> tuple[list[str], list[str]]:
+        """
+        `(motivos, leituras)` de um bloco suspeito (ED-11, §10.6.5): as frases e as linhas com as
+        duas leituras vêm do documento editorial do projeto; sem ele, os códigos do `data-suspeito`.
+        """
+        codigos = str(getattr(bloco, "extras", {}).get("data-suspeito", "")).split()
+        motivos, leituras = list(codigos), []
+        documento = self.projeto.documento_editorial if self.projeto is not None else None
+        origem = getattr(bloco, "origem", None)
+        if documento is None or origem is None:
+            return motivos, leituras
+        for page in documento.pages:
+            if page.page_id != origem.page_id:
+                continue
+            block = next((b for b in page.blocks if b.id == origem.bloco_id), None)
+            if block is None:
+                break
+            frases = [str(f) for f in block.metadata.get("motivos") or []]
+            motivos = frases or motivos
+            evidencias = {e.id: e for e in page.evidence}
+            for linha in block.metadata.get("linhas") or []:
+                leituras.append(str(linha.get("texto", "")))
+                evidencia = evidencias.get(str(linha.get("evidence_id", "")))
+                for alternativa in (evidencia.alternatives if evidencia is not None else []):
+                    papel = alternativa.metadata.get("papel") or alternativa.source
+                    leituras.append(f"  {papel}: {alternativa.text}")
+                if evidencia is not None and evidencia.diagnostics:
+                    leituras.append("  motivos: " + "; ".join(evidencia.diagnostics))
+            break
+        return motivos, leituras
 
     def _resolver_destino(self, href: str, de_arquivo: str) -> tuple[str, str]:
         """`(arquivo, âncora)` de um href interno relativo ao OPF, ou `#id` do próprio capítulo."""
@@ -2116,7 +2166,7 @@ class JanelaDoEditor(tk.Toplevel):
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
                  "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, "
-                 "ED-09b, ED-10.")
+                 "ED-09b, ED-10, ED-11.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 

@@ -36,6 +36,8 @@ class _App:
             pytest.skip("sem display")
         self.win = MainWindow(self.root)
         self.win.image = Image.new("L", (400, 100), color=255)
+        # A caixa de conclusão (ED-11) é modal: o dublê põe o relatório em `avisos`.
+        self.win.DIALOGO_DE_CONCLUSAO = _conclusao_fixa(self.avisos)
         return self
 
     def __exit__(self, *a):
@@ -46,6 +48,18 @@ class _App:
             self.root.destroy()
         except Exception:
             pass
+
+
+def _conclusao_fixa(avisos):
+    class _Caixa:
+        def __init__(self, parent, titulo, linhas, caminho, **kw):
+            self.texto = "\n".join(list(linhas) + [f"Arquivo salvo em:\n{caminho}"])
+            self.abrir_no_editor = kw.get("abrir_no_editor")
+
+        def mostrar(self):
+            avisos.append(self.texto)
+
+    return _Caixa
 
 
 class _Extrator:

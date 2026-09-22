@@ -27,6 +27,16 @@ Uma cópia datada do EPUB em `<livro>.checkpoints/` (o Sigil faz igual). "Compar
 escreve o livro atual num EPUB temporário e faz `difflib` entrada por entrada;
 "Restaurar" põe o livro do ponto no lugar do atual, **sem gravar** — é a gravação
 seguinte que decide.
+
+## A ponte com o documento editorial (ED-11, DEC-10)
+
+Um projeto que veio do pipeline carrega `documento_editorial` (o `EditorialDocument`)
+e `diario` (o `review_journal_path`). `salvar_como` grava o EPUB e, com documento,
+chama `importar_ir.gravar_eventos`: cada bloco com origem cujo valor mudou vira um
+evento no diário, o documento projetado passa a ser o da sessão e o relatório da
+gravação recebe as linhas da ponte (`ponte`). Abrir um EPUB que guarda
+`pybox:documento_editorial` recarrega o JSON, se ele ainda existe — a ponte sobrevive
+à sessão.
 """
 
 from __future__ import annotations
@@ -102,13 +112,36 @@ class Projeto:
         #: Cresce a cada `marcar_sujo`; é o que o rascunho compara para não regravar o mesmo.
         self.revisao = 0
         self.uuid = uuid.uuid4().hex
+        #: A ponte (ED-11): o `EditorialDocument` de que o livro veio, o diário e o último relatório dela.
+        self.documento_editorial: Any = None
+        self.diario: str = ""
+        self.ponte: Any = None
 
     # -- abrir e criar ----------------------------------------------------
 
     @classmethod
     def abrir(cls, caminho: str, **kw: Any) -> "Projeto":
         livro, relatorio = epub.ler(caminho)
-        return cls(livro, caminho, relatorio, **kw)
+        projeto = cls(livro, caminho, relatorio, **kw)
+        projeto.religar_documento_editorial()
+        return projeto
+
+    def religar_documento_editorial(self) -> bool:
+        """O JSON que `pybox:documento_editorial` aponta, quando existe: a ponte volta a valer (DEC-10)."""
+        caminho = self.livro.origem.documento_editorial
+        if not caminho or not os.path.isfile(caminho):
+            return False
+        from core.editor import importar_ir
+        from core.editorial_model import EditorialDocument
+
+        try:
+            self.documento_editorial = EditorialDocument.load_json(caminho)
+        except (OSError, ValueError, KeyError, TypeError) as erro:
+            if self.relatorio is not None:
+                self.relatorio.aviso(f"documento editorial ilegível, ponte desligada: {caminho} ({erro})")
+            return False
+        self.diario = self.livro.origem.diario or importar_ir.caminho_do_diario(self.documento_editorial, caminho)
+        return True
 
     @classmethod
     def novo(cls, titulo: str = "Livro novo", autor: str = "", idioma: str = "pt", **kw: Any) -> "Projeto":
@@ -137,6 +170,11 @@ class Projeto:
 
     def salvar_como(self, caminho: str, **opcoes: Any) -> RelatorioDeConversao:
         rascunho_antigo = self.caminho_do_rascunho()
+        if self.documento_editorial is not None:
+            from core.editor import importar_ir
+
+            self.diario = self.diario or importar_ir.caminho_do_diario(self.documento_editorial, caminho)
+            self.livro.origem.diario = self.diario
         relatorio = epub.escrever(self.livro, caminho, **opcoes)
         epub.descarregar(self.livro)
         self.caminho = os.fspath(caminho)
@@ -144,6 +182,13 @@ class Projeto:
         self.relatorio = relatorio
         for velho in {rascunho_antigo, self.caminho_do_rascunho()}:
             _apagar(velho)
+        if self.documento_editorial is not None:
+            self.ponte = importar_ir.gravar_eventos(self.livro, self.documento_editorial, self.diario)
+            self.documento_editorial = self.ponte.documento
+            relatorio.avisos.extend(self.ponte.linhas())
+            relatorio.metadados["ponte"] = {"eventos": self.ponte.eventos, "editados": self.ponte.editados,
+                                            "apagados": self.ponte.apagados, "fundidos": self.ponte.fundidos,
+                                            "novos": len(self.ponte.novos), "diario": self.ponte.diario}
         return relatorio
 
     def reverter(self) -> RelatorioDeConversao:

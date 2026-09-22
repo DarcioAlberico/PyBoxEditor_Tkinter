@@ -27,15 +27,16 @@ class Calha(tk.Canvas):
         self._icones: dict[str, str] = {}      # id do bloco → tipo do ícone
         self.bind("<Configure>", lambda e: self.redesenhar())
 
-    def marcar(self, bloco_id: str, tipo: str | None) -> None:
-        """Dá ao bloco um ícone (`None` tira); redesenha."""
+    def marcar(self, bloco_id: str, tipo: str | None, redesenhar: bool = True) -> None:
+        """Dá ao bloco um ícone (`None` tira); redesenha (ou não: quem carrega em lote redesenha no fim)."""
         if tipo is None:
             self._icones.pop(bloco_id, None)
         else:
             if tipo not in ICONES:
                 raise ValueError(f"ícone desconhecido: {tipo!r} (há: {', '.join(ICONES)})")
             self._icones[bloco_id] = tipo
-        self.redesenhar()
+        if redesenhar:
+            self.redesenhar()
 
     def icone_de(self, bloco_id: str) -> str | None:
         return self._icones.get(bloco_id)

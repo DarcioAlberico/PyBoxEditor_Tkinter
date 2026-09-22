@@ -113,12 +113,16 @@ class DialogoRevisaoEditorial(tk.Toplevel):
                  imagem_da_pagina: Optional[Callable[[int], Optional[np.ndarray]]] = None,
                  abrir_diagrama: Optional[Callable[[ReviewItem, Optional[np.ndarray]],
                                                    Optional[str]]] = None,
-                 ao_exportar: Optional[Callable[[Any], None]] = None):
+                 ao_exportar: Optional[Callable[[Any], None]] = None,
+                 aviso_da_exportacao: str = ""):
         super().__init__(parent)
         self.session = session
         self.imagem_da_pagina = imagem_da_pagina
         self.abrir_diagrama = abrir_diagrama
         self.ao_exportar = ao_exportar
+        #: Com texto, "Exportar com as correções" fica desabilitado e o texto diz por quê
+        #: (SPEC_EDITOR DEC-10: o livro está no editor de livros; exporte por ele).
+        self.aviso_da_exportacao = aviso_da_exportacao
         self.title("Revisão editorial — OCR de xadrez")
         # Cabe em 768 px de altura com a barra de tarefas e a moldura da
         # janela, como a caixa de exportação (586): a 720 e a 660 a fileira
@@ -260,6 +264,11 @@ class DialogoRevisaoEditorial(tk.Toplevel):
             self.btn_exportar = ttk.Button(navegacao, text="Exportar com as correções…",
                                            command=self._exportar)
             self.btn_exportar.pack(side="right", padx=2)
+            if self.aviso_da_exportacao:
+                self.btn_exportar.state(["disabled"])
+                self.lbl_exportacao = ttk.Label(navegacao, text=self.aviso_da_exportacao,
+                                                foreground="#8a5a00")
+                self.lbl_exportacao.pack(side="right", padx=6)
         for key, command in (("a", self._accept), ("r", self._reject),
                              ("d", self._defer), ("s", self._batch),
                              ("g", self._diagrama), ("n", self._next),
@@ -531,6 +540,9 @@ class DialogoRevisaoEditorial(tk.Toplevel):
         self._refresh()
 
     def _exportar(self) -> None:
+        if self.aviso_da_exportacao:
+            messagebox.showinfo("Exportar com as correções", self.aviso_da_exportacao, parent=self)
+            return
         if self.ao_exportar is not None:
             self.ao_exportar(self.session.document)
 

@@ -13,6 +13,11 @@ O painel não sabe o que existe no livro: `verificar_destino(href)` é injetado 
 janela e diz se um link interno aponta para algo — quando não, o destino fica em
 vermelho (AC-ED04-4). As ações que precisam da janela (seguir o link, ir à nota,
 entrar na tabela, editar a ilha no mini-editor) saem por `ao_acao(nome, alvo)`.
+
+Da ED-11: todo bloco com `Origem` mostra de onde veio (página e bloco do documento
+editorial), e o bloco suspeito mostra os **motivos** e as **leituras** das linhas
+(`descrever_suspeita(bloco)`, injetado pela janela, que os tira do documento) e o botão
+"Marcar como revisto", que tira o `data-suspeito`.
 """
 
 from __future__ import annotations
@@ -37,11 +42,14 @@ COR_DE_ERRO = "#b00020"
 
 class PainelDePropriedades(ttk.Frame):
     def __init__(self, master: tk.Misc, texto: Any = None, ao_acao: Callable[[str, dict[str, Any]], Any] | None = None,
-                 verificar_destino: Callable[[str], bool] | None = None, **kw: Any):
+                 verificar_destino: Callable[[str], bool] | None = None,
+                 descrever_suspeita: Callable[[Any], tuple[list[str], list[str]]] | None = None, **kw: Any):
         super().__init__(master, **kw)
         self.texto_rico = texto
         self.ao_acao = ao_acao
         self.verificar_destino = verificar_destino
+        self.descrever_suspeita = descrever_suspeita
+        self.aneis_de_acao: list[AnelDeFoco] = []
         self.alvo: dict[str, Any] = {"tipo": "", "id": "", "objeto": None, "campos": {}}
         self.variaveis: dict[str, tk.Variable] = {}
         self.entradas: dict[str, tk.Widget] = {}
@@ -91,16 +99,17 @@ class PainelDePropriedades(ttk.Frame):
         self.variaveis.clear()
         self.entradas.clear()
         self.caixas_de_texto.clear()
-        if self.botao_acao is not None:
-            self.botao_acao.master.destroy()
-            self.botao_acao = None
+        for anel in self.aneis_de_acao:
+            anel.destroy()
+        self.aneis_de_acao.clear()
+        self.botao_acao = None
         self.aviso.configure(text="")
 
     def _montar(self) -> None:
         self._limpar()
         tipo, campos = self.alvo["tipo"], dict(self.alvo["campos"])
         self.titulo.configure(text=TITULOS.get(tipo, tipo.capitalize() or "Propriedades"))
-        linha = 0
+        linha = self._origem_e_suspeita(0)          # a proveniência e a suspeita primeiro: é o que se quer ver
         if tipo == "paragrafo":
             linha = self._combo("estilo", "Estilo:", campos.get("estilo", "corpo"), ESTILOS, linha)
             linha = self._combo("alinhamento", "Alinhamento:", campos.get("alinhamento") or "", ALINHAMENTOS, linha)
@@ -172,8 +181,41 @@ class PainelDePropriedades(ttk.Frame):
             linha = self._entrada("id", "Âncora (id):", campos.get("id", ""), linha)
             linha = self._entrada("classe", "Classe CSS:", campos.get("classe", ""), linha)
         else:
-            ttk.Label(self.corpo, text="Nada sob o cursor.", foreground="#555555").grid(row=0, column=0, sticky="w")
+            ttk.Label(self.corpo, text="Nada sob o cursor.", foreground="#555555").grid(row=linha, column=0, sticky="w")
         self.botao_aplicar.state(["!disabled"] if self.variaveis or self.caixas_de_texto else ["disabled"])
+
+    def _origem_e_suspeita(self, linha: int) -> int:
+        """A proveniência do bloco e, se é suspeito, os motivos, as leituras e "Marcar como revisto" (ED-11)."""
+        objeto = self.alvo.get("objeto")
+        origem = getattr(objeto, "origem", None)
+        extras = getattr(objeto, "extras", None) or {}
+        if origem is None and not extras.get("data-suspeito"):
+            return linha
+        if origem is not None:
+            fundidas = f" (+{len(origem.fundidas)} fundido(s))" if origem.fundidas else ""
+            linha = self._fixo("Origem:", f"página {origem.pagina + 1}, bloco {origem.bloco_id}{fundidas}", linha)
+        if extras.get("data-suspeito"):
+            motivos, leituras = [str(extras["data-suspeito"])], []
+            if self.descrever_suspeita is not None:
+                try:
+                    motivos, leituras = self.descrever_suspeita(objeto)
+                except Exception:      # noqa: BLE001 — o painel mostra os códigos e segue
+                    pass
+            linha = self._fixo("Suspeito:", "\n".join(motivos) or str(extras["data-suspeito"]), linha)
+            if leituras:
+                linha = self._texto_fixo("Leituras:", leituras, linha)
+            self._acao("Marcar como revisto", "limpar_suspeita")
+        return linha
+
+    def _texto_fixo(self, rotulo: str, linhas: list[str], linha: int) -> int:
+        self._rotulo(rotulo, linha)
+        caixa = tk.Text(self.corpo, width=24, height=min(8, max(2, len(linhas))), wrap="word", font=("Consolas", 9),
+                        highlightthickness=1, exportselection=False)
+        caixa.insert("1.0", "\n".join(linhas))
+        caixa.configure(state="disabled")
+        caixa.grid(row=linha, column=0, columnspan=2, sticky="nsew", pady=1)
+        self.caixa_de_leituras = caixa
+        return linha + 1
 
     # -- os campos ---------------------------------------------------------
 
@@ -228,6 +270,7 @@ class PainelDePropriedades(ttk.Frame):
     def _acao(self, rotulo: str, nome: str) -> None:
         anel = AnelDeFoco(self.rodape, lambda pai: ttk.Button(pai, text=rotulo, command=lambda: self.acao(nome)))
         anel.pack(side="left")
+        self.aneis_de_acao.append(anel)
         self.botao_acao = anel.widget
 
     def _conferir_destino(self, href: str) -> bool:

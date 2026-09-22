@@ -2144,7 +2144,11 @@ class MainWindow(tk.Frame):
                           + (" — Revisar → Revisar documento editorial mostra cada "
                              "um com o recorte, as duas leituras e o motivo."
                              if suspeitos else "."))
-            messagebox.showinfo("Documento editorial concluído", "\n".join(linhas))
+            # A caixa termina com "Abrir no editor" (ED-11, SPEC_EDITOR §7.2): o livro
+            # montado do documento, com a proveniência de cada bloco e a ponte ligada.
+            self.DIALOGO_DE_CONCLUSAO(
+                self.parent, "Documento editorial concluído", linhas, arquivos[0],
+                abrir_no_editor=self._abridor_do_editor(documento)).mostrar()
 
         self._run_task("Processamento editorial", trabalho, concluir,
                        indeterminado=True)
@@ -2212,9 +2216,13 @@ class MainWindow(tk.Frame):
 
         ao_exportar = (self._exportar_documento_revisado
                        if getattr(self, "exportacao_editorial", None) else None)
+        # Duas verdades, uma resposta (SPEC_EDITOR DEC-10): com o livro aberto no editor
+        # de livros, a fila não regrava o arquivo — quem exporta é o editor.
+        aviso = ("o livro está no editor; exporte por ele"
+                 if ao_exportar is not None and self._editor_sobre(documento) else "")
         janela = DialogoRevisaoEditorial(
             self, sessao, imagem_da_pagina=provedor.imagem,
-            abrir_diagrama=abrir_diagrama, ao_exportar=ao_exportar)
+            abrir_diagrama=abrir_diagrama, ao_exportar=ao_exportar, aviso_da_exportacao=aviso)
         janela.bind("<Destroy>", lambda e: provedor.fechar() if e.widget is janela else None)
         janela.mostrar()
 
@@ -2254,12 +2262,29 @@ class MainWindow(tk.Frame):
 
         def concluir(arquivos):
             eventos = len(documento.review_events)
-            messagebox.showinfo(
-                "Exportação concluída",
-                f"Arquivo salvo em:\n{arquivos[0]}\n\n"
-                f"Eventos de revisão aplicados: {eventos}")
+            self.DIALOGO_DE_CONCLUSAO(
+                self.parent, "Exportação concluída",
+                [f"Eventos de revisão aplicados: {eventos}"], arquivos[0],
+                abrir_no_editor=self._abridor_do_editor(documento)).mostrar()
 
         self._run_task("Exportação revisada", trabalho, concluir, indeterminado=True)
+
+    def _abridor_do_editor(self, documento):
+        """O `abrir_no_editor` da caixa de conclusão: o arquivo exportado **e** o documento da sessão."""
+        return lambda caminho, d=documento: self.abrir_editor_de_livro(caminho, documento=d)
+
+    def _editor_sobre(self, documento) -> bool:
+        """O editor de livros está aberto sobre este documento (a ponte é dele; a fila não exporta)."""
+        editor = self.editor
+        try:
+            if editor is None or not editor.winfo_exists():
+                return False
+        except Exception:      # noqa: BLE001 — janela já destruída
+            return False
+        projeto = getattr(editor, "projeto", None)
+        aberto = getattr(projeto, "documento_editorial", None)
+        return aberto is not None and documento is not None \
+            and aberto.document_id == getattr(documento, "document_id", None)
 
     def preparar_dataset_correcoes_action(self):
         """Materializa somente eventos editoriais confirmados para o treino."""
@@ -2288,11 +2313,14 @@ class MainWindow(tk.Frame):
     #: A caixa do fim de "Exportar livro" (ED-02); o teste põe um dublê no lugar.
     DIALOGO_DE_CONCLUSAO = DialogoDeConclusao
 
-    def abrir_editor_de_livro(self, caminho=None):
+    def abrir_editor_de_livro(self, caminho=None, documento=None):
         """
         Arquivo → Editor de livro... (ED-02): a janela de edição, separada e sem
         bloquear esta (SPEC_EDITOR DEC-09). Uma só por vez — chamada de novo, traz
-        a que existe para a frente e, com `caminho`, abre o livro nela. O import
+        a que existe para a frente e, com `caminho`, abre o livro nela. Com
+        `documento` (ED-11, §7.2), o livro é montado do `EditorialDocument` da
+        sessão — com a proveniência de cada bloco e a ponte ligada — e `caminho` é
+        o arquivo que a sessão exportou (um EPUB vira o caminho do projeto). O import
         fica aqui dentro para a janela principal não carregar o editor (nem o
         editor carregar o OCR) antes de alguém pedir.
         """
@@ -2303,7 +2331,9 @@ class MainWindow(tk.Frame):
             self.editor.lift()
         else:
             self.editor = JanelaDoEditor(self.parent, task_controller=None)
-        if caminho:
+        if documento is not None:
+            self.editor.executar("abrir_documento_editorial", documento, caminho or "")
+        elif caminho:
             self.editor.executar("abrir", caminho)
         return self.editor
 

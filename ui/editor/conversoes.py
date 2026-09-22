@@ -25,6 +25,15 @@ O EPUB exportado é uma cópia (o projeto continua no seu arquivo); mas o HTML e
 embutem as fontes que o livro usa (`core/editor/fontes.py`) e desenham os PNG dos
 diagramas, e esses recursos **ficam** no livro — são dele. Quando entra recurso novo, o
 livro fica sujo e o navegador é refeito; é honesto: ele ganhou arquivos.
+
+## O documento editorial (ED-11)
+
+"Importar ▸ JSON editorial…" e "Abrir…" com um `.json` montam o livro do
+`EditorialDocument` (`core/editor/importar_ir.py`) **como livro** — um documento é um
+livro inteiro, com a `Origem` em cada bloco e a ponte ligada (`Projeto.documento_editorial`
+e `diario`); a janela principal chega aqui por `abrir_documento_editorial(documento,
+caminho)`, com o documento da sessão e o arquivo que ela exportou (um EPUB vira o
+caminho do projeto: Salvar grava nele).
 """
 
 from __future__ import annotations
@@ -32,7 +41,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable
 
-from core.editor import epub, html_io, livro_ops, txt_io
+from core.editor import epub, html_io, importar_ir, livro_ops, txt_io
 from core.editor.projeto import Projeto
 
 #: (formato, rótulo, fase que o entrega, extensão, tipos da caixa de arquivo)
@@ -51,6 +60,8 @@ TIPOS_DE_TXT = (("Texto", "*.txt"), ("Todos os arquivos", "*.*"))
 TIPOS_DE_EPUB = (("Livro EPUB", "*.epub"), ("Todos os arquivos", "*.*"))
 EXTENSOES_DE_HTML = (".html", ".htm", ".xhtml")
 EXTENSOES_DE_TXT = (".txt",)
+EXTENSOES_DE_JSON = (".json",)
+TIPOS_DE_JSON = (("Documento editorial", "*.json"), ("Todos os arquivos", "*.*"))
 
 
 class Conversoes:
@@ -61,6 +72,8 @@ class Conversoes:
             "exportar": c.exportar, "importar_html": c.importar_html, "importar_txt": c.importar_txt,
             "importar_epub": c.importar_epub, "dividir_por_titulo": c.dividir_por_titulo,
             "dividir_nos_marcadores": c.dividir_nos_marcadores, "juntar_por_titulo": c.juntar_por_titulo,
+            # ED-11
+            "importar_json": c.importar_json, "abrir_documento_editorial": c.abrir_documento_editorial,
         }
 
     # -- utilidades -----------------------------------------------------------
@@ -235,6 +248,62 @@ class Conversoes:
 
     def importar_epub(self, caminho: str | None = None) -> Any:
         return self._importar(caminho, TIPOS_DE_EPUB, "EPUB para dentro do livro", "importar")
+
+    # -- o documento editorial (ED-11) ------------------------------------------
+
+    def importar_json(self, caminho: str | None = None, dividir: str | None = None) -> Projeto | None:
+        """Importar ▸ JSON editorial…: o documento vira o livro, com a ponte ligada (§10.6.5, DEC-10)."""
+        j = self.j
+        if caminho is None:
+            caminho = j.caixas.abrir(TIPOS_DE_JSON, self._diretorio("importar"), "Importar JSON editorial")
+            if not caminho:
+                return None
+        caminho = os.path.abspath(os.fspath(caminho))
+        if not os.path.isfile(caminho):
+            raise ValueError(f"o arquivo não existe: {caminho}")
+        from core.editorial_model import EditorialDocument
+
+        try:
+            documento = EditorialDocument.load_json(caminho)
+        except (OSError, ValueError, KeyError, TypeError) as erro:
+            raise ValueError(f"não é um documento editorial: {os.path.basename(caminho)} ({erro})") from None
+        self._guardar_diretorio("importar", caminho)
+        return self.abrir_documento_editorial(documento, caminho, dividir)
+
+    def abrir_documento_editorial(self, documento: Any, caminho: str = "", dividir: str | None = None) \
+            -> Projeto | None:
+        """
+        O `EditorialDocument` aberto como livro (§7.2, §10.6.5): `caminho` é o JSON de onde ele
+        veio ou o arquivo que a sessão exportou — um EPUB vira o caminho do projeto (Salvar grava
+        nele); qualquer outro deixa o projeto sem caminho. A ponte fica em `Projeto`.
+        """
+        j = self.j
+        if not j._confirmar_descarte():
+            return None
+        dividir = dividir or j._preferencia("dividir_documento_editorial", "titulo") or "titulo"
+        caminho = os.path.abspath(os.fspath(caminho)) if caminho else ""
+        json_de_origem = caminho if caminho.lower().endswith(EXTENSOES_DE_JSON) else ""
+        j.status("Montando o livro do documento editorial…")
+        j.configure(cursor="watch")
+        try:
+            livro, relatorio = importar_ir.de_documento(documento, dividir=dividir, caminho=json_de_origem)
+        finally:
+            j.configure(cursor="")
+        projeto = Projeto(livro, caminho if caminho.lower().endswith(".epub") else None, relatorio, relogio=j.relogio)
+        projeto.documento_editorial = documento
+        projeto.diario = importar_ir.caminho_do_diario(documento, caminho or json_de_origem)
+        livro.origem.diario = projeto.diario
+        j._instalar_projeto(projeto)
+        if not projeto.caminho:
+            projeto.marcar_sujo()
+        suspeitos = sum(1 for cap in livro.capitulos for b in cap.blocos if b.extras.get("data-suspeito"))
+        j.log.info("Documento editorial aberto como livro: %s (%d capítulos, %d páginas, %d bloco(s) suspeito(s); "
+                   "diário: %s).", documento.document_id, len(livro.capitulos),
+                   relatorio.metadados.get("paginas", 0), suspeitos, projeto.diario or "(nenhum)")
+        j.status(f"Documento editorial aberto: {documento.title or documento.document_id}"
+                 + (f" — {suspeitos} bloco(s) suspeito(s) (! na calha)" if suspeitos else ""))
+        j.atualizar()
+        return projeto
 
     # -- dividir e juntar -------------------------------------------------------
 

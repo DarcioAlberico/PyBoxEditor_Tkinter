@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b e ED-10 implementadas** (2026-09-21)
+Status: **ED-pré commitada; ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b, ED-10 e ED-11 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1901,6 +1901,60 @@ importar_ir.py`, `_ponte.py`.
 .venv/Scripts/python.exe -m pytest tests/test_editor_importar_ir.py tests/test_editor_ponte.py tests/test_editorial_review_phase5.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/importar_ir.py` (`de_documento`, `de_paginas`, `ler`,
+`caminho_do_diario`, `eventos_de` → `Mudanca(bloco_id, after, motivo)`, `gravar_eventos` →
+`RelatorioDaPonte`), `core/editor/projeto.py` (`documento_editorial`, `diario`, `ponte`;
+`salvar_como` grava os eventos depois do EPUB; `abrir` religa o JSON que
+`pybox:documento_editorial` aponta), `ui/editor/conversoes.py` (`importar_json`,
+`abrir_documento_editorial`; "Abrir…" aceita `.json`), `ui/editor/texto_rico.py` (a tag
+`suspeito` e o `!` na calha nascem do `data-suspeito` ao desenhar o bloco; `suspeitos()`,
+`limpar_suspeita()`), `ui/editor/propriedades.py` (Origem, Suspeito, Leituras e "Marcar como
+revisto" no topo do painel, por `descrever_suspeita` da janela), `ui/main_window.py`
+(`DIALOGO_DE_CONCLUSAO` com "Abrir no editor" no fim do processamento editorial e da
+exportação revisada, `abrir_editor_de_livro(caminho, documento=)`, a fila com o botão
+desabilitado e o aviso quando o editor está sobre o documento),
+`ui/dialogo_revisao_editorial.py` (`aviso_da_exportacao`) e os testes
+`tests/test_editor_importar_ir.py` (8) e `tests/test_editor_ponte.py` (5; a janela principal
+com dublês da caixa de conclusão e da fila). `tests/test_revisao_na_janela.py` ganhou o
+dublê da caixa de conclusão (a de verdade é modal). Conferido na tela com o processo
+DPI-aware: o livro montado do documento sintético, os dois suspeitos amarelos com o `!`, o
+painel com origem, motivo e as duas leituras da linha.
+
+**O que divergiu da spec, e por quê:**
+
+- **`page_break` no meio da página vira `QuebraDePagina`**, não uma segunda
+  `MarcaDePagina(page_index + 1)`: a marca da página já entrou quando a página começou
+  (§6.1: marca impressa não é quebra), e uma segunda com o mesmo número seria ruído na
+  `page-list`. Toda página nova continua dando a marca.
+- **A `Figura` que veio de um `diagram` sem `fen`** leva o aviso em `alt` e em
+  `extras["title"]` (o modelo não tem `Figura.aviso`), e a suspeita em `data-suspeito`.
+- **`data-suspeito` são os códigos** (`reason_codes` menos a procedência do adapter;
+  `review_required` quando só há a marca); as frases e as leituras vêm do documento
+  editorial do projeto, na hora de mostrar — o EPUB carrega os códigos, não as frases.
+- **A tabela não gera evento pelo preenchimento retangular** da ida (`[["a","b"],["c"]]`
+  → `["c",""]`): o valor volta igual quando só as células vazias diferem.
+- **O diagrama só gera evento quando a colocação ou a orientação muda**: o lado a jogar
+  não existe no IR (DEC-06), então mudar só o lado não é mudança para a fila; o `after`
+  é o dicionário inteiro com `fen`/`orientation` trocados.
+- **"Abrir no editor" monta o livro do documento em todo formato, inclusive EPUB**: o
+  EPUB do escritor histórico não tem `data-origem-*`, e a ponte precisa da origem; o EPUB
+  exportado vira o **caminho do projeto** (Salvar grava nele, pelo editor), os outros
+  formatos deixam o projeto sem caminho.
+- **O EPUB salvo religa o JSON ao reabrir** (`Projeto.abrir` → `religar_documento_editorial`
+  pelo `pybox:documento_editorial`); sem o JSON no lugar, a ponte fica desligada, sem erro.
+- **`header`, `footer` e `page_break` nunca geram `reject`** (não viram bloco do livro); o
+  bloco já `rejected` no documento também não; a origem **repetida** (um bloco duplicado)
+  conta como bloco novo, com aviso.
+- **A fila com o editor aberto**: o botão "Exportar com as correções…" fica desabilitado
+  com o aviso ao lado (`aviso_da_exportacao`), em vez de sumir — quem vê sabe por quê.
+- **`cv2` entra no processo do editor só ao salvar um livro com ponte**:
+  `core.editorial_review` puxa `editorial_suspeitas` → `notacao`; `importar_ir` só importa
+  `core.editorial_model` (leve) no topo, e o AC-ED02-7 continua verde.
+- **A caixa de conclusão do processamento editorial** substituiu o `messagebox.showinfo`
+  (§7.2); o teste da janela principal ganhou o dublê dela.
+
 ---
 
 ## ED-12 — PDF paginado, PGN, índice, itens de menu DOCX/PDF/PGN, relatório único, medição
@@ -2010,6 +2064,6 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-09 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | estilos do Word `builtin`; `STYLEREF 1`; `OS/2` v3 na Merida; folga de 1,5 pt na caixa; `notas="rodape"` respeita o tipo; quebra de capítulo pelo estilo; só alvo existente vira marcador; sumário 1–3 |
 | ED-09b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | leitura sem `python-docx` (zip + etree); estilo pela cadeia `basedOn`; legenda casada pela posição; orientação que reproduz as linhas; PNG-FEN sem guardar a imagem; `pg-n` começo/meio; texto `Ilha` volta como texto; `gridSpan` = células vazias; formato de página |
 | ED-10 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | fontes lidas à mão (`core/editor/fontes.py`) e bloco `pybox:fontes` na folha; HTML5 pela árvore com ids prefixados; `ler` volta pelas seções; `<p><img>` = figura; fechamento opcional no `consertar`; fatia do elemento vazio no `xhtml`; TXT mínimo que volta; importar anexa ou vira o livro; exportar pode sujar; fontes necessárias contam como usadas |
-| ED-11 | a fazer | | | |
+| ED-11 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `page_break` no meio da página vira `QuebraDePagina`; `Figura` sem posição leva o aviso em `alt`/`title`; suspeita = códigos em `data-suspeito`, frases e leituras vindas do documento; a tabela ignora o preenchimento retangular; o `Diagrama` só gera evento quando a colocação ou a orientação muda; um EPUB exportado vira o caminho do projeto; o EPUB salvo religa o JSON ao reabrir; `page_break`/`header`/`footer` não geram `reject`; a fila com "Exportar" desabilitado pelo `aviso_da_exportacao`; `cv2` entra no editor só ao salvar um livro com ponte |
 | ED-12 | a fazer | | | |
 | ED-13 | a fazer | | | |

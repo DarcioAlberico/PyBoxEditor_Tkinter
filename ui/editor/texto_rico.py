@@ -759,6 +759,13 @@ class TextoRico(ttk.Frame):
             self._ordem.append(bloco.id)
         self._modelo[bloco.id] = bloco
         self._ptags[bloco.id] = ptags
+        # O bloco que o pipeline pôs na fila (ED-11, §10.6.5): a tag `suspeito` e o `!` na calha
+        # vêm do `data-suspeito` do modelo, e vão embora com ele (`limpar_suspeita`).
+        if bloco.extras.get("data-suspeito"):
+            texto.tag_add("suspeito", inicio, fim)
+            self.calha.marcar(bloco.id, "suspeito", redesenhar=not self._em_carga)
+        elif self.calha.icone_de(bloco.id) == "suspeito":
+            self.calha.marcar(bloco.id, None, redesenhar=not self._em_carga)
 
     def _desenhar_lista(self, lista: Lista, ptags: tuple[str, ...]) -> None:
         contadores: dict[int, int] = {}
@@ -2224,6 +2231,24 @@ class TextoRico(ttk.Frame):
         else:
             self._reescrever_bloco(bloco_id, novo)
 
+    def suspeitos(self) -> list[str]:
+        """Os ids dos blocos com `data-suspeito` (ED-11), na ordem do capítulo."""
+        return [i for i in self._ordem if getattr(self._modelo.get(i), "extras", {}).get("data-suspeito")]
+
+    def limpar_suspeita(self, bloco_id: str) -> bool:
+        """"Marcar como revisto": tira o `data-suspeito` do bloco (um ponto de desfazer); a tag e o `!` vão junto."""
+        bloco = self._modelo.get(bloco_id)
+        if bloco is None or not bloco.extras.get("data-suspeito"):
+            return False
+        novo = copy.deepcopy(bloco)
+        novo.extras.pop("data-suspeito", None)
+        if isinstance(bloco, TIPOS_DE_OBJETO):
+            self.substituir_objeto(bloco_id, novo)
+        else:
+            self._reescrever_bloco(bloco_id, novo)
+        self.calha.marcar(bloco_id, None)
+        return True
+
     # ------------------------------------------------------------------
     # Objetos: substituir, ilhas, o objeto sob o cursor
     # ------------------------------------------------------------------
@@ -3479,8 +3504,11 @@ class _SemCalha:
     def redesenhar(self) -> None:
         pass
 
-    def marcar(self, bloco_id: str, tipo: str | None) -> None:
+    def marcar(self, bloco_id: str, tipo: str | None, redesenhar: bool = True) -> None:
         pass
+
+    def icone_de(self, bloco_id: str) -> str | None:
+        return None
 
     def limpar(self) -> None:
         pass
