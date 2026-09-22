@@ -2,7 +2,7 @@
 Testes dos itens de menu da ED-10 na janela (SPEC_EDITOR §7.3 "Importar ▸", "Exportar…",
 §9.5): cada item da seção ED-10 chama o seu comando (espião + `invoke`) e "Importar ▸
 EPUB para dentro do livro…" anexa renomeando colisões (AC-ED10-5); "Exportar…" escreve
-HTML único, HTML em pasta e TXT pela caixa de conclusão (DOCX ainda diz a fase);
+HTML único, HTML em pasta e TXT pela caixa de conclusão (DOCX, PDF e PGN são da ED-12);
 "Importar ▸ HTML/TXT" anexa ao livro aberto, e sem livro aberto vira o livro (como
 "Abrir…" com um `.html`/`.txt`); "Dividir em capítulos por título…", "Dividir nos
 marcadores" e "Juntar em capítulos por título…" pelo comando, com as abas e o sumário
@@ -78,7 +78,7 @@ def test_ac5_importar_epub_anexa_renomeando_colisoes_e_reescrevendo_os_links(tmp
         assert "não sei importar" in t.caixas.entradas()[-1]
 
 
-def test_exportar_html_unico_pasta_e_txt_pela_caixa_de_conclusao_e_docx_diz_a_fase(tmp_path):
+def test_exportar_html_unico_pasta_e_txt_pela_caixa_de_conclusao(tmp_path):
     with Janela() as t:
         j = t.j
         unico = str(tmp_path / "livro.html")
@@ -106,8 +106,6 @@ def test_exportar_html_unico_pasta_e_txt_pela_caixa_de_conclusao_e_docx_diz_a_fa
         assert "Fonts/SkakNew-Diagram.otf" in livro.recursos and j.projeto.sujo
         assert j.navegador.exists("Fonts/SkakNew-Diagram.otf")
         assert livro.zip_de_origem == t.epub                            # o projeto continua no seu arquivo
-        j.executar("exportar", "docx", str(tmp_path / "x.docx"))
-        assert "ED-12" in t.caixas.entradas()[-1]
         j.executar("exportar", "zzz", str(tmp_path / "x"))
         assert "formato desconhecido" in t.caixas.entradas()[-1]
         # a caixa de formato: o índice escolhido é o formato; cancelar não faz nada

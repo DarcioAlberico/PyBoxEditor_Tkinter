@@ -62,6 +62,8 @@ class Xadrez:
             # ED-05b
             "marcas_e_setas": x.marcas_e_setas, "legenda_sugerida": x.legenda_sugerida,
             "chave_de_simbolos": x.chave_de_simbolos,
+            # ED-12
+            "gerar_indice": x.gerar_indice,
         }
         self.so_no_texto = ("editar_posicao", "diagrama_dos_lances", "girar_diagrama", "coordenadas_do_diagrama",
                             "lado_a_jogar", "indicador_de_lado", "figurinas_para_letras", "letras_para_figurinas",
@@ -74,6 +76,7 @@ class Xadrez:
         janela.itens_dinamicos["nags"] = self.itens_de_nags
         janela.itens_dinamicos["figurinas_letras"] = self.itens_de_letras
         janela.itens_dinamicos["numerar"] = self.itens_de_numerar
+        janela.itens_dinamicos["indice"] = self.itens_de_indice
         janela.variaveis["figurinas_ao_digitar"].set(bool(janela._preferencia("figurinas_ao_digitar", True)))
 
     # -- painel e barra ------------------------------------------------------------
@@ -265,6 +268,28 @@ class Xadrez:
             aviso = f" — lado proposto: {rotulo} (não gravado; Lado a jogar ▸ grava)"
         self.j.status(f"Legenda: {legenda or '(vazia)'}{aviso}")
         return legenda
+
+    def gerar_indice(self, tipo: str = "jogadores") -> str:
+        """Xadrez → Índice ▸ (§11.9): a página do índice de jogadores, partidas ou aberturas, refeita no lugar."""
+        from core.editor import indice
+
+        j = self.j
+        projeto = j._exigir_projeto()
+        j._sincronizar_tudo()
+        cap = indice.gerar(projeto.livro, tipo, idioma=self._idioma())
+        entradas = len(cap.blocos) - 1
+        j.operacoes._depois(cap.arquivo)
+        for aba in list(j.abas.abas):
+            if aba.tipo == "capitulo" and aba.arquivo != cap.arquivo:
+                j._recarregar_aba(aba)                     # os alvos ganharam id persistente
+        j.abrir_capitulo(cap.arquivo)
+        j.status(f"Índice de {tipo}: {entradas} entrada(s) em {cap.arquivo}")
+        j.log.info("Índice de %s refeito: %s (%d entradas).", tipo, cap.arquivo, entradas)
+        return cap.arquivo
+
+    def itens_de_indice(self) -> list[tuple[str, Callable[[], Any] | None]]:
+        return [(rotulo, lambda t=tipo: self.j.executar("gerar_indice", t))
+                for tipo, rotulo in (("jogadores", "Jogadores"), ("partidas", "Partidas"), ("aberturas", "Aberturas"))]
 
     def chave_de_simbolos(self) -> str:
         """Chave de símbolos (§11.10): o capítulo `glossary` com os NAGs usados, aberto no fim."""

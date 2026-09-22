@@ -26,6 +26,15 @@ embutem as fontes que o livro usa (`core/editor/fontes.py`) e desenham os PNG do
 diagramas, e esses recursos **ficam** no livro — são dele. Quando entra recurso novo, o
 livro fica sujo e o navegador é refeito; é honesto: ele ganhou arquivos.
 
+## DOCX, PDF e PGN (ED-12)
+
+"Exportar…" passou a escrever DOCX (`docx_io`), PDF paginado (`pdf_io`, com `Livro.pagina`)
+e PGN (`pgn_io`, o capítulo ativo); "Imprimir…" é o PDF numa pasta temporária aberto no
+leitor do sistema; "Importar ▸ DOCX…" lê pelo `docx_io.ler`; "Formato de página…" edita
+o `FormatoDePagina` do livro numa caixa de formulário; "Exportar PGN do capítulo…" é o
+mesmo PGN sem a caixa de formato. As opções de conversão vêm das preferências
+(`modo_diagrama`, `notas`) — a caixa de formato não pergunta duas vezes.
+
 ## O documento editorial (ED-11)
 
 "Importar ▸ JSON editorial…" e "Abrir…" com um `.json` montam o livro do
@@ -41,8 +50,10 @@ from __future__ import annotations
 import os
 from typing import Any, Callable
 
-from core.editor import epub, html_io, importar_ir, livro_ops, txt_io
+from core.editor import docx_io, epub, html_io, importar_ir, livro_ops, modelo, pdf_io, pgn_io, txt_io
+from core.editor.conversao import OpcoesDeConversao
 from core.editor.projeto import Projeto
+from ui.editor.operacoes import _lancar_padrao
 
 #: (formato, rótulo, fase que o entrega, extensão, tipos da caixa de arquivo)
 FORMATOS: tuple[tuple[str, str, str, str, tuple[tuple[str, str], ...]], ...] = (
@@ -54,7 +65,12 @@ FORMATOS: tuple[tuple[str, str, str, str, tuple[tuple[str, str], ...]], ...] = (
     ("pdf", "PDF paginado", "ED-12", ".pdf", (("PDF", "*.pdf"),)),
     ("pgn", "PGN", "ED-12", ".pgn", (("PGN", "*.pgn"),)),
 )
-FASES_PRONTAS = ("ED-02", "ED-10")
+FASES_PRONTAS = ("ED-02", "ED-10", "ED-12")
+TIPOS_DE_DOCX = (("Word", "*.docx"), ("Todos os arquivos", "*.*"))
+TIPOS_DE_PGN = (("PGN", "*.pgn"), ("Todos os arquivos", "*.*"))
+EXTENSOES_DE_DOCX = (".docx",)
+SIM_NAO = ("sim", "não")
+CABECALHOS = ("titulo", "capitulo", "nenhum")
 TIPOS_DE_HTML = (("HTML/XHTML", "*.html *.htm *.xhtml"), ("Todos os arquivos", "*.*"))
 TIPOS_DE_TXT = (("Texto", "*.txt"), ("Todos os arquivos", "*.*"))
 TIPOS_DE_EPUB = (("Livro EPUB", "*.epub"), ("Todos os arquivos", "*.*"))
@@ -74,7 +90,12 @@ class Conversoes:
             "dividir_nos_marcadores": c.dividir_nos_marcadores, "juntar_por_titulo": c.juntar_por_titulo,
             # ED-11
             "importar_json": c.importar_json, "abrir_documento_editorial": c.abrir_documento_editorial,
+            # ED-12
+            "importar_docx": c.importar_docx, "imprimir": c.imprimir, "exportar_pgn": c.exportar_pgn,
+            "formato_de_pagina": c.formato_de_pagina,
         }
+        #: Quem abre o arquivo no programa do sistema ("Imprimir…"); o teste troca.
+        self.abrir_no_sistema: Callable[[str], Any] = _lancar_padrao
 
     # -- utilidades -----------------------------------------------------------
 
@@ -91,6 +112,11 @@ class Conversoes:
                   f"Figuras: {relatorio.figuras} · Notas: {relatorio.notas} · Ilhas: {relatorio.ilhas}"]
         if relatorio.fontes_embutidas:
             linhas.append(f"Fontes embutidas: {', '.join(relatorio.fontes_embutidas)}")
+        if relatorio.metadados.get("paginas"):
+            linhas.append(f"Páginas: {relatorio.metadados['paginas']}")
+        if relatorio.metadados.get("partidas") is not None:
+            linhas.append(f"Partidas: {relatorio.metadados['partidas']}")
+        linhas.append(f"Tempo: {relatorio.tempo_s:.1f} s")
         linhas.append(f"Tempo: {relatorio.tempo_s:.1f} s")
         if relatorio.avisos:
             linhas += ["", f"Avisos ({len(relatorio.avisos)}):"] + [f"  {a}" for a in relatorio.avisos[:20]]
@@ -100,10 +126,18 @@ class Conversoes:
 
     # -- exportar ---------------------------------------------------------------
 
+    def _opcoes(self) -> OpcoesDeConversao:
+        """As opções de conversão (§10.8) que valem para DOCX e PDF: das preferências do editor."""
+        j = self.j
+        return OpcoesDeConversao(modo_de_diagrama=j._preferencia("modo_diagrama", "png") or "png",
+                                 notas=j._preferencia("notas", "rodape") or "rodape",
+                                 fonte=j._preferencia("fonte_diagrama", modelo.FONTE_PADRAO) or modelo.FONTE_PADRAO,
+                                 idioma=j.projeto.livro.metadados.idioma if j.projeto is not None else "")
+
     def exportar(self, formato: str | None = None, caminho: str | None = None) -> str | None:
         """
-        A caixa de formato (§7.3): EPUB (uma cópia), HTML único, HTML em pasta e TXT; o
-        que ainda não existe diz a fase. Devolve o caminho escrito (o `index.html` da pasta).
+        A caixa de formato (§7.3): EPUB (uma cópia), HTML único, HTML em pasta, TXT, DOCX, PDF
+        paginado e PGN (o capítulo ativo). Devolve o caminho escrito (o `index.html` da pasta).
         """
         j = self.j
         projeto = j._exigir_projeto()
@@ -120,6 +154,8 @@ class Conversoes:
         _formato, rotulo, fase, extensao, tipos = entrada
         if fase not in FASES_PRONTAS:
             raise ValueError(f"exportar em {formato} chega na {fase}")
+        if formato == "pgn":
+            return self.exportar_pgn(caminho)
         if caminho is None:
             base = _nome_seguro(projeto.livro.metadados.titulo)
             if formato == "html-pasta":
@@ -150,6 +186,12 @@ class Conversoes:
             elif formato == "html-pasta":
                 relatorio = html_io.escrever_pasta(livro, caminho)
                 escrito = relatorio.arquivos[0] if relatorio.arquivos else caminho
+            elif formato == "docx":
+                relatorio = docx_io.escrever(livro, caminho, self._opcoes())
+                escrito = caminho
+            elif formato == "pdf":
+                relatorio = pdf_io.escrever(livro, caminho, self._opcoes())
+                escrito = caminho
             else:
                 relatorio = txt_io.escrever(livro, caminho)
                 escrito = caminho
@@ -177,12 +219,14 @@ class Conversoes:
             return html_io.ler(caminho)
         if ext in EXTENSOES_DE_TXT:
             return txt_io.ler(caminho, idioma=self.j._preferencia("idioma_ortografia", "") or "pt")
+        if ext in EXTENSOES_DE_DOCX:
+            return docx_io.ler(caminho)
         if ext == ".epub":
             try:
                 return epub.ler(caminho)
             except epub.ErroDeEpub as erro:
                 raise ValueError(str(erro)) from None
-        raise ValueError(f"não sei importar {ext or 'um arquivo sem extensão'}: use HTML, XHTML, TXT ou EPUB")
+        raise ValueError(f"não sei importar {ext or 'um arquivo sem extensão'}: use HTML, XHTML, TXT, DOCX ou EPUB")
 
     def _importar(self, caminho: str | None, tipos: tuple, titulo: str, chave: str) -> Any:
         j = self.j
@@ -248,6 +292,124 @@ class Conversoes:
 
     def importar_epub(self, caminho: str | None = None) -> Any:
         return self._importar(caminho, TIPOS_DE_EPUB, "EPUB para dentro do livro", "importar")
+
+    def importar_docx(self, caminho: str | None = None) -> Any:
+        return self._importar(caminho, TIPOS_DE_DOCX, "Importar DOCX", "importar")
+
+    # -- ED-12: imprimir, PGN, formato de página ----------------------------------
+
+    def imprimir(self, caminho: str | None = None) -> str:
+        """Imprimir… (§2.2, §10.5): o PDF paginado numa pasta temporária, aberto no leitor do sistema."""
+        import tempfile
+
+        j = self.j
+        projeto = j._exigir_projeto()
+        if caminho is None:
+            caminho = os.path.join(tempfile.mkdtemp(prefix="pbe-imprimir-"),
+                                   _nome_seguro(projeto.livro.metadados.titulo) + ".pdf")
+        j._validar_abas_de_codigo()
+        j._sincronizar_tudo()
+        j.status("Gerando o PDF…")
+        j.configure(cursor="watch")
+        try:
+            relatorio = pdf_io.escrever(projeto.livro, caminho, self._opcoes())
+        finally:
+            j.configure(cursor="")
+        for aviso in relatorio.avisos[:50]:
+            j.log.warning("%s", aviso)
+        j.log.info("PDF para impressão: %s (%d páginas).", caminho, relatorio.metadados.get("paginas", 0))
+        j.status(f"PDF gerado: {os.path.basename(caminho)} ({relatorio.metadados.get('paginas', 0)} páginas)")
+        self.abrir_no_sistema(caminho)
+        return caminho
+
+    def exportar_pgn(self, caminho: str | None = None) -> str | None:
+        """Exportar PGN do capítulo… (§11.8): o capítulo ativo, uma partida por segmento."""
+        j = self.j
+        projeto = j._exigir_projeto()
+        aba = j.aba_ativa()
+        if aba is None or aba.tipo != "capitulo":
+            raise ValueError("abra o capítulo cujas partidas quer exportar")
+        j._sincronizar_tudo()
+        cap = projeto.livro.capitulo(aba.arquivo)
+        if cap is None:
+            raise ValueError(f"capítulo não encontrado: {aba.arquivo}")
+        if caminho is None:
+            base = _nome_seguro(os.path.splitext(os.path.basename(cap.arquivo))[0])
+            caminho = j.caixas.salvar_como(base + ".pgn", TIPOS_DE_PGN, diretorio=self._diretorio("exportar"),
+                                           extensao=".pgn", titulo="Exportar PGN do capítulo")
+            if not caminho:
+                return None
+        caminho = os.path.abspath(os.fspath(caminho))
+        if not caminho.lower().endswith(".pgn"):
+            caminho += ".pgn"
+        relatorio = pgn_io.escrever(cap, caminho, projeto.livro)
+        self._guardar_diretorio("exportar", caminho)
+        for aviso in relatorio.avisos[:50]:
+            j.log.warning("%s", aviso)
+        partidas = relatorio.metadados.get("partidas", 0)
+        j.log.info("Exportado PGN: %s (%d partida(s)).", caminho, partidas)
+        j.status(f"Exportado PGN: {os.path.basename(caminho)} ({partidas} partida(s))")
+        j.caixas.conclusao("PGN exportado", self._linhas_do_relatorio(relatorio), caminho)
+        return caminho
+
+    def formato_de_pagina(self, valores: dict[str, Any] | None = None) -> modelo.FormatoDePagina | None:
+        """Formato de página… (§5 `FormatoDePagina`): papel, margens, cabeçalhos, numeração e hifenização."""
+        j = self.j
+        projeto = j._exigir_projeto()
+        atual = projeto.livro.pagina
+        if valores is None:
+            sup, ext, inf, intr = atual.margens_mm
+            campos = [("largura_mm", "Largura (mm):", f"{atual.largura_mm:g}"),
+                      ("altura_mm", "Altura (mm):", f"{atual.altura_mm:g}"),
+                      ("superior", "Margem superior (mm):", f"{sup:g}"),
+                      ("externa", "Margem externa (mm):", f"{ext:g}"),
+                      ("inferior", "Margem inferior (mm):", f"{inf:g}"),
+                      ("interna", "Margem interna (mm):", f"{intr:g}"),
+                      ("espelhadas", "Margens espelhadas:", "sim" if atual.espelhadas else "não"),
+                      ("cabecalho_par", "Cabeçalho das páginas pares:", atual.cabecalho_par or "nenhum"),
+                      ("cabecalho_impar", "Cabeçalho das páginas ímpares:", atual.cabecalho_impar or "nenhum"),
+                      ("numerar_paginas", "Numerar páginas:", "sim" if atual.numerar_paginas else "não"),
+                      ("hifenizar", "Hifenizar:", "sim" if atual.hifenizar else "não")]
+            valores = j.caixas.formulario("Formato de página", campos,
+                                          {"espelhadas": SIM_NAO, "cabecalho_par": CABECALHOS,
+                                           "cabecalho_impar": CABECALHOS, "numerar_paginas": SIM_NAO,
+                                           "hifenizar": SIM_NAO})
+            if valores is None:
+                return None
+        try:
+            numeros = {chave: float(str(valores.get(chave, getattr(atual, chave, 0))).replace(",", "."))
+                       for chave in ("largura_mm", "altura_mm")}
+            margens = tuple(float(str(valores.get(chave, padrao)).replace(",", "."))
+                            for chave, padrao in zip(("superior", "externa", "inferior", "interna"), atual.margens_mm))
+        except ValueError as erro:
+            raise ValueError(f"medida inválida no formato de página: {erro}") from None
+        if numeros["largura_mm"] <= 0 or numeros["altura_mm"] <= 0 or any(m < 0 for m in margens):
+            raise ValueError("as medidas da página têm de ser positivas")
+        if margens[1] + margens[3] >= numeros["largura_mm"] or margens[0] + margens[2] >= numeros["altura_mm"]:
+            raise ValueError("as margens não deixam lugar para o texto")
+
+        def sim(chave: str, padrao: bool) -> bool:
+            valor = valores.get(chave, padrao)
+            return valor if isinstance(valor, bool) else str(valor).strip().lower() in ("sim", "s", "true", "1")
+
+        def cabecalho(chave: str, padrao: str) -> str:
+            valor = str(valores.get(chave, padrao) or "").strip().lower()
+            return "" if valor in ("", "nenhum") else valor
+
+        novo = modelo.FormatoDePagina(
+            largura_mm=numeros["largura_mm"], altura_mm=numeros["altura_mm"], margens_mm=margens,
+            espelhadas=sim("espelhadas", atual.espelhadas),
+            cabecalho_par=cabecalho("cabecalho_par", atual.cabecalho_par),
+            cabecalho_impar=cabecalho("cabecalho_impar", atual.cabecalho_impar),
+            numerar_paginas=sim("numerar_paginas", atual.numerar_paginas),
+            hifenizar=sim("hifenizar", atual.hifenizar))
+        if novo != atual:
+            projeto.livro.pagina = novo
+            projeto.marcar_sujo()
+            j.atualizar()
+        j.status(f"Formato de página: {novo.largura_mm:g} × {novo.altura_mm:g} mm"
+                 + (", margens espelhadas" if novo.espelhadas else ""))
+        return novo
 
     # -- o documento editorial (ED-11) ------------------------------------------
 

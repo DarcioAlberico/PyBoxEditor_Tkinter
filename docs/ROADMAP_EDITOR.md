@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-pré commitada; ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b, ED-10 e ED-11 implementadas** (2026-09-21)
+Status: **ED-pré commitada; ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b, ED-10, ED-11 e ED-12 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1997,6 +1997,68 @@ Ler: spec §10.3–§10.5, §10.8, §11.8–§11.9, §16, §5 (`FormatoDePagina`
 .venv/Scripts/python.exe scripts/medir_editor_vs_exportar.py --sintetico
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/pdf_io.py` (§10.5), `core/editor/pgn_io.py` (§11.8),
+`core/editor/indice.py` (§11.9), a seção ED-12 em `ui/editor/conversoes.py` ("Exportar…" com
+DOCX, PDF e PGN, "Imprimir…", "Importar ▸ DOCX…", "Formato de página…", "Exportar PGN do
+capítulo…"; "Abrir…" aceita `.docx`), "Xadrez → Índice ▸" dinâmico em `ui/editor/xadrez.py`
+(`gerar_indice`), o relatório da caixa de conclusão com as oito contagens mais páginas,
+partidas e tempo, `scripts/medir_editor_vs_exportar.py` e os testes `tests/test_editor_pdf.py`
+(3), `_pgn.py` (2), `_indice.py` (2), `_menus_ed12.py` (6). Os testes da ED-02 que esperavam
+"chega na ED-12" passaram a apontar a ED-13. Conferido: as três primeiras páginas do PDF
+renderizadas pelo MuPDF (margens espelhadas, cabeçalho par/ímpar, número, figurinas na
+fonte de símbolos, links azuis, tabela, figura com legenda) e as páginas de índice no
+editor.
+
+**A medição (30 páginas sintéticas, 3 repetições, mediana; máquina de referência):**
+
+| Formato | Quem escreve | Tempo | Tamanho | O que saiu |
+|---|---|---|---|---|
+| modelo | editor (`importar_ir.de_paginas`) | 21 ms | — | 30 capítulos, 360 blocos |
+| epub | histórico (`exportar.exportar`) | 14 ms | 171 KB | 30 imagens (um PNG por diagrama igual) |
+| epub | editor (`epub.escrever`) | 32 ms | 48 KB | 1 imagem (o mesmo diagrama, um PNG) |
+| docx | histórico (`exportar.exportar`) | 253 ms | 42 KB | 30 diagramas |
+| docx | editor (`docx_io.escrever`) | 773 ms | 53 KB | 30 diagramas |
+| pdf | editor (`pdf_io.escrever`) — o histórico não faz | 907 ms | 879 KB | 90 páginas |
+
+**Decisão: convive.** O escritor do editor é 2–3× mais lento que o histórico (em
+milissegundos — irrelevante para um livro), escreve EPUB menor (um PNG por diagrama
+igual, não um por página), e faz o que o histórico não faz (PDF, HTML, TXT, PGN, a
+proveniência, as fontes embutidas pelo mapa). Mas o histórico continua sendo a **primeira
+saída do OCR**: sai direto das `PaginaExtraida`, sem editor, e é o que o pipeline e a fila
+de revisão regravam (`aplicar_revisao`). Substituí-lo é trocar `exportar.exportar` por
+`importar_ir.de_paginas` + `epub.escrever`/`docx_io.escrever` na `_escrever_documento_editorial`
+da janela principal — uma linha, viável pelos números, mas é a camada do usuário (ED-pré) e
+fica como pedido registrado, não como decisão desta fase. `core/exportar.py` não é
+reescrito (§16).
+
+**O que divergiu da spec, e por quê:**
+
+- **Um `fitz.Story` para o livro inteiro**, e não um por capítulo: o link entre capítulos
+  precisa saber a página do alvo, e um só fluxo dá isso pelo `element_positions`; cada
+  capítulo é um `div` com `page-break-before` e os ids levam o prefixo do capítulo.
+- **Cabeçalho e rodapé por `Page.insert_text`** depois de paginar (o `Story` não sabe em
+  que página está), na Helvetica de base — Latin-1; o que não cabe sai `?`. Os cabeçalhos
+  são `titulo`/`capitulo`/`""` de `FormatoDePagina`, o número vai centrado no rodapé.
+- **Notas no fim do capítulo** no PDF (é onde o XHTML as põe); `epub:type` vira
+  `data-epub-type` no HTML do `Story`; o `<img>` do diagrama em imagem é desenhado na hora
+  quando o livro ainda não tem o PNG.
+- **PGN**: um `StringExporter` por partida (ele acumula); um título sem lances não é
+  partida (o `segmentos` da §11.3 abre segmento em todo título); o `Round` é a ordem no
+  capítulo; `Event` é o `h1` do capítulo (senão o título do livro); o NAG ambíguo sai
+  `{símbolo}` com aviso; o lance ilegal encerra a partida nele com aviso.
+- **Índice**: `p.indice` (classe, como a chave), a chave em negrito, o número da partida
+  como texto do link (`·` fora de partida), o alvo ganha `id_persistente`; `role="doc-index"`
+  sai no HTML pelo mapa da ED-10 e `epub:type="index"` no EPUB — o modelo não tem `role` de
+  capítulo. O índice de partidas lista "n. Brancas – Pretas" pelo cabeçalho mais próximo.
+- **As opções de DOCX/PDF vêm das preferências** (`modo_diagrama`, `notas`, `fonte_diagrama`),
+  sem uma segunda caixa depois da de formato.
+- **"Imprimir…"** escreve o PDF numa pasta temporária e o abre no programa do sistema
+  (`Conversoes.abrir_no_sistema`, injetável) — o Tk não imprime (§2.2).
+- **"Formato de página…"** é um formulário de texto com combos (`sim`/`não`,
+  `titulo`/`capitulo`/`nenhum`), validado (medidas positivas, margens que deixam texto).
+
 ---
 
 ## ED-13 — Qualidade AAA: AC globais, desempenho, teclado, colar HTML, preferências, ajuda, gate
@@ -2065,5 +2127,5 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-09b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | leitura sem `python-docx` (zip + etree); estilo pela cadeia `basedOn`; legenda casada pela posição; orientação que reproduz as linhas; PNG-FEN sem guardar a imagem; `pg-n` começo/meio; texto `Ilha` volta como texto; `gridSpan` = células vazias; formato de página |
 | ED-10 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | fontes lidas à mão (`core/editor/fontes.py`) e bloco `pybox:fontes` na folha; HTML5 pela árvore com ids prefixados; `ler` volta pelas seções; `<p><img>` = figura; fechamento opcional no `consertar`; fatia do elemento vazio no `xhtml`; TXT mínimo que volta; importar anexa ou vira o livro; exportar pode sujar; fontes necessárias contam como usadas |
 | ED-11 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `page_break` no meio da página vira `QuebraDePagina`; `Figura` sem posição leva o aviso em `alt`/`title`; suspeita = códigos em `data-suspeito`, frases e leituras vindas do documento; a tabela ignora o preenchimento retangular; o `Diagrama` só gera evento quando a colocação ou a orientação muda; um EPUB exportado vira o caminho do projeto; o EPUB salvo religa o JSON ao reabrir; `page_break`/`header`/`footer` não geram `reject`; a fila com "Exportar" desabilitado pelo `aviso_da_exportacao`; `cv2` entra no editor só ao salvar um livro com ponte |
-| ED-12 | a fazer | | | |
+| ED-12 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | um `Story` para o livro inteiro com ids prefixados por capítulo; cabeçalho/rodapé por `insert_text` (Helvetica, Latin-1); notas no fim do capítulo; PGN pelo `chess.pgn` com um exportador por partida, título sem lances não é partida, ambíguo vira comentário; índice `p.indice` refeito no lugar, alvo com `id_persistente`, `role` pelo HTML; opções de DOCX/PDF das preferências (sem caixa); "Imprimir…" = PDF temporário aberto; decisão da medição: **convive** |
 | ED-13 | a fazer | | | |

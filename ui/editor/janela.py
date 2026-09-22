@@ -113,7 +113,8 @@ from ui.editor.abas import Aba, Abas
 from ui.editor.busca import Buscador, PainelDeBusca
 from ui.editor.buscas_salvas import BuscasSalvas
 from ui.editor.codigo import EditorDeCodigo
-from ui.editor.conversoes import EXTENSOES_DE_HTML, EXTENSOES_DE_JSON, EXTENSOES_DE_TXT, FORMATOS, Conversoes
+from ui.editor.conversoes import (EXTENSOES_DE_DOCX, EXTENSOES_DE_HTML, EXTENSOES_DE_JSON, EXTENSOES_DE_TXT, FORMATOS,
+                                  Conversoes)
 from ui.editor.dialogos import Caixas
 from ui.editor.estilos import PainelDeEstilos
 from ui.editor.mensagens import PainelDeMensagens, logger
@@ -689,6 +690,8 @@ class JanelaDoEditor(tk.Toplevel):
             return self.conversoes.abrir_como_livro(caminho)          # ED-10: §10.6 "Abrir / importar"
         if caminho.lower().endswith(EXTENSOES_DE_JSON):
             return self.conversoes.importar_json(caminho)             # ED-11: o documento editorial
+        if caminho.lower().endswith(EXTENSOES_DE_DOCX):
+            return self.conversoes.abrir_como_livro(caminho)          # ED-12: DOCX como livro
         if not self._confirmar_descarte():
             return None
         pendentes = Rascunho.pendentes(caminho)
@@ -2166,7 +2169,7 @@ class JanelaDoEditor(tk.Toplevel):
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
                  "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, "
-                 "ED-09b, ED-10, ED-11.")
+                 "ED-09b, ED-10, ED-11, ED-12.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto
 

@@ -259,9 +259,9 @@ def test_ac8_valueerror_vira_caixa_de_entrada_e_o_resto_caixa_de_falha_com_a_jan
         assert j.ultimo_erro[0] == "falha" and j.winfo_exists()
         assert "Defeito do programa" in j.campos["aviso"].cget("text")
         assert j.executar("comando_que_nao_existe") is None and "chega na" in j.campos["aviso"].cget("text")
-        # um comando de fase seguinte com item de menu diz a fase
-        j.executar("imprimir")
-        assert "ED-12" in j.campos["aviso"].cget("text")
+        # um comando de fase seguinte com item de menu diz a fase (a ED-13 é a última que falta)
+        j.executar("preferencias")
+        assert "ED-13" in j.campos["aviso"].cget("text")
 
 
 # ----------------------------------------------------------------------
@@ -585,8 +585,6 @@ def test_exportar_epub_escreve_uma_copia_e_chama_a_caixa_de_conclusao():
         assert conclusao[0] == "conclusao" and conclusao[3] == destino
         assert any("Capítulos: 2" in li for li in conclusao[2])
         assert j.projeto.livro.zip_de_origem == t.epub
-        j.executar("exportar", "docx", destino)
-        assert "ED-12" in t.caixas.entradas()[-1]
         j.executar("exportar", "zzz", destino)
         assert "formato desconhecido" in t.caixas.entradas()[-1]
 

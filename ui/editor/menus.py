@@ -339,7 +339,7 @@ XADREZ = (
     _i("Fonte de diagrama do livro…", "fonte_de_diagrama", "ED-05"),
     _i("Chave de símbolos", "chave_de_simbolos", "ED-05b"),
     SEP,
-    _sub("Índice", "ED-12", _placeholder("ED-12")),
+    _sub("Índice", "ED-12", dinamico="indice"),
     _i("Exportar PGN do capítulo…", "exportar_pgn", "ED-12"),
     # -- ED-05: os dois escopos de "Validar notação" que a §7.3 enumera entre parênteses ---------
     SEP,
