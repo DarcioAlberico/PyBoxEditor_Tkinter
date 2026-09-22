@@ -10,7 +10,13 @@ para PDF, DOCX, EPUB e HTML.
   arquivos, split por documento, validação, benchmark reproduzível e holdout
   local em `benchmarks/ocr_corpus_v1.json`.
 - **Fase 1: implementada** — IR editorial versionado, round-trip JSON, eventos
-  imutáveis de revisão e adapters para `PageResult` e `PaginaExtraida`.
+  imutáveis de revisão e adapters para `PageResult` e `PaginaExtraida`. Desde
+  2026-09-22 (item 4 de `REVISAO_MODOS_OCR.md` §4.7) o adapter da
+  `PaginaExtraida` é **sem perdas e tem volta**
+  (`pagina_editorial_para_extraida`): a origem da figura virou tipo de bloco
+  (`caption`, `figure`), `casas_de_largura`, as linhas impressas do parágrafo e
+  o negrito como `run` sobrevivem, e o EPUB escrito da página que passou pelo
+  IR sai byte a byte igual ao da original.
 - **Fase 2: implementada** — `EditorialPipeline` em
   `core/editorial_pipeline.py`, ingestão de PDF/imagem/memória, evidência com
   hash e camada textual, inspeção de layout, roteamento persistido, cache,

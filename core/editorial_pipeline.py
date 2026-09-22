@@ -903,6 +903,21 @@ def _html_document(document: EditorialDocument, options: ExportOptions) -> str:
             texto = value if isinstance(value, str) else ""
             if block.kind == "heading":
                 corpo.append(f"<h2 id=\"{html.escape(block.id)}\">{html.escape(texto)}</h2>")
+            elif (block.kind in ("figure", "caption")
+                  and isinstance(value, Mapping) and value.get("png_base64")):
+                # A figura que não é tabuleiro — a faixa do exercício e a
+                # página inteira que virou imagem (item 4 da revisão de
+                # 2026-09-18). Sem este ramo elas caíam no do diagrama e saíam
+                # com `data-fen` de uma posição que não existe.
+                from core.editorial_export import imagem_do_diagrama
+                imagem, origem = imagem_do_diagrama(block)
+                rotulo = html.escape(str(value.get("warning") or "") or (
+                    "Cabeçalho do diagrama" if block.kind == "caption" else "Figura"),
+                    quote=True)
+                figura = (f'<img src="data:image/png;base64,{imagem}" alt="{rotulo}">'
+                          if imagem else f"<figcaption>{rotulo}</figcaption>")
+                corpo.append(f'<figure id="{html.escape(block.id)}" '
+                             f'data-image="{origem}">{figura}</figure>')
             elif block.kind == "diagram" and isinstance(value, Mapping):
                 # A imagem e a ressalva saem pelas mesmas funções da exportação
                 # editorial (item 3 da revisão de 2026-09-18): aqui o ramo sem

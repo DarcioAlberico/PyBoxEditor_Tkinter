@@ -44,12 +44,12 @@ escala certa.
 **Veredito sobre "qualidade AAA"**: o reconhecimento de lance, figurina,
 diagrama e tabela está acima do que ABBYY/Acrobat entregam nestes livros, e a
 prosa fundida está abaixo de 1% de erro em três das quatro páginas. O que
-falta para o rótulo é o que a seção 5 lista. Os três primeiros itens saíram —
+falta para o rótulo é o que a seção 5 lista. Os quatro primeiros itens saíram —
 a exportação por um diálogo só (4.4), a fila de revisão com o recorte e as
-alternativas (4.5) e o diagrama sem convenção silenciosa (4.6) —; ficam o
-adapter sem perdas, a OCR-14, o corpus de referência maior que quatro
-páginas, o cache do caminho novo, a poda da biblioteca paralela, a interface
-e os testes de aceitação.
+alternativas (4.5), o diagrama sem convenção silenciosa (4.6) e o adapter sem
+perdas, com a volta para o leitor (4.7) —; ficam a OCR-14, o corpus de
+referência maior que quatro páginas, o cache do caminho novo, a poda da
+biblioteca paralela, a interface e os testes de aceitação.
 
 ## 2. O mapa dos modos
 
@@ -423,6 +423,60 @@ Aceite: `tests/test_lado_a_jogar.py` (41), com os dois critérios do roadmap em
 das quatro páginas não mexeu — Aagaard p30 1,37% · Yusupov p34 0,71% · p47
 2,50% · Nunn p237 1,87%, os mesmos de 2026-09-18.
 
+### 4.7 O adapter sem perdas, e a volta (item 4, 2026-09-22)
+
+A ida — `PaginaExtraida` → IR — existe desde a Fase 1. A volta não existia, e a
+falta dela custava duas coisas: o documento revisado só sabia virar arquivo
+pelos escritores do IR (os dois que embutem fonte de símbolos e redesenham
+diagrama, `exportar.para_epub` e `para_docx`, pedem `PaginaExtraida`), e quem
+queria os dois mundos guardava a lista de páginas ao lado do IR
+(`ExtratorDeLivro.ultimas_paginas`) torcendo para as duas não divergirem. Um IR
+gravado e reaberto noutra sessão não tinha como sair em EPUB.
+
+O que a ida perdia, e passou a levar:
+
+- **`origem` da figura vira tipo de bloco.** Três das quatro origens de
+  `livro.Figura` não são um tabuleiro: a `faixa` é o cabeçalho impresso acima do
+  diagrama e a `pagina` é a página inteira que virou imagem. As quatro iam como
+  `diagram`, e o resultado era `<figure data-fen="None">` em cima de uma imagem
+  de cabeçalho — e o editor procurando posição onde não há. Agora `faixa` é
+  `caption`, `pagina` é `figure` (tipo novo do IR) e só `render`/`recorte` são
+  `diagram`; os três escritores de HTML, o DOCX e o importador do editor
+  ganharam o ramo correspondente.
+- **`casas_de_largura`** (`squares_wide`): é o que faz o corpo em pontos valer
+  para a imagem (F97). Sem ela o diagrama que ia e voltava saía noutro tamanho
+  no mesmo livro.
+- **As linhas impressas do parágrafo** (`line_starts`, `routing_rows`): o
+  parágrafo que voltava não sabia mais de que linhas tinha saído, e com elas ia
+  a fila de revisão.
+- **`fen` vazio em vez de nulo** no recorte sem posição: quem escreve o arquivo
+  convertia o `None` para texto, e saía `data-fen="None"`.
+- **O negrito como `run`.** O adapter guarda as faixas em `style["bold_spans"]`
+  desde a Fase 1 e os escritores do IR as ignoravam: o parágrafo saía inteiro em
+  redondo. Hoje o HTML sai com `<strong>` e o DOCX com `run` em negrito
+  (`trechos_em_negrito`).
+
+A volta é `pagina_editorial_para_extraida` / `documento_para_paginas_extraidas`.
+O que ela **não** repõe são `Paragrafo.pesos` e `Paragrafo.lacunas` — as medidas
+por caractere que `partir_coladas` e `negrito.marcar` consomem *dentro* de
+`livro.extrair`, antes de existir IR; guardá-las seria gravar dois floats por
+caractere de livro num JSON para ninguém os ler, e
+`editorial_legacy._bloco_revisado` já as descarta pela mesma razão quando o
+texto muda. As páginas voltam **na ordem em que o documento as traz**, e não
+ordenadas por `page_index`: quem exporta uma seleção passa a lista na ordem que
+quer, e o EPUB numera os arquivos por ela.
+
+Com a volta, `aplicar_revisao` passou a aceitar página que o leitor desta sessão
+não leu: ela vem do próprio documento (onde o valor do bloco **já é** o
+revisado), e só o diagrama desenhado é redesenhado com a fonte do livro. É o que
+permite exportar EPUB e DOCX de um IR de outra sessão.
+
+Aceite: `tests/test_adapter_sem_perdas.py` (14), com os dois critérios em
+`test_o_round_trip_devolve_a_pagina_igual` (uma página com as quatro origens de
+figura, tabela, título e parágrafo com negrito volta bloco a bloco igual) e
+`test_o_epub_do_round_trip_e_byte_identico` (com `SOURCE_DATE_EPOCH`, que é a
+convenção de build reprodutível da F111). Suíte inteira: 2.878 passando.
+
 ## 5. O que fica, em ordem
 
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
@@ -446,11 +500,13 @@ ordem indicada.
    `b`; nenhum diagrama sai sem imagem.~~ — feito (4.6): `core/lado_a_jogar.py`
    lê a legenda nos dois caminhos, o carimbo sai no `alt`, na `figcaption` e no
    diálogo, e o diagrama sem PNG é desenhado do FEN na exportação.
-4. **Adapter sem perdas e inverso** (`editorial_adapters.py`): `Evidence`
+4. ~~**Adapter sem perdas e inverso** (`editorial_adapters.py`): `Evidence`
    por linha com as duas leituras e confiança derivada do `roteamento`,
    `negrito` como runs, `casas_de_largura`, `origem` como `kind` próprio,
    `pagina_editorial_para_extraida`. Aceite: round-trip
-   `PaginaExtraida → IR → PaginaExtraida` igual; EPUB byte-idêntico.
+   `PaginaExtraida → IR → PaginaExtraida` igual; EPUB byte-idêntico.~~ — feito
+   (4.7): a `Evidence` por linha saiu em 4.5, e o resto aqui; o round-trip
+   devolve a página bloco a bloco igual e o EPUB sai byte a byte igual.
 5. **OCR-14** — os erros confiantes da cadeia no lance (`⩲`/`±`, `♕e1`/`♕c1`,
    `g16`/`gxh6`, `1–0`): fine-tuning direcionado do modelo de glifos, medido
    no mesmo A/B; o CRNN só volta com dataset por livro, split de

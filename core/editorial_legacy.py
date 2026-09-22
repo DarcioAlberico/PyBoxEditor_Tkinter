@@ -32,6 +32,7 @@ import numpy as np
 
 from core import livro, render_diagrama
 from core.diagrama import Casa, Leitura
+from core.editorial_adapters import pagina_editorial_para_extraida
 
 
 @dataclass
@@ -319,15 +320,32 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
     medidas de negrito e lacuna, que o texto novo já não acompanha e que
     por isso são esquecidas no parágrafo mexido. As páginas originais não
     são alteradas: o que sai são cópias.
+
+    **Página que não está em `paginas` volta do próprio documento**
+    (`pagina_editorial_para_extraida`), e é o que permite exportar o EPUB ou o
+    DOCX de um IR gravado noutra sessão: antes, sem a lista de páginas do
+    leitor ao lado, a exportação revisada não tinha de onde sair.
     """
     opcoes = opcoes or OpcoesDeFigura()
     por_numero = {int(p.numero): p for p in paginas}
     saida = {numero: copy.copy(p) for numero, p in por_numero.items()}
     for pagina in saida.values():
         pagina.blocos = list(pagina.blocos)
+    ordem_das_paginas = [int(p.numero) for p in paginas]
     for page in documento.pages:
         destino = saida.get(int(page.page_index))
         if destino is None:
+            # A página que o leitor desta sessão não leu — um IR gravado e
+            # reaberto depois, ou uma exportação de páginas soltas — volta do
+            # próprio documento (item 4 da revisão de 2026-09-18). Ali o valor
+            # do bloco **já é** o revisado, então só falta redesenhar o
+            # diagrama cujo FEN mudou, que é o que o laço abaixo não vê.
+            destino = pagina_editorial_para_extraida(page)
+            for i, bloco in enumerate(destino.blocos):
+                if isinstance(bloco, livro.Figura) and bloco.origem == "render"                         and bloco.fen:
+                    destino.blocos[i] = _redesenhar(bloco, bloco.fen, opcoes)
+            saida[int(page.page_index)] = destino
+            ordem_das_paginas.append(int(page.page_index))
             continue
         remover: List[int] = []
         for block in page.blocks:
@@ -344,7 +362,7 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
                                                     block.decision.value, opcoes)
         for ordem in sorted(set(remover), reverse=True):
             del destino.blocos[ordem]
-    return [saida[int(p.numero)] for p in paginas]
+    return [saida[numero] for numero in ordem_das_paginas]
 
 
 def _ordem_do_bloco(block_id: str) -> Optional[int]:

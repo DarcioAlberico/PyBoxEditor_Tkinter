@@ -49,6 +49,7 @@ FOLGA_DO_RECORTE = 6
 
 TIPOS = {"paragraph": "parágrafo", "heading": "título", "caption": "legenda",
          "chess_sequence": "lances", "diagram": "diagrama", "table": "tabela",
+         "figure": "figura",
          "header": "cabeçalho", "footer": "rodapé", "page_break": "quebra",
          "unknown": "desconhecido"}
 ESTADOS = {"automatic": "automático", "reviewed": "revisado",

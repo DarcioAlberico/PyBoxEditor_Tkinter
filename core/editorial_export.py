@@ -168,6 +168,47 @@ def _audit(block: EditorialBlock, options: ExportOptions) -> str:
             f"</details>")
 
 
+def trechos_em_negrito(texto: str, block: EditorialBlock) -> list[tuple[str, bool]]:
+    """
+    O texto partido nos trechos em negrito e nos de fora deles.
+
+    O adapter guarda o negrito como faixas de índice em `style["bold_spans"]`
+    (é como `core/negrito.py` o mede, caractere a caractere), e os escritores
+    daqui o ignoravam: o parágrafo saía inteiro em redondo, e a ênfase que o
+    livro imprimiu sumia do HTML, do EPUB e do DOCX. Faixa fora do texto é
+    cortada, e faixa vazia não vira `run` nenhum.
+    """
+    faixas = []
+    for item in block.style.get("bold_spans") or []:
+        try:
+            inicio, fim = int(item[0]), int(item[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        faixas.append((inicio, fim))
+    saida: list[tuple[str, bool]] = []
+    anterior = 0
+    for inicio, fim in sorted(faixas):
+        inicio, fim = max(inicio, anterior), min(fim, len(texto))
+        if fim <= inicio:
+            continue
+        if inicio > anterior:
+            saida.append((texto[anterior:inicio], False))
+        saida.append((texto[inicio:fim], True))
+        anterior = fim
+    if anterior < len(texto):
+        saida.append((texto[anterior:], False))
+    return saida
+
+
+def _com_negrito(texto: str, block: EditorialBlock) -> str:
+    """O texto escapado, com `<strong>` onde o livro imprimiu negrito."""
+    partes = trechos_em_negrito(texto, block)
+    if not partes:
+        return html.escape(texto)
+    return "".join(f"<strong>{html.escape(trecho)}</strong>" if forte
+                   else html.escape(trecho) for trecho, forte in partes)
+
+
 def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
     value = block.decision.value
     anchor = html.escape(block.id, quote=True)
@@ -194,6 +235,20 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
                 f"{image}<figcaption>{html.escape(fen or _text(value))}"
                 f" <span class=\"ressalva\">({html.escape(ressalva)})</span>"
                 f"</figcaption></figure>")
+    elif block.kind in ("figure", "caption") and isinstance(value, Mapping):
+        # A figura que **não** é tabuleiro: a faixa impressa acima do diagrama
+        # e a página inteira que virou imagem (item 4 da revisão de
+        # 2026-09-18). Saíam como `<figure data-fen="None">` com a legenda
+        # cheia de JSON, porque toda `livro.Figura` chegava aqui como diagrama.
+        encoded, origem_da_imagem = imagem_do_diagrama(block)
+        rotulo = html.escape(str(value.get("warning") or "") or (
+            "Cabeçalho do diagrama" if block.kind == "caption" else "Figura"),
+            quote=True)
+        corpo = (f'<img alt="{rotulo}" src="data:image/png;base64,{encoded}">'
+                 if encoded else f"<figcaption>{rotulo}</figcaption>")
+        body = f'<figure{common} data-image="{origem_da_imagem}">{corpo}</figure>'
+    elif block.kind == "caption":
+        body = f'<p{common} class="caption">{html.escape(_text(value))}</p>'
     elif block.kind == "table" and isinstance(value, Mapping):
         rows = value.get("rows", ())
         body = (f"<table{common}>" + "".join(
@@ -202,7 +257,7 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
     elif block.kind == "page_break":
         body = f'<hr{common} class="page-break">'
     else:
-        body = f"<p{common}>{html.escape(_text(value))}</p>"
+        body = f"<p{common}>{_com_negrito(_text(value), block)}</p>"
     return body + _audit(block, options)
 
 
@@ -351,6 +406,15 @@ class EditorialExporter:
                     paragraph.add_run(
                         f"Diagrama de xadrez — FEN: {_fen(block.decision.value) or text}"
                         f" ({legenda_do_diagrama(block)})")
+                elif (block.kind in ("figure", "caption")
+                      and isinstance(block.decision.value, Mapping)):
+                    encoded, _origem = imagem_do_diagrama(block)
+                    if encoded:
+                        word.add_picture(io.BytesIO(base64.b64decode(encoded)))
+                        word.paragraphs[-1].alignment = 1
+                    else:
+                        word.add_paragraph(str(block.decision.value.get("warning")
+                                               or "Figura"))
                 elif block.kind == "table" and isinstance(block.decision.value, Mapping):
                     rows = list(block.decision.value.get("rows", ()) or ())
                     columns = max((len(row) for row in rows), default=0)
@@ -361,7 +425,14 @@ class EditorialExporter:
                             for column_index, cell in enumerate(row):
                                 table.cell(row_index, column_index).text = _text(cell)
                 else:
-                    word.add_paragraph(text)
+                    # O negrito do livro vira `run` em negrito, e não some: o
+                    # adapter o guarda em `style["bold_spans"]` desde a Fase 1
+                    # e este escritor o ignorava (item 4 da revisão de
+                    # 2026-09-18).
+                    paragraph = word.add_paragraph()
+                    for trecho, forte in (trechos_em_negrito(text, block)
+                                          or [(text, False)]):
+                        paragraph.add_run(trecho).bold = forte or None
                 if options.mode != "clean":
                     word.add_paragraph(f"[auditoria: {block.decision.status}]")
         word.save(target)

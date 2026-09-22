@@ -212,7 +212,14 @@ class _Construtor:
             # quebra); uma quebra no meio da página é uma quebra de verdade — sem origem, porque
             # não tem valor que se edite.
             return [modelo.QuebraDePagina()]
-        if block.kind == "diagram":
+        # `figure` e a `caption` com imagem passam pelo mesmo lugar do diagrama
+        # (item 4 da revisão de 2026-09-18): as três vêm de uma `livro.Figura`,
+        # e é `_diagrama` quem sabe quando ela tem posição e quando é só a
+        # imagem — a faixa do exercício e a página inteira nunca têm.
+        valor_do_bloco = block.decision.value
+        if block.kind in ("diagram", "figure") or (
+                block.kind == "caption" and isinstance(valor_do_bloco, dict)
+                and valor_do_bloco.get("png_base64")):
             bloco = self._diagrama(page, block)
         elif block.kind == "table":
             bloco = self._tabela(block)

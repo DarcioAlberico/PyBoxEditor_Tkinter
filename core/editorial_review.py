@@ -41,6 +41,7 @@ from core.editorial_suspeitas import PESOS, PROCEDENCIA, descrever_codigos
 
 _KIND_PRIORITY = {
     "diagram": 0,
+    "figure": 3,
     "chess_sequence": 1,
     "paragraph": 2,
     "heading": 2,

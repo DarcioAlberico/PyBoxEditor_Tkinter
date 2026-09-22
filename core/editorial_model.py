@@ -15,9 +15,17 @@ from typing import Any, Mapping, Sequence
 
 
 SCHEMA = "pyboxeditor.editorial-document/v1"
+#: Os tipos de bloco do IR.
+#:
+#: ``figure`` entrou no item 4 da revisão de 2026-09-18: o adapter do leitor
+#: medido mandava **toda** `livro.Figura` como ``diagram``, e três das quatro
+#: origens dela não são um tabuleiro — a faixa impressa acima do diagrama é
+#: legenda (``caption``), e a página inteira que virou imagem é figura. Com um
+#: tipo só, quem exportava punha `data-fen` numa imagem de cabeçalho e o editor
+#: tentava ler uma posição onde não havia nenhuma.
 BLOCK_KINDS = frozenset({
-    "paragraph", "heading", "caption", "chess_sequence", "diagram", "table",
-    "header", "footer", "page_break", "unknown",
+    "paragraph", "heading", "caption", "chess_sequence", "diagram", "figure",
+    "table", "header", "footer", "page_break", "unknown",
 })
 DECISION_STATUSES = frozenset({"automatic", "reviewed", "rejected", "unresolved"})
 
