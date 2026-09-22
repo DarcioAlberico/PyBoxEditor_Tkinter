@@ -46,3 +46,33 @@ primeiro, a prosa depois; o número da página («46») entra no fim. O ✓ do
 impresso pode sair como «🗸» do programa, e conta como diferença.
 
 Conferência das quatro contra o livro impresso ainda em aberto.
+
+
+COMO O CORPUS CRESCE (item 6 da revisão de 2026-09-18)
+------------------------------------------------------
+
+As quatro páginas medem quatro layouts. O que falta é o resto das famílias, e
+a `scripts/rodada_do_corpus.py` diz quais na última linha da tabela dela — em
+2026-09-22: imagem, tabela, trama, negativo e diagramas, todas com menos de
+três páginas. Trinta páginas de prosa mediriam uma coisa só.
+
+Para acrescentar uma página, são três passos, e o do meio é o único demorado:
+
+1. Rascunho. `python scripts/ab_ocr_livro.py "<pdf>" --paginas N --modos palavra
+   --referencia preview_ocr/referencia/<livro>` grava
+   `<livro>/pNNN.rascunho.txt` quando não há referência.
+
+2. Revisão à mão, contra a **imagem da página**, na convenção do topo deste
+   arquivo. É aqui que a referência nasce: um rascunho não conferido não é
+   referência, é a opinião do programa sobre si mesmo. Renomeie para `pNNN.txt`
+   quando terminar, e escreva aqui embaixo o que a página tem de especial e a
+   que dpi você a leu — as quatro de 2026-09-15 estão assim.
+
+3. Manifesto. Acrescente a página em `benchmarks/ocr_corpus_v1.json`
+   (`documents[].pages[]`), com `page_index` (base 1, o número do PDF),
+   `reference` apontando para o `pNNN.txt` e, em `metadata.difficulty`, o
+   rótulo do layout quando ele não se deduz da leitura: `halftone_panel`,
+   `negative_header`, `table`, `two_columns`, `full_page_image`.
+
+Feito isso, `python scripts/rodada_do_corpus.py` mede a página nova junto com
+as outras, guarda a rodada em `benchmarks/rodadas/` e compara com a anterior.

@@ -44,12 +44,14 @@ escala certa.
 **Veredito sobre "qualidade AAA"**: o reconhecimento de lance, figurina,
 diagrama e tabela está acima do que ABBYY/Acrobat entregam nestes livros, e a
 prosa fundida está abaixo de 1% de erro em três das quatro páginas. O que
-falta para o rótulo é o que a seção 5 lista. Os quatro primeiros itens saíram —
+falta para o rótulo é o que a seção 5 lista. Os quatro primeiros itens saíram, e o 5 e o 6 estão pela metade —
 a exportação por um diálogo só (4.4), a fila de revisão com o recorte e as
 alternativas (4.5), o diagrama sem convenção silenciosa (4.6) e o adapter sem
-perdas, com a volta para o leitor (4.7) —; ficam a OCR-14, o corpus de
-referência maior que quatro páginas, o cache do caminho novo, a poda da
-biblioteca paralela, a interface e os testes de aceitação.
+perdas, com a volta para o leitor (4.7); do 5 saiu o garimpo do resíduo
+confiante (4.8) e do 6, o corredor da rodada e a régua de famílias (4.9) —;
+ficam o dado dos dois (conferir a quarentena, transcrever as páginas), o cache
+do caminho novo, a poda da biblioteca paralela, a interface e os testes de
+aceitação.
 
 ## 2. O mapa dos modos
 
@@ -538,6 +540,60 @@ mesmas páginas com `evaluate_holdout` da `ocr_phase7`.
 Aceite: `tests/test_ocr14.py` (15), de mesa — montam a leitura caractere a
 caractere, sem PDF, sem modelo e sem torch.
 
+### 4.9 A rodada do corpus, e o eixo em que ele cresce (item 6, 2026-09-22)
+
+O item 6 pede trinta páginas no lugar de quatro, **por livro e por família de
+layout**, e o relatório por rodada em `benchmarks/`. Transcrever vinte e seis
+páginas é trabalho humano e continua sendo; o que dava para fazer — e que
+faltava para esse trabalho valer — foi feito:
+
+- **`core/familias_de_pagina.py`** diz a que família uma página lida pertence:
+  imagem, tabela, trama, negativo, duas colunas, diagramas, notação, prosa. As
+  seis primeiras saem da própria `PaginaExtraida` (colunas, tabelas, diagramas,
+  domínio das linhas); a **trama** e o **negativo** não estão nela e não vão
+  estar — a primeira é propriedade da imagem, a segunda do desenho do cabeçalho
+  —, e vêm do rótulo humano do manifesto. Uma página pertence a várias famílias,
+  e `principal` escolhe a **mais rara**, que é a que justifica transcrevê-la:
+  prosa há em toda página; tabela, em quatro de um livro inteiro.
+- **`scripts/rodada_do_corpus.py`** lê o manifesto congelado, roda o leitor de
+  produção em cada página com referência, e grava a rodada em
+  `benchmarks/rodadas/<data>.json` com três coisas que a tabela por página não
+  dava: o **total do corpus** ponderado pelo tamanho de cada página (a média de
+  páginas faria uma de doze tokens pesar como uma de trezentos, e o número que
+  uma promessa comercial citaria é o do livro); a **cobertura por família**, que
+  diz o que o corpus ainda não mede; e a **comparação com a rodada anterior**,
+  com saída diferente de zero quando uma página piora além da tolerância.
+
+**A primeira rodada (2026-09-22)**, que é também a linha de base do portão:
+
+| página | família | CER prosa | CER notação | CER total |
+|---|---|---:|---:|---:|
+| aagaard-calculation-p030 | notação | 0,51% | 3,14% | 1,37% |
+| nunn-rook-endings-p237 | tabela | 0,54% | 3,63% | 1,87% |
+| yusupov-evolution-1-p034 | duas colunas | 0,66% | 0,76% | 0,71% |
+| yusupov-evolution-1-p047 | trama | 2,92% | 0,00% | 2,50% |
+| **corpus (4 páginas)** | | **1,44%** | **1,99%** | **1,62%** |
+
+Os quatro números por página são os mesmos de 2026-09-18 — o corredor novo não
+mudou o leitor —, e o **1,62% do corpus inteiro não existia**: era a média de
+quatro páginas de tamanhos diferentes, feita à mão, ou não era feita.
+
+**A cobertura diz o que falta**, e é a resposta ao item 6 em uma linha: com
+mínimo de três páginas por família, faltam **imagem, tabela, trama, negativo e
+diagramas** — cinco das oito. O caminho para cada página nova está no fim de
+`preview_ocr/referencia/LEIA-ME.txt`: rascunho pelo A/B, revisão à mão contra a
+imagem (um rascunho não conferido não é referência, é a opinião do programa
+sobre si mesmo), e a entrada no manifesto.
+
+**Onde a rodada mora.** `benchmarks/ocr_corpus_v1.json` e as rodadas não estão
+no Git — a pasta `benchmarks/` ficou fora da ED-pré por ser trabalho de outra
+ferramenta, e não é este commit que decide isso. O relatório de cada rodada é
+gravado ali e fica à mão de quem mede.
+
+Aceite: `tests/test_corpus_de_referencia.py` (12), de mesa — páginas de
+mentira, sem PDF e sem modelo, inclusive o portão (uma página que piora 0,13
+ponto percentual derruba a rodada; dentro da tolerância, não).
+
 ## 5. O que fica, em ordem
 
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
@@ -582,7 +638,12 @@ ordem indicada.
 6. **Corpus de referência**: as quatro páginas viram trinta, por livro e por
    família de layout, conferidas contra o impresso; `benchmarks/` ganha o
    relatório por rodada. Só depois disso a promessa "superior ao ABBYY nestes
-   livros" pode ser escrita.
+   livros" pode ser escrita. **O corredor está feito** (4.9): a rodada mede o
+   corpus inteiro, pondera o total (1,62% de CER nas quatro), diz a cobertura
+   por família e derruba a rodada em que uma página piora; o caminho de cada
+   página nova está no fim de `preview_ocr/referencia/LEIA-ME.txt`. **Falta a
+   transcrição**: cinco das oito famílias — imagem, tabela, trama, negativo e
+   diagramas — têm menos de três páginas.
 7. **Cache e memória do caminho novo**: `evidences()` como gerador, `sha256`
    uma vez, `inspect()` fora de `process()`, chave com a assinatura dos três
    pesos, `cache_dir` padrão em `config.paths.data_dir()`.
