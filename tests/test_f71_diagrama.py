@@ -625,18 +625,19 @@ def test_fen_escolhido_vai_para_a_area_de_transferencia():
 
 
 def test_comando_esta_no_menu():
+    """Em Reconhecer, com os outros modos de leitura (menu por etapa, 2026-09-18)."""
     with _App() as app:
         barra = app.win.parent.nametowidget(app.win.parent.cget("menu"))
         for i in range(barra.index("end") + 1):
             if (barra.type(i) == "cascade"
-                    and barra.entrycget(i, "label") == "Ferramentas"):
+                    and barra.entrycget(i, "label") == "Reconhecer"):
                 menu = barra.nametowidget(barra.entrycget(i, "menu"))
                 rotulos = [menu.entrycget(j, "label")
                            for j in range(menu.index("end") + 1)
                            if menu.type(j) == "command"]
                 assert "Ler posição dos diagramas..." in rotulos
                 return
-        raise AssertionError("menu Ferramentas não existe")
+        raise AssertionError("menu Reconhecer não existe")
 
 
 def test_dialogo_desenha_as_duas_visoes():

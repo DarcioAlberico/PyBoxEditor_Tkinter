@@ -1121,6 +1121,39 @@ def ocupadas(residuo: dict) -> dict:
     return {k: bool(p >= 0.5) for k, p in _probabilidade_de_peca(residuo).items()}
 
 
+def pontuacoes_de_casas(imagem, caixa: Optional[Tuple[int, int, int, int]] = None,
+                        *, top_k: int = 5) -> dict:
+    """Top-k conjunto de vazio/peça para cada casa (Fase 4).
+
+    A rede de ocupação responde ``vazia`` versus ``ocupada`` e a rede de peças
+    responde qual peça existe. O produto das duas distribuições vira um único
+    ranking por casa, que é o contrato consumido pelo OCR editorial. Assim o
+    resolver da Fase 4 não precisa conhecer a ordem das classes nem escolher
+    uma peça onde a rede disse que a casa está vazia.
+    """
+    if int(top_k) <= 0:
+        raise ValueError("top_k deve ser positivo")
+    residuo, _ = residuos(imagem, caixa)
+    if not residuo:
+        return {}
+    chaves = sorted(residuo)
+    ocupacao = _probabilidade_de_peca(residuo)
+    pecas = _pontuar([residuo[chave] for chave in chaves])
+    resultado = {}
+    for indice, chave in enumerate(chaves):
+        probabilidade = float(ocupacao[chave])
+        candidatos = [(VAZIA, max(0.0, 1.0 - probabilidade))]
+        candidatos.extend(
+            (simbolo, probabilidade * float(pecas[indice, coluna]))
+            for coluna, simbolo in enumerate(SIMBOLOS)
+        )
+        total = sum(valor for _simbolo, valor in candidatos) or 1.0
+        candidatos = [(simbolo, valor / total) for simbolo, valor in candidatos]
+        candidatos.sort(key=lambda item: item[1], reverse=True)
+        resultado[chave] = tuple(candidatos[:int(top_k)])
+    return resultado
+
+
 #: Nome interno antigo, mantido para quem já importava.
 _ocupadas = ocupadas
 

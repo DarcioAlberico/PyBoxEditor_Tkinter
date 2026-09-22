@@ -22,6 +22,7 @@ class ExportConfig:
     dpi: int = 300
     incluir_suspeitas: bool = True
     fonte_pdf: str = "helv"
+    fonte_pdf_arquivo: str | None = None
 
     def __post_init__(self) -> None:
         if self.dpi <= 0:
@@ -128,8 +129,11 @@ def _inserir_camada(page: fitz.Page, pagina: PageResult, config: ExportConfig) -
             continue
         tamanho = max(1.0, min(72.0, (y2 - y1) * 0.78))
         try:
-            page.insert_text((x1, y2), texto, fontname=config.fonte_pdf,
-                             fontsize=tamanho, render_mode=3)
+            argumentos = {"fontname": config.fonte_pdf, "fontsize": tamanho,
+                          "render_mode": 3}
+            if config.fonte_pdf_arquivo:
+                argumentos["fontfile"] = config.fonte_pdf_arquivo
+            page.insert_text((x1, y2), texto, **argumentos)
         except Exception:
             # Uma palavra com fonte/caractere incompatível não deve apagar as
             # demais da camada. O JSON continua contendo a informação completa.

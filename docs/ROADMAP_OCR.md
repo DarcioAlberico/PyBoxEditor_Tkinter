@@ -2,7 +2,7 @@
 
 Versão: 1.0  
 Data: 2026-09-10  
-Status: planejado  
+Status: Fases 0–6 implementadas; OCR-14+ em evolução
 Documento complementar a [`ROADMAP.md`](../ROADMAP.md) e [`SPEC_OCR.md`](SPEC_OCR.md)
 
 ## Objetivo

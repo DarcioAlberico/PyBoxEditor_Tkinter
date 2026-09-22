@@ -16,6 +16,7 @@ descoberta por um estrago concreto no Yusupov:
 Rodar sem pytest:      python tests/test_f26_livro.py
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -433,22 +434,38 @@ def _pdf_de_uma_pagina(caminho, texto="Foreword"):
     doc.close()
 
 
-class _DiagramaFixo:
-    """
-    Dublê do `ui.dialogo_do_diagrama.DialogoDoDiagrama` (F97, F98).
+class _SemConfiguracoes:
+    """Um `Settings` que não lê nem grava nada."""
 
-    **Sem ele a suíte trava, e trava calada.** Aquele diálogo não é um
-    `messagebox` — é um `Toplevel` com `grab_set` e `wait_window`, e um `Tk`
-    sem ninguém para clicar espera para sempre. Foi assim que ele entrou aqui:
-    o teste não falhou, ficou pendurado.
-    """
+    def get(self, chave, padrao=None):
+        return padrao
 
-    #: O que o dublê responde: `(fonte, moldura, cantos, corpo)`. `None` imita
-    #: o Cancelar, que desiste da ação.
-    resposta = ("SkakNew-Diagram", "simples", "reto", 16.0)
-
-    def __init__(self, _parent, **_kw):
+    def set(self, chave, valor):
         pass
+
+    def save(self):
+        pass
+
+
+class _CaixaFixa:
+    """
+    Dublê do `ui.dialogo_de_exportacao.DialogoDeExportacao` (2026-09-18).
+
+    **Sem ele a suíte trava, e trava calada.** A caixa não é um `messagebox` —
+    é um `Toplevel` com `grab_set` e `wait_window`, e um `Tk` sem ninguém para
+    clicar espera para sempre. Foi assim que o dublê da caixa do diagrama
+    entrou aqui (F97): o teste não falhou, ficou pendurado.
+
+    O dublê devolve o `OpcoesDeExportacao` que o harness montou a partir das
+    respostas de antes — as mesmas chaves (`Redesenhar`, `Seguir`,
+    `Coordenadas`, `Guardar`, `Inteiro`) que os testes já usavam quando cada
+    resposta era uma caixa. `resposta=None` imita o Cancelar, que desiste.
+    """
+
+    resposta = None
+
+    def __init__(self, _parent, **kw):
+        self.kw = kw
 
     def mostrar(self):
         return self.resposta
@@ -474,28 +491,31 @@ class _App:
     MainWindow com os diálogos capturados e o modelo neural fora do caminho.
 
     Os diálogos são a metade da ação que não dá para exercitar de outro jeito —
-    é neles que estão a escolha do formato pela extensão, as perguntas de sim ou
-    não, e a caixa da fonte, da moldura e do corpo (F97, F98), que sai pelo
-    `_DiagramaFixo`.
+    é neles que estão a escolha do formato pela extensão, as escolhas de sim ou
+    não, e a fonte, a moldura e o corpo do diagrama (F97, F98), tudo numa caixa
+    só desde 2026-09-18 (`_CaixaFixa`).
 
-    **As respostas vão por título, e não uma para todas.** Enquanto havia uma
-    pergunta só, um booleano bastava; com três (desenhar, coordenadas, coletar)
-    um booleano faria o teste da coleta ligar o desenho de carona, e o teste
-    passaria a medir outra coisa sem avisar.
+    **As respostas continuam indo por chave, e não uma para todas.** Enquanto
+    havia uma pergunta só, um booleano bastava; com três (desenhar,
+    coordenadas, coletar) um booleano faria o teste da coleta ligar o desenho
+    de carona, e o teste passaria a medir outra coisa sem avisar.
     """
 
-    #: título da pergunta → resposta. O que não casar responde "não".
+    #: chave → resposta. O que não casar responde "não".
     #:
-    #: `Seguir` é a primeira das duas perguntas de coordenada (F95): "como no
-    #: livro?". Só quem responde não é perguntado em seguida se quer ou não
-    #: quer para o livro inteiro, e é essa segunda que `Coordenadas` responde.
+    #: `Seguir` é a primeira das duas escolhas de coordenada (F95): "como no
+    #: livro?". Só quem responde não escolhe em seguida se quer ou não quer
+    #: para o livro inteiro, e é essa segunda que `Coordenadas` responde.
+    #: `Tesseract` é a sondagem do motor de prosa: numa máquina sem o
+    #: executável (o CI) ela pergunta se segue sem ele, e o teste segue.
     PADRAO = {"Inteiro": True, "Redesenhar": True, "Seguir": False,
-              "Coordenadas": False, "Guardar": False}
+              "Coordenadas": False, "Guardar": False, "Tesseract": True}
 
     def __init__(self, entrada, saida, coletar=False, respostas=None,
                  diagrama=("SkakNew-Diagram", "simples", "reto", 16.0)):
         from tkinter import filedialog, messagebox
 
+        self.entrada, self.saida = entrada, saida
         self.diagrama = diagrama
 
         self.originais = (filedialog.askopenfilename,
@@ -519,6 +539,27 @@ class _App:
                 return valor
         return False
 
+    def _opcoes(self):
+        """O `OpcoesDeExportacao` que a caixa devolveria com estas respostas."""
+        from ui.dialogo_de_exportacao import OpcoesDeExportacao
+        if self.diagrama is None:
+            return None
+        fonte, moldura, cantos, corpo = self.diagrama
+        r = self.respostas
+        coordenadas = (livro.COMO_NO_LIVRO if r.get("Seguir")
+                       else bool(r.get("Coordenadas")))
+        return OpcoesDeExportacao(
+            saida=self.saida,
+            formato=os.path.splitext(self.saida)[1].lstrip(".").lower(),
+            paginas=None,
+            diagramas="render" if r.get("Redesenhar") else "recorte",
+            embutir_fonte=bool(r.get("Embutir")),
+            coordenadas=coordenadas, fonte=fonte, moldura=moldura,
+            cantos=cantos, corpo_pt=corpo,
+            coletar=bool(r.get("Guardar")), teto=r.get("Teto"),
+            reparar=bool(r.get("Consertar")),
+            modelo_de_linha=bool(r.get("Modelo")))
+
     def __enter__(self):
         from conftest import raiz_tk
         from ui.main_window import MainWindow
@@ -536,8 +577,10 @@ class _App:
         # leitura fica como o dublê a deu.
         self.win.learning_service.candidatas = lambda crop, k=3: []
         self.win.DIALOGO_DE_CONCLUSAO = _conclusao_fixa(self.avisos)
-        duble = type("_Duble", (_DiagramaFixo,), {"resposta": self.diagrama})
-        self.win.DIALOGO_DO_DIAGRAMA = duble
+        duble = type("_Duble", (_CaixaFixa,), {"resposta": self._opcoes()})
+        self.win.DIALOGO_DE_EXPORTACAO = duble
+        # As preferências não tocam o disco do usuário no teste.
+        self.win._configuracoes = lambda: _SemConfiguracoes()
         return self
 
     def rodar(self, segundos=60.0):
@@ -564,6 +607,17 @@ class _App:
         self.root.update()
         return self
 
+    def rodar_editorial(self, segundos=60.0):
+        """A outra ação da mesma caixa: o documento editorial."""
+        self.win.processar_documento_editorial_action()
+        limite = time.time() + segundos
+        while time.time() < limite:
+            self.root.update()
+            if self.avisos or self.erros:
+                break
+            time.sleep(0.01)
+        return self
+
     def __exit__(self, *a):
         from tkinter import filedialog, messagebox
         (filedialog.askopenfilename, filedialog.asksaveasfilename,
@@ -588,6 +642,71 @@ def test_a_acao_escreve_o_epub():
         assert os.path.exists(saida), "o EPUB não foi escrito"
         assert zipfile.is_zipfile(saida), "o EPUB não é um zip"
         assert app.avisos, "a conclusão não foi anunciada"
+
+
+def test_a_acao_abre_a_caixa_com_o_que_ela_precisa_saber(monkeypatch):
+    """A caixa mostra o estado de cada coisa ao lado da escolha, e é a ação
+    que sonda: o total de páginas, o idioma pela camada de texto, o Tesseract
+    e o portão do modelo de linha chegam a ela como argumentos."""
+    monkeypatch.setattr(livro, "extrair", lambda *a, **k: [])
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    _pdf_de_uma_pagina(entrada, texto="The rook is bad. The rook is bad.")
+    recebido = {}
+
+    with _App(entrada, os.path.join(tmp, "a.epub")) as app:
+        duble = app.win.DIALOGO_DE_EXPORTACAO
+
+        def __init__(self, _parent, **kw):
+            recebido.update(kw)
+
+        duble.__init__ = __init__
+        app.win.ocr_service.tesseract_disponivel = lambda idioma: (False, "sem exe")
+        app.rodar()
+        assert not app.erros, app.erros
+        assert recebido["entrada"] == entrada
+        assert recebido["total_paginas"] == 1
+        assert [ext for ext, _r in recebido["formatos"]] == ["epub", "docx"]
+        assert recebido["motor_de_prosa"] == (False, "sem exe")
+        assert isinstance(recebido["modelo_de_linha"], tuple)
+        assert recebido["idioma_detectado"] in ("en", None)
+        assert callable(recebido["configuracoes"])
+
+
+def test_o_documento_editorial_em_epub_sai_pelo_escritor_historico(monkeypatch):
+    """A mesma caixa serve o documento editorial: EPUB/DOCX saem do escritor
+    histórico (`OEBPS/content.opf`, fonte de símbolos, diagrama redesenhado),
+    e **não** são sobrescritos pelo escritor do IR — que era o que um
+    `if`/`if` no lugar de `if`/`else` fazia em silêncio (revisão de
+    2026-09-18)."""
+    tmp = tempfile.mkdtemp()
+    monkeypatch.chdir(tmp)
+    entrada = os.path.join(tmp, "livro.pdf")
+    saida = os.path.join(tmp, "doc.epub")
+    _pdf_de_uma_pagina(entrada)
+    with _App(entrada, saida, coletar=True) as app:
+        app.rodar_editorial()
+        assert not app.erros, app.erros
+        assert app.avisos, "a conclusão não foi anunciada"
+        with zipfile.ZipFile(saida) as z:
+            nomes = z.namelist()
+        assert "OEBPS/content.opf" in nomes, "não é o EPUB do escritor histórico"
+        assert "OEBPS/content.xhtml" not in nomes, "o escritor do IR sobrescreveu o arquivo"
+
+
+def test_o_documento_editorial_em_json_com_coleta_nao_estoura(monkeypatch):
+    tmp = tempfile.mkdtemp()
+    monkeypatch.chdir(tmp)
+    entrada = os.path.join(tmp, "livro.pdf")
+    saida = os.path.join(tmp, "doc.json")
+    _pdf_de_uma_pagina(entrada)
+    with _App(entrada, saida, coletar=True) as app:
+        app.rodar_editorial()
+        assert not app.erros, app.erros
+        with open(saida, encoding="utf-8") as f:
+            documento = json.load(f)
+        assert documento["pages"], "o JSON saiu sem páginas"
+        assert any("Para revisão" in aviso for aviso in app.avisos)
 
 
 def test_extensao_desconhecida_recusa_antes_de_ler_o_pdf():

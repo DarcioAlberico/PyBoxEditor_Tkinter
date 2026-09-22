@@ -67,18 +67,24 @@ class OCRServiceAdapters:
             # TextRecognition é usado aqui em recorte controlado. A versão atual
             # do serviço ainda devolve um caractere; o metadata impede que a
             # fusão confunda isso com uma leitura de linha completa.
-            line_recognizer=lambda image: service.paddleocr_ocr_conf(image, language, gpu),
-            metadata={"engine": "paddleocr", "line_model": False,
-                      "line_mode": "segmented_crop"},
+            line_recognizer=lambda image: service.paddleocr_linha_conf(image, language, gpu),
+            metadata={"engine": "paddleocr", "line_model": True,
+                      "line_mode": "full_line"},
         )
 
     @staticmethod
-    def tesseract(service: Any) -> CallableAdapter:
+    def tesseract(service: Any, *, language: str = "en") -> CallableAdapter:
+        # O idioma chega ao Tesseract como chega ao EasyOCR e ao PaddleOCR:
+        # sem ele, `registry(language="pt")` configurava os dois em portugues
+        # e o Tesseract lia sempre em ingles, sem aviso.
         return CallableAdapter(
             "tesseract",
             lambda image: service.tesseract_ocr_conf(
                 image if isinstance(image, Image.Image) else Image.fromarray(np.asarray(image))),
-            metadata={"engine": "tesseract", "line_model": False},
+            line_recognizer=lambda image: service.tesseract_linha_conf(
+                np.asarray(image), language),
+            metadata={"engine": "tesseract", "line_model": True,
+                      "line_mode": "full_line", "language": language},
         )
 
     @staticmethod
@@ -90,12 +96,54 @@ class OCRServiceAdapters:
         )
 
     @staticmethod
+    def trained_line(service: Any, *, model_path: str = "text_line_model.pth",
+                     meta_path: str = "text_line_model.json") -> CallableAdapter:
+        """Adapta o CRNN/CTC local ao contrato comum de linha."""
+        return CallableAdapter(
+            "trained_line",
+            lambda image: service.linha_treinada_conf(image, model_path, meta_path),
+            line_recognizer=lambda image: service.linha_treinada_conf(
+                image, model_path, meta_path),
+            metadata={"engine": "custom_neural", "line_model": True,
+                      "line_mode": "full_line", "model_path": model_path},
+        )
+
+    @staticmethod
     def learner(service: Any, learner: Any) -> CallableAdapter:
         return CallableAdapter(
             "learner",
             lambda image: service.learner_ocr(np.asarray(image), learner),
             metadata={"engine": "knn", "line_model": False},
         )
+
+    @staticmethod
+    def registry(service: Any, *, languages: tuple[str, ...] = ("en",),
+                 language: str = "en", gpu: bool = False,
+                 trained_line: bool | None = None,
+                 model_path: str = "text_line_model.pth",
+                 meta_path: str = "text_line_model.json") -> "EngineRegistry":
+        """Cria o conjunto padrão de adapters sem inicializar engines ainda.
+
+        A inicialização continua tardia: instalar apenas Tesseract, por
+        exemplo, não faz o lote falhar por falta de PaddleOCR/EasyOCR.
+
+        `trained_line=None` (o padrão) inclui o modelo de linha próprio **só
+        se ele passa no portão de produção** (`linha_trainer.modelo_utilizavel`:
+        CER de validação abaixo do limite). `True` força a inclusão — é para
+        teste e diagnóstico, não para a fusão —, e `False` o deixa fora.
+        """
+        adapters: list[OCRAdapter] = [
+            OCRServiceAdapters.tesseract(service, language=language),
+            OCRServiceAdapters.easyocr(service, languages=languages, gpu=gpu),
+            OCRServiceAdapters.paddleocr(service, language=language, gpu=gpu),
+        ]
+        if trained_line is None:
+            from core.linha_trainer import modelo_utilizavel
+            trained_line, _motivo = modelo_utilizavel(meta_path, model_path)
+        if trained_line:
+            adapters.append(OCRServiceAdapters.trained_line(
+                service, model_path=model_path, meta_path=meta_path))
+        return EngineRegistry(adapters)
 
 
 @dataclass

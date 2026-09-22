@@ -3,6 +3,7 @@ import os
 import tkinter as tk
 import tkinter.font as tkfont
 from dataclasses import replace
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
@@ -17,19 +18,32 @@ from core.relatorio_pdf import caminhos_do_relatorio
 from core.searchable_pdf import contar_paginas_com_texto, gerar_pdf_pesquisavel
 from core.box_model import SEM_MARGEM
 from core.services.box_service import BoxService, faixas_de_linha
-from core.services.ocr_service import OCRService
+from config.paths import caminhos_modelo_linha
+from config.settings import Settings
+from core.linha_trainer import modelo_utilizavel
+from core.services.ocr_service import COMO_INSTALAR_TESSERACT, OCRService
 from core.services.pdf_service import DPI_PADRAO, PDFService
 from core.services.learning_service import LearningService
 from core.services.document_service import DocumentSession, _GravadorAssincrono
 from core.services.document_controller import DocumentController
 from core.services.navigation_controller import NavigationController
 from core.services.task_controller import TaskController
+from core.editorial_legacy import OpcoesDeLeitura, pipeline_de_producao
+from core.editorial_pipeline import (
+    DocumentSource,
+    ExportOptions,
+    ProcessOptions,
+)
 
 from ui.canvas_view import CanvasView
 from ui.dialogo_de_conclusao import DialogoDeConclusao
 from ui.dialogo_diagrama import DialogoDiagrama
+from ui.dialogo_de_exportacao import (FORMATOS_DE_LIVRO, FORMATOS_EDITORIAIS,
+                                      CHAVE_DO_DIRETORIO_DE_ENTRADA,
+                                      DialogoDeExportacao)
 from ui.dialogo_do_diagrama import DialogoDoDiagrama
 from ui.dialogo_semelhantes import DialogoSemelhantes
+from ui.dialogo_rotulagem import DialogoRotulagem
 from ui.status_bar import StatusBar
 from ui import confidence as conf_ui
 from ui import fontes
@@ -377,6 +391,10 @@ class MainWindow(tk.Frame):
         # A ressalva do modelo já foi mostrada nesta sessão? Ver
         # `_avisar_do_modelo`: é sobre o arquivo, então uma vez basta.
         self._modelo_conferido = False
+        # As preferências persistidas (`config/settings.py`), abertas na
+        # primeira ação que as pede — nunca na construção da janela, que os
+        # testes fazem às dezenas.
+        self._configuracoes_ = None
 
         # Modo digitação contínua: a tecla aplica e avança, sem Enter.
         self.modo_digitacao = False
@@ -589,6 +607,12 @@ class MainWindow(tk.Frame):
         base de treino inválida, por exemplo — virar uma pergunta útil em vez
         de um "DatasetInvalido: ..." que o usuário não tem como responder.
         """
+        # A guarda vale aqui, e não só em quem chama: o handler que esquecia o
+        # `_busy` (o treino de diagramas esquecia) reiniciava a barra de status
+        # com o título novo, e `task.start` devolvia `False` para ninguém — o
+        # trabalho não rodava e a tela dizia que sim.
+        if self._busy(titulo):
+            return False
         self.status.reset_cancel_button()
         self.status.start_task(f"{titulo}...", indeterminado=indeterminado)
 
@@ -619,7 +643,7 @@ class MainWindow(tk.Frame):
             messagebox.showerror(titulo, f"{type(exc).__name__}: {exc}")
 
         self.parent.config(cursor="watch")
-        self.task.start(
+        iniciada = self.task.start(
             trabalho,
             on_progress=progresso,
             on_done=concluir,
@@ -627,6 +651,9 @@ class MainWindow(tk.Frame):
             on_cancel=cancelado,
             on_log=self.status.set,
         )
+        if not iniciada:
+            encerrar(f"{titulo}: não iniciada — já há uma operação em andamento.")
+        return iniciada
 
     # -------------------------------------------------------
     # Layout
@@ -730,7 +757,7 @@ class MainWindow(tk.Frame):
         self.char_entry.bind("<Return>", lambda e: self.apply_char_and_next())
 
         tk.Button(editor, text="Aplicar", command=self.apply_char).grid(row=0, column=2, padx=5)
-        tk.Button(editor, text="Proximo >>", command=self.apply_char_and_next).grid(row=0, column=3, padx=5)
+        tk.Button(editor, text="Próximo >>", command=self.apply_char_and_next).grid(row=0, column=3, padx=5)
         self.btn_ocr_box = tk.Button(editor, text="OCR (box)", command=self.ocr_selected_box)
         self.btn_ocr_box.grid(row=0, column=4, padx=5)
 
@@ -886,16 +913,34 @@ class MainWindow(tk.Frame):
     # -------------------------------------------------------
 
     def _build_menu(self):
+        """
+        A barra de menus, **por etapa do trabalho** e não por origem do código.
+
+        Até 2026-09-18 eram 40 comandos num único "Ferramentas": nove modos de
+        reconhecimento misturados com treino, PDF, exportação e revisão, sem
+        Editar, sem Exibir, sem Ajuda, e com número de fase do roadmap no
+        rótulo ("Fase 2", "Fase 5"). Quem abria o programa não tinha como saber
+        que "Preencher caracteres (OCR)" era o Tesseract, nem qual dos nove
+        modos era o medido. A ordem agora é a do fluxo: abrir e exportar em
+        Arquivo; desfazer e o modo de digitação em Editar; **Reconhecer** com o
+        modo recomendado primeiro; **Revisar** para as filas e os recortes;
+        **Modelo** para tudo que treina; **PDF** para o que mexe no arquivo sem
+        OCR; Ferramentas fica com o que age sobre os boxes da tela.
+
+        Cada menu tem um mnemônico (`underline`): Alt+A abre Arquivo, Alt+R
+        Reconhecer, e assim por diante — o teclado chega a tudo, que é a regra
+        do resto da janela (Tab, F2, F3, Ctrl+F).
+        """
         menubar = tk.Menu(self.parent)
         self.parent.config(menu=menubar)
 
         m_file = tk.Menu(menubar, tearoff=0)
-        m_file.add_command(label="Abrir...", accelerator="Ctrl+O",
+        m_file.add_command(label="Abrir...", accelerator="Ctrl+O", underline=0,
                            command=self.abrir_documento)
         m_file.add_command(label="Abrir imagem...", command=self.open_image)
         m_file.add_command(label="Abrir PDF...", command=self.open_pdf)
         m_file.add_command(label="Salvar .box (página atual)", accelerator="Ctrl+S",
-                           command=self.save_box_file)
+                           underline=0, command=self.save_box_file)
         m_file.add_command(label="Salvar todas as páginas...", accelerator="Ctrl+Shift+S",
                            command=self.save_all_pages)
         m_file.add_command(label="Carregar .box", command=self.load_box_file)
@@ -903,73 +948,207 @@ class MainWindow(tk.Frame):
         m_file.add_command(label="Gravar rascunho agora", accelerator="Ctrl+B",
                            command=self.salvar_rascunho_agora)
         m_file.add_separator()
+        m_export = tk.Menu(m_file, tearoff=0)
+        m_export.add_command(label="Livro (EPUB/DOCX, pelo nosso OCR)...",
+                             underline=0, command=self.exportar_livro_action)
+        m_export.add_command(label="Documento editorial (JSON/HTML/TXT/PDF/EPUB/DOCX)...",
+                             underline=0, command=self.processar_documento_editorial_action)
+        m_export.add_command(label="Partidas em PGN...", underline=0,
+                             command=self.exportar_pgn)
+        m_export.add_command(label="PDF pesquisável (OCR)...", underline=4,
+                             command=self.gerar_pdf_pesquisavel_action)
+        m_file.add_cascade(label="Exportar", menu=m_export, underline=0)
+        m_file.add_separator()
         m_file.add_command(label="Editor de livro...", underline=0,
                            command=self.abrir_editor_de_livro)
         m_file.add_separator()
-        m_file.add_command(label="Sair", command=self._on_close)
-        menubar.add_cascade(label="Arquivo", menu=m_file)
+        m_file.add_command(label="Sair", underline=1, command=self._on_close)
+        menubar.add_cascade(label="Arquivo", menu=m_file, underline=0)
+
+        m_edit = tk.Menu(menubar, tearoff=0)
+        m_edit.add_command(label="Desfazer", accelerator="Ctrl+Z", underline=0,
+                           command=self._perform_undo)
+        m_edit.add_command(label="Refazer", accelerator="Ctrl+Y", underline=0,
+                           command=self._perform_redo)
+        m_edit.add_separator()
+        m_edit.add_command(label="Modo digitação", accelerator="F2", underline=5,
+                           command=self.alternar_modo_digitacao)
+        m_edit.add_command(label="Próximo box pendente", accelerator="F3",
+                           underline=0, command=lambda: self.proximo_pendente(1))
+        m_edit.add_command(label="Box pendente anterior", accelerator="Shift+F3",
+                           command=lambda: self.proximo_pendente(-1))
+        m_edit.add_command(label="Enquadrar box selecionado", accelerator="F4",
+                           underline=0, command=lambda: self._on_key_zoom(None))
+        menubar.add_cascade(label="Editar", menu=m_edit, underline=0)
+
+        # **O modo recomendado primeiro, e cada um com o que é.** "Neural" é a
+        # cadeia medida (rede própria → k-NN → EasyOCR); "(OCR)" era o
+        # Tesseract e ninguém tinha como saber. Os "Preencher" agem sobre os
+        # boxes que já estão na tela — quem moveu ou dividiu box à mão não
+        # pode usar "Detectar", que os regenera.
+        m_rec = tk.Menu(menubar, tearoff=0)
+        m_rec.add_command(label="Detectar e reconhecer (Neural — recomendado)",
+                          underline=0, command=self.generate_and_fill_neural)
+        m_rec.add_command(label="Detectar e reconhecer (Híbrido: k-NN + EasyOCR)",
+                          command=self.generate_and_fill_combined)
+        m_rec.add_command(label="Detectar e reconhecer (EasyOCR por linha)",
+                          command=self.generate_and_fill_linha)
+        m_rec.add_command(label="Detectar e reconhecer (EasyOCR por caractere)",
+                          command=self.generate_and_fill_easyocr)
+        m_rec.add_separator()
+        m_fill = tk.Menu(m_rec, tearoff=0)
+        m_fill.add_command(label="Tesseract (por caractere)", underline=0,
+                           command=self.auto_fill_characters)
+        m_fill.add_command(label="EasyOCR (por caractere)", underline=0,
+                           command=self.auto_fill_characters_easyocr)
+        m_fill.add_command(label="EasyOCR (por linha)", underline=9,
+                           command=self.auto_fill_characters_linha)
+        m_fill.add_command(label="PaddleOCR (por caractere)", underline=0,
+                           command=self.auto_fill_characters_paddleocr)
+        m_fill.add_command(label="Modelo treinado por linha (CRNN)", underline=0,
+                           command=self.auto_fill_characters_linha_treinada)
+        m_rec.add_cascade(label="Preencher os boxes existentes", menu=m_fill,
+                          underline=0)
+        m_rec.add_separator()
+        m_rec.add_command(label="Ler posição dos diagramas...", underline=0,
+                          command=self.extrair_diagramas)
+        m_rec.add_command(label="Validar notação de xadrez...", underline=0,
+                          command=self.validar_notacao)
+        menubar.add_cascade(label="Reconhecer", menu=m_rec, underline=0)
+
+        m_rev = tk.Menu(menubar, tearoff=0)
+        m_rev.add_command(label="Revisar documento editorial...", underline=0,
+                          command=self.revisar_documento_editorial_action)
+        m_rev.add_command(label="Preparar dataset de correções...", underline=0,
+                          command=self.preparar_dataset_correcoes_action)
+        m_rev.add_separator()
+        m_rev.add_command(label="Janela de rotulagem de linhas...", underline=0,
+                          command=self.abrir_janela_rotulagem)
+        m_rev.add_command(label="Revisar dataset de linhas...",
+                          command=self.abrir_revisao_dataset_linhas)
+        m_rev.add_separator()
+        m_rev.add_command(label="Criar recortes para revisão...", underline=0,
+                          command=self.criar_recortes_action)
+        m_rev.add_command(label="Promover recortes revistos para a base...",
+                          command=self.promover_revisao_action)
+        menubar.add_cascade(label="Revisar", menu=m_rev, underline=2)
+
+        m_model = tk.Menu(menubar, tearoff=0)
+        m_model.add_command(label="Aprender com a página atual (coletar)", underline=0,
+                            command=self.learn_from_current_page)
+        m_model.add_command(label="Verificar base de treino...", underline=0,
+                            command=self.verificar_base_treino)
+        m_model.add_command(label="Corrigir base de treino...", underline=0,
+                            command=self.corrigir_base_treino)
+        m_model.add_command(label="Treinar rede neural de glifos", underline=0,
+                            command=self.train_neural_network)
+        m_model.add_command(label="Treinamento geral neural (lote)",
+                            command=self.run_general_neural_training)
+        m_model.add_command(label="Importar imagens de caracteres",
+                            command=self.import_character_images)
+        m_model.add_separator()
+        m_model.add_command(label="Treinar OCR de linhas (linhas + engines)",
+                            command=self.train_line_ocr)
+        m_model.add_command(label="Validar dataset de linhas...",
+                            command=self.validar_dataset_linhas)
+        m_model.add_command(label="Avaliar modelo de linhas...",
+                            command=self.avaliar_modelo_linhas)
+        m_model.add_command(label="Abrir relatório do OCR de linhas",
+                            command=self.abrir_relatorio_ocr_linhas)
+        m_model.add_command(label="Relatório do último treino...",
+                            command=self.abrir_relatorio_treino)
+        m_model.add_separator()
+        m_model.add_command(label="Treinar modelo de diagramas...",
+                            command=self.treinar_modelo_diagramas)
+        menubar.add_cascade(label="Modelo", menu=m_model, underline=0)
+
+        m_pdf = tk.Menu(menubar, tearoff=0)
+        m_pdf.add_command(label="Substituir glifos de xadrez em PDF (texto)...",
+                          underline=0, command=self.substitute_chess_glyphs_action)
+        m_pdf.add_command(label="Substituir glifos em PDF escaneado (neural)...",
+                          command=self.substitute_glyphs_neural_action)
+        m_pdf.add_command(label="Corrigir mapeamento de caracteres do PDF...",
+                          underline=0, command=self.corrigir_mapeamento_action)
+        m_pdf.add_command(label="Gerar PDF pesquisável (OCR)...", underline=0,
+                          command=self.gerar_pdf_pesquisavel_action)
+        menubar.add_cascade(label="PDF", menu=m_pdf, underline=0)
 
         self._build_menu_notacao(menubar)
 
         m_tools = tk.Menu(menubar, tearoff=0)
-        m_tools.add_command(label="Gerar boxes (OpenCV)", command=self.generate_boxes_opencv)
-        m_tools.add_command(label="Preencher caracteres (OCR)", command=self.auto_fill_characters)
-        m_tools.add_command(label="Preencher caracteres (EasyOCR)", command=self.auto_fill_characters_easyocr)
-        m_tools.add_command(label="Preencher caracteres (PaddleOCR)", command=self.auto_fill_characters_paddleocr)
-        m_tools.add_command(label="Preencher caracteres (EasyOCR por linha)",
-                            command=self.auto_fill_characters_linha)
-        m_tools.add_separator()
-        m_tools.add_command(label="Detectar e Preencher (EasyOCR)", command=self.generate_and_fill_easyocr)
-        m_tools.add_command(label="Detectar e Preencher (EasyOCR por linha)",
-                            command=self.generate_and_fill_linha)
-        m_tools.add_command(label="Detectar e Preencher (Híbrido/Ref)", command=self.generate_and_fill_combined)
-        m_tools.add_command(label="Detectar e Preencher (Neural)", command=self.generate_and_fill_neural)
-        m_tools.add_separator()
-        m_tools.add_command(label="Aprender com Página Atual (Coletar)", command=self.learn_from_current_page)
-        m_tools.add_command(label="Verificar base de treino...",
-                            command=self.verificar_base_treino)
-        m_tools.add_command(label="Corrigir base de treino...",
-                            command=self.corrigir_base_treino)
-        m_tools.add_command(label="Treinar Rede Neural", command=self.train_neural_network)
-        m_tools.add_command(label="Relatório do último treino...",
-                            command=self.abrir_relatorio_treino)
-        m_tools.add_separator()
-        m_tools.add_command(label="Validar notação de xadrez...",
-                            command=self.validar_notacao)
-        m_tools.add_command(label="Exportar partidas em PGN...",
-                            command=self.exportar_pgn)
-        m_tools.add_command(label="Ler posição dos diagramas...",
-                            command=self.extrair_diagramas)
-        m_tools.add_command(label="Treinar modelo de diagramas...",
-                            command=self.treinar_modelo_diagramas)
-        m_tools.add_separator()
-        m_tools.add_command(label="Treinamento Geral Neural (Batch)", command=self.run_general_neural_training)
-        m_tools.add_command(label="Importar Imagens de Caracteres", command=self.import_character_images)
+        m_tools.add_command(label="Gerar boxes (OpenCV)", underline=0,
+                            command=self.generate_boxes_opencv)
         m_tools.add_separator()
         m_tools.add_command(label="Aplicar a todos os semelhantes...",
-                            accelerator="Ctrl+E",
+                            accelerator="Ctrl+E", underline=0,
                             command=self.aplicar_aos_semelhantes)
         m_tools.add_command(label="Dividir box selecionado", accelerator="Ctrl+D",
-                            command=self.split_selected_box)
+                            underline=0, command=self.split_selected_box)
         m_tools.add_command(label="Excluir box selecionado", accelerator="Del",
-                            command=self.delete_selected_box)
-        m_tools.add_separator()
-        m_tools.add_command(
-            label="Substituir Glifos de Xadrez em PDF (Texto)...",
-            command=self.substitute_chess_glyphs_action)
-        m_tools.add_command(label="Gerar PDF Pesquisável (OCR)...",
-                            command=self.gerar_pdf_pesquisavel_action)
-        m_tools.add_command(label="Substituir Glifos em PDF Escaneado (Neural)...",
-                            command=self.substitute_glyphs_neural_action)
-        m_tools.add_command(label="Corrigir Mapeamento de Caracteres do PDF...",
-                            command=self.corrigir_mapeamento_action)
-        m_tools.add_command(label="Exportar Livro (EPUB/DOCX, só nosso OCR)...",
-                            command=self.exportar_livro_action)
-        m_tools.add_command(label="Criar Recortes para Revisão...",
-                            command=self.criar_recortes_action)
-        m_tools.add_command(label="Promover recortes revistos para a base...",
-                            command=self.promover_revisao_action)
-        menubar.add_cascade(label="Ferramentas", menu=m_tools)
+                            underline=0, command=self.delete_selected_box)
+        menubar.add_cascade(label="Ferramentas", menu=m_tools, underline=0)
+
+        m_help = tk.Menu(menubar, tearoff=0)
+        m_help.add_command(label="Atalhos de teclado...", underline=0,
+                           command=self.mostrar_atalhos)
+        m_help.add_command(label="Sobre o PyBoxEditor...", underline=0,
+                           command=self.mostrar_sobre)
+        menubar.add_cascade(label="Ajuda", menu=m_help, underline=2)
+
+    #: O que a tela responde ao teclado, para o menu Ajuda. Uma lista só, para
+    #: o atalho que não está no menu — F2, F3, Tab, a roda do mouse — ter onde
+    #: ser descoberto.
+    ATALHOS = (
+        ("Ctrl+O", "Abrir documento"),
+        ("Ctrl+S / Ctrl+Shift+S", "Salvar o .box da página / de todas as páginas"),
+        ("Ctrl+B", "Gravar o rascunho agora"),
+        ("Ctrl+Z / Ctrl+Y", "Desfazer / refazer"),
+        ("Ctrl+F", "Buscar caractere na lista"),
+        ("Ctrl+G", "Ir para a página"),
+        ("Ctrl+E", "Aplicar o caractere a todos os semelhantes"),
+        ("Ctrl+D", "Dividir o box selecionado"),
+        ("Del / Backspace", "Excluir o box selecionado (fora de um campo de texto)"),
+        ("Tab / Shift+Tab", "Próximo / anterior box, com o foco no campo do caractere"),
+        ("↑ / ↓", "Box anterior / seguinte na lista"),
+        ("Enter (no campo)", "Aplicar o caractere e avançar"),
+        ("F2", "Ligar/desligar o modo de digitação"),
+        ("Esc", "Sair do modo de digitação"),
+        ("F3 / Shift+F3", "Próximo / anterior box pendente"),
+        ("F4", "Enquadrar o box selecionado"),
+        ("PgUp / PgDn", "Página anterior / seguinte"),
+        ("Roda do mouse", "Zoom no canvas; botão direito arrasta; duplo clique enquadra"),
+        ("Na revisão editorial: A / R / D / S", "Aceitar / rejeitar / adiar / aceitar semelhantes"),
+        ("Na revisão editorial: N ou espaço / G", "Próximo item / abrir o diagrama"),
+        ("Na revisão editorial: Ctrl+Enter / Ctrl+Z", "Salvar o valor editado / desfazer um passo"),
+    )
+
+    def mostrar_atalhos(self):
+        """A lista de atalhos, num diálogo que dá para copiar."""
+        from tkinter import scrolledtext
+        janela = tk.Toplevel(self.parent)
+        janela.title("Atalhos de teclado")
+        janela.transient(self.parent)
+        texto = scrolledtext.ScrolledText(janela, width=72, height=min(24, len(self.ATALHOS) + 2),
+                                          font=("Consolas", 10), wrap="none")
+        largura = max(len(tecla) for tecla, _ in self.ATALHOS)
+        texto.insert("1.0", "\n".join(f"{tecla:<{largura}}  {descricao}"
+                                       for tecla, descricao in self.ATALHOS))
+        texto.config(state="disabled")
+        texto.pack(fill="both", expand=True, padx=8, pady=8)
+        tk.Button(janela, text="Fechar", command=janela.destroy).pack(pady=(0, 8))
+        janela.bind("<Escape>", lambda e: janela.destroy())
+
+    def mostrar_sobre(self):
+        messagebox.showinfo(
+            "Sobre o PyBoxEditor",
+            "PyBoxEditor — editor de boxes e pipeline de OCR para livros e "
+            "diagramas de xadrez.\n\n"
+            "Leitura de livro: rede própria de glifos + Tesseract, fundidos "
+            "palavra a palavra (o lance fica com a rede, a prosa com o "
+            "Tesseract). Diagramas: detecção do tabuleiro, duas redes por casa "
+            "e filtro de legalidade.\n\n"
+            "Ferramentas → Ajuda → Atalhos de teclado lista tudo que a tela "
+            "responde ao teclado.")
 
     def _build_menu_notacao(self, menubar):
         """
@@ -1010,7 +1189,16 @@ class MainWindow(tk.Frame):
                                     state="disabled")
             m_nag.add_cascade(label=titulo, menu=sub)
 
-        menubar.add_cascade(label="Notação", menu=m_nag)
+        menubar.add_cascade(label="Notação", menu=m_nag, underline=0)
+
+    def abrir_janela_rotulagem(self):
+        """Abre a revisão focada de glifos para a página atual."""
+        if self._busy("A rotulagem"):
+            return
+        if self.image is None:
+            messagebox.showinfo("Rotulagem", "Abra uma imagem ou PDF primeiro.")
+            return
+        DialogoRotulagem(self)
 
     def _build_context_menu(self):
         self.context_menu = tk.Menu(self, tearoff=0)
@@ -1143,7 +1331,15 @@ class MainWindow(tk.Frame):
         return None
 
     def _on_key_backspace(self, event):
-        """Backspace volta um box no modo digitação; fora dele, exclui."""
+        """Backspace volta um box no modo digitação; fora dele, exclui.
+
+        **Nunca com o foco num campo de texto**: ali o Backspace apaga uma
+        letra, e é só isso que ele deve fazer. A binding da raiz roda depois
+        da do `Entry`, e sem esta guarda apagar o caractere do campo
+        "Caractere" (o destino do Tab e do Enter) apagava também o box.
+        """
+        if self._foco_em_campo_de_texto():
+            return None
         if self.modo_digitacao:
             self._mover_selecao(-1)
             self._status_digitacao()
@@ -1312,7 +1508,8 @@ class MainWindow(tk.Frame):
         self._tentar_recuperar()
         self._load_pdf_page(0, arquivar_atual=False)
 
-    def _load_pdf_page(self, page_index, arquivar_atual=True):
+    def _load_pdf_page(self, page_index, arquivar_atual=True, ao_concluir=None,
+                       ao_falhar=None, ao_cancelar=None):
         """
         Troca de página. A renderização vai para a thread de trabalho: medido em
         ~950 ms num PDF sintético simples, e um scan de livro a 300 dpi é bem
@@ -1370,9 +1567,12 @@ class MainWindow(tk.Frame):
             self.update_canvas()
             self._update_nav_controls()
             self._update_title()
+            if ao_concluir:
+                ao_concluir()
 
         self._run_task(f"Página {page_index + 1}", trabalho, aplicar,
-                       indeterminado=True)
+                       indeterminado=True, ao_falhar=ao_falhar,
+                       ao_cancelar=ao_cancelar)
 
     def prev_page(self):
         # Não mexer em current_pdf_page aqui: _load_pdf_page usa o valor atual
@@ -1483,6 +1683,29 @@ class MainWindow(tk.Frame):
         aviso = self.learning_service.aviso_do_modelo()
         if aviso:
             messagebox.showwarning("Modelo neural", aviso)
+
+    def _confirmar_motor_de_prosa(self, idioma: str) -> bool:
+        """Sonda o Tesseract para `idioma` antes de uma leitura de livro.
+
+        Devolve `True` para seguir. Com o motor em ordem não pergunta nada;
+        sem ele, diz o motivo e o custo — a prosa fica só com a cadeia própria —
+        e deixa o usuário escolher entre seguir assim e desistir para instalar.
+        É a versão pré-tarefa do `PaginaExtraida.motor_indisponivel`: o
+        relatório do fim conta o que **já** aconteceu; esta caixa deixa
+        escolher **antes** que aconteça.
+        """
+        disponivel, motivo = self.ocr_service.tesseract_disponivel(idioma)
+        if disponivel:
+            return True
+        return messagebox.askyesno(
+            "Tesseract indisponível",
+            f"O Tesseract não vai rodar: {motivo}.\n\n"
+            "Sem ele a prosa fica só com a cadeia própria — que lê o lance "
+            "bem e a prosa mal (na página de referência, 27% de erro por "
+            "caractere contra 1% com os dois juntos).\n\n"
+            "Seguir assim mesmo?\n\n"
+            f"Não: cancelar. {COMO_INSTALAR_TESSERACT}",
+            default=messagebox.NO)
 
     def _arbitro_de_corte(self):
         """
@@ -1735,60 +1958,332 @@ class MainWindow(tk.Frame):
                     f"{erro}\n\nDigite um número, ou deixe o campo em branco "
                     "para não ter teto.")
 
-    def _perguntar_intervalo_de_exportacao(self, caminho_pdf):
-        """Pergunta se a exportação é do livro inteiro ou de um intervalo.
-
-        Devolve ``None`` para o livro inteiro, a lista de índices (base 0)
-        para um intervalo, ou ``CANCELADO``. Ler o número de páginas pode
-        falhar num PDF corrompido; nesse caso a exportação não começa.
-        """
-        from tkinter import simpledialog
-        import fitz
-        import re
-
-        try:
-            documento = fitz.open(caminho_pdf)
-            total = len(documento)
-            documento.close()
-        except Exception as erro:
-            messagebox.showerror(
-                "Exportar livro",
-                f"Não foi possível ler o número de páginas do PDF:\n{erro}")
-            return self.CANCELADO
-
-        escolha = messagebox.askyesnocancel(
-            "Modo de exportação",
-            "Deseja informar um intervalo de páginas?\n\n"
-            f"Sim: escolher páginas entre 1 e {total}.\n"
-            f"Não: exportar o livro inteiro ({total} página(s)).\n"
-            "Cancelar: desistir da exportação.")
-        if escolha is None:
-            return self.CANCELADO
-        if not escolha:
-            return None
-
-        digitado = ""
-        while True:
-            digitado = simpledialog.askstring(
-                "Intervalo de páginas",
-                f"Informe o intervalo de páginas (1 a {total}), por exemplo: 12-30.",
-                initialvalue=digitado)
-            if digitado is None:
-                return self.CANCELADO
-            correspondencia = re.fullmatch(
-                r"\s*(\d+)\s*(?:-|–|—|a)\s*(\d+)\s*",
-                digitado, flags=re.IGNORECASE)
-            if correspondencia:
-                inicio, fim = map(int, correspondencia.groups())
-                if 1 <= inicio <= fim <= total:
-                    return list(range(inicio - 1, fim))
-            messagebox.showwarning(
-                "Intervalo de páginas",
-                f"Intervalo inválido. Use dois números entre 1 e {total}, "
-                "por exemplo, 12-30.")
-
     #: Costura de teste, como a do `DIALOGO_DIAGRAMA`.
     DIALOGO_DO_DIAGRAMA = DialogoDoDiagrama
+    #: A caixa única de exportação (2026-09-18); os testes põem um dublê que
+    #: devolve um `OpcoesDeExportacao` pronto.
+    DIALOGO_DE_EXPORTACAO = DialogoDeExportacao
+
+    def _configuracoes(self):
+        """O `Settings` da sessão, aberto na primeira vez que se pede."""
+        if self._configuracoes_ is None:
+            self._configuracoes_ = Settings()
+        return self._configuracoes_
+
+    def _abrir_para_exportar(self, titulo, tipos):
+        """O arquivo de entrada, começando na pasta da última vez."""
+        try:
+            pasta = self._configuracoes().get(CHAVE_DO_DIRETORIO_DE_ENTRADA)
+        except Exception:  # noqa: BLE001 — preferência que não abre não barra a ação
+            pasta = None
+        escolhido = filedialog.askopenfilename(
+            title=titulo, filetypes=tipos,
+            initialdir=pasta if pasta and os.path.isdir(pasta) else None)
+        if escolhido:
+            try:
+                configuracoes = self._configuracoes()
+                configuracoes.set(CHAVE_DO_DIRETORIO_DE_ENTRADA,
+                                  os.path.dirname(os.path.abspath(escolhido)))
+                configuracoes.save()
+            except Exception:  # noqa: BLE001
+                pass
+        return escolhido
+
+    def _preparar_exportacao(self, entrada, formatos, titulo):
+        """
+        Tudo que a caixa de exportação precisa saber antes de abrir, e a caixa.
+
+        Devolve `(opcoes, idioma_detectado, motor_disponivel)`, com `opcoes`
+        `None` quando o usuário cancelou. As sondagens — número de páginas,
+        idioma pela camada de texto, Tesseract, portão do modelo de linha —
+        acontecem aqui, antes, para a caixa mostrar o estado de cada coisa ao
+        lado da escolha em vez de perguntar depois.
+        """
+        e_pdf = entrada.lower().endswith(".pdf")
+        total = 1
+        if e_pdf:
+            import fitz
+            try:
+                documento = fitz.open(entrada)
+                total = len(documento)
+                documento.close()
+            except Exception as erro:  # noqa: BLE001 — PDF que não abre
+                messagebox.showerror(
+                    titulo, f"Não foi possível ler o número de páginas do PDF:\n{erro}")
+                return None, None, True
+        idioma_detectado = None
+        if e_pdf:
+            idioma_detectado, _detectado = self._idioma_do_livro(entrada, perguntar=False)
+        disponivel, motivo = self.ocr_service.tesseract_disponivel(idioma_detectado or "en")
+        modelo_path, meta_path = caminhos_modelo_linha()
+        opcoes = self.DIALOGO_DE_EXPORTACAO(
+            self.parent, entrada=entrada, total_paginas=total, formatos=formatos,
+            configuracoes=self._configuracoes, idioma_detectado=idioma_detectado,
+            motor_de_prosa=(disponivel, motivo),
+            modelo_de_linha=modelo_utilizavel(meta_path, modelo_path),
+            titulo=titulo).mostrar()
+        if opcoes is not None and opcoes.idioma != (idioma_detectado or "en"):
+            # A sondagem é por pacote de idioma (`eng`/`por`): quem trocou o
+            # idioma na caixa é sondado de novo, senão o "disponível" do inglês
+            # valeria para um português sem `por.traineddata`.
+            disponivel, _motivo = self.ocr_service.tesseract_disponivel(opcoes.idioma)
+        return opcoes, idioma_detectado, disponivel
+
+    def processar_documento_editorial_action(self):
+        """Lê um PDF ou imagem com o leitor de produção e grava o documento
+        editorial — ou uma saída derivada dele.
+
+        **É o mesmo leitor da exportação de livro** (`livro.extrair`: cadeia
+        própria + Tesseract, fusão por palavra), atrás da fachada
+        `EditorialPipeline` por `core.editorial_legacy`. A fachada sozinha, com
+        o reconhecedor próprio de linha, não lê página digitalizada: medido na
+        p. 30 do Aagaard em 2026-09-18, saía um bloco vazio e sem aviso, contra
+        2,4% de CER pelo leitor de produção.
+
+        JSON, HTML, TXT e PDF pesquisável saem do IR; EPUB e DOCX saem do
+        escritor histórico (`exportar.exportar`), que é o que embute a fonte de
+        símbolos e redesenha os diagramas — o do IR ainda não faz nenhuma das
+        duas coisas. A caixa é a mesma da exportação de livro
+        (`DialogoDeExportacao`), com mais formatos.
+        """
+        if self._busy("O processamento editorial"):
+            return
+        origem = self._abrir_para_exportar(
+            "Selecionar PDF ou imagem",
+            [("PDF e imagens", "*.pdf *.png *.jpg *.jpeg *.tif *.tiff"),
+             ("Todos os arquivos", "*.*")])
+        if not origem:
+            return
+        self._avisar_do_modelo()
+        opcoes, _idioma_detectado, motor_disponivel = self._preparar_exportacao(
+            origem, FORMATOS_EDITORIAIS, "Exportar documento editorial")
+        if opcoes is None:
+            return
+        formato, paginas, idioma = opcoes.formato, opcoes.paginas, opcoes.idioma
+        formatos = {ext for ext, _rotulo in FORMATOS_EDITORIAIS}
+        if formato not in formatos:
+            messagebox.showerror(
+                "Documento editorial",
+                f"Extensão não reconhecida: {formato!r}.\n"
+                f"Use uma de: {', '.join('.' + f for f in sorted(formatos))}.")
+            return
+        if not motor_disponivel and not self._confirmar_motor_de_prosa(idioma):
+            return
+        coletor = (coleta.Coletor(origem=os.path.basename(origem),
+                                  max_por_classe=opcoes.teto)
+                   if opcoes.coletar else None)
+        opcoes_de_leitura = OpcoesDeLeitura(
+            idioma=idioma, lex=self.lexico_da_sessao(),
+            diagramas=opcoes.diagramas, coordenadas=opcoes.coordenadas,
+            fonte=opcoes.fonte, moldura=opcoes.moldura, cantos=opcoes.cantos,
+            probabilidade=(self.learning_service.probabilidade_de
+                           if opcoes.reparar else None),
+            coletor=coletor, modelo_de_linha=opcoes.modelo_de_linha)
+
+        def trabalho(handle):
+            # O adapter converte o cancelamento da UI para o token público do
+            # pipeline; o worker continua sem tocar em widgets.
+            class Token:
+                @property
+                def cancelled(self):
+                    return handle.cancelled
+
+                def raise_if_cancelled(self):
+                    if self.cancelled:
+                        from core.ocr_runtime import OCRCancelled
+                        raise OCRCancelled("processamento editorial cancelado")
+
+            handle.log("Carregando modelo neural...")
+            pipeline, extrator = pipeline_de_producao(
+                self.learning_service, self.ocr_service, opcoes_de_leitura)
+            source = DocumentSource.from_path(origem)
+            options = ProcessOptions(
+                language=idioma, use_cache=False,
+                page_indices=tuple(paginas) if paginas is not None else None)
+            documento = pipeline.process(source, options, Token())
+            handle.raise_if_cancelled()
+            handle.log("Escrevendo o arquivo...")
+            arquivos = self._escrever_documento_editorial(
+                pipeline, documento, extrator.ultimas_paginas, opcoes, origem)
+            if coletor is not None:
+                coletor.gravar_indice()
+            return arquivos, documento, extrator, pipeline
+
+        def concluir(resultado):
+            arquivos, documento, extrator, pipeline = resultado
+            documento.metadata["review_journal_path"] = str(
+                Path(arquivos[0]).with_suffix(".review.jsonl"))
+            self.documento_editorial = documento
+            # O que a revisão precisa para **voltar** ao arquivo: o leitor
+            # com as páginas lidas (o EPUB/DOCX sai delas), a fachada (os
+            # formatos do IR) e as opções com que se exportou.
+            self.exportacao_editorial = {"pipeline": pipeline, "extrator": extrator,
+                                         "opcoes": opcoes, "origem": origem}
+            avisos = sum(len(page.warnings) for page in documento.pages)
+            blocos = sum(len(page.blocks) for page in documento.pages)
+            caracteres = sum(p.caracteres for p in extrator.ultimas_paginas)
+            sem_motor = sum(1 for p in extrator.ultimas_paginas
+                            if p.motor_indisponivel)
+            linhas = [f"Arquivo salvo em:\n{arquivos[0]}", "",
+                      f"Páginas: {len(documento.pages)}",
+                      f"Blocos: {blocos}",
+                      f"Caracteres lidos: {caracteres}",
+                      f"Leitor de faixa: {extrator.leitor_de_faixa}",
+                      f"Idioma: {idioma}"]
+            if coletor is not None:
+                linhas += ["", f"Para revisão: {coletor.resumo()}",
+                           f"em {os.path.abspath(coletor.pasta)}"]
+            if sem_motor:
+                linhas.append(f"ATENÇÃO: o motor de prosa faltou em {sem_motor} "
+                              f"página(s) — elas saíram só com a cadeia própria.")
+            if avisos:
+                linhas.append(f"Avisos nas páginas: {avisos}.")
+            from core.editorial_review import build_review_queue
+            suspeitos = len(build_review_queue(documento).items)
+            linhas.append(f"Blocos na fila de revisão: {suspeitos}"
+                          + (" — Revisar → Revisar documento editorial mostra cada "
+                             "um com o recorte, as duas leituras e o motivo."
+                             if suspeitos else "."))
+            messagebox.showinfo("Documento editorial concluído", "\n".join(linhas))
+
+        self._run_task("Processamento editorial", trabalho, concluir,
+                       indeterminado=True)
+
+    def _escrever_documento_editorial(self, pipeline, documento, paginas, opcoes,
+                                      origem: str):
+        """Grava o documento editorial em `opcoes.saida`, no formato pedido.
+
+        EPUB e DOCX saem do escritor histórico (`exportar.exportar`) a partir
+        das `PaginaExtraida`; os outros formatos saem do IR pela fachada. É
+        o mesmo caminho da primeira gravação e da regravação depois da
+        revisão — o que muda entre as duas é o documento e as páginas.
+        Roda fora da thread da interface.
+        """
+        saida, formato, idioma = opcoes.saida, opcoes.formato, opcoes.idioma
+        if formato in ("epub", "docx"):
+            e_pdf = origem.lower().endswith(".pdf")
+            titulo, autor = (livro.titulo_e_autor(origem) if e_pdf
+                             else (os.path.splitext(os.path.basename(origem))[0], ""))
+            exportar.exportar(paginas, saida, formato=formato, titulo=titulo,
+                              autor=autor, diagramas=opcoes.diagramas_no_arquivo,
+                              corpo_pt=opcoes.corpo_pt, moldura=opcoes.moldura,
+                              cantos=opcoes.cantos, idioma=idioma)
+            return (saida,)
+        return pipeline.export(documento, saida, ExportOptions(format=formato)).files
+
+    def revisar_documento_editorial_action(self):
+        """Abre a fila de suspeitas do último documento processado.
+
+        A janela recebe três coisas que só a janela principal tem: a imagem
+        de cada página (`ProvedorDePaginas`, que rasteriza a origem na
+        escala em que ela foi lida), o diálogo 8×8 para o diagrama
+        (`DIALOGO_DIAGRAMA`, aberto ao lado do recorte impresso) e a
+        regravação do arquivo com as correções — o FEN revisado **volta**
+        para a exportação por aqui.
+        """
+        documento = getattr(self, "documento_editorial", None)
+        if documento is None:
+            messagebox.showinfo(
+                "Revisão editorial",
+                "Processe um documento editorial primeiro para abrir a fila de revisão.",
+            )
+            return
+        from core.editorial_legacy import ProvedorDePaginas, leitura_de_fen
+        from core.editorial_review import ReviewJournal, ReviewSession
+        from ui.dialogo_revisao_editorial import DialogoRevisaoEditorial
+        journal = ReviewJournal(documento.metadata.get("review_journal_path"))
+        try:
+            sessao = ReviewSession.from_journal(documento, journal)
+        except (ValueError, KeyError):
+            # O diário no mesmo caminho é de outra exportação (outro
+            # documento, outros blocos): não se aplica, e não se apaga.
+            sessao = ReviewSession(documento, journal=journal)
+        provedor = ProvedorDePaginas(documento)
+
+        def abrir_diagrama(item, imagem):
+            valor = item.value if isinstance(item.value, dict) else {}
+            leitura = leitura_de_fen(str(valor.get("fen") or ""), item.bbox,
+                                     orientacao=str(valor.get("orientation") or "branca"))
+            if imagem is None:
+                imagem = np.full((8, 8), 255, dtype=np.uint8)
+            return self.DIALOGO_DIAGRAMA(
+                self.parent, imagem, [leitura],
+                origem=f"{documento.document_id} p{item.page_index + 1}").mostrar()
+
+        ao_exportar = (self._exportar_documento_revisado
+                       if getattr(self, "exportacao_editorial", None) else None)
+        janela = DialogoRevisaoEditorial(
+            self, sessao, imagem_da_pagina=provedor.imagem,
+            abrir_diagrama=abrir_diagrama, ao_exportar=ao_exportar)
+        janela.bind("<Destroy>", lambda e: provedor.fechar() if e.widget is janela else None)
+        janela.mostrar()
+
+    def _exportar_documento_revisado(self, documento):
+        """Regrava o último arquivo exportado com as decisões da revisão.
+
+        O documento revisado substitui o da sessão; as páginas do leitor
+        recebem as decisões (`aplicar_revisao`: texto, filas, FEN redesenhado,
+        bloco rejeitado fora) e o arquivo sai pelo mesmo caminho da primeira
+        vez, no mesmo lugar — depois de perguntar, porque sobrescreve.
+        """
+        contexto = getattr(self, "exportacao_editorial", None)
+        if not contexto:
+            messagebox.showinfo("Revisão editorial",
+                                "Este documento não veio de uma exportação desta sessão.")
+            return
+        if self._busy("A exportação"):
+            return
+        opcoes, origem = contexto["opcoes"], contexto["origem"]
+        if not messagebox.askyesno(
+                "Exportar com as correções",
+                f"Gravar de novo, com as correções da revisão, em:\n{opcoes.saida}\n\n"
+                "O arquivo atual será substituído."):
+            return
+        from core.editorial_legacy import OpcoesDeFigura, aplicar_revisao
+        self.documento_editorial = documento
+        pipeline, extrator = contexto["pipeline"], contexto["extrator"]
+        figura = OpcoesDeFigura(fonte=opcoes.fonte, moldura=opcoes.moldura,
+                                cantos=opcoes.cantos)
+
+        def trabalho(handle):
+            handle.log("Aplicando as correções...")
+            paginas = aplicar_revisao(extrator.ultimas_paginas, documento, opcoes=figura)
+            handle.log("Escrevendo o arquivo...")
+            return self._escrever_documento_editorial(pipeline, documento, paginas,
+                                                      opcoes, origem)
+
+        def concluir(arquivos):
+            eventos = len(documento.review_events)
+            messagebox.showinfo(
+                "Exportação concluída",
+                f"Arquivo salvo em:\n{arquivos[0]}\n\n"
+                f"Eventos de revisão aplicados: {eventos}")
+
+        self._run_task("Exportação revisada", trabalho, concluir, indeterminado=True)
+
+    def preparar_dataset_correcoes_action(self):
+        """Materializa somente eventos editoriais confirmados para o treino."""
+        documento = getattr(self, "documento_editorial", None)
+        if documento is None:
+            messagebox.showinfo(
+                "Dataset de correções",
+                "Processe e revise um documento editorial antes de preparar o dataset.",
+            )
+            return
+        destino = filedialog.asksaveasfilename(
+            title="Salvar dataset versionado de correções",
+            defaultextension=".json",
+            filetypes=[("Dataset de correções", "*.json")],
+        )
+        if not destino:
+            return
+        from core.ocr_phase7 import CorrectionDataset
+        dataset = CorrectionDataset.from_document(documento)
+        dataset.save(destino)
+        messagebox.showinfo(
+            "Dataset de correções",
+            f"{len(dataset.records)} correção(ões) salvas.\n\nChecksum: {dataset.digest()}",
+        )
 
     #: A caixa do fim de "Exportar livro" (ED-02); o teste põe um dublê no lugar.
     DIALOGO_DE_CONCLUSAO = DialogoDeConclusao
@@ -1820,145 +2315,51 @@ class MainWindow(tk.Frame):
         ela vem de um OCR de fábrica que erra a notação inteira — medido na
         página 11 do Yusupov, `'•. hb7 2.hb7 l2Jd7 3.ha8 Wlxa8'` onde o nosso
         OCR lê `'1...♗xb7 2.♗xb7 ♘d7 3.♗xa8 ♕xa8'`.
+
+        **Uma caixa só** (`DialogoDeExportacao`, 2026-09-18) no lugar das
+        catorze perguntas encadeadas de antes: formato, destino, páginas,
+        idioma, motor, reparo de colagem, modelo de linha, coleta, diagramas —
+        com o que se escolheu da última vez já preenchido. O que cada escolha
+        significa e custa está explicado na caixa, ao lado dela; o que ela
+        devolve é um `OpcoesDeExportacao`, e é dele que tudo abaixo sai.
         """
         if self._busy("A exportação"):
             return
         self._avisar_do_modelo()
 
-        input_pdf = filedialog.askopenfilename(
-            title="Selecionar PDF",
-            filetypes=[("Arquivos PDF", "*.pdf")]
-        )
+        input_pdf = self._abrir_para_exportar(
+            "Selecionar PDF", [("Arquivos PDF", "*.pdf")])
         if not input_pdf:
             return
 
-        paginas = self._perguntar_intervalo_de_exportacao(input_pdf)
-        if paginas is self.CANCELADO:
+        opcoes, idioma_detectado, motor_disponivel = self._preparar_exportacao(
+            input_pdf, FORMATOS_DE_LIVRO, "Exportar livro")
+        if opcoes is None:
             return
-
-        saida = filedialog.asksaveasfilename(
-            title="Salvar livro como...",
-            defaultextension=".epub",
-            filetypes=[("Livro EPUB", "*.epub"), ("Documento Word", "*.docx")]
-        )
-        if not saida:
-            return
-
-        formato = os.path.splitext(saida)[1].lstrip(".").lower()
+        saida, formato, paginas = opcoes.saida, opcoes.formato, opcoes.paginas
         if formato not in exportar.FORMATOS:
             messagebox.showerror(
                 "Exportar livro",
                 f"Extensão não reconhecida: {formato!r}.\n"
                 f"Use .epub ou .docx.")
             return
+        idioma = opcoes.idioma
+        detectado = idioma_detectado == idioma
+        desenhar = opcoes.diagramas == "render"
+        embutir = opcoes.embutir_fonte
+        coordenadas = opcoes.coordenadas
+        fonte_do_diagrama, moldura, cantos, corpo_pt = (
+            opcoes.fonte, opcoes.moldura, opcoes.cantos, opcoes.corpo_pt)
+        coletar, teto, reparar = opcoes.coletar, opcoes.teto, opcoes.reparar
+        modelo_linha = opcoes.modelo_de_linha
+        modelo_path, meta_path = caminhos_modelo_linha()
 
-        # O diagrama redesenhado é o padrão desde a F58, e o porteiro é quem
-        # decide caso a caso — aqui só se pergunta se ele pode tentar. Quem
-        # responde "não" leva o livro inteiro com o recorte do scan, que é o que
-        # a F2.6 exportava.
-        desenhar = messagebox.askyesno(
-            "Redesenhar os diagramas?",
-            "Redesenhar cada diagrama a partir da posição lida, com fonte de "
-            "xadrez?\n\n"
-            "O tabuleiro sai limpo, no lugar do recorte do scan. Onde a leitura "
-            "não convencer, o diagrama cai sozinho para o recorte — medido em "
-            "346 tabuleiros de livro, isso acontece em 9% deles.\n\n"
-            "Não: todos os diagramas saem recortados da página, como antes.")
-
-        # A fonte embutida (F59) só faz sentido sobre o desenho: recorte de scan
-        # não vira letra. E é opção, não padrão — leitor que força a fonte do
-        # usuário transforma o tabuleiro em `rmblkans`.
-        embutir = desenhar and messagebox.askyesno(
-            "Diagramas como texto, com a fonte embutida?",
-            "Pôr o tabuleiro como texto de verdade, levando a fonte de xadrez "
-            "dentro do arquivo?\n\n"
-            "Ele passa a escalar sem perder nitidez e pesa quase nada. Em "
-            "compensação, depende de o leitor respeitar a fonte embutida — "
-            "quem trocar a fonte pela dele vê letras no lugar do tabuleiro.\n\n"
-            "Não: o diagrama sai como imagem, que funciona em qualquer leitor.",
-            default=messagebox.NO)
-
-        # São três respostas, e elas saem em duas perguntas encaixadas — como o
-        # par desenhar/embutir logo acima (F95). Um `askyesnocancel` daria as
-        # três numa caixa só, mas o Escape e o X da janela cairiam na terceira,
-        # e "fechei a caixa" não é "faça como o livro".
-        como_no_livro = messagebox.askyesno(
-            "Seguir as coordenadas do livro?",
-            "Seguir o que o livro imprimiu em volta de cada tabuleiro?\n\n"
-            "As letras a–h e os números 1–8 são reconhecidos diagrama a "
-            "diagrama, e cada um sai como está na página — inclusive quando o "
-            "mesmo livro traz o exercício com coordenadas e o diagrama do meio "
-            "da prosa sem.\n\n"
-            "Não: você escolhe um dos dois para o livro inteiro.")
-        coordenadas = livro.COMO_NO_LIVRO
-        if not como_no_livro:
-            coordenadas = messagebox.askyesno(
-                "Coordenadas nos diagramas?",
-                "Incluir as letras a–h e os números 1–8 em volta do "
-                "tabuleiro?\n\n"
-                "O livro impresso as traz para quem vai falar da posição em voz "
-                "alta. Num arquivo que se lê na tela elas ocupam espaço e não "
-                "dizem nada que o tabuleiro já não diga — por isso o padrão "
-                "é sem.",
-                default=messagebox.NO)
-
-        # A fonte, a moldura, a quina e o corpo do diagrama (F97, F98, F101).
-        # **Uma caixa só para as quatro**, ao contrário das de cima: uma é uma
-        # lista, outra tem três respostas, outra é um número, e todas mexem no
-        # mesmo desenho — quem escolhe a moldura dupla precisa ver que a está
-        # escolhendo para um diagrama de 4,5 cm na fonte que escolheu.
-        # Cancelar aqui desiste da exportação, e não vira "faça como sempre":
-        # quem abriu esta caixa veio decidir alguma coisa.
-        escolha = self.DIALOGO_DO_DIAGRAMA(self.parent).mostrar()
-        if escolha is None:
+        # **O motor de prosa é sondado antes, e não descoberto no relatório**:
+        # sem o Tesseract a página inteira sai só com a cadeia própria — na
+        # p. 30 do Aagaard isso é 27% de CER na prosa contra 1,3% com a fusão
+        # (ROADMAP_OCR). A caixa já mostrou o estado; aqui é a última palavra.
+        if not motor_disponivel and not self._confirmar_motor_de_prosa(idioma):
             return
-        fonte_do_diagrama, moldura, cantos, corpo_pt = escolha
-
-        # **O idioma do livro, e não o do programa** (F109). Ele liga a máscara
-        # de alfabeto — a letra acentuada que o inglês não escreve deixa de
-        # competir com a certa — e vai no `dc:language` do EPUB e no `w:lang`
-        # do DOCX. A camada de texto do PDF responde por ele em 72% das páginas
-        # do corpus; onde não há camada (a digitalização de verdade) é o
-        # usuário quem diz, porque a máscara errada apagaria o `ç` do livro
-        # inteiro.
-        idioma, detectado = self._idioma_do_livro(input_pdf)
-
-        # A extração já sabe onde o modelo é fraco: são os caracteres que ela
-        # derruba por confiança. Guardá-los custa o disco de alguns milhares de
-        # PNG pequenos e poupa caçá-los na tela um a um.
-        coletar = messagebox.askyesno(
-            "Guardar o que o modelo não soube ler?",
-            "Guardar os recortes de baixa confiança numa pasta de revisão?\n\n"
-            f"Eles vão para '{coleta.PASTA_PADRAO}/', separados pelo palpite do "
-            "modelo — não para a base de treino. Confirmar é deixar o arquivo "
-            "onde está, corrigir é movê-lo para outra pasta, descartar é "
-            "apagá-lo.\n\n"
-            "Depois, 'Promover recortes revistos' leva para a base o que sobrou.")
-
-        teto = None
-        if coletar:
-            teto = self._perguntar_teto()
-            if teto is self.CANCELADO:
-                return
-
-        # **O reparo de colagem é escolha, e o padrão é não** (F115). Ele é
-        # exato — medido, 19 de 19 trocas certas nas páginas rotuladas — e é
-        # caro: a prova visual pergunta ao modelo letra por letra, e a extração
-        # de 30 páginas do Nunn passou de 77 s para 964 s. Quem exporta um livro
-        # de 900 páginas precisa saber disso antes, e não depois.
-        reparar = messagebox.askyesno(
-            "Consertar as palavras que a colagem estragou?",
-            "Quando dois glifos se encostam eles viram um box só, e o box vira "
-            "um caractere: `Dynamic` sai `Dmamic` e `Vancura` sai `Wncura`.\n\n"
-            "O dicionário sabe qual palavra cabe naquele molde, e o modelo é "
-            "consultado sobre o que está desenhado no papel antes de autorizar "
-            "a troca — medido, 19 de 19 trocas certas nas páginas de "
-            "conferência.\n\n"
-            "Em compensação é lento: a extração leva cerca de doze vezes mais "
-            "tempo. Num livro de 300 páginas isso é a diferença entre minutos "
-            "e horas.\n\n"
-            "Não: o texto sai como o OCR o leu.",
-            default=messagebox.NO)
 
         def trabalho(h):
             h.log("Carregando modelo neural...")
@@ -1982,9 +2383,14 @@ class MainWindow(tk.Frame):
                                         .tesseract_pagina_detalhada_conf(
                                             imagem, idioma)),
                                     ler_faixa=(
-                                        lambda faixa: self.ocr_service
-                                        .tesseract_faixa_detalhada_conf(
-                                            faixa, idioma)),
+                                         (lambda faixa: self.ocr_service
+                                         .linha_treinada_conf(
+                                             faixa, str(modelo_path),
+                                             str(meta_path)))
+                                        if modelo_linha else
+                                        (lambda faixa: self.ocr_service
+                                         .tesseract_faixa_detalhada_conf(
+                                             faixa, idioma))),
                                     idioma_ocr=idioma,
                                     lex=self.lexico_da_sessao(),
                                     # A prova visual do reparo de colagem (F69):
@@ -2096,6 +2502,22 @@ class MainWindow(tk.Frame):
                 linhas.append(f"Linhas lidas: {fontes.get('glyph', 0)} só pela "
                               f"cadeia própria, {fundidas} com a prosa do "
                               f"Tesseract e os lances da cadeia.")
+            # **A página em que o motor faltou tem de aparecer**: até aqui a
+            # falha do Tesseract devolvia `[]` e a página saía "normal" — só
+            # com a cadeia própria, 20 vezes pior na prosa, sem uma linha de
+            # aviso. Quem exporta precisa saber quais páginas conferir.
+            sem_motor = [p for p in paginas if p.motor_indisponivel]
+            if sem_motor:
+                motivos = collections.Counter(p.motor_indisponivel
+                                              for p in sem_motor)
+                motivo, _n = motivos.most_common(1)[0]
+                numeros = ", ".join(str(p.numero + 1) for p in sem_motor[:8])
+                if len(sem_motor) > 8:
+                    numeros += f" e mais {len(sem_motor) - 8}"
+                linhas.append(f"ATENÇÃO: o motor de prosa falhou em "
+                              f"{len(sem_motor)} página(s) — {numeros} — que "
+                              f"saíram só com a cadeia própria. Motivo: "
+                              f"{motivo}")
             if coletor is not None:
                 linhas += ["", f"Para revisão: {coletor.resumo()}",
                            f"em {os.path.abspath(coletor.pasta)}"]
@@ -2536,7 +2958,7 @@ class MainWindow(tk.Frame):
                                f"{fontes.get('paddleocr', 0)}"),
         )
 
-    def auto_fill_characters_linha(self):
+    def auto_fill_characters_linha(self, languages=("en",), ao_concluir=None):
         """
         Lê a linha inteira, e não o caractere (F17).
 
@@ -2555,7 +2977,7 @@ class MainWindow(tk.Frame):
             def ler_caractere(b):
                 justo, contexto = self._recortes_do_box(pagina, b, faixas)
                 ch, cf = self.ocr_service.easyocr_ocr_conf(
-                    justo, contexto=contexto)
+                    justo, languages=languages, contexto=contexto)
                 # Ver `auto_fill_characters_easyocr`: aqui ele é o leitor.
                 return ch, cf, "easyocr_so"
             return ler_caractere
@@ -2565,7 +2987,67 @@ class MainWindow(tk.Frame):
             lambda fontes: (
                 f"Decididos pela linha: {fontes.get('easyocr_linha', 0)}\n"
                 f"Só pelo caractere: {fontes.get('easyocr_so', 0)}"),
+            languages=languages,
+            ao_concluir=ao_concluir,
         )
+
+    def auto_fill_characters_linha_treinada(self):
+        """Aplica o CRNN/CTC treinado às linhas e distribui o texto nos boxes."""
+        if self.image is None or not self.boxes:
+            messagebox.showinfo("OCR treinado", "Não há boxes para preencher.")
+            return
+        if self._busy("OCR treinado"):
+            return
+        modelo, meta = caminhos_modelo_linha()
+        if not (modelo.exists() and meta.exists()):
+            messagebox.showinfo("OCR treinado", "Treine o modelo sequencial primeiro.")
+            return
+        # O modelo que não passa no portão de produção ainda pode ser
+        # aplicado — é aqui que se olha o que ele lê —, mas quem aplica sabe
+        # o que está aplicando, e o texto vai para os boxes com a fonte
+        # `linha_treinada`, que o filtro de origem separa.
+        utilizavel, motivo = modelo_utilizavel(meta, modelo)
+        if not utilizavel and not messagebox.askyesno(
+                "OCR treinado abaixo do limite",
+                f"{motivo[0].upper()}{motivo[1:]}.\n\n"
+                "Aplicar assim mesmo, sobrescrevendo o texto dos boxes desta "
+                "página com a leitura dele?\n\nNão: cancelar.",
+                default=messagebox.NO):
+            return
+
+        linhas = leitura_de_linha.linhas_da_pagina(self.boxes)
+        recortes = []
+        for linha in linhas:
+            x1, y1 = min(b.x1 for b in linha), min(b.y1 for b in linha)
+            x2, y2 = max(b.x2 for b in linha), max(b.y2 for b in linha)
+            recortes.append(np.array(self.image.crop((x1 - 10, y1 - 10, x2 + 10, y2 + 10))))
+
+        def trabalho(h):
+            resultados = []
+            for pos, recorte in enumerate(recortes):
+                texto, confiancas = self.ocr_service.linha_treinada_detalhada(
+                    recorte, modelo, meta)
+                resultados.append((texto.replace(" ", ""), confiancas))
+                h.progress(pos + 1, len(recortes), f"linha {pos + 1}/{len(recortes)}")
+            return resultados
+
+        def concluir(resultados):
+            alterados = 0
+            for linha, (texto, confiancas) in zip(linhas, resultados):
+                sugeridos = leitura_de_linha.distribuir([""] * len(linha), texto)
+                for indice, (box, char) in enumerate(zip(linha, sugeridos)):
+                    if char:
+                        box.char = char
+                        box.confidence = (confiancas[indice]
+                                          if indice < len(confiancas) else 0.0)
+                        box.source = "linha_treinada"
+                        alterados += 1
+            self._commit_change()
+            self.update_sidebar()
+            self.update_canvas()
+            messagebox.showinfo("OCR treinado", f"{alterados} boxes preenchidos.")
+
+        self._run_task("OCR treinado por linha", trabalho, concluir)
 
     def _recortes_do_box(self, pagina, b, faixas):
         """`(justo, com a faixa da linha)` — ver `_recortes_dos_boxes`."""
@@ -2580,7 +3062,8 @@ class MainWindow(tk.Frame):
                              conf_maxima_para_trocar=None,
                              exigir_confianca_linha=False,
                              confianca_linha_minima=None,
-                             confianca_ancora_maxima=None):
+                             confianca_ancora_maxima=None,
+                             ao_concluir=None, languages=("en",)):
         """
         Como `_preencher_boxes`, mas o laço é por **linha** e não por box.
 
@@ -2622,7 +3105,8 @@ class MainWindow(tk.Frame):
         def trabalho(h):
             lidos = leitura_de_linha.ler_pagina(
                 pagina, linhas,
-                ler_faixa=self.ocr_service.easyocr_linha_conf,
+                ler_faixa=lambda faixa: self.ocr_service.easyocr_linha_conf(
+                    faixa, languages=languages),
                 ler_caractere=preparar(h, pagina, faixas, margens),
                 # **Sem `deslocam`, e a F36 mediu que tem de ser.** A linha com
                 # figurina parece a que mais precisa de filtro e é a que menos:
@@ -2669,6 +3153,8 @@ class MainWindow(tk.Frame):
                 messagebox.showwarning(titulo, texto)
             else:
                 messagebox.showinfo(titulo, texto)
+            if ao_concluir:
+                ao_concluir()
 
         self._run_task(titulo, trabalho, aplicar)
 
@@ -2834,7 +3320,7 @@ class MainWindow(tk.Frame):
         self._idioma = None
 
     @staticmethod
-    def _idioma_do_livro(caminho_pdf):
+    def _idioma_do_livro(caminho_pdf, perguntar=True):
         """
         `(idioma, detectado)` de um PDF (F109).
 
@@ -2842,10 +3328,17 @@ class MainWindow(tk.Frame):
         camada — a digitalização de verdade — é o usuário quem diz, porque a
         máscara errada apagaria o `ç` do livro inteiro. Um lugar só para a
         exportação e para a tela, para as duas perguntarem a mesma coisa.
+
+        Com `perguntar=False` não abre caixa nenhuma: devolve `(None, False)`
+        quando a camada não diz — é o que a caixa de exportação usa para
+        preencher o idioma e deixar o usuário escolher ali, e não numa
+        pergunta à parte.
         """
         idioma = livro.idioma_do_pdf(caminho_pdf)
         if idioma is not None:
             return idioma, True
+        if not perguntar:
+            return None, False
         return ("pt" if messagebox.askyesno(
             "Idioma do livro",
             "O livro é em português?\n\n"
@@ -3361,7 +3854,13 @@ class MainWindow(tk.Frame):
         # Pelo funil, e não por `self.image.crop`: o Tesseract quer o glifo de
         # pé (F8.1) e escuro sobre claro (F10), como qualquer classificador.
         crop = Image.fromarray(vertical.recorte_de_pe(np.array(self.image), b))
-        ch = self.ocr_service.tesseract_ocr(crop)
+        try:
+            ch = self.ocr_service.tesseract_ocr(crop)
+        except Exception as erro:  # noqa: BLE001 — ação síncrona, fora de _run_task
+            # O serviço deixou de devolver "" quando o Tesseract falta: aqui,
+            # no botão, o motivo é dito na hora, com o que fazer.
+            messagebox.showerror("OCR (box)", str(erro))
+            return
 
         if not ch:
             messagebox.showinfo("OCR", "Nenhum caractere reconhecido.")
@@ -3699,6 +4198,10 @@ class MainWindow(tk.Frame):
         return "break"
 
     def _on_key_delete(self, event):
+        # A mesma guarda do Backspace: Delete no campo de busca ou no de
+        # página apaga um caractere, não o box selecionado.
+        if self._foco_em_campo_de_texto():
+            return None
         self.delete_selected_box()
 
     def _on_key_ir_para_pagina(self, event):
@@ -4029,6 +4532,153 @@ class MainWindow(tk.Frame):
             return
 
         self._treinar_rede(epochs)
+
+    def train_line_ocr(self):
+        """Treina o reconhecedor CRNN/CTC com as linhas corrigidas."""
+        if self._busy("O treino sequencial"):
+            return
+        manifesto = os.path.join("training_data_linhas", "rec_gt.txt")
+        if not os.path.exists(manifesto):
+            messagebox.showinfo(
+                "Treino sequencial",
+                "Nenhum dataset de linhas encontrado.\n"
+                "Use a Janela de rotulagem e salve algumas linhas primeiro.",
+            )
+            return
+        try:
+            from core.linha_trainer import validar_dataset
+            diagnostico = validar_dataset()
+            if diagnostico.get("malformadas") or diagnostico.get("ausentes"):
+                messagebox.showerror(
+                    "Treino sequencial",
+                    "O dataset possui entradas inválidas. Use 'Validar dataset de linhas'.")
+                return
+            self.status.set(f"Dataset: {diagnostico['linhas']} linhas, "
+                            f"{diagnostico['caracteres']} caracteres.")
+        except Exception as exc:
+            messagebox.showerror("Treino sequencial", str(exc))
+            return
+        dataset_treino = "training_data_linhas"
+        dataset_validacao = None
+        sintetico = os.path.join("training_data_linhas_sintetico", "rec_gt.txt")
+        if diagnostico.get("linhas", 0) < 500 and os.path.exists(sintetico) and messagebox.askyesno(
+                "Dataset sintético",
+                "Usar o dataset sintético para treino e as linhas reais como validação?\n\n"
+                "Recomendado quando há poucas linhas reais anotadas."):
+            dataset_treino = "training_data_linhas_sintetico"
+            dataset_validacao = "training_data_linhas"
+        from tkinter import simpledialog
+        epocas = simpledialog.askinteger(
+            "Treino OCR sequencial",
+            "Quantas epochs deseja treinar?\n\nRecomendado: 20-50",
+            initialvalue=20, minvalue=1, maxvalue=500,
+        )
+        if epocas is None:
+            return
+
+        batch = simpledialog.askinteger(
+            "Batch size", "Quantas linhas por lote?\n\nRecomendado: 4–8",
+            initialvalue=8, minvalue=1, maxvalue=64)
+        if batch is None:
+            return
+        paciencia = simpledialog.askinteger(
+            "Paciência", "Epochs sem melhora antes de parar:",
+            initialvalue=6, minvalue=1, maxvalue=50)
+        if paciencia is None:
+            return
+
+        def trabalho(h):
+            from core.ocr_training import treinar_pacote
+            return treinar_pacote(pasta=dataset_treino, validacao=dataset_validacao,
+                                  epocas=epocas, batch_size=batch, paciencia=paciencia,
+                                  callback=h.log,
+                                  should_stop=lambda: h.cancelled,
+                                  service=self.ocr_service)
+
+        def concluir(sucesso):
+            if sucesso:
+                self.ocr_service.recarregar_linha_treinada()
+                messagebox.showinfo(
+                    "Treino OCR completo",
+                    "Treinamento concluído.\n"
+                    "Pesos: text_line_model.pth\n"
+                    "Metadados: text_line_model.json\n"
+                    "Léxico: ocr_language_model.json\n\n"
+                    "O botão Executar usará o modelo treinado por linha.\n"
+                    "Tesseract, EasyOCR e PaddleOCR continuam como engines "
+                    "auxiliares/fallback.",
+                )
+            else:
+                messagebox.showinfo("Treino sequencial", "Treinamento cancelado.")
+
+        self._run_task("Treino OCR sequencial", trabalho, concluir)
+
+    def validar_dataset_linhas(self):
+        """Mostra problemas e cobertura da base de linhas antes do treino."""
+        try:
+            from core.linha_trainer import validar_dataset
+            resumo = validar_dataset()
+        except Exception as exc:
+            messagebox.showerror("Dataset de linhas", str(exc))
+            return
+        problemas = (len(resumo["vazias"]) + len(resumo["ilegiveis"])
+                     + len(resumo.get("ausentes", []))
+                     + len(resumo.get("malformadas", [])))
+        texto = (f"Linhas válidas no manifesto: {resumo['linhas']}\n"
+                 f"Caracteres distintos: {resumo['caracteres']}\n"
+                 f"Problemas: {problemas}\n\n"
+                 f"Alfabeto: {resumo['alfabeto']}")
+        if problemas:
+            texto += "\n\nArquivos problemáticos:\n" + "\n".join(
+                (resumo["vazias"] + resumo["ilegiveis"]
+                 + resumo.get("ausentes", []) + resumo.get("malformadas", []))[:10])
+            messagebox.showwarning("Dataset de linhas", texto)
+        else:
+            messagebox.showinfo("Dataset de linhas", texto)
+
+    def avaliar_modelo_linhas(self):
+        """Executa CER/WER no manifesto e mostra o resultado por página."""
+        modelo, meta = caminhos_modelo_linha()
+        if not (modelo.exists() and meta.exists()):
+            messagebox.showinfo("Avaliação", "Treine o modelo sequencial primeiro.")
+            return
+        try:
+            from core.linha_trainer import avaliar, salvar_avaliacao
+            resultado = avaliar(str(modelo), str(meta))
+            salvar_avaliacao(resultado)
+        except Exception as exc:
+            messagebox.showerror("Avaliação do OCR", str(exc))
+            return
+        linhas = [
+            f"Linhas avaliadas: {resultado['linhas']}",
+            f"CER: {resultado['cer']:.2%}",
+            f"WER: {resultado['wer']:.2%}",
+            f"Linhas exatas: {resultado['exatas']}/{resultado['linhas']}",
+        ]
+        for grupo, item in sorted(resultado["grupos"].items()):
+            linhas.append(f"{grupo}: CER {item['cer']:.2%}, "
+                          f"WER {item['wer']:.2%}, "
+                          f"exatas {item['exatas']}/{item['linhas']}")
+        messagebox.showinfo("Avaliação do OCR de linhas", "\n".join(linhas))
+
+    def abrir_revisao_dataset_linhas(self):
+        if self._busy("A revisão do dataset"):
+            return
+        if not os.path.exists(os.path.join("training_data_linhas", "rec_gt.txt")):
+            messagebox.showinfo("Revisão", "Ainda não existe dataset de linhas.")
+            return
+        from ui.dialogo_revisao_linhas import DialogoRevisaoLinhas
+        DialogoRevisaoLinhas(self)
+
+    def abrir_relatorio_ocr_linhas(self):
+        caminho = os.path.abspath("text_line_training_report.txt")
+        if not os.path.exists(caminho):
+            messagebox.showinfo("Relatório", "Ainda não existe relatório de treino de linhas.")
+            return
+        try:
+            os.startfile(caminho)
+        except OSError as exc:
+            messagebox.showerror("Relatório", f"Não foi possível abrir o relatório:\n{exc}")
 
     def _treinar_rede(self, epochs, ja_corrigiu=False):
         """

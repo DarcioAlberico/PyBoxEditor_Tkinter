@@ -64,6 +64,15 @@ def test_colunas_separam_paragrafos_mesmo_com_y_proximo():
     assert len(estrutura.paragraphs) == 2
 
 
+def test_layout_expoe_grafo_de_ordem_de_leitura():
+    mascara = np.zeros((100, 200), np.uint8)
+    cv2.rectangle(mascara, (10, 10), (100, 20), 255, -1)
+    cv2.rectangle(mascara, (10, 70), (100, 80), 255, -1)
+    layout = analisar_layout(mascara)
+    assert layout.reading_order
+    assert layout.reading_graph[layout.reading_order[0]] == [layout.reading_order[1]]
+
+
 def test_trace_registra_estrutura(tmp_path):
     trace = OCRTrace(tmp_path)
     construir_estrutura([_box("A", 1, 1)], trace=trace)

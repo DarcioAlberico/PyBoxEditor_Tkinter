@@ -236,4 +236,9 @@ def test_as_duas_acoes_e_a_exportacao_passam_o_mesmo_idioma():
         assert "idioma_da_sessao()" in fonte, acao
         assert "idioma=idioma" in fonte, acao
     assert "_idioma_do_livro(" in inspect.getsource(MainWindow.idioma_da_sessao)
-    assert "_idioma_do_livro(input_pdf)" in inspect.getsource(MainWindow)
+    # A exportação passa pela caixa única (2026-09-18): o idioma é detectado
+    # por `_idioma_do_livro(..., perguntar=False)` em `_preparar_exportacao`
+    # e chega a `livro.extrair` como `idioma_ocr=idioma`.
+    assert "_idioma_do_livro(entrada, perguntar=False)" in inspect.getsource(
+        MainWindow._preparar_exportacao)
+    assert "idioma_ocr=idioma" in inspect.getsource(MainWindow.exportar_livro_action)

@@ -21,6 +21,7 @@ indisponível quando não existe referência e predição para aquele campo.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
@@ -157,6 +158,7 @@ class AggregateMetrics:
     boxes: BoxMetrics | None
     layout: LayoutMetrics | None
     page_results: list[PageMetrics] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         resultado: dict[str, Any] = {"pages": self.pages}
@@ -165,6 +167,8 @@ class AggregateMetrics:
             if valor is not None:
                 resultado[nome] = valor.to_dict()
         resultado["page_results"] = [pagina.to_dict() for pagina in self.page_results]
+        if self.metadata:
+            resultado["metadata"] = dict(self.metadata)
         return resultado
 
 
@@ -346,7 +350,7 @@ def _agregar_layout(resultados: Iterable[PageMetrics]) -> LayoutMetrics | None:
                          _percentual(corretos, max(ref, pred)))
 
 
-def agregar(resultados: Sequence[PageMetrics]) -> AggregateMetrics:
+def agregar(resultados: Sequence[PageMetrics], *, metadata: Mapping[str, Any] | None = None) -> AggregateMetrics:
     return AggregateMetrics(
         pages=len(resultados),
         text=_agregar_texto(resultados, "text"),
@@ -356,6 +360,7 @@ def agregar(resultados: Sequence[PageMetrics]) -> AggregateMetrics:
         boxes=_agregar_boxes(resultados),
         layout=_agregar_layout(resultados),
         page_results=list(resultados),
+        metadata=dict(metadata or {}),
     )
 
 
@@ -365,6 +370,38 @@ def carregar_json(caminho: str | Path) -> dict[str, Any]:
     if not isinstance(valor, dict):
         raise ValueError(f"Esperado objeto JSON em {caminho}")
     return valor
+
+
+def assinatura_manifesto(caminho: str | Path) -> str:
+    """Calcula uma assinatura estável dos pares avaliados no manifesto.
+
+    A assinatura inclui os bytes dos JSONs de referência e predição, além dos
+    ids e caminhos relativos. Assim, um relatório pode ser associado ao
+    conteúdo efetivamente medido mesmo quando o arquivo do manifesto mantém o
+    mesmo nome.
+    """
+    manifesto_path = Path(caminho)
+    manifesto = carregar_json(manifesto_path)
+    paginas = manifesto.get("pages")
+    if not isinstance(paginas, list):
+        raise ValueError("O manifesto precisa conter 'pages' como lista")
+    digest = hashlib.sha256()
+    digest.update(b"pyboxeditor-ocr-benchmark-v1\0")
+    for numero, pagina in enumerate(paginas, 1):
+        if not isinstance(pagina, Mapping):
+            raise ValueError(f"Página {numero} do manifesto não é um objeto")
+        for chave in ("id", "reference", "prediction"):
+            if chave not in pagina:
+                raise ValueError(f"Página {numero} sem {chave!r}")
+            valor = str(pagina[chave])
+            digest.update(chave.encode("utf-8") + b"=" + valor.encode("utf-8") + b"\0")
+        for chave in ("reference", "prediction"):
+            arquivo = manifesto_path.parent / str(pagina[chave])
+            if not arquivo.is_file():
+                raise FileNotFoundError(str(arquivo))
+            digest.update(chave.encode("utf-8") + b"\0")
+            digest.update(arquivo.read_bytes())
+    return digest.hexdigest()
 
 
 def executar_manifesto(caminho: str | Path, *, ignorar_maiusculas: bool = False) -> AggregateMetrics:
@@ -394,7 +431,11 @@ def executar_manifesto(caminho: str | Path, *, ignorar_maiusculas: bool = False)
                                        ignorar_maiusculas=ignorar_maiusculas,
                                        metadata={k: v for k, v in pagina.items()
                                                  if k not in {"id", "reference", "prediction"}}))
-    return agregar(resultados)
+    return agregar(resultados, metadata={
+        "manifest": str(manifesto_path),
+        "corpus_sha256": assinatura_manifesto(manifesto_path),
+        "ignore_case": ignorar_maiusculas,
+    })
 
 
 def salvar_relatorio(caminho: str | Path, relatorio: AggregateMetrics) -> None:

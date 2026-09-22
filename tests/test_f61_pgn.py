@@ -392,19 +392,30 @@ def test_o_dialogo_sem_documento_ainda_propoe_um_nome():
         assert app.dialogo["initialdir"] is None
 
 
+def _comandos_de(menu):
+    """Os rótulos de comando de um menu e dos submenus dele, recursivamente."""
+    rotulos = []
+    fim = menu.index("end")
+    for j in range(0 if fim is None else fim + 1):
+        tipo = menu.type(j)
+        if tipo == "command":
+            rotulos.append(menu.entrycget(j, "label"))
+        elif tipo == "cascade":
+            rotulos.extend(_comandos_de(menu.nametowidget(menu.entrycget(j, "menu"))))
+    return rotulos
+
+
 def test_comando_esta_no_menu():
+    """Em Arquivo → Exportar, com as outras saídas do livro (2026-09-18)."""
     with _App() as app:
         barra = app.win.parent.nametowidget(app.win.parent.cget("menu"))
         for i in range(barra.index("end") + 1):
             if (barra.type(i) == "cascade"
-                    and barra.entrycget(i, "label") == "Ferramentas"):
+                    and barra.entrycget(i, "label") == "Arquivo"):
                 menu = barra.nametowidget(barra.entrycget(i, "menu"))
-                rotulos = [menu.entrycget(j, "label")
-                           for j in range(menu.index("end") + 1)
-                           if menu.type(j) == "command"]
-                assert "Exportar partidas em PGN..." in rotulos
+                assert "Partidas em PGN..." in _comandos_de(menu)
                 return
-        raise AssertionError("menu Ferramentas não existe")
+        raise AssertionError("menu Arquivo não existe")
 
 
 # ----------------------------------------------------------------------

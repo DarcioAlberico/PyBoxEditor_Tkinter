@@ -68,3 +68,21 @@ def test_pdf_pesquisavel_preserva_pagina_e_insere_texto(tmp_path):
 def test_config_rejeita_dpi_invalido():
     with pytest.raises(ValueError):
         ExportConfig(dpi=0)
+
+
+def test_pdf_pesquisavel_aceita_fonte_unicode(tmp_path):
+    fonte = "assets/fonts/NotoSansSymbols2-Regular.ttf"
+    entrada, saida = tmp_path / "in.pdf", tmp_path / "out.pdf"
+    doc = fitz.open()
+    pagina_pdf = doc.new_page(width=200, height=100)
+    pagina_pdf.insert_text((10, 20), "scan", fontsize=10)
+    doc.save(entrada)
+    doc.close()
+    pagina = PageResult(
+        "p1", words=[WordResult("w1", "♞", 1.0, (20, 20, 50, 50), "l1", "ocr")]
+    )
+    resumo = exportar_pdf_pesquisavel(
+        entrada, saida, [pagina],
+        config=ExportConfig(fonte_pdf_arquivo=fonte),
+    )
+    assert resumo["text_items"] == 1 and resumo["failed_items"] == 0

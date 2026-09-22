@@ -11,7 +11,8 @@ import numpy as np
 from core.box_model import BoxEntry
 from core.leitura_de_linha import distribuir, faixa_da_linha
 from core.ocr_context import ContextDecoder
-from core.ocr_result import GlyphResult, LineResult, OCRHypothesis, PageResult, RegionResult
+from core.ocr_result import (GlyphResult, LineResult, OCRHypothesis, OCRTrace,
+                              PageResult, RegionResult)
 from core.ocr_routing import OCRRouter, RoutingDecision
 
 
@@ -65,7 +66,8 @@ class HybridOCRPipeline:
                  glyph_reader: Callable[[Any], Any], *,
                  router: OCRRouter | None = None,
                  context_decoder: ContextDecoder | None = None,
-                 unknown_fallback_confidence: float = 0.75):
+                 unknown_fallback_confidence: float = 0.75,
+                 trace: OCRTrace | None = None):
         if not 0.0 <= unknown_fallback_confidence <= 1.0:
             raise ValueError("limiar de fallback deve estar entre 0 e 1")
         self.line_reader = line_reader
@@ -73,6 +75,7 @@ class HybridOCRPipeline:
         self.router = router or OCRRouter()
         self.context_decoder = context_decoder
         self.unknown_fallback_confidence = unknown_fallback_confidence
+        self.trace = trace
 
     @staticmethod
     def _hypothesis(value: Any, source: str) -> OCRHypothesis:
@@ -192,6 +195,14 @@ class HybridOCRPipeline:
                                                for item in result.alternatives],
                                  warnings=warnings, metadata={**result.metadata,
                                                                "source": result.source})
+        if self.trace is not None:
+            self.trace.event(
+                "line_result", line_id=line_id, region_id=region.id,
+                domain=decision.domain, primary=decision.primary,
+                source=result.source, text=result.text,
+                confidence=result.confidence, alternatives=list(result.alternatives),
+                warnings=list(warnings), metadata=dict(result.metadata),
+            )
         return HybridLineOutput(line_result, glyphs, decision)
 
     def read_region(self, image: np.ndarray, boxes: Sequence[Sequence[BoxEntry]], *,
@@ -267,7 +278,7 @@ class HybridOCRPipeline:
 
         page_confidence = (sum(confiancas) / len(confiancas)
                            if confiancas else 0.0)
-        return PageResult(
+        pagina = PageResult(
             page_id=page_id,
             text="\n\n".join(textos),
             confidence=page_confidence,
@@ -278,3 +289,10 @@ class HybridOCRPipeline:
             metadata={"pipeline": "hybrid", "region_count": len(saida_regioes),
                       "line_count": len(linhas), "glyph_count": len(glifos)},
         )
+        if self.trace is not None:
+            self.trace.event("page_result", page_id=page_id,
+                             confidence=page_confidence,
+                             region_count=len(saida_regioes),
+                             line_count=len(linhas), glyph_count=len(glifos),
+                             warning_count=len(warnings))
+        return pagina

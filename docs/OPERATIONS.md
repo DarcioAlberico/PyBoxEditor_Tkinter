@@ -33,3 +33,16 @@ python -m build --wheel --no-isolation
 O CI executa os mesmos gates nos interpretadores suportados e verifica que o
 wheel contém fontes, léxico e modelos pequenos de diagramas.
 
+## Fase 8: release e benchmark protocolado
+
+Para empacotar pesos com manifesto e checksum:
+
+```text
+python scripts/empacotar_modelo.py text_line_model.pth -o dist/line-crnn.zip --model-id line-crnn --pipeline-version editorial-pipeline/v4
+python scripts/smoke_release.py dist/pyboxeditor-0.1.0-py3-none-any.whl
+```
+
+Comparações com engines externos devem usar o mesmo manifesto de corpus, idioma,
+DPI, pré-processamento e política de revisão. ABBYY e Acrobat são adapters
+opcionais: ausência do executável deve ser registrada como indisponibilidade,
+nunca como resultado vazio favorável ao nosso OCR.

@@ -653,17 +653,20 @@ def test_o_menu_tem_o_treino_de_diagramas():
     try:
         win = MainWindow(raiz)
         menubar = raiz.nametowidget(raiz.cget("menu"))
+        # O treino fica em Modelo, com os outros treinos; a leitura em
+        # Reconhecer (menu por etapa, 2026-09-18).
         for i in range(menubar.index("end") + 1):
             if menubar.type(i) != "cascade":
+                continue
+            if menubar.entrycget(i, "label") != "Modelo":
                 continue
             sub = raiz.nametowidget(menubar.entrycget(i, "menu"))
             rotulos = [sub.entrycget(j, "label")
                        for j in range(sub.index("end") + 1)
                        if sub.type(j) == "command"]
-            if "Ler posição dos diagramas..." in rotulos:
-                assert "Treinar modelo de diagramas..." in rotulos
-                return
-        raise AssertionError("menu Ferramentas não encontrado")
+            assert "Treinar modelo de diagramas..." in rotulos
+            return
+        raise AssertionError("menu Modelo não encontrado")
     finally:
         messagebox.showinfo, messagebox.showerror = salvos
         if win is not None:

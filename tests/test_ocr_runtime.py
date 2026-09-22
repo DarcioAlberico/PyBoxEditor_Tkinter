@@ -11,7 +11,9 @@ from core.ocr_runtime import (
     OCRCancelled,
     Profiler,
     RuntimeConfig,
+    configuracao_cache,
     fingerprint,
+    modelo_assinatura,
 )
 
 
@@ -86,3 +88,18 @@ def test_profiler_registra_tempo_e_memoria():
     dados = profiler.to_dict()
     assert dados["stages"][0]["name"] == "step"
     assert dados["stages"][0]["seconds"] >= 0
+
+
+def test_configuracao_cache_inclui_modelo_idioma_dpi_e_variante(tmp_path):
+    modelo = tmp_path / "modelo.pth"
+    modelo.write_bytes(b"v1")
+    config = configuracao_cache(engine="trained_line", idioma="pt", dpi=300,
+                                preprocessamento="adaptive", variante="gray",
+                                modelos=[modelo])
+    assert config["idioma"] == "pt" and config["dpi"] == 300
+    assert config["preprocessamento"] == "adaptive"
+    assert config["modelos"][0]["size"] == 2
+    chave1 = fingerprint(np.zeros((2, 2), np.uint8), config=config)
+    modelo.write_bytes(b"v2-new")
+    config2 = {**config, "modelos": [modelo_assinatura(modelo)]}
+    assert chave1 != fingerprint(np.zeros((2, 2), np.uint8), config=config2)

@@ -159,6 +159,28 @@ cd ../pbe-pre && ../PyBoxEditor_Tkinter/.venv/Scripts/python.exe -c "import ui.m
 ../PyBoxEditor_Tkinter/.venv/Scripts/python.exe -m pytest tests/test_menu_por_fluxo.py tests/test_guardas_da_janela.py tests/test_editorial_review_phase5.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — COMMITADA
+
+O commit foi feito pelo agente a pedido do usuário (a ED-11 o esperava): os 22 arquivos
+rastreados modificados (`ui/main_window.py`, `core/ocr_*.py`, `core/services/ocr_service.py`,
+`config/paths.py`, `core/diagrama.py`, `medir_cadeia.py`, os docs do OCR e os testes `f*`
+e `ocr_*`) e 62 arquivos novos (`CONTEXT.md`, `core/editorial_*.py`, `core/chess_symbols.py`,
+`core/linha_*.py`, `core/ocr_corpus.py`, `core/ocr_phase{3,4,7,8}.py`, `core/ocr_training.py`,
+`ui/dialogo_rotulagem.py`, `ui/dialogo_revisao_*.py`, os `scripts/` do OCR e
+`scripts/smoke_release.py`, `docs/{SPEC,ROADMAP}_IMPLEMENTACAO_OCR.md`,
+`docs/REVISAO_GERAL_OCR_XADREZ.md`, o manifesto de exemplo e 28 testes). Antes do commit,
+na árvore de trabalho: `import ui.main_window, appy` passa e os 37 arquivos de teste da
+camada (393 testes) passam com o `.venv`. **Ficaram fora**, por não serem fonte:
+`training_data_linhas/`, `training_data_linhas_sintetico/`, `training_data_ocupacao/` e as 55
+amostras novas em `training_data_diagrama/` (dados de treino — decisão do usuário, como o
+`.gitignore` explica), `ocr_language_model.json`, `ocr_training_state.json`,
+`text_line_model*.json`, `text_line_training_report.*` (estado e meta de modelos cujo `.pth`
+é ignorado), `benchmarks/*.json` (saída de medição), `Box/…_pg100.{box,png}` (amostra) e os
+rascunhos `_analysis_*.png`, `_figure_*.png`, `_left_*.png`, `_page227_600.png`,
+`_tmp_sintetico/`, `pytest_*background*.{out,err}`. Nota: o `python` do sistema (3.13) tem um
+pacote `tests` estranho em `site-packages` que sombreia o `tests/` do projeto — os testes que
+importam `tests.test_editorial_suspeitas` só coletam com o `.venv`.
+
 ---
 
 ## ED-00 — Modelo, dialeto, XHTML, CSS mínima, `estilo_do_livro`, histórico, conversão, sumário
@@ -1973,7 +1995,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
 |---|---|---|---|---|
-| ED-pré | a fazer (usuário) | | | |
+| ED-pré | **commitada** | 2026-09-21 | (ver "Registro" da fase) | feita pelo agente a pedido do usuário; ficaram fora os dados de treino novos, os JSON de estado/modelo, `benchmarks/` e a página de amostra pg100 |
 | ED-00 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | entidade numérica na leitura; `Capitulo.namespaces`; notas rodapé-primeiro; `span.com`; `Ponto.indices`; `mapa_da_fonte` |
 | ED-01 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | `Diagrama.imagem`; `width` no PNG; `linear`, `nav_na_espinha`, `no_manifesto`, `Pessoa.id`, `Metadados.ids/prefixos`, `zip_de_origem`; `pybox:pagina`; `href` codificado; `noteref` de fora é ilha |
 | ED-02 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag `EditorJanela` com escopos; acorde de outro modo é `break`; `Ctrl+T`/`F8`; três itens fora da §7.3; `@y` no `<<MenuSelect>>`; `modos_do_comando`; inseparáveis agora; pilha própria do código; `core/services` preguiçoso; fila nas Mensagens; `DIALOGO_DE_CONCLUSAO` |

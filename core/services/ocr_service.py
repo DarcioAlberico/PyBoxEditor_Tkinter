@@ -85,6 +85,8 @@ class OCRService:
         # chamada com outro idioma recebia calada o reader da primeira.
         self._readers = {}
         self._paddle_readers = {}
+        self._linha_predictor = None
+        self._linha_predictor_key = None
 
     # ------------------------------------------------------------------
     # Tesseract
@@ -384,7 +386,8 @@ class OCRService:
     # ------------------------------------------------------------------
     # EasyOCR
     # ------------------------------------------------------------------
-    def _init_easyocr(self, languages: Tuple[str, ...] = ("en",), gpu: bool = False):
+    def _init_easyocr(self, languages: Tuple[str, ...] = ("en",), gpu: bool = False,
+                      model_storage_directory: Optional[str] = None):
         """
         Inicializa (e cacheia) o reader do EasyOCR.
 
@@ -400,19 +403,74 @@ class OCRService:
         religava. Continua valendo onde era preciso — o download do modelo em
         rede corporativa — e só ali.
         """
-        chave = (tuple(languages), bool(gpu))
+        chave = (tuple(languages), bool(gpu), model_storage_directory or "")
         reader = self._readers.get(chave)
+        # Compatibilidade com readers criados antes do diretório de modelos
+        # entrar na chave. Isso também permite que aplicações que injetam um
+        # reader já carregado não inicializem a rede novamente.
+        if reader is None and not model_storage_directory:
+            reader = self._readers.get((tuple(languages), bool(gpu)))
         if reader is None:
             import ssl
             import easyocr
             anterior = ssl._create_default_https_context
             ssl._create_default_https_context = ssl._create_unverified_context
             try:
-                reader = easyocr.Reader(list(languages), gpu=gpu, quantize=False)
+                # `verbose=False` evita que a barra de download Unicode do
+                # EasyOCR quebre no console cp1252 padrão do Windows.
+                kwargs = {"gpu": gpu, "quantize": False, "verbose": False}
+                if model_storage_directory:
+                    kwargs["model_storage_directory"] = model_storage_directory
+                try:
+                    reader = easyocr.Reader(list(languages), **kwargs)
+                except TypeError:
+                    # Compatibilidade com versões antigas/mock readers que não
+                    # expõem o diretório de modelos.
+                    kwargs.pop("model_storage_directory", None)
+                    reader = easyocr.Reader(list(languages), **kwargs)
             finally:
                 ssl._create_default_https_context = anterior
             self._readers[chave] = reader
         return reader
+
+    def preparar_easyocr(self, languages: Tuple[str, ...] = ("en", "pt"),
+                         gpu: bool = False,
+                         model_storage_directory: Optional[str] = None) -> None:
+        """Baixa/carrega os pesos do EasyOCR para os idiomas solicitados.
+
+        ``model_storage_directory`` permite preparar os pesos em uma pasta
+        controlada pelo instalador ou pelo usuário, sem alterar o cache padrão
+        do EasyOCR. A chamada é idempotente: o próprio EasyOCR reutiliza os
+        arquivos existentes e valida o download.
+        """
+        self._init_easyocr(tuple(languages), gpu, model_storage_directory)
+
+    def linha_treinada_conf(self, faixa_np: np.ndarray,
+                            model_path: str = "text_line_model.pth",
+                            meta_path: str = "text_line_model.json") -> Tuple[str, float]:
+        """Reconhece uma linha com o modelo CRNN/CTC treinado pelo projeto."""
+        chave = (str(model_path), str(meta_path))
+        if self._linha_predictor is None or self._linha_predictor_key != chave:
+            from core.linha_trainer import LinhaPredictor
+            self._linha_predictor = LinhaPredictor(model_path, meta_path)
+            self._linha_predictor_key = chave
+        return self._linha_predictor.predict_conf(faixa_np)
+
+    def linha_treinada_detalhada(self, faixa_np: np.ndarray,
+                                 model_path: str = "text_line_model.pth",
+                                 meta_path: str = "text_line_model.json"):
+        """Retorna ``(texto, confianças_por_caractere)`` do modelo CTC."""
+        chave = (str(model_path), str(meta_path))
+        if self._linha_predictor is None or self._linha_predictor_key != chave:
+            from core.linha_trainer import LinhaPredictor
+            self._linha_predictor = LinhaPredictor(model_path, meta_path)
+            self._linha_predictor_key = chave
+        return self._linha_predictor.predict_detalhado(faixa_np)
+
+    def recarregar_linha_treinada(self) -> None:
+        """Faz a próxima leitura usar os pesos gravados pelo último treino."""
+        self._linha_predictor = None
+        self._linha_predictor_key = None
 
     def easyocr_ocr(self, crop_np: np.ndarray, languages: Tuple[str, ...] = ("en",),
                     gpu: bool = False) -> str:
@@ -563,7 +621,7 @@ class OCRService:
         return model
 
     @staticmethod
-    def _resultado_paddle(resultado) -> Tuple[str, float]:
+    def _resultado_paddle(resultado, apenas_primeiro: bool = True) -> Tuple[str, float]:
         """Extrai texto/confiança das respostas 2.x e 3.x do PaddleOCR."""
         if resultado is None:
             return "", 0.0
@@ -593,9 +651,13 @@ class OCRService:
             if isinstance(confianca, (list, tuple, np.ndarray)):
                 confianca = confianca[0] if len(confianca) else 0.0
             try:
-                return str(texto or "").strip()[:1], max(0.0, min(1.0, float(confianca)))
+                texto = str(texto or "").strip()
+                if apenas_primeiro:
+                    texto = texto[:1]
+                return texto, max(0.0, min(1.0, float(confianca)))
             except (TypeError, ValueError):
-                return str(texto or "").strip()[:1], 0.0
+                texto = str(texto or "").strip()
+                return (texto[:1] if apenas_primeiro else texto), 0.0
 
         # API 2.x: [[box, (texto, confiança)], ...].
         if isinstance(resultado, (list, tuple)) and resultado:
@@ -608,7 +670,9 @@ class OCRService:
                         confianca = float(leitura[1]) if len(leitura) > 1 else 0.0
                     except (TypeError, ValueError):
                         confianca = 0.0
-                    return texto[:1], max(0.0, min(1.0, confianca))
+                    if apenas_primeiro:
+                        texto = texto[:1]
+                    return texto, max(0.0, min(1.0, confianca))
         return "", 0.0
 
     def paddleocr_ocr(self, crop_np: np.ndarray, language: str = "en",
@@ -638,6 +702,31 @@ class OCRService:
         except StopIteration:
             return "", 0.0
         return self._resultado_paddle(primeiro)
+
+    def paddleocr_linha_conf(self, faixa_np: np.ndarray, language: str = "en",
+                             gpu: bool = False) -> Tuple[str, float]:
+        """Reconhece uma faixa inteira com PaddleOCR, sem truncar o texto."""
+        model = self._init_paddleocr(language, gpu)
+        imagem = np.asarray(faixa_np)
+        if imagem.ndim == 2:
+            imagem = cv2.cvtColor(imagem, cv2.COLOR_GRAY2BGR)
+        elif imagem.ndim == 3 and imagem.shape[2] == 4:
+            imagem = cv2.cvtColor(imagem, cv2.COLOR_BGRA2BGR)
+        try:
+            try:
+                resultados = model.predict(input=imagem, batch_size=1)
+            except TypeError:
+                resultados = model.predict(imagem)
+            primeiro = next(iter(resultados))
+        except (StopIteration, IndexError, KeyError, TypeError, ValueError):
+            return "", 0.0
+        return self._resultado_paddle(primeiro, apenas_primeiro=False)
+
+    def preparar_paddleocr(self, languages: Tuple[str, ...] = ("en", "pt"),
+                           gpu: bool = False) -> None:
+        """Baixa/carrega os modelos de reconhecimento do PaddleOCR."""
+        for idioma in languages:
+            self._init_paddleocr(idioma, gpu)
 
     # ------------------------------------------------------------------
     # Neural (Custom CNN)

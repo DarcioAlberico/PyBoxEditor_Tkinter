@@ -38,6 +38,15 @@ python -m pip install dist/pyboxeditor-*.whl
 
 O wheel inclui fontes, léxico e modelos pequenos de diagramas versionados.
 
+Após gerar o wheel, valide a instalação mínima com:
+
+```text
+python scripts/smoke_release.py dist/pyboxeditor-*.whl
+```
+
+Pesos treinados devem ser distribuídos como pacote verificável por
+`scripts/empacotar_modelo.py`, nunca apenas como um arquivo solto sem manifesto.
+
 O Tesseract continua sendo um executável externo e precisa estar instalado no
 sistema quando o caminho Tesseract for usado.
 

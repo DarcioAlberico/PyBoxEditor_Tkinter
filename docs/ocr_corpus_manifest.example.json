@@ -1,0 +1,43 @@
+{
+  "schema": "pyboxeditor.ocr-corpus/v1",
+  "name": "books-chess-v1",
+  "version": "1",
+  "documents": [
+    {
+      "id": "aagaard-calculation",
+      "title": "Grandmaster Preparation — Calculation",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "sources/aagaard-calculation.pdf",
+      "split": "test",
+      "metadata": {
+        "publisher": "Quality Chess",
+        "year": 2012,
+        "scan_profile": "mixed"
+      },
+      "pages": [
+        {
+          "id": "aagaard-calculation-p030",
+          "page_index": 30,
+          "printed_page": "30",
+          "image": "images/aagaard-calculation/p030.png",
+          "reference": "ground_truth/aagaard-calculation/p030.json",
+          "pdf_text": "pdf_text/aagaard-calculation/p030.json",
+          "predictions": {
+            "current": "predictions/current/aagaard-calculation/p030.json",
+            "tesseract": "predictions/tesseract/aagaard-calculation/p030.json"
+          },
+          "domains": ["body", "notation", "diagram"],
+          "metadata": {
+            "difficulty": "mixed_layout",
+            "annotation_status": "reviewed"
+          }
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "split_policy": "document-level",
+    "ground_truth_policy": "human-reviewed"
+  }
+}

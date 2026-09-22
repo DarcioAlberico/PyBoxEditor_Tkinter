@@ -62,6 +62,7 @@ class PageLayout:
     lines: list[DetectedLine] = field(default_factory=list)
     columns: list[tuple[int, int]] = field(default_factory=list)
     reading_order: list[str] = field(default_factory=list)
+    reading_graph: dict[str, list[str]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,6 +73,8 @@ class PageLayout:
             "lines": [line.__dict__.copy() for line in self.lines],
             "columns": [list(coluna) for coluna in self.columns],
             "reading_order": list(self.reading_order),
+            "reading_graph": {chave: list(valor)
+                              for chave, valor in self.reading_graph.items()},
             "warnings": list(self.warnings),
         }
 
@@ -211,8 +214,11 @@ class LayoutAnalyzer:
         regioes_linhas.sort(key=lambda grupo: (grupo[0].column, grupo[0].y1))
         regioes = [_regiao(grupo, i, altura, referencia, self.config)
                    for i, grupo in enumerate(regioes_linhas)]
-        layout = PageLayout(largura, altura, regioes, linhas, colunas,
-                            [regiao.id for regiao in regioes])
+        ordem = [regiao.id for regiao in regioes]
+        grafo = {identificador: ([ordem[indice + 1]]
+                                  if indice + 1 < len(ordem) else [])
+                 for indice, identificador in enumerate(ordem)}
+        layout = PageLayout(largura, altura, regioes, linhas, colunas, ordem, grafo)
         if not linhas:
             layout.warnings.append("nenhuma linha textual detectada")
         if trace is not None:

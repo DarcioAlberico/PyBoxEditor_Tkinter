@@ -15,10 +15,16 @@ from typing import Any, Callable, Sequence
 import numpy as np
 
 from core.ocr_result import PageResult
+from core.services.task_service import Cancelled
 
 
-class OCRCancelled(Exception):
-    """Sinal interno de cancelamento cooperativo."""
+class OCRCancelled(Cancelled):
+    """Sinal interno de cancelamento cooperativo.
+
+    Herda de `task_service.Cancelled` para que a tarefa em segundo plano da
+    interface o entenda como **cancelamento**, e não como erro: antes, cancelar
+    o processamento editorial terminava num "OCRCancelled: ..." em vermelho.
+    """
 
 
 class CancellationToken:
@@ -43,12 +49,27 @@ class RuntimeConfig:
     workers: int = 1
     use_cache: bool = True
     max_memory_mb: int | None = None
+    engine: str = "auto"
+    per_worker_memory_mb: int | None = None
+    code_version: str = "runtime/v1"
+    schema_version: str = "ocr-result/v1"
+    model_version: str = ""
 
     def __post_init__(self) -> None:
         if self.workers < 1:
             raise ValueError("workers deve ser positivo")
         if self.max_memory_mb is not None and self.max_memory_mb < 1:
             raise ValueError("max_memory_mb deve ser positivo")
+        if self.per_worker_memory_mb is not None and self.per_worker_memory_mb < 1:
+            raise ValueError("per_worker_memory_mb deve ser positivo")
+
+    @property
+    def effective_workers(self) -> int:
+        from core.ocr_phase8 import resolve_resource_budget
+        return resolve_resource_budget(
+            self.engine, workers=self.workers, memory_limit_mb=self.max_memory_mb,
+            per_worker_mb=self.per_worker_memory_mb,
+        ).effective_workers
 
 
 def fingerprint(data: Any, *, config: Any = None) -> str:
@@ -66,6 +87,42 @@ def fingerprint(data: Any, *, config: Any = None) -> str:
         digest.update(json.dumps(config, ensure_ascii=False, sort_keys=True,
                                 default=str).encode("utf-8"))
     return digest.hexdigest()
+
+
+def modelo_assinatura(caminho: str | Path) -> dict[str, Any]:
+    """Identidade barata e verificável de um peso usado pelo cache."""
+    arquivo = Path(caminho)
+    try:
+        stat = arquivo.stat()
+    except OSError:
+        return {"path": str(arquivo), "missing": True}
+    return {"path": str(arquivo), "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns, "sha256": _sha256_file(arquivo)}
+
+
+def _sha256_file(caminho: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with caminho.open("rb") as arquivo:
+            for bloco in iter(lambda: arquivo.read(1024 * 1024), b""):
+                digest.update(bloco)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
+
+def configuracao_cache(*, engine: str, idioma: str = "en", dpi: int | None = None,
+                       preprocessamento: str = "original",
+                       variante: str = "", modelos: Sequence[str | Path] = (),
+                       extra: Any = None, code_version: str = "runtime/v1",
+                       schema_version: str = "ocr-result/v1",
+                       model_version: str = "") -> dict[str, Any]:
+    """Monta a configuração canônica de cache de um resultado OCR."""
+    return {"engine": engine, "idioma": idioma, "dpi": dpi,
+            "preprocessamento": preprocessamento, "variante": variante,
+            "modelos": [modelo_assinatura(item) for item in modelos],
+            "extra": extra, "code_version": code_version,
+            "schema_version": schema_version, "model_version": model_version}
 
 
 class OCRCache:
@@ -195,7 +252,8 @@ class BatchProcessor:
             if progress:
                 progress(retorno.processed, len(items))
 
-        if self.config.workers == 1:
+        workers = self.config.effective_workers
+        if workers == 1:
             for indice, item in enumerate(items):
                 try:
                     complete(*self._one(item, indice, token, config_key))
@@ -205,7 +263,7 @@ class BatchProcessor:
                 except Exception as erro:
                     retorno.errors[str(indice)] = f"{type(erro).__name__}: {erro}"
         else:
-            with ThreadPoolExecutor(max_workers=self.config.workers) as executor:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
                 futuros = {executor.submit(self._one, item, indice, token, config_key): indice
                            for indice, item in enumerate(items)}
                 for futuro in as_completed(futuros):
