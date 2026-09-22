@@ -49,8 +49,8 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import (diagrama, lexico, negrito, notacao, render_diagrama,
-                  vertical)
+from core import (diagrama, lado_a_jogar as lado_jogar, lexico, negrito,
+                  notacao, render_diagrama, vertical)
 from core.box_model import BoxEntry
 from core.leitura_de_linha import MARGEM as MARGEM_DA_FAIXA, quebrar_em_linhas
 from core.ocr_result import RegionResult
@@ -281,6 +281,17 @@ class Figura:
     #: modelo fez dele: conferir uma posição contra o desenho dela é conferir
     #: a leitura contra si mesma.
     caixa: Optional[Tuple[int, int, int, int]] = None
+    #: De quem é a vez, e de onde isso veio (item 3 da revisão de 2026-09-18).
+    #:
+    #: O tabuleiro não desenha o lado a jogar, e o FEN exige o campo: por seis
+    #: fases ele saiu `w` em silêncio. Quando a legenda ou o cabeçalho do
+    #: diagrama dizem ("White to play", "as pretas jogam"), o lado é leitura, o
+    #: FEN sai com ele e o desenho ganha o indicador; quando não dizem,
+    #: `lado_origem` fica `convencao` e quem escreve o arquivo tem de carimbar
+    #: isso no `alt` e na legenda, que é onde o leitor de tela e a busca vêem.
+    lado_a_jogar: Optional[str] = None
+    #: `"legenda"` ou `"convencao"`. Ver `lado_a_jogar`.
+    lado_origem: str = "convencao"
 
 
 @dataclass
@@ -3103,7 +3114,8 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                         dpi_figura: int, modo: str, coordenadas, fonte: str,
                         lado: int,
                         moldura=render_diagrama.MOLDURA_PADRAO,
-                        cantos: str = render_diagrama.CANTO_PADRAO) -> Figura:
+                        cantos: str = render_diagrama.CANTO_PADRAO,
+                        cabecalho: str = "") -> Figura:
     """
     Um tabuleiro da página vira figura: desenhado, se merecer; recortado, se não.
 
@@ -3122,9 +3134,19 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
     **A orientação lida entra no desenho, e não no FEN** (F95). O FEN é sempre o
     da posição; se o livro imprimiu o diagrama do lado das pretas, é o desenho
     que se vira, para a página exportada continuar parecendo a página impressa.
+
+    **O lado a jogar entra no FEN quando a legenda o disser** (item 3 da revisão
+    de 2026-09-18). Até aqui o campo saía `w` para todo diagrama, e um FEN abre
+    em qualquer programa de xadrez e vira fato: "brancas a jogar" por convenção
+    é o tipo de afirmação que ninguém confere e que muda um final inteiro. O que
+    está impresso embaixo (`d.legenda`) é lido por `core/lado_a_jogar.py`; o
+    cabeçalho de cima é lido pela `figura`, depois, porque só ela tem o texto
+    dele. Sem legenda nenhuma, fica a convenção — declarada em `lado_origem`,
+    e daí no `alt` e na legenda do arquivo exportado.
     """
     aviso = None
     quer = _quer_coordenadas(coordenadas, d)
+    lido = lado_jogar.ler_varios(cabecalho, d.legenda.texto)
     if modo == "render":
         try:
             leitura = diagrama.ler(img, d.tabuleiro,
@@ -3139,11 +3161,15 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                     leitura = estavel
                     passa, aviso = True, ""
             if passa:
-                fen = leitura.fen()
+                fen = lado_jogar.com_lado(leitura.fen(), lido.lado)
                 png, larg, alt = render_diagrama.desenhar(
                     fen, fonte=fonte, lado_px=lado, coordenadas=quer,
                     moldura=moldura, cantos=cantos,
-                    orientacao=leitura.orientacao)
+                    orientacao=leitura.orientacao,
+                    # O indicador de quem joga só é desenhado quando o livro
+                    # **sabe** o lado (ED-05, DEC-06) — e agora ele às vezes
+                    # sabe: é o que a legenda disse.
+                    lado_a_jogar=lido.lado)
                 # As linhas de texto seguem o mesmo critério do desenho (F99):
                 # havendo glifo de borda com rótulo, elas saem emolduradas; não
                 # havendo, saem as oito de sempre. Decidir aqui, e não na hora
@@ -3162,7 +3188,9 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                               casas_de_largura=(
                                   larg * 8.0
                                   / render_diagrama.lado_efetivo(lado)),
-                              caixa=tuple(int(v) for v in d.tabuleiro))
+                              caixa=tuple(int(v) for v in d.tabuleiro),
+                              lado_a_jogar=lido.lado,
+                              lado_origem=("legenda" if lido else "convencao"))
         except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta) as erro:
             # Falta de modelo ou de fonte não pode derrubar a exportação de um
@@ -3179,7 +3207,9 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
     return Figura(png, larg, alt, origem="recorte", aviso=aviso,
                   coordenadas=quer,
                   casas_de_largura=8.0 * (rect[2] - rect[0]) / na_pagina,
-                  caixa=tuple(int(v) for v in d.tabuleiro))
+                  caixa=tuple(int(v) for v in d.tabuleiro),
+                  lado_a_jogar=lido.lado,
+                  lado_origem=("legenda" if lido else "convencao"))
 
 
 def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable,
@@ -3538,10 +3568,21 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         título, ela ainda ganha o `<h2>` do EPUB e o `Heading 2` do DOCX, que é
         por onde o sumário do leitor navega.
         """
+        # O cabeçalho é lido **antes** do desenho, e não depois como na F67:
+        # ele é um dos dois lugares em que o livro diz de quem é a vez, e o
+        # indicador de lado faz parte do desenho (item 3 da revisão de
+        # 2026-09-18). O preço é ler a faixa também no caso em que ela já sai
+        # dentro do recorte — meia dúzia de caixas, e ali não há FEN nenhum
+        # para o lado entrar.
+        cabecalho = (_faixa_em_texto(img, d, classificar, conf_minima, coletor,
+                                     numero)
+                     if d.faixa is not None else None)
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
                                         fonte=fonte, lado=lado_do_diagrama,
-                                        moldura=moldura, cantos=cantos)
+                                        moldura=moldura, cantos=cantos,
+                                        cabecalho=(cabecalho.texto if cabecalho
+                                                   else ""))
         # A legenda de baixo entra **depois** da figura, que é onde ela está
         # impressa (F95). Não é `titulo=True`: título embaixo da figura viraria
         # um `<h2>` no meio do texto seguinte, e o que ela é, é legenda.
@@ -3553,8 +3594,6 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         if d.faixa is None or ja_esta_dentro:
             return [principal] + depois
 
-        cabecalho = _faixa_em_texto(img, d, classificar, conf_minima, coletor,
-                                    numero)
         if cabecalho is not None:
             return [cabecalho, principal] + depois
 

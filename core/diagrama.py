@@ -164,6 +164,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from core import lado_a_jogar as lado_jogar
 from core.box_model import BoxEntry
 
 
@@ -260,6 +261,17 @@ _modelo_ocupacao = None
 
 class ModeloAusente(RuntimeError):
     """O modelo das peças não foi encontrado. Rode `treinar_diagrama.py`."""
+
+
+#: O que `ler` declara sobre os campos que o tabuleiro não tem.
+AVISO_CONVENCAO = ("Lado a jogar, roque e en passant não estão no diagrama; "
+                   "o FEN assume brancas a jogar, sem roque.")
+
+#: E o que ela declara quando a legenda da página disse o lado: ali o `w` ou o
+#: `b` deixa de ser convenção, e só o roque continua sendo.
+AVISO_LADO_DA_LEGENDA = ("{lado} a jogar vem da legenda (“{trecho}”); "
+                         "roque e en passant não estão no diagrama e saem "
+                         "vazios.")
 
 
 # ----------------------------------------------------------------------
@@ -1417,9 +1429,7 @@ def ler(imagem, caixa: Optional[Tuple[int, int, int, int]] = None, *,
 
     # O aviso da convenção entra antes de qualquer saída antecipada: `fen()`
     # sempre aplica a convenção, então ela nunca pode sair sem ser declarada.
-    leitura.avisos.append(
-        "Lado a jogar, roque e en passant não estão no diagrama; o FEN assume "
-        "brancas a jogar, sem roque.")
+    leitura.avisos.append(AVISO_CONVENCAO)
 
     # Duas redes, em ordem: a da ocupação diz quais casas têm peça (F7.5), a das
     # peças diz qual é (F7.4). Era um limiar de Otsu no lugar da primeira.
@@ -1623,5 +1633,31 @@ def ler_pagina(imagem, boxes: Sequence[BoxEntry],
         leitura.rotulos = rotulos
         leitura.titulo = ler_titulo(arr, caixa, escala, classificar,
                                     boxes=boxes, rotulos=rotulos)
+        _lado_do_titulo(leitura)
         leituras.append(leitura)
     return leituras
+
+
+def _lado_do_titulo(leitura: Leitura) -> None:
+    """
+    O lado a jogar que o título impresso disser, no lugar da convenção.
+
+    "White to play" embaixo do diagrama é leitura; o `w` que o FEN punha ali
+    sozinho era convenção. Quando o título diz, o aviso da convenção sai da
+    lista e entra o que conta de onde o lado veio — nenhum dos dois pode faltar,
+    porque é por eles que a fila de revisão e o `alt` do arquivo exportado
+    sabem o que afirmar.
+
+    Legenda que fala dos **dois** lados (a chave de tabela da página 237 do
+    Nunn) não decide nada: fica a convenção, como antes.
+    """
+    lido = lado_jogar.ler(leitura.titulo.texto)
+    if not lido:
+        return
+    leitura.lado_a_jogar = lido.lado
+    nome = "Brancas" if lido.lado == "w" else "Pretas"
+    novo = AVISO_LADO_DA_LEGENDA.format(lado=nome, trecho=lido.trecho)
+    leitura.avisos = [novo if aviso == AVISO_CONVENCAO else aviso
+                      for aviso in leitura.avisos]
+    if novo not in leitura.avisos:
+        leitura.avisos.append(novo)

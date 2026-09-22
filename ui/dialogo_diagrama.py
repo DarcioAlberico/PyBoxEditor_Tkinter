@@ -399,7 +399,8 @@ class DialogoDiagrama:
         tabuleiro = self.tabuleiro()
         self.lbl_titulo.config(text=self._cabecalho())
         self.var_fen.set(tabuleiro.fen())
-        self.lbl_avisos.config(text="\n".join(tabuleiro.avisos()))
+        self.lbl_avisos.config(
+            text="\n".join(self._avisos_da_leitura() + tabuleiro.avisos()))
         self._desenhar_recorte()
         if not so_o_resto:
             self._desenhando = True
@@ -409,6 +410,32 @@ class DialogoDiagrama:
                 self._desenhando = False
         self._legenda_do_tabuleiro(tabuleiro)
         self._atualizar_controles(tabuleiro)
+
+    def _avisos_da_leitura(self) -> List[str]:
+        """
+        O que a **página** deixou em aberto neste diagrama.
+
+        `TabuleiroEdicao.avisos` fala do FEN — lado, roque, en passant. Falta o
+        aviso de antes dele: para que lado o tabuleiro foi impresso. Sem
+        coordenadas em volta não há como saber, e a leitura gira as casas
+        assumindo brancas embaixo (`ler_pagina`, F95). Assumir em silêncio é o
+        pior dos dois mundos: um diagrama do lado das pretas sai plausível,
+        legal e espelhado, e quem confere casa a casa não desconfia de nada —
+        porque *a leitura* bate com o que está na tela, e as duas estão erradas
+        do mesmo jeito.
+
+        Quem imprimiu as coordenadas não paga por isto: ali a orientação é
+        leitura, e o aviso não aparece.
+        """
+        leitura = self._leitura()
+        if leitura.rotulos.orientacao is not None:
+            return []
+        motivo = ("as coordenadas impressas não bastaram para decidir"
+                  if leitura.rotulos.presentes
+                  else "não há coordenadas impressas em volta do tabuleiro")
+        return [f"Orientação não confirmada: {motivo}. A leitura assume as "
+                f"brancas embaixo; se o diagrama estiver impresso do lado das "
+                f"pretas, esta posição sai girada 180°."]
 
     def _desenhar_recorte(self):
         self._fotos.clear()

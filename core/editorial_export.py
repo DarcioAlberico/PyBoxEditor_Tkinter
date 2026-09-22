@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import html
+import io
 import json
 import zipfile
 from dataclasses import dataclass, field
@@ -61,6 +62,100 @@ def _fen(value: Any) -> str:
     return str(value.get("fen", "")) if isinstance(value, Mapping) else ""
 
 
+#: Lado do tabuleiro desenhado quando o diagrama chega sem imagem, em pixels.
+#: Oito casas de 24 px: 1 KB de PNG, e legível no tablet e no papel.
+LADO_DO_DIAGRAMA_PX = 192
+
+
+def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
+    """
+    O PNG da figura em base64, e de onde ele veio — ``(imagem, origem)``.
+
+    **Nenhum diagrama sai sem imagem** (item 3 da revisão de 2026-09-18). O
+    caminho legado traz o recorte ou o desenho prontos, no bloco ou no valor;
+    a Fase 4 não traz imagem nenhuma — o ``DiagramResult`` guarda a posição e
+    os *hashes* do recorte, não os pixels —, e até aqui o `<figure>` dela saía
+    com legenda e sem figura. Um FEN, porém, é tudo que o desenho precisa:
+    `render_diagrama.desenhar` é o mesmo código que escreve o livro, e custa um
+    quilobyte por diagrama.
+
+    ``origem`` é ``"recorte"`` (o que veio da página), ``"desenho"`` (feito do
+    FEN) ou ``"nenhuma"`` — e a última vira aviso no relatório da exportação.
+    """
+    value = block.decision.value
+    candidatos = [block.metadata.get("png_base64")]
+    if isinstance(value, Mapping):
+        candidatos.append(value.get("png_base64"))
+    for encoded in candidatos:
+        if not encoded:
+            continue
+        try:
+            base64.b64decode(str(encoded), validate=True)
+        except (ValueError, TypeError):
+            continue
+        return str(encoded), "recorte"
+    fen = _fen(value)
+    if not fen:
+        return "", "nenhuma"
+    try:
+        from core import lado_a_jogar as lado_jogar
+        from core import render_diagrama
+        png, _largura, _altura = render_diagrama.desenhar(
+            fen, lado_px=LADO_DO_DIAGRAMA_PX,
+            # O indicador de quem joga só entra quando o lado foi **lido**:
+            # desenhá-lo a partir da convenção seria pôr no papel a afirmação
+            # que o resto deste módulo existe para não fazer.
+            lado_a_jogar=(lado_jogar.do_fen(fen)
+                          if origem_do_lado(block) != "assumed" else None))
+    except Exception:  # noqa: BLE001 — fonte ausente ou FEN torto não derruba a exportação
+        return "", "nenhuma"
+    return base64.b64encode(png).decode("ascii"), "desenho"
+
+
+def origem_do_lado(block: EditorialBlock) -> str:
+    """``legend``, ``manual``, ``explicit`` ou ``assumed`` — a convenção."""
+    value = block.decision.value
+    if isinstance(value, Mapping):
+        origem = value.get("side_to_move_source")
+        if origem:
+            return str(origem)
+    return str(block.metadata.get("side_to_move_source", "assumed"))
+
+
+def legenda_do_diagrama(block: EditorialBlock) -> str:
+    """
+    O que a legenda do diagrama diz além do FEN: de quem é a vez, e se sobrou
+    revisão.
+
+    Os dois são **carimbo, e não diagnóstico**: saem em todos os modos,
+    inclusive no limpo. O modo limpo tira a proveniência e o histórico de
+    hipóteses, que são para quem revisa; um diagrama cuja posição ninguém
+    conferiu, ou cujo lado a jogar é convenção, continua sendo isso no arquivo
+    entregue ao leitor — esconder a ressalva é o que transformaria uma leitura
+    de 94,5% de casas certas em afirmação.
+    """
+    from core import lado_a_jogar as lado_jogar
+
+    fen = _fen(block.decision.value)
+    partes = [lado_jogar.marca(lado_jogar.do_fen(fen), origem_do_lado(block))]
+    if revisao_pendente(block):
+        partes.append("não revisado")
+    return "; ".join(partes)
+
+
+def revisao_pendente(block: EditorialBlock) -> bool:
+    """O diagrama ainda espera olho humano?"""
+    value = block.decision.value
+    estado = ""
+    if isinstance(value, Mapping):
+        estado = str(value.get("review_status", ""))
+        if value.get("review_required"):
+            return True
+    estado = estado or str(block.metadata.get("review_status", ""))
+    return (estado in {"review_required", "unresolved"}
+            or block.decision.status == "unresolved")
+
+
 def _audit(block: EditorialBlock, options: ExportOptions) -> str:
     if options.mode == "clean":
         return ""
@@ -85,17 +180,20 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
     elif block.kind == "diagram":
         fen = _fen(value)
         data_fen = html.escape(fen, quote=True)
-        alt = html.escape(str(block.metadata.get("alt", f"Diagrama de xadrez: {fen}")), quote=True)
-        image = ""
-        encoded = block.metadata.get("png_base64")
-        if encoded:
-            try:
-                base64.b64decode(encoded, validate=True)
-                image = f'<img alt="{alt}" src="data:image/png;base64,{encoded}">' 
-            except (ValueError, TypeError):
-                image = ""
-        body = (f'<figure{common} data-fen="{data_fen}" aria-label="Diagrama de xadrez">'
-                f"{image}<figcaption>{html.escape(fen or _text(value))}</figcaption></figure>")
+        ressalva = legenda_do_diagrama(block)
+        alt = html.escape(str(block.metadata.get(
+            "alt", f"Diagrama de xadrez: {fen} — {ressalva}")), quote=True)
+        encoded, origem_da_imagem = imagem_do_diagrama(block)
+        image = (f'<img alt="{alt}" src="data:image/png;base64,{encoded}">'
+                 if encoded else "")
+        body = (f'<figure{common} data-fen="{data_fen}" '
+                f'data-side-source="{html.escape(origem_do_lado(block), quote=True)}" '
+                f'data-image="{origem_da_imagem}"'
+                + (' data-review="pending"' if revisao_pendente(block) else "")
+                + ' aria-label="Diagrama de xadrez">'
+                f"{image}<figcaption>{html.escape(fen or _text(value))}"
+                f" <span class=\"ressalva\">({html.escape(ressalva)})</span>"
+                f"</figcaption></figure>")
     elif block.kind == "table" and isinstance(value, Mapping):
         rows = value.get("rows", ())
         body = (f"<table{common}>" + "".join(
@@ -131,6 +229,33 @@ def _text_document(document: EditorialDocument) -> str:
     return "\n\n".join(lines) + "\n"
 
 
+def avisos_dos_diagramas(document: EditorialDocument) -> tuple[str, ...]:
+    """
+    Os diagramas que saíram sem imagem, e os que saíram sem revisão.
+
+    O primeiro é defeito — uma figura vazia no livro entregue —, e o segundo é
+    estado: o relatório da exportação é onde quem operou o livro descobre
+    quantas posições ninguém conferiu, sem ter de abrir o arquivo.
+    """
+    sem_imagem: list[str] = []
+    pendentes = 0
+    for page in document.pages:
+        for block in page.blocks:
+            if block.kind != "diagram":
+                continue
+            if not imagem_do_diagrama(block)[0]:
+                sem_imagem.append(block.id)
+            pendentes += revisao_pendente(block)
+    avisos = []
+    if sem_imagem:
+        avisos.append(f"{len(sem_imagem)} diagrama(s) sem imagem: "
+                      + ", ".join(sem_imagem[:5])
+                      + ("…" if len(sem_imagem) > 5 else ""))
+    if pendentes:
+        avisos.append(f"{pendentes} diagrama(s) exportados sem revisão")
+    return tuple(avisos)
+
+
 class EditorialExporter:
     """Exportador único: todos os destinos percorrem a mesma ordem de blocos."""
 
@@ -141,7 +266,9 @@ class EditorialExporter:
         caminho.parent.mkdir(parents=True, exist_ok=True)
         if options.format == "html":
             caminho.write_text(_html_body(document, options), encoding="utf-8")
-            return ExportReport("html", (str(caminho),), metadata={"mode": options.mode})
+            return ExportReport("html", (str(caminho),),
+                                warnings=avisos_dos_diagramas(document),
+                                metadata={"mode": options.mode})
         if options.format == "txt":
             caminho.write_text(_text_document(document), encoding="utf-8")
             return ExportReport("txt", (str(caminho),))
@@ -188,7 +315,9 @@ class EditorialExporter:
                 "body{font-family:serif} figure{break-inside:avoid}.chess-sequence{"
                 "font-family:monospace}",
             )
-        return ExportReport("epub", (str(target),), metadata={"mode": options.mode})
+        return ExportReport("epub", (str(target),),
+                            warnings=avisos_dos_diagramas(document),
+                            metadata={"mode": options.mode})
 
     def _docx(self, document: EditorialDocument, target: Path,
               options: ExportOptions) -> ExportReport:
@@ -207,8 +336,21 @@ class EditorialExporter:
                     paragraph = word.add_paragraph(style="Quote")
                     paragraph.add_run(text)
                 elif block.kind == "diagram":
+                    # A figura entra como **imagem**, e não como a linha de
+                    # texto de antes: um DOCX de livro de xadrez sem tabuleiro
+                    # nenhum é a mesma perda que o EPUB tinha (item 3 da
+                    # revisão de 2026-09-18). O FEN e a ressalva ficam na
+                    # legenda, que é onde se procura por eles.
+                    encoded, _origem = imagem_do_diagrama(block)
+                    if encoded:
+                        from docx.shared import Pt as _Pt
+                        word.add_picture(io.BytesIO(base64.b64decode(encoded)),
+                                         width=_Pt(8 * 16))
+                        word.paragraphs[-1].alignment = 1
                     paragraph = word.add_paragraph()
-                    paragraph.add_run(f"Diagrama de xadrez — FEN: {_fen(block.decision.value) or text}")
+                    paragraph.add_run(
+                        f"Diagrama de xadrez — FEN: {_fen(block.decision.value) or text}"
+                        f" ({legenda_do_diagrama(block)})")
                 elif block.kind == "table" and isinstance(block.decision.value, Mapping):
                     rows = list(block.decision.value.get("rows", ()) or ())
                     columns = max((len(row) for row in rows), default=0)
@@ -223,7 +365,9 @@ class EditorialExporter:
                 if options.mode != "clean":
                     word.add_paragraph(f"[auditoria: {block.decision.status}]")
         word.save(target)
-        return ExportReport("docx", (str(target),), metadata={"mode": options.mode})
+        return ExportReport("docx", (str(target),),
+                            warnings=avisos_dos_diagramas(document),
+                            metadata={"mode": options.mode})
 
     def _pdf(self, document: EditorialDocument, target: Path,
              options: ExportOptions) -> ExportReport:

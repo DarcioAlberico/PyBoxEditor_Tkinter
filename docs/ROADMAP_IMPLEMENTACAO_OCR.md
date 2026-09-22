@@ -22,7 +22,13 @@ para PDF, DOCX, EPUB e HTML.
 - **Fase 4: implementada** — `core/ocr_phase4.py` com detecção de tabuleiro,
   orientação sem chute, top-k por casa, filtro de legalidade, FEN auditável,
   setas/destaques/legendas, estado de revisão e métricas próprias. A fachada
-  `EditorialPipeline` agora incorpora regiões `diagram` junto do texto.
+  `EditorialPipeline` agora incorpora regiões `diagram` junto do texto. Desde
+  2026-09-22 (item 3 de `REVISAO_MODOS_OCR.md` §4.6) o **lado a jogar também
+  é sem chute**: sai da legenda associada por geometria
+  (`legendas_do_diagrama`) ou da revisão, e o `w` de convenção vai declarado
+  em `side_to_move_source`, no aviso e no `alt`/`figcaption` do arquivo
+  exportado — que passou a levar a imagem do tabuleiro, desenhada do FEN
+  quando não há recorte.
 - **Fase 5: implementada** — fila editorial, diário de eventos, retomada, lote,
   undo e interface de revisão em `core/editorial_review.py`.
 - **Fase 6: implementada** — HTML, EPUB3, DOCX e PDF pesquisável em

@@ -2206,8 +2206,16 @@ class MainWindow(tk.Frame):
 
         def abrir_diagrama(item, imagem):
             valor = item.value if isinstance(item.value, dict) else {}
-            leitura = leitura_de_fen(str(valor.get("fen") or ""), item.bbox,
-                                     orientacao=str(valor.get("orientation") or "branca"))
+            # O lado a jogar só é levado ao diálogo quando foi **lido** — da
+            # legenda da página ou de uma revisão anterior. Assumido, ele fica
+            # de fora, e o diálogo mostra o aviso da convenção em vez de exibir
+            # "brancas" marcado como se alguém tivesse respondido.
+            origem_do_lado = str(valor.get("side_to_move_source") or "assumed")
+            leitura = leitura_de_fen(
+                str(valor.get("fen") or ""), item.bbox,
+                orientacao=str(valor.get("orientation") or "branca"),
+                lado_a_jogar=(str(valor.get("side_to_move") or "")
+                              if origem_do_lado != "assumed" else None))
             if imagem is None:
                 imagem = np.full((8, 8), 255, dtype=np.uint8)
             return self.DIALOGO_DIAGRAMA(

@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
 import numpy as np
 
+from core import lado_a_jogar as lado_jogar
 from core.ocr_result import PageResult, RegionResult
 
 
@@ -25,6 +26,11 @@ FILES = "abcdefgh"
 RANKS = "87654321"
 ORIENTATIONS = frozenset({"branca", "preta", "desconhecida"})
 REVIEW_STATES = frozenset({"automatic", "review_required", "reviewed", "unresolved"})
+#: De onde saiu o lado a jogar de um diagrama. ``assumed`` é a convenção — o
+#: tabuleiro não desenha de quem é a vez, e o FEN exige o campo —, e é o único
+#: valor que obriga quem exporta a carimbar a figura (item 3 da revisão de
+#: 2026-09-18).
+SIDE_SOURCES = frozenset({"legend", "explicit", "assumed", "manual"})
 
 
 def _confidence(value: float) -> float:
@@ -228,6 +234,9 @@ class DiagramResult:
     review_status: str
     review_required: bool
     side_to_move: str = "w"
+    #: Um de :data:`SIDE_SOURCES`. ``assumed`` quer dizer que o ``w`` é
+    #: convenção, e não leitura.
+    side_to_move_source: str = "assumed"
     castling_rights: str = "-"
     en_passant: str = "-"
     annotations: DiagramAnnotations = field(default_factory=DiagramAnnotations)
@@ -242,6 +251,9 @@ class DiagramResult:
             raise ValueError(f"estado de revisão inválido: {self.review_status!r}")
         if self.side_to_move not in {"w", "b"}:
             raise ValueError("lado a jogar deve ser 'w' ou 'b'")
+        if self.side_to_move_source not in SIDE_SOURCES:
+            raise ValueError(
+                f"origem do lado a jogar inválida: {self.side_to_move_source!r}")
         if self.castling_rights != "-" and any(item not in "KQkq"
                                                 for item in self.castling_rights):
             raise ValueError("direitos de roque inválidos")
@@ -267,6 +279,7 @@ class DiagramResult:
             "confidence": self.confidence, "review_status": self.review_status,
             "review_required": self.review_required,
             "side_to_move": self.side_to_move,
+            "side_to_move_source": self.side_to_move_source,
             "castling_rights": self.castling_rights,
             "en_passant": self.en_passant,
             "annotations": self.annotations.to_dict(),
@@ -275,9 +288,16 @@ class DiagramResult:
             "metadata": dict(self.metadata),
         }
 
-    def review(self, corrections: Mapping[str, str]) -> "DiagramResult":
-        """Aplica correções humanas mantendo FEN original e todas as hipóteses."""
+    def review(self, corrections: Mapping[str, str],
+               *, side_to_move: str | None = None) -> "DiagramResult":
+        """Aplica correções humanas mantendo FEN original e todas as hipóteses.
+
+        ``side_to_move`` é o lado que quem revisou informou: passa a valer, com
+        origem ``manual``, e o aviso da convenção sai — foi respondido.
+        """
         corrected = dict(corrections)
+        if side_to_move is not None and side_to_move not in {"w", "b"}:
+            raise ValueError("lado a jogar deve ser 'w' ou 'b'")
         squares = []
         symbols = {item.square: item.chosen for item in self.squares}
         for item in self.squares:
@@ -293,13 +313,23 @@ class DiagramResult:
             squares.append(replace(item, candidates=candidates, chosen=symbol,
                                    confidence=1.0, review_required=False,
                                    original_symbol=item.chosen))
-        fen = _fen_from_symbols(symbols, side_to_move=self.side_to_move,
+        side = side_to_move or self.side_to_move
+        source = "manual" if side_to_move else self.side_to_move_source
+        fen = _fen_from_symbols(symbols, side_to_move=side,
                                 castling=self.castling_rights,
                                 en_passant=self.en_passant)
+        codes = [code for code in self.reason_codes
+                 if not (side_to_move and code.startswith("side_to_move_"))]
+        if side_to_move:
+            codes.append("side_to_move_manual")
+        warnings = tuple(item for item in self.warnings
+                         if not (side_to_move and item == lado_jogar.AVISO_ASSUMIDO))
         return replace(self, squares=tuple(squares), fen=fen,
+                       side_to_move=side, side_to_move_source=source,
+                       warnings=warnings,
                        review_status="reviewed", review_required=False,
                        original_fen=self.original_fen or self.fen,
-                       reason_codes=tuple(dict.fromkeys((*self.reason_codes,
+                       reason_codes=tuple(dict.fromkeys((*codes,
                                                           "manual_review"))))
 
 
@@ -443,7 +473,7 @@ def _normalise_candidates(values: Iterable[Any], *, source: str = "unknown",
 
 def resolve_position(candidates: Mapping[str, Sequence[SquareCandidate]], *,
                      orientation: Any = None, top_k: int = 5,
-                     side_to_move: str = "w", castling: str = "-",
+                     side_to_move: str | None = None, castling: str = "-",
                      en_passant: str = "-", board_id: str = "diagram-0",
                      bbox: tuple[int, int, int, int] = (0, 0, 1, 1),
                      source: str = "square-recognizer",
@@ -456,10 +486,20 @@ def resolve_position(candidates: Mapping[str, Sequence[SquareCandidate]], *,
     alternativas de cada casa; no final apenas posições com exatamente um rei
     por cor, limites materiais e peões fora das duas últimas filas são aceitas.
     Se nenhuma hipótese passar, a melhor leitura fica ``unresolved``.
+
+    ``side_to_move`` omitido não quer dizer ``"w"``: quer dizer *ninguém disse*.
+    A legenda das ``annotations`` é lida primeiro (``White to play``), e só
+    quando ela cala o FEN sai com brancas — aí ``side_to_move_source`` é
+    ``assumed``, com aviso e ``reason_code``, para nada a jusante tomar a
+    convenção por leitura (item 3 da revisão de 2026-09-18).
     """
     if top_k <= 0:
         raise ValueError("top_k deve ser positivo")
     orientation_decision = resolve_orientation(orientation)
+    annotation_value = (annotations if isinstance(annotations, DiagramAnnotations)
+                        else DiagramAnnotations.from_mapping(annotations))
+    side, side_source, side_excerpt = _resolve_side_to_move(
+        side_to_move, annotation_value)
     ordered = [f"{file}{rank}" for rank in RANKS for file in FILES]
     candidate_map: dict[str, Sequence[SquareCandidate]] = {}
     for key, value in candidates.items():
@@ -541,7 +581,7 @@ def resolve_position(candidates: Mapping[str, Sequence[SquareCandidate]], *,
                 confidence, occupancy, low_margin or selected != candidates_for_square[0].symbol,
             ))
 
-    fen = _fen_from_symbols(symbols, side_to_move=side_to_move,
+    fen = _fen_from_symbols(symbols, side_to_move=side,
                             castling=castling, en_passant=en_passant)
     selected_confidences = [item.confidence for item in selected_squares]
     confidence = min(selected_confidences) if selected_confidences else 0.0
@@ -549,11 +589,18 @@ def resolve_position(candidates: Mapping[str, Sequence[SquareCandidate]], *,
         reason_codes.append("missing_square_candidates")
     if orientation_decision.value == "desconhecida":
         reason_codes.append("orientation_missing")
+    reason_codes.append(f"side_to_move_{side_source}")
     review_required = bool(
         missing or orientation_decision.value == "desconhecida"
         or not legal or any(item.review_required for item in selected_squares)
     )
     warnings = []
+    if side_source == "assumed":
+        # O lado a jogar **não** obriga revisão: obriga declaração. Marcar 300
+        # diagramas de um livro como pendentes por um campo que a maioria das
+        # páginas nunca imprime encheria a fila de coisa que ninguém tem como
+        # resolver; o que não pode é o `w` sair calado.
+        warnings.append(lado_jogar.AVISO_ASSUMIDO)
     if orientation_decision.value == "desconhecida":
         warnings.append("orientação do tabuleiro não foi confirmada")
     if not legal:
@@ -561,21 +608,38 @@ def resolve_position(candidates: Mapping[str, Sequence[SquareCandidate]], *,
     if missing:
         warnings.append(f"{len(missing)} casa(s) sem candidatos visuais")
     status = "unresolved" if not legal else ("review_required" if review_required else "automatic")
-    annotation_value = (annotations if isinstance(annotations, DiagramAnnotations)
-                        else DiagramAnnotations.from_mapping(annotations))
     return DiagramResult(
         id=str(board_id), bbox=bbox, source=source,
         orientation=orientation_decision.value,
         orientation_confidence=orientation_decision.confidence,
         squares=tuple(selected_squares), fen=fen, confidence=confidence,
         review_status=status, review_required=review_required,
-        side_to_move=side_to_move, castling_rights=castling,
-        en_passant=en_passant,
+        side_to_move=side, side_to_move_source=side_source,
+        castling_rights=castling, en_passant=en_passant,
         annotations=annotation_value, warnings=tuple(warnings),
         reason_codes=tuple(dict.fromkeys((*reason_codes,
                                           *orientation_decision.reason_codes))),
-        image_ref=image_ref or {}, metadata=metadata or {},
+        image_ref=image_ref or {},
+        metadata={**(metadata or {}), "side_to_move_excerpt": side_excerpt},
     )
+
+
+def _resolve_side_to_move(explicit: str | None,
+                          annotations: DiagramAnnotations) -> tuple[str, str, str]:
+    """
+    De quem é a vez, e de onde isso veio: ``(lado, origem, trecho)``.
+
+    Um lado passado à mão manda — é a revisão, ou um chamador que já leu a
+    página. Sem ele, a legenda decide; sem legenda, é a convenção, declarada.
+    """
+    if explicit in ("w", "b"):
+        return explicit, "explicit", ""
+    if explicit is not None:
+        raise ValueError("lado a jogar deve ser 'w' ou 'b'")
+    lido = lado_jogar.ler(annotations.legend)
+    if lido:
+        return lido.lado, "legend", lido.trecho
+    return "w", "assumed", lido.trecho
 
 
 class DiagramProcessor:
@@ -695,7 +759,8 @@ class Phase4Processor:
             # parágrafo vazio. A região diagram será adicionada abaixo.
             page.regions = [region for region in page.regions if region.text.strip()]
             page.text = "\n\n".join(region.text for region in page.regions)
-        diagrams = self.diagram_processor.process(evidence, options, token)
+        diagrams = [_com_lado_da_pagina(item, page)
+                    for item in self.diagram_processor.process(evidence, options, token)]
         regions = list(page.regions)
         for diagram in diagrams:
             region = RegionResult(
@@ -716,6 +781,68 @@ class Phase4Processor:
         if any(item.review_required for item in diagrams):
             page.warnings.append("há diagrama aguardando revisão")
         return page
+
+
+def legendas_do_diagrama(bbox: Sequence[int], page: PageResult,
+                         *, folga: float = 0.35) -> tuple[str, ...]:
+    """
+    As linhas impressas encostadas no tabuleiro — a de baixo e a de cima.
+
+    É a associação mínima que o lado a jogar exige: "White to play" é uma linha
+    de texto como outra qualquer para a Fase 3, e só a posição dela na página
+    diz que ela fala **deste** diagrama. A peneira é a mesma da faixa do
+    `core/livro.py` (F95): a linha tem de encostar na borda, dentro de uma
+    folga proporcional ao tabuleiro, e cobrir horizontalmente um quarto dele —
+    a coluna de prosa que passa ao lado não é legenda de nada.
+
+    Devolve no máximo duas, a mais próxima de cada lado, da mais próxima para a
+    mais distante.
+    """
+    x1, y1, x2, y2 = (int(item) for item in bbox)
+    largura = max(1, x2 - x1)
+    limite = folga * max(1, y2 - y1)
+    abaixo: list[tuple[float, str]] = []
+    acima: list[tuple[float, str]] = []
+    for line in getattr(page, "lines", ()) or ():
+        caixa = getattr(line, "bbox", None)
+        texto = str(getattr(line, "text", "") or "").strip()
+        if not caixa or not texto:
+            continue
+        lx1, ly1, lx2, ly2 = (int(item) for item in caixa)
+        if min(x2, lx2) - max(x1, lx1) <= .25 * largura:
+            continue
+        if 0 <= ly1 - y2 <= limite:
+            abaixo.append((ly1 - y2, texto))
+        elif 0 <= y1 - ly2 <= limite:
+            acima.append((y1 - ly2, texto))
+    proximas = [min(lado)[1] for lado in (abaixo, acima) if lado]
+    return tuple(proximas)
+
+
+def _com_lado_da_pagina(diagram: DiagramResult, page: PageResult) -> DiagramResult:
+    """
+    O lado a jogar que a página imprimiu junto do tabuleiro, no lugar do `w`.
+
+    Só age sobre o diagrama cujo lado é convenção: um lado que veio das
+    anotações, da revisão ou de quem chamou já é leitura, e não se discute.
+    """
+    if diagram.side_to_move_source != "assumed":
+        return diagram
+    lido = lado_jogar.ler_varios(*legendas_do_diagrama(diagram.bbox, page))
+    if not lido:
+        return diagram
+    codes = [code for code in diagram.reason_codes
+             if code != "side_to_move_assumed"]
+    codes.append("side_to_move_legend")
+    return replace(
+        diagram,
+        fen=lado_jogar.com_lado(diagram.fen, lido.lado),
+        side_to_move=lido.lado, side_to_move_source="legend",
+        warnings=tuple(item for item in diagram.warnings
+                       if item != lado_jogar.AVISO_ASSUMIDO),
+        reason_codes=tuple(dict.fromkeys(codes)),
+        metadata={**dict(diagram.metadata), "side_to_move_excerpt": lido.trecho},
+    )
 
 
 def diagram_metrics(predicted: Sequence[DiagramResult], truth: Sequence[Mapping[str, Any]]) -> dict[str, float]:

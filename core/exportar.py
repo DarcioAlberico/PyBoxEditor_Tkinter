@@ -31,6 +31,7 @@ from core.estilo_do_livro import (  # noqa: F401 — reexportados com o nome de 
     MOLDURA_NO_DOCX, corpo_valido, MODOS_DE_DIAGRAMA, CSS_DO_DIAGRAMA,
     CSS_DA_FONTE_DO_DIAGRAMA, classe_da_fonte, TIPOS_DE_FONTE, PISO_DO_SIMBOLO,
     IDIOMA_PADRAO, CSS_DOS_SIMBOLOS)
+from core import lado_a_jogar as lado_jogar
 from core.livro import Figura, PaginaExtraida, Paragrafo, Tabela
 from core.render_diagrama import (CANTO_PADRAO, MOLDURA_PADRAO,
                                   normalizar_cantos, normalizar_moldura)
@@ -70,16 +71,26 @@ _CONTAINER = """<?xml version="1.0" encoding="UTF-8"?>
 
 def _alternativo(figura: Figura) -> str:
     """
-    O texto alternativo da figura — o FEN, quando ele existe.
+    O texto alternativo da figura — o FEN, quando ele existe, e de onde é a vez.
 
     **É acessibilidade e busca no mesmo campo.** Um diagrama redesenhado sabe a
     posição que desenhou; pô-la no `alt` faz o leitor de tela dizer algo além de
     "imagem" e faz o tabuleiro aparecer numa busca por FEN. O recorte não sabe
     de nada, e por isso continua com o rótulo genérico.
+
+    **O lado a jogar vai junto, dizendo se foi lido ou assumido** (item 3 da
+    revisão de 2026-09-18). O campo do FEN sai preenchido de um jeito ou de
+    outro, e o `alt` é justamente onde o leitor de tela e a busca do arquivo
+    veriam a convenção passar por leitura. O FEN continua **na frente**, e
+    inteiro: quem procura por ele acha o mesmo de antes.
     """
     if figura.origem == "faixa":
         return "Cabeçalho do diagrama"
-    return figura.fen or "Diagrama"
+    if not figura.fen:
+        return "Diagrama"
+    lado = lado_jogar.do_fen(figura.fen)
+    return (figura.fen + lado_jogar.SEPARADOR_DO_ALT
+            + lado_jogar.marca(lado, figura.lado_origem))
 
 
 def em_fonte(figura: Figura) -> bool:

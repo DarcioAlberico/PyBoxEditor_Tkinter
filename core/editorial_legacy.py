@@ -223,13 +223,19 @@ class ProvedorDePaginas:
 
 
 def leitura_de_fen(fen: str, caixa: Sequence[int] | None, *,
-                   orientacao: str = "branca") -> Leitura:
+                   orientacao: str = "branca",
+                   lado_a_jogar: str | None = None) -> Leitura:
     """Uma `diagrama.Leitura` montada a partir de um FEN, para o
     `DialogoDiagrama` abrir a posição do IR ao lado do recorte da página.
 
     As casas saem com confiança 1,0 e sem arbitragem: o que se abre aqui é
     uma decisão já tomada (pelo modelo ou pelo revisor), e o diálogo mostra
     o que ela diz — quem discorda edita a casa, que aí vira `corrigida`.
+
+    `lado_a_jogar` é o lado **lido** (da legenda ou de uma revisão anterior), e
+    não o do FEN: o campo do FEN sai preenchido de todo jeito, e abrir o
+    diálogo com "brancas" marcado por convenção é o que faz a convenção virar
+    resposta. Sem ele, o diálogo mostra o aviso da convenção, como antes.
     """
     tabuleiro = chess.Board(None)
     campos = str(fen or "").split()
@@ -249,7 +255,10 @@ def leitura_de_fen(fen: str, caixa: Sequence[int] | None, *,
     else:
         x1 = y1 = 0
         x2 = y2 = 8
-    return Leitura(caixa=(x1, y1, x2, y2), casas=casas, orientacao=orientacao or "branca")
+    return Leitura(caixa=(x1, y1, x2, y2), casas=casas,
+                   orientacao=orientacao or "branca",
+                   lado_a_jogar=(lado_a_jogar if lado_a_jogar in ("w", "b")
+                                 else None))
 
 
 @dataclass

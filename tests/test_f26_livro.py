@@ -1295,6 +1295,11 @@ def test_o_texto_alternativo_da_figura_e_o_fen():
     Acessibilidade e busca no mesmo campo: o leitor de tela diz a posição, e uma
     busca por FEN encontra o diagrama. O recorte não sabe de nada e fica com o
     rótulo genérico.
+
+    **O FEN vem inteiro e na frente**, e atrás dele o lado a jogar com a
+    procedência (item 3 da revisão de 2026-09-18): o campo do FEN sai
+    preenchido de um jeito ou de outro, e o `alt` é onde a convenção passaria
+    por leitura.
     """
     fen = "8/8/8/4k3/8/8/8/4K3 w - - 0 1"
     paginas = [livro.PaginaExtraida(
@@ -1306,8 +1311,25 @@ def test_o_texto_alternativo_da_figura_e_o_fen():
         caminho = exportar.para_epub(paginas, os.path.join(tmp, "x.epub"))
         with zipfile.ZipFile(caminho) as z:
             xhtml = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
-    assert f'alt="{fen}"' in xhtml
+    assert f'alt="{fen} —' in xhtml
+    assert "assumido" in xhtml, "a convenção do lado a jogar saiu calada"
     assert 'alt="Diagrama"' in xhtml, "o recorte perdeu o rótulo genérico"
+
+
+def test_o_lado_a_jogar_da_legenda_vai_para_o_texto_alternativo():
+    """O que a página disse é leitura, e o `alt` não o chama de assumido."""
+    fen = "8/8/8/4k3/8/8/8/4K3 b - - 0 1"
+    paginas = [livro.PaginaExtraida(
+        numero=0,
+        blocos=[livro.Figura(_png_pequeno(), 40, 40, fen=fen, origem="render",
+                             lado_a_jogar="b", lado_origem="legenda")])]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        caminho = exportar.para_epub(paginas, os.path.join(tmp, "x.epub"))
+        with zipfile.ZipFile(caminho) as z:
+            xhtml = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+    assert f'alt="{fen} — pretas a jogar (da legenda)"' in xhtml
+    assert "assumido" not in xhtml
 
 
 def test_o_docx_leva_o_fen_no_texto_alternativo():

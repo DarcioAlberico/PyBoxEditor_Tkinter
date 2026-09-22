@@ -44,6 +44,7 @@ from typing import Any, Sequence
 from xml.parsers import expat
 from xml.sax.saxutils import escape
 
+from core import lado_a_jogar
 from core.editor import dialeto, modelo
 from core.editor.modelo import (Bloco, Capitulo, Celula, Citacao, Diagrama, Figura, IlhaBruta,
                                 ItemDeLista, Lista, MarcaDePagina, Nota, Paragrafo,
@@ -740,10 +741,15 @@ class _Leitor:
         if set(miolo.attrs) - {"src", "alt", "style", "title", "id", "class"}:
             return self._ilha(no)
         alt = miolo.attrs.get("alt", "")
-        if modelo.fen_valido(alt):
+        fen_do_alt, lado_do_alt = lado_a_jogar.do_alt(alt)
+        if modelo.fen_valido(fen_do_alt):
             # O EPUB de hoje escreve o FEN no `alt` (`exportar._alternativo`): é um
-            # diagrama, e a orientação e o lado não foram registrados (DEC-06).
-            d = Diagrama(fen=alt, lado="", estado="revisar", aviso="orientação não registrada",
+            # diagrama, e a orientação não foi registrada (DEC-06). O lado a jogar
+            # passou a ir junto desde o item 3 da revisão de 2026-09-18, com a
+            # procedência — e `do_alt` só o devolve quando ele foi **lido**: o que
+            # o escritor declarou convenção não pode voltar como leitura.
+            d = Diagrama(fen=fen_do_alt, lado=lado_do_alt, estado="revisar",
+                         aviso="orientação não registrada",
                          legenda=legenda, numero=int(numero) if numero.isdigit() else None, **campos)
             self._imagem_do_diagrama(d, miolo.attrs.get("src", ""))
             return d
@@ -1015,7 +1021,8 @@ def diagrama_de_div(div: No, **campos: Any) -> Diagrama:
     O `div.diagrama` nu de `exportar._diagrama_em_texto` (F59/F95/F99) → `Diagrama`.
 
     O de hoje traz o FEN em `title` e `aria-label` (`exportar._alternativo`): o FEN vem
-    daí, e a orientação é a que **reproduz** as linhas lidas. Só um `div` de fora, sem
+    daí — com a ressalva do lado a jogar atrás, desde o item 3 da revisão de
+    2026-09-18 —, e a orientação é a que **reproduz** as linhas lidas. Só um `div` de fora, sem
     `title` que seja FEN, passa pelas linhas (`render_diagrama.fen_de_linhas`), com a
     orientação dos `span.rot` (a primeira fila rotulada `1` é o lado das pretas) ou dos
     glifos de moldura; sem nenhum dos dois é `estado="revisar"` (DEC-06).
@@ -1023,7 +1030,8 @@ def diagrama_de_div(div: No, **campos: Any) -> Diagrama:
     from core import render_diagrama
 
     fonte = next((c[len("fonte-"):] for c in div.classes if c.startswith("fonte-")), modelo.FONTE_PADRAO)
-    titulo = div.attrs.get("title", "") or div.attrs.get("aria-label", "")
+    titulo, lado_do_titulo = lado_a_jogar.do_alt(
+        div.attrs.get("title", "") or div.attrs.get("aria-label", ""))
     linhas: list[str] = []
     rotulos: list[str] = []
     coordenadas = False
@@ -1066,7 +1074,8 @@ def diagrama_de_div(div: No, **campos: Any) -> Diagrama:
         if orientacao is None:
             orientacao, estado, aviso = "branca", "revisar", "orientação não registrada"
         fen = modelo.fen_completo(posicao)
-    return Diagrama(fen=fen, lado="", orientacao=orientacao,
+    return Diagrama(fen=fen, lado=lado_do_titulo if modelo.fen_valido(titulo) else "",
+                    orientacao=orientacao,
                     coordenadas=coordenadas or emolduradas, fonte=fonte, modo="fonte",
                     moldura="simples" if ("caixa" in div.classes or emolduradas) else "sem",
                     alt="" if modelo.fen_valido(titulo) else titulo, estado=estado, aviso=aviso, **campos)

@@ -15,6 +15,7 @@ import base64
 import re
 from typing import Any, Iterable, Mapping, Sequence
 
+from core import lado_a_jogar as lado_jogar
 from core.editorial_model import (
     Decision,
     EditorialBlock,
@@ -297,6 +298,12 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
                 "coordinates": legado.coordenadas,
                 "framed_lines": legado.linhas_emolduradas,
                 "png_base64": base64.b64encode(legado.png).decode("ascii"),
+                # De quem é a vez, e se isso foi lido ou assumido (item 3 da
+                # revisão de 2026-09-18). Sem os dois campos, o `w` do FEN
+                # chega na exportação sem nada que o distinga de uma leitura.
+                "side_to_move": lado_jogar.do_fen(legado.fen or "") or "w",
+                "side_to_move_source": {"legenda": "legend"}.get(
+                    legado.lado_origem, "assumed"),
             }
             kind = "diagram"
             texto = legado.fen or ""

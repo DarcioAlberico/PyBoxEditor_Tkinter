@@ -124,6 +124,13 @@ class Leitura:
     #: passa isto a `render_diagrama.desenhar(orientacao=...)` e o livro sai
     #: como o livro era.
     orientacao: str = "branca"
+    #: De quem é a vez, quando a legenda da página disse — `None` quando não
+    #: disse, que é quando `fen()` cai na convenção e avisa.
+    #:
+    #: Não sai do tabuleiro: sai do `titulo`, pela peneira de
+    #: `core/lado_a_jogar.py`. Quem a preenche é `ler_pagina`, que é quem tem o
+    #: texto em volta; `ler` com um recorte solto nunca a tem.
+    lado_a_jogar: Optional[str] = None
 
     @property
     def ocupadas(self) -> List[Casa]:
@@ -147,8 +154,13 @@ class Leitura:
         Lado a jogar, roque e en passant não estão desenhados no tabuleiro. Sai
         "brancas a jogar, sem roque, sem en passant" — e `avisos` diz isso, para
         ninguém tomar a convenção por leitura.
+
+        **Menos o lado, quando a legenda o disse** (item 3 da revisão de
+        2026-09-18): `Black to play` impresso embaixo do diagrama é leitura, não
+        convenção, e o FEN termina em `b`. `avisos` muda junto — continua
+        dizendo de onde veio cada campo que o tabuleiro não tem.
         """
-        return f"{self.tabuleiro().board_fen()} w - - 0 1"
+        return f"{self.tabuleiro().board_fen()} {self.lado_a_jogar or 'w'} - - 0 1"
 
     @property
     def plausivel(self) -> bool:

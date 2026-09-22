@@ -239,9 +239,14 @@ def test_a_figurina_na_celula_leva_a_fonte():
 
 
 def test_o_diagrama_em_fonte_tem_texto_alternativo():
+    """
+    O FEN vem inteiro e na frente; atrás dele, o lado a jogar com a
+    procedência (item 3 da revisão de 2026-09-18) — e é por esse mesmo texto
+    que o editor de livros reconstrói o diagrama ao reabrir o arquivo.
+    """
     documento = _parte(_docx(diagramas="fonte"), "word/document.xml")
     assert 'w:tblCaption w:val="Diagrama"' in documento
-    assert f'w:tblDescription w:val="{FEN}"' in documento
+    assert f'w:tblDescription w:val="{FEN} — brancas a jogar (assumido' in documento
 
 
 def test_o_fen_chega_ao_descr_da_figura_desenhada():
@@ -251,7 +256,7 @@ def test_o_fen_chega_ao_descr_da_figura_desenhada():
     posição lida. A figura desenhada leva o FEN, e o recorte leva o rótulo.
     """
     documento = _parte(_docx(), "word/document.xml")
-    assert f'descr="{FEN}"' in documento
+    assert f'descr="{FEN} — brancas a jogar (assumido' in documento
     assert 'descr="Diagrama"' in documento
 
 

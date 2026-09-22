@@ -32,6 +32,12 @@ duas coisas que a leitura não tinha como saber passam a ter dono:
 assume brancas a jogar, sem roque; quando o lado ou o roque são informados, o
 aviso passa a dizer que vieram de quem editou. En passant continua fora: não
 está no diagrama e não é dedutível dele.
+
+**E o que a página disse não vira convenção** (item 3 da revisão de 2026-09-18).
+`Leitura.lado_a_jogar` traz o "White to play" impresso junto do diagrama, e ele
+entra aqui como `lado_origem="legenda"`: nem convenção, nem escolha de quem
+revisa — leitura, de fora do tabuleiro. São três procedências, e o aviso diz
+qual delas é.
 """
 
 from __future__ import annotations
@@ -106,9 +112,15 @@ class TabuleiroEdicao:
                     c.confianca if c else 0.0,
                     c.arbitrada if c else False))
 
-        self.lado = "w"
+        # O lado a jogar tem três procedências, e elas não valem o mesmo: a
+        # legenda da página é leitura, a caixa de diálogo é decisão de quem
+        # revisa, e o `w` sozinho é convenção. `avisos` diz qual é — era só
+        # "veio de quem editou", que mentiria sobre o "Black to play" impresso.
+        lido = getattr(leitura, "lado_a_jogar", None) if leitura is not None else None
+        self.lado = lido if lido in ("w", "b") else "w"
         self.roque = ""
-        self.lado_informado = False
+        self.lado_origem = "legenda" if lido in ("w", "b") else "convencao"
+        self.lado_informado = self.lado_origem != "convencao"
         self.roque_informado = False
 
         self._historico = [self._estado()]
@@ -133,6 +145,7 @@ class TabuleiroEdicao:
         lado_efetivo = lado or ("b" if board.turn == chess.BLACK and len(fen.split()) >= 2 else "w")
         t.lado = lado_efetivo if lado_efetivo in ("w", "b") else "w"
         t.lado_informado = lado in ("w", "b")
+        t.lado_origem = "usuario" if t.lado_informado else "convencao"
         t.roque = "".join(letra for letra in "KQkq" if letra in board.castling_xfen()
                           and letra in t.roques_possiveis())
         t.roque_informado = bool(t.roque)
@@ -210,10 +223,11 @@ class TabuleiroEdicao:
         self._registrar()
         return True
 
-    def definir_lado(self, lado: str) -> bool:
+    def definir_lado(self, lado: str, origem: str = "usuario") -> bool:
         if lado not in ("w", "b") or lado == self.lado:
             return False
         self.lado = lado
+        self.lado_origem = origem
         self.lado_informado = True
         self._registrar()
         return True
@@ -262,10 +276,11 @@ class TabuleiroEdicao:
     def _estado(self) -> tuple:
         return (tuple((c.simbolo, c.confianca, c.arbitrada, c.corrigida)
                       for c in self.casas),
-                self.lado, self.roque, self.lado_informado, self.roque_informado)
+                self.lado, self.roque, self.lado_informado, self.roque_informado,
+                self.lado_origem)
 
     def _aplicar(self, estado: tuple) -> None:
-        casas, lado, roque, lado_informado, roque_informado = estado
+        casas, lado, roque, lado_informado, roque_informado, lado_origem = estado
         for casa, (simbolo, confianca, arbitrada, corrigida) in zip(self.casas, casas):
             casa.simbolo = simbolo
             casa.confianca = confianca
@@ -273,6 +288,7 @@ class TabuleiroEdicao:
             casa.corrigida = corrigida
         self.lado, self.roque = lado, roque
         self.lado_informado, self.roque_informado = lado_informado, roque_informado
+        self.lado_origem = lado_origem
 
     def _registrar(self) -> None:
         """
@@ -347,7 +363,16 @@ class TabuleiroEdicao:
     def avisos(self) -> List[str]:
         """O que o usuário precisa saber antes de levar este FEN embora."""
         saida = []
-        if self.lado_informado or self.roque_informado:
+        if self.lado_origem == "legenda":
+            # O lado impresso junto do diagrama é leitura da página, e dizer
+            # que "veio de quem editou" apagaria a diferença entre o que o
+            # livro afirma e o que alguém escolheu.
+            resto = ("o roque veio de quem editou" if self.roque_informado
+                     else "roque e en passant saem vazios")
+            saida.append(
+                f"{'Brancas' if self.lado == 'w' else 'Pretas'} a jogar: veio "
+                f"da legenda da página, não do tabuleiro; {resto}.")
+        elif self.lado_informado or self.roque_informado:
             informado = []
             if self.lado_informado:
                 informado.append("o lado a jogar")

@@ -44,10 +44,12 @@ escala certa.
 **Veredito sobre "qualidade AAA"**: o reconhecimento de lance, figurina,
 diagrama e tabela está acima do que ABBYY/Acrobat entregam nestes livros, e a
 prosa fundida está abaixo de 1% de erro em três das quatro páginas. O que
-falta para o rótulo é o que a seção 5 lista: uma fila de revisão que mostre
-o recorte e as alternativas, a exportação por um diálogo só, diagramas cujo
-lado a jogar e orientação não sejam convenção silenciosa, corpus de
-referência maior que quatro páginas, e a poda da biblioteca paralela.
+falta para o rótulo é o que a seção 5 lista. Os três primeiros itens saíram —
+a exportação por um diálogo só (4.4), a fila de revisão com o recorte e as
+alternativas (4.5) e o diagrama sem convenção silenciosa (4.6) —; ficam o
+adapter sem perdas, a OCR-14, o corpus de referência maior que quatro
+páginas, o cache do caminho novo, a poda da biblioteca paralela, a interface
+e os testes de aceitação.
 
 ## 2. O mapa dos modos
 
@@ -149,10 +151,11 @@ referência maior que quatro páginas, e a poda da biblioteca paralela.
 - **`w - - 0 1` é convenção silenciosa** nos dois caminhos; a legenda
   ("Black to move") nunca é lida; a spec promete o contrário
   (`SPEC_IMPLEMENTACAO_OCR.md:250`). Orientação desconhecida não é sinalizada
-  no diálogo legado quando não há rótulos.
+  no diálogo legado quando não há rótulos. *Corrigido em 4.6.*
 - Fase 4 exporta diagrama **sem imagem** (`editorial_export.py:85-98`), a
   revisão de diagrama da Fase 5 é uma caixa de texto sobre o FEN, e o estado
-  `unresolved` é invisível no artefato em modo `clean`.
+  `unresolved` é invisível no artefato em modo `clean`. *Corrigido em 4.6*
+  (a revisão de diagrama já abre o `DialogoDiagrama` desde 4.5).
 
 ### 3.5 Interface
 
@@ -352,6 +355,74 @@ FEN redesenhado com a fonte do livro, bloco rejeitado fora) — o FEN revisado
 leitor), `test_fila_de_suspeitas` (15), `test_dialogo_revisao_editorial` (15),
 `test_revisao_na_janela` (5).
 
+### 4.6 Diagrama sem convenção silenciosa (item 3, 2026-09-22)
+
+Um tabuleiro desenhado não contém o lado a jogar, e o FEN **exige** o campo.
+Até aqui os três caminhos o preenchiam com `w` em silêncio — `Leitura.fen`, o
+`TabuleiroEdicao` e o `resolve_position` da Fase 4 —, e um FEN abre em qualquer
+programa de xadrez e vira fato: "brancas a jogar" por convenção é o tipo de
+afirmação que ninguém confere e que muda um final inteiro.
+
+A página costuma dizer, e a peneira é `core/lado_a_jogar.py`: "White to play"
+e "Black to move" (o Nunn imprime um dos dois embaixo de cada diagrama), "as
+brancas jogam", "juegan las negras", a figurina no lugar da palavra (`♔ to
+play`) e os dois NAGs da família "Lado" do `core/nags.py` — o `▼` do `➤ Ex.
+22-4 ◀ ★★ ▼` é a única coisa naquela página do Yusupov que diz de quem é a
+vez. **Legenda que fala dos dois lados não decide nada**: a p. 237 do Nunn
+abre com `W=White to play B=Black to play`, que é a chave de uma tabela e não
+a vez de um diagrama; ali o resultado é `ambigua` e fica a convenção.
+
+Onde isso entra:
+
+- **O caminho legado.** `diagrama.ler_pagina` lê o título do diagrama e grava
+  `Leitura.lado_a_jogar`; `fen()` sai com ele e o aviso da convenção é trocado
+  pelo que diz de onde o lado veio. `livro._figura_do_diagrama` lê a legenda de
+  baixo **e o cabeçalho de cima** (que a `figura` passou a ler *antes* do
+  desenho, porque o indicador de lado faz parte dele) e grava
+  `Figura.lado_a_jogar`/`lado_origem`; o FEN sai com o lado e o desenho ganha o
+  quadradinho de quem joga — que a ED-05 já sabia desenhar, e que só agora tem
+  quando desenhar (DEC-06).
+- **A Fase 4.** `resolve_position` deixou de assumir: sem lado explícito, lê a
+  legenda das `annotations`; sem ela, o `w` sai com `side_to_move_source =
+  "assumed"`, `reason_code` e aviso. `Phase4Processor` associa a legenda por
+  geometria (`legendas_do_diagrama`: a linha encostada na borda, dentro de uma
+  folga de 35% da altura do tabuleiro e cobrindo um quarto da largura dele) —
+  "White to play" é uma linha como outra qualquer para a Fase 3, e só a posição
+  dela diz que fala **deste** diagrama. `DiagramResult.review` aceita o lado
+  informado por quem revisa, e aí o aviso sai.
+- **O carimbo.** `exportar._alternativo` escreve `<FEN> — pretas a jogar (da
+  legenda)` ou `… (assumido: a página não diz)`; a exportação editorial põe a
+  mesma ressalva na `figcaption`, mais `data-side-source`, e o **"não revisado"
+  sai em todos os modos, inclusive no limpo** — o modo limpo tira a
+  proveniência, que é para quem revisa, não a ressalva, que é para quem lê.
+- **O diálogo legado** (`ui/dialogo_diagrama.py`) avisa quando a orientação não
+  foi confirmada: sem coordenadas em volta, a leitura assume brancas embaixo, e
+  um diagrama impresso do lado das pretas sai plausível, legal e espelhado —
+  quem confere casa a casa não desconfia, porque a leitura bate com a tela e as
+  duas estão erradas do mesmo jeito. O lado lido da legenda chega ao diálogo
+  marcado (`TabuleiroEdicao.lado_origem`), e o aviso deixa de dizer "veio de
+  quem editou" sobre o que a página afirmou.
+- **A figura que faltava.** `EditorialExporter` desenha o tabuleiro a partir do
+  FEN quando o bloco não traz PNG — que é o caso de **todo** diagrama da Fase 4,
+  que guarda a posição e o hash do recorte, não os pixels. O `<figure>` dela
+  saía com legenda e sem figura, no HTML da exportação editorial e no da
+  fachada; hoje o DOCX também leva a imagem, e o relatório da exportação acusa
+  o diagrama que ficou sem nenhuma e quantos saíram sem revisão.
+
+**O `alt` é lido de volta**, e isso limitou o formato: o editor de livros
+reconstrói o diagrama do EPUB pelo `alt` (`core/editor/xhtml.py`), então o FEN
+vai inteiro e na frente, e a ressalva atrás de um ` — `. `lado_a_jogar.do_alt`
+faz o caminho de volta e **só devolve o lado quando ele foi lido**: o que o
+escritor declarou convenção não volta como leitura, que é a DEC-06 valendo no
+round-trip. De quebra, o EPUB reaberto no editor agora traz o lado a jogar que
+a página dizia, em vez de perdê-lo.
+
+Aceite: `tests/test_lado_a_jogar.py` (41), com os dois critérios do roadmap em
+`test_legenda_black_to_move_termina_o_fen_em_b` e
+`test_nenhum_diagrama_sai_sem_imagem`. A suíte inteira: 2.865 passando. O A/B
+das quatro páginas não mexeu — Aagaard p30 1,37% · Yusupov p34 0,71% · p47
+2,50% · Nunn p237 1,87%, os mesmos de 2026-09-18.
+
 ## 5. O que fica, em ordem
 
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
@@ -367,12 +438,14 @@ ordem indicada.
    além de N por página; `undo` duas vezes volta dois passos.~~ — feito
    (4.5): 23 linhas apontadas nas quatro páginas, 23 erros, 0 falsos
    positivos; o que escapa é a OCR-14 e cisco tipográfico.
-3. **Diagrama sem convenção silenciosa**: lado a jogar da legenda quando
+3. ~~**Diagrama sem convenção silenciosa**: lado a jogar da legenda quando
    houver ("White/Black to move", "brancas jogam"), senão marcado no alt e
    na figcaption; aviso de orientação não confirmada no diálogo legado;
    imagem do diagrama no export da Fase 4 e sinal de "não revisado" mesmo em
    modo limpo. Aceite: teste com "Black to move" na legenda termina o FEN em
-   `b`; nenhum diagrama sai sem imagem.
+   `b`; nenhum diagrama sai sem imagem.~~ — feito (4.6): `core/lado_a_jogar.py`
+   lê a legenda nos dois caminhos, o carimbo sai no `alt`, na `figcaption` e no
+   diálogo, e o diagrama sem PNG é desenhado do FEN na exportação.
 4. **Adapter sem perdas e inverso** (`editorial_adapters.py`): `Evidence`
    por linha com as duas leituras e confiança derivada do `roteamento`,
    `negrito` como runs, `casas_de_largura`, `origem` como `kind` próprio,

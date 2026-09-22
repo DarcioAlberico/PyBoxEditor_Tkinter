@@ -904,15 +904,26 @@ def _html_document(document: EditorialDocument, options: ExportOptions) -> str:
             if block.kind == "heading":
                 corpo.append(f"<h2 id=\"{html.escape(block.id)}\">{html.escape(texto)}</h2>")
             elif block.kind == "diagram" and isinstance(value, Mapping):
+                # A imagem e a ressalva saem pelas mesmas funções da exportação
+                # editorial (item 3 da revisão de 2026-09-18): aqui o ramo sem
+                # `png_base64` escrevia uma `<figure>` com legenda e sem figura,
+                # que é justamente o que a Fase 4 produz — ela guarda a posição
+                # e o hash do recorte, não os pixels.
+                from core.editorial_export import (imagem_do_diagrama,
+                                                   legenda_do_diagrama,
+                                                   revisao_pendente)
                 fen = html.escape(str(value.get("fen", "")), quote=True)
-                imagem = value.get("png_base64")
-                if imagem:
-                    corpo.append(f'<figure id="{html.escape(block.id)}" data-fen="{fen}">'
-                                 f'<img src="data:image/png;base64,{html.escape(str(imagem))}" '
-                                 f'alt="Diagrama de xadrez{": " + fen if fen else ""}"></figure>')
-                else:
-                    corpo.append(f'<figure id="{html.escape(block.id)}" data-fen="{fen}">'
-                                 f'<figcaption>{fen}</figcaption></figure>')
+                imagem, origem = imagem_do_diagrama(block)
+                ressalva = legenda_do_diagrama(block)
+                pendente = ' data-review="pending"' if revisao_pendente(block) else ""
+                figura = (f'<img src="data:image/png;base64,{imagem}" '
+                          f'alt="Diagrama de xadrez{": " + fen if fen else ""}'
+                          f' — {html.escape(ressalva, quote=True)}">'
+                          if imagem else "")
+                corpo.append(f'<figure id="{html.escape(block.id)}" data-fen="{fen}" '
+                             f'data-image="{origem}"{pendente}>{figura}'
+                             f'<figcaption>{fen} ({html.escape(ressalva)})</figcaption>'
+                             f'</figure>')
             else:
                 tag = "p" if block.kind not in {"table", "caption"} else "div"
                 corpo.append(f'<{tag} id="{html.escape(block.id)}" '
