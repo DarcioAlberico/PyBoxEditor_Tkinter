@@ -21,8 +21,9 @@ janela, seus widgets e seus bindings. O que passa a ser compartilhado é o
 interpretador Tcl, que nenhum teste modifica.
 
 Mora aqui também a guarda da **base de ocupação de verdade** — ver
-`_a_suite_nao_escreve_na_base_de_ocupacao`. É guarda de sessão inteira, e por
-isso não cabe num arquivo de teste.
+`_a_suite_nao_escreve_na_base_de_ocupacao` — e a do **cache do OCR**, que desde
+2026-09-22 tem pasta padrão na área do usuário. As duas são de sessão inteira,
+e por isso não cabem num arquivo de teste.
 """
 
 import os
@@ -89,6 +90,26 @@ _INDEVIDAS = []
 def gravacoes_indevidas():
     """As gravações que **esta sessão** tentou fazer na base de verdade."""
     return list(_INDEVIDAS)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _o_cache_do_ocr_fica_fora_do_appdata(tmp_path_factory):
+    """
+    O cache por página da fachada não escreve na pasta do usuário.
+
+    Desde 2026-09-22 (item 7 da revisão de 2026-09-18) `use_cache=True` sem
+    `cache_dir` guarda em `config.paths.cache_ocr_dir()`, que no Windows é
+    `%LOCALAPPDATA%/PyBoxEditor/cache/ocr` — e o padrão de `ProcessOptions` é
+    justamente esse. Sem esta guarda, rodar a suíte encheria a pasta de quem a
+    roda e, pior, faria um teste servir resultado gravado por outro.
+
+    É a mesma decisão da guarda da base de ocupação, aqui embaixo: pasta de
+    verdade não é lugar de teste.
+    """
+    os.environ["PYBOXEDITOR_CACHE_DIR"] = str(
+        tmp_path_factory.mktemp("cache-ocr-da-suite"))
+    yield
+    os.environ.pop("PYBOXEDITOR_CACHE_DIR", None)
 
 
 @pytest.fixture(scope="session", autouse=True)

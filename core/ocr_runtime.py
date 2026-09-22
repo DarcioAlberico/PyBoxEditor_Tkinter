@@ -10,7 +10,8 @@ import tracemalloc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from collections.abc import Sized
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 
@@ -238,19 +239,29 @@ class BatchProcessor:
             self.cache.save(chave, resultado)
         return index, resultado, False
 
-    def process(self, items: Sequence[Any], *, token: CancellationToken | None = None,
+    def process(self, items: Iterable[Any], *, token: CancellationToken | None = None,
                 config_key: Any = None,
                 progress: Callable[[int, int], None] | None = None) -> BatchResult:
+        """Processa os itens, em fluxo quando há um trabalhador só.
+
+        `items` pode ser um gerador desde 2026-09-22 (item 7 da revisão de
+        2026-09-18): com `workers == 1` — o padrão — a página é lida, processada
+        e esquecida antes de a próxima nascer, e a memória para de crescer com o
+        tamanho do livro. Com mais de um trabalhador o `ThreadPoolExecutor`
+        submete tudo de uma vez, e aí o gerador é consumido inteiro; é o preço
+        do paralelismo, e não uma regressão deste laço.
+        """
         token = token or CancellationToken()
         retorno = BatchResult(profiler=self.profiler)
         ordenados: dict[int, PageResult] = {}
+        total = len(items) if isinstance(items, Sized) else 0
 
         def complete(indice: int, resultado: PageResult, foi_cache: bool) -> None:
             ordenados[indice] = resultado
             retorno.cached += int(foi_cache)
             retorno.processed += 1
             if progress:
-                progress(retorno.processed, len(items))
+                progress(retorno.processed, total or retorno.processed)
 
         workers = self.config.effective_workers
         if workers == 1:

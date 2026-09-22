@@ -32,6 +32,39 @@ def caminhos_modelo_linha() -> tuple[Path, Path]:
     return raiz / "text_line_model.pth", raiz / "text_line_model.json"
 
 
+def caminhos_dos_pesos() -> dict[str, Path]:
+    """Os três pesos que decidem a leitura de uma página.
+
+    São eles que o cache do caminho novo tem de levar na chave: trocar o modelo
+    e reaproveitar o resultado gravado é servir a leitura do modelo velho como
+    se fosse a do novo (item 7 da revisão de 2026-09-18). Os nomes são os
+    mesmos de `core.diagrama.CAMINHO_MODELO`/`CAMINHO_OCUPACAO` e do padrão do
+    `LearningService` — e há teste que prende os três a estes caminhos, porque
+    a duplicação aqui é o preço de não importar `cv2` para saber onde eles
+    estão.
+    """
+    raiz = projeto_dir()
+    return {"glifos": raiz / "custom_model.pth",
+            "diagrama": raiz / "core" / "dados" / "diagrama_modelo.pth",
+            "ocupacao": raiz / "core" / "dados" / "ocupacao_modelo.pth"}
+
+
+def cache_ocr_dir() -> Path:
+    """Onde o resultado por página do caminho novo é guardado.
+
+    Fora do projeto, junto do resto do que é do usuário: o cwd de quem abre o
+    programa por atalho não é a raiz, e um cache que cai na pasta corrente é um
+    cache que nunca acerta duas vezes. `PYBOXEDITOR_CACHE_DIR` reaponta a pasta
+    — é o que mantém a suíte de testes fora do `AppData` de quem a roda.
+
+    **Ele não é podado por ninguém.** Cada página guardada é um JSON de alguns
+    KB, e a chave inclui os pesos, então uma troca de modelo deixa o que ficou
+    para trás sem uso — apagar a pasta é seguro a qualquer momento.
+    """
+    base = os.environ.get("PYBOXEDITOR_CACHE_DIR")
+    return (Path(base) if base else data_dir() / "cache") / "ocr"
+
+
 def data_dir() -> Path:
     """Diretório gravável por usuário para configurações e diagnósticos."""
     if sys.platform.startswith("win"):

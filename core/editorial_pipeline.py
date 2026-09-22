@@ -12,9 +12,9 @@ import hashlib
 import html
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 import fitz
 import cv2
@@ -159,8 +159,30 @@ class DocumentSource:
 
     @property
     def sha256(self) -> str:
+        """A identidade da origem — calculada **uma vez** por objeto.
+
+        Era uma propriedade que relia e re-hasheava o arquivo inteiro a cada
+        acesso, e `_evidences_pdf` a lê uma vez por página, para pôr no
+        `metadata`. Medido em 2026-09-22 num PDF de 7,5 MB: oito páginas
+        custavam **18 leituras integrais, 135 MB**; num livro de 300 páginas e
+        100 MB seriam 600 leituras. O objeto é congelado e a origem não muda
+        debaixo dele enquanto ele existe, então a conta é uma só.
+        """
+        guardado = getattr(self, "_sha256", None)
+        if guardado is None:
+            guardado = self._calcular_sha256()
+            object.__setattr__(self, "_sha256", guardado)
+        return guardado
+
+    def _calcular_sha256(self) -> str:
         if self.path is not None:
-            return _sha256_bytes(self.path.read_bytes())
+            digest = hashlib.sha256()
+            with self.path.open("rb") as arquivo:
+                # Em pedaços, e não `read_bytes()`: o livro de 100 MB não
+                # precisa caber na memória para ser identificado.
+                for pedaco in iter(lambda: arquivo.read(1024 * 1024), b""):
+                    digest.update(pedaco)
+            return digest.hexdigest()
         digest = hashlib.sha256()
         for page in self.pages:
             digest.update(str(page.page_index).encode())
@@ -176,7 +198,19 @@ class DocumentSource:
             raise IndexError("page_indices contém página fora da origem")
         return indices
 
-    def evidences(self, options: "ProcessOptions") -> list["PageEvidence"]:
+    def evidences(self, options: "ProcessOptions") -> Iterator["PageEvidence"]:
+        """As páginas da origem, **uma de cada vez**.
+
+        Gerador desde 2026-09-22 (item 7 da revisão de 2026-09-18): a lista
+        segurava o raster de **todas** as páginas ao mesmo tempo — 8 MB por
+        página a 300 dpi, 2,4 GB num livro de 300 —, e quem consome processa uma
+        e esquece. Com um trabalhador só, que é o padrão, agora só há um raster
+        vivo por vez.
+
+        **A validação continua adiantada**: origem sem arquivo, arquivo que não
+        existe, tipo que não se lê e página que falta na origem levantam aqui, e
+        não na primeira iteração — quem chama espera o erro onde chamou.
+        """
         if self.pages:
             paginas = {page.page_index: page for page in self.pages}
             indices = (sorted(paginas) if self.page_indices is None
@@ -184,8 +218,8 @@ class DocumentSource:
             ausentes = [index for index in indices if index not in paginas]
             if ausentes:
                 raise IndexError(f"páginas ausentes na origem: {ausentes}")
-            return [self._evidence_from_memory(paginas[index], options)
-                    for index in indices]
+            return (self._evidence_from_memory(paginas[index], options)
+                    for index in indices)
         if self.path is None:
             raise ValueError("origem sem arquivo ou páginas")
         if not self.path.exists():
@@ -212,10 +246,13 @@ class DocumentSource:
             metadata={**dict(page.metadata), "source_sha256": self.sha256},
         )
 
-    def _evidences_pdf(self, options: "ProcessOptions") -> list["PageEvidence"]:
-        evidencias = []
+    def _evidences_pdf(self, options: "ProcessOptions") -> Iterator["PageEvidence"]:
+        # O documento fica aberto enquanto o gerador anda, e fecha com ele: é o
+        # que permite a página n+1 sair sem reabrir o arquivo.
+        origem_sha = self.sha256
         with fitz.open(self.path) as documento:
-            for index in self._indices(len(documento)):
+            indices = self._indices(len(documento))
+            for index in indices:
                 page = documento[index]
                 texto = page.get_text("text") or ""
                 bruto = page.get_text("dict") or {}
@@ -229,7 +266,7 @@ class DocumentSource:
                                for block in bruto.get("blocks", [])
                                if isinstance(block, Mapping))
                 raster_hash = _sha256_bytes(_array_bytes(raster))
-                evidencias.append(PageEvidence(
+                yield PageEvidence(
                     document_id=self.source_id, page_index=index,
                     source_kind="pdf_text" if texto.strip() else "pdf_raster",
                     raster=raster, raster_hash=raster_hash,
@@ -238,19 +275,18 @@ class DocumentSource:
                     metadata={"pdf_page_rect": list(page.rect),
                               "pdf_rotation": page.rotation,
                               "drawings": len(page.get_drawings()),
-                              "source_sha256": self.sha256},
-                ))
-        return evidencias
+                              "source_sha256": origem_sha},
+                )
 
-    def _evidences_image(self, options: "ProcessOptions") -> list["PageEvidence"]:
+    def _evidences_image(self, options: "ProcessOptions") -> Iterator["PageEvidence"]:
         from PIL import Image
         raster = np.asarray(Image.open(self.path).convert("RGB"))
-        return [PageEvidence(
+        yield PageEvidence(
             document_id=self.source_id, page_index=0, source_kind="image",
             raster=raster, raster_hash=_sha256_bytes(_array_bytes(raster)),
             raster_dpi=options.dpi,
             metadata={"path": str(self.path), "source_sha256": self.sha256},
-        )]
+        )
 
 
 @dataclass(frozen=True)
@@ -284,11 +320,32 @@ class PageEvidence:
 
     @property
     def width(self) -> int:
-        return int(self.raster.shape[1]) if self.raster is not None else 1
+        if self.raster is not None:
+            return int(self.raster.shape[1])
+        return int(self.metadata.get("image_width") or 1)
 
     @property
     def height(self) -> int:
-        return int(self.raster.shape[0]) if self.raster is not None else 1
+        if self.raster is not None:
+            return int(self.raster.shape[0])
+        return int(self.metadata.get("image_height") or 1)
+
+    def sem_raster(self) -> "PageEvidence":
+        """A mesma evidência sem os pixels, com as medidas guardadas.
+
+        É o que `process` retém depois de mandar a página para o lote: o raster
+        é o que pesa (8 MB a 300 dpi) e já foi consumido; o que ainda faz falta
+        — o índice, o hash, o tipo de origem, a camada textual e o tamanho da
+        página — cabe em alguns bytes. Só a página que **falhou** volta a
+        precisar de mais que isso, e ali `_raster_specs` devolve vazio, como
+        devolve para qualquer evidência sem raster.
+        """
+        if self.raster is None:
+            return self
+        return replace(self, raster=None,
+                       metadata={**dict(self.metadata),
+                                 "image_width": self.width,
+                                 "image_height": self.height})
 
     @property
     def cache_key(self) -> str:
@@ -335,16 +392,48 @@ class ProcessOptions:
             raise ValueError("preprocess_method inválido")
 
     def cache_key(self, pipeline_version: str) -> dict[str, Any]:
+        """A identidade do que produziu um resultado — inclusive os pesos.
+
+        **Os três pesos entram na chave** (item 7 da revisão de 2026-09-18):
+        sem eles, treinar o modelo de glifos e reprocessar o mesmo PDF servia o
+        resultado do modelo velho, gravado, como se fosse o do novo. É o mesmo
+        defeito que guardava a página lida sem o Tesseract e a devolvia depois
+        de instalá-lo.
+
+        A assinatura de cada peso custa um sha256 do arquivo, uma vez por
+        documento — e por isso só é paga quando há cache para acertar.
+        """
         model_identity: Any = self.model_manifest
         if self.model_manifest and Path(self.model_manifest).is_file():
             from core.ocr_runtime import modelo_assinatura
             model_identity = modelo_assinatura(self.model_manifest)
+        pesos: list[Any] = []
+        if self.use_cache:
+            from config.paths import caminhos_dos_pesos
+            from core.ocr_runtime import modelo_assinatura
+            pesos = [modelo_assinatura(caminho)
+                     for caminho in caminhos_dos_pesos().values()]
         return {"pipeline_version": pipeline_version, "dpi": self.dpi,
                 "language": self.language, "engine": self.engine,
                 "preprocess_method": self.preprocess_method,
-                "model_manifest": model_identity,
+                "model_manifest": model_identity, "pesos": pesos,
                 "code_version": pipeline_version,
                 "schema_version": "pyboxeditor.editorial-document/v1"}
+
+    def pasta_de_cache(self) -> Path | None:
+        """Onde os resultados são guardados — `None` só com o cache desligado.
+
+        `cache_dir` vazio queria dizer "sem cache", e não "no lugar de sempre":
+        `scripts/processar_editorial.py` pedia cache por padrão e não guardava
+        nada, e ninguém via a diferença porque um cache que nunca acerta é
+        indistinguível de um cache que não existe.
+        """
+        if not self.use_cache:
+            return None
+        if self.cache_dir is not None:
+            return Path(self.cache_dir)
+        from config.paths import cache_ocr_dir
+        return cache_ocr_dir()
 
 
 @dataclass(frozen=True)
@@ -382,6 +471,31 @@ class PageInspection:
     layout: Mapping[str, Any]
     routing: tuple[Mapping[str, Any], ...]
     warnings: tuple[str, ...] = ()
+
+    @classmethod
+    def da_pagina(cls, page: PageResult) -> "PageInspection":
+        """A inspeção **derivada** do que o processamento já apurou.
+
+        `_enrich_page` grava layout, roteamento, tipo de origem, dpi, hash e
+        camada textual no `metadata` de toda página processada — inclusive na
+        que veio do cache, que os carrega no JSON. Recalcular isso rasterizava o
+        documento inteiro uma segunda vez (item 7 da revisão de 2026-09-18);
+        aqui a mesma resposta sai de graça.
+        """
+        metadata = dict(page.metadata or {})
+        return cls(
+            page_index=int(metadata.get("page_index", 0)),
+            source_kind=str(metadata.get("source_kind", "")),
+            text_characters=len(str(metadata.get("text_layer", "") or "")),
+            raster_hash=str(metadata.get("image_hash", "")),
+            dpi=int(metadata.get("dpi", 0) or 0),
+            layout=dict(metadata.get("layout") or {}),
+            routing=tuple(dict(item) for item in
+                          (metadata.get("layout_routing")
+                           or metadata.get("routing") or ())),
+            warnings=tuple(str(item) for item in
+                           (metadata.get("layout") or {}).get("warnings", ())),
+        )
 
 
 @dataclass(frozen=True)
@@ -531,6 +645,14 @@ def _layout(evidence: PageEvidence, specs: Sequence[Mapping[str, Any]]) -> dict[
             "warnings": []}
 
 
+def _regioes_dos_specs(specs: Sequence[Mapping[str, Any]]) -> list[RegionResult]:
+    """As regiões geométricas que a inspeção roteia — antes de qualquer OCR."""
+    return [RegionResult(item["id"], item["type"], item["order"], .75,
+                         item["bbox"], text=item["text"],
+                         metadata=item["metadata"])
+            for item in specs]
+
+
 def _raster_specs(evidence: PageEvidence, options: ProcessOptions) -> list[dict[str, Any]]:
     """Cria regiões geométricas para scan mesmo antes do OCR.
 
@@ -641,11 +763,8 @@ class EditorialPipeline:
             if not specs:
                 specs = _raster_specs(evidence, options)
             layout = _layout(evidence, specs)
-            regions = [RegionResult(item["id"], item["type"], item["order"], .75,
-                                    item["bbox"], text=item["text"],
-                                    metadata=item["metadata"])
-                       for item in specs]
-            routing = tuple(self.router.decide(region).to_dict() for region in regions)
+            routing = tuple(self.router.decide(region).to_dict()
+                            for region in _regioes_dos_specs(specs))
             paginas.append(PageInspection(
                 page_index=evidence.page_index, source_kind=evidence.source_kind,
                 text_characters=len(evidence.text_layer), raster_hash=evidence.raster_hash,
@@ -663,13 +782,23 @@ class EditorialPipeline:
                                     source.title, source.language, options.page_indices)
         if self.legacy_extractor is not None:
             return self._process_legacy(source, options, token)
-        evidencias = source.evidences(options)
+        # As evidências chegam uma a uma, e o que fica na mão é a versão sem
+        # pixels de cada uma (item 7 da revisão de 2026-09-18). Com um
+        # trabalhador — o padrão — só há um raster vivo por vez; com vários, o
+        # `ThreadPoolExecutor` consome o gerador de uma vez, e aí o custo é o
+        # de antes, por construção dele.
+        leves: list[PageEvidence] = []
+
+        def trabalhos() -> Iterator[_PageWork]:
+            for evidence in source.evidences(options):
+                leves.append(evidence.sem_raster())
+                yield _PageWork(evidence)
 
         def process_one(work: _PageWork, page_token: CancellationToken) -> PageResult:
             return self._process_page(work.evidence, options, page_token)
 
         runtime = RuntimeConfig(
-            cache_dir=options.cache_dir, workers=options.workers,
+            cache_dir=options.pasta_de_cache(), workers=options.workers,
             use_cache=options.use_cache, max_memory_mb=options.max_memory_mb,
             engine=options.engine, per_worker_memory_mb=options.per_worker_memory_mb,
             code_version=self.pipeline_version,
@@ -678,19 +807,20 @@ class EditorialPipeline:
         )
         batch = BatchProcessor(process_one, config=runtime, profiler=self.profiler)
         resultado = batch.process(
-            [_PageWork(evidence) for evidence in evidencias], token=token,
+            trabalhos(), token=token,
             config_key=options.cache_key(self.pipeline_version),
         )
         por_id = {int(page.metadata.get("page_index", -1)): page
                   for page in resultado.results}
         paginas: list[EditorialPage] = []
-        for evidence in evidencias:
+        inspecoes: list[PageInspection] = []
+        for ordem, evidence in enumerate(leves):
             page = por_id.get(evidence.page_index)
             if page is None:
-                mensagem = resultado.errors.get(str(evidencias.index(evidence)),
-                                                "página não processada")
+                mensagem = resultado.errors.get(str(ordem), "página não processada")
                 page = PageResult(f"page-{evidence.page_index:04d}", warnings=[mensagem])
                 self._enrich_page(page, evidence, options, error=mensagem)
+            inspecoes.append(PageInspection.da_pagina(page))
             paginas.append(page_result_para_pagina(
                 page, document_id=source.source_id, page_index=evidence.page_index))
         documento = EditorialDocument(
@@ -705,7 +835,10 @@ class EditorialPipeline:
                       "processed_pages": resultado.processed,
                       "effective_workers": runtime.effective_workers,
                       "cached_pages": resultado.cached,
-                      "inspection": self.inspect(source, options).to_dict()},
+                      # Derivada do que já se apurou, e não de uma segunda
+                      # passada pelo documento (item 7).
+                      "inspection": InspectionReport(
+                          source.source_id, source.sha256, tuple(inspecoes)).to_dict()},
         )
         documento.validate()
         return documento
@@ -823,6 +956,13 @@ class EditorialPipeline:
         layout = _layout(evidence, specs)
         routing = [self.router.decide(region).to_dict() for region in page.regions]
         page.metadata.update({
+            # O roteamento **do layout** — as regiões geométricas, antes de
+            # qualquer OCR — é o que a inspeção publica, e sai daqui de graça:
+            # os `specs` já foram calculados nesta função. Sem ele, derivar a
+            # inspeção do resultado processado perderia a decisão de rota da
+            # página que não produziu região nenhuma (item 7).
+            "layout_routing": [self.router.decide(region).to_dict()
+                               for region in _regioes_dos_specs(specs)],
             "document_id": evidence.document_id, "page_index": evidence.page_index,
             "source_sha256": evidence.metadata.get("source_sha256", evidence.raster_hash),
             "image_hash": evidence.raster_hash,

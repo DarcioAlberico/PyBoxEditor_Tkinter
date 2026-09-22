@@ -33,7 +33,8 @@ def test_source_de_memoria_produz_evidencia_reprodutivel():
         SourcePage(2, raster=np.zeros((10, 20), dtype=np.uint8), text_layer="1. e4")
     ], source_id="livro-teste")
 
-    evidencias = fonte.evidences(ProcessOptions(dpi=240))
+    # `evidences` é gerador desde 2026-09-22 (item 7): quem quer a lista pede.
+    evidencias = list(fonte.evidences(ProcessOptions(dpi=240)))
 
     assert len(evidencias) == 1
     assert evidencias[0].page_index == 2
@@ -125,7 +126,7 @@ def test_source_pdf_preserva_texto_raster_e_selecao_de_pagina(tmp_path):
     pdf.close()
 
     source = DocumentSource.from_path(caminho, page_indices=[1])
-    evidencias = source.evidences(ProcessOptions(dpi=72))
+    evidencias = list(source.evidences(ProcessOptions(dpi=72)))
 
     assert [item.page_index for item in evidencias] == [1]
     assert evidencias[0].source_kind == "pdf_text"

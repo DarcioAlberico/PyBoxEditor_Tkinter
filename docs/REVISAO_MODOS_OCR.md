@@ -48,9 +48,9 @@ falta para o rótulo é o que a seção 5 lista. Os quatro primeiros itens saír
 a exportação por um diálogo só (4.4), a fila de revisão com o recorte e as
 alternativas (4.5), o diagrama sem convenção silenciosa (4.6) e o adapter sem
 perdas, com a volta para o leitor (4.7); do 5 saiu o garimpo do resíduo
-confiante (4.8) e do 6, o corredor da rodada e a régua de famílias (4.9) —;
-ficam o dado dos dois (conferir a quarentena, transcrever as páginas), o cache
-do caminho novo, a poda da biblioteca paralela, a interface e os testes de
+confiante (4.8), do 6 o corredor da rodada e a régua de famílias (4.9), e o 7
+inteiro (4.10) —; ficam o dado do 5 e do 6 (conferir a quarentena, transcrever
+as páginas), a poda da biblioteca paralela, a interface e os testes de
 aceitação.
 
 ## 2. O mapa dos modos
@@ -118,6 +118,9 @@ aceitação.
   contrário de `diagrama.py:1313`. *Corrigido.*
 - Cache guarda o resultado vazio de um motor indisponível e não invalida
   quando o motor é instalado (`ocr_runtime.py`, `editorial_pipeline.py:772-787`).
+  *Metade corrigida em 4.10*: a chave passou a levar os três pesos, então
+  treinar o modelo invalida o gravado; o motor de prosa continua fora da chave,
+  porque quem o chama é o caminho legado, que não passa pelo cache.
 - `predict_neural` devolvia `"?"` — um NAG real — como sentinela. *Corrigido.*
 - Erros de tarefa só num `messagebox` efêmero; exceções em callbacks do Tk
   iam para um `stderr` que o app por atalho não tem. *Corrigido em `appy.py`.*
@@ -594,6 +597,69 @@ Aceite: `tests/test_corpus_de_referencia.py` (12), de mesa — páginas de
 mentira, sem PDF e sem modelo, inclusive o portão (uma página que piora 0,13
 ponto percentual derruba a rodada; dentro da tolerância, não).
 
+### 4.10 O custo do caminho novo (item 7, 2026-09-22)
+
+Quatro defeitos de custo, todos invisíveis numa página e caros num livro.
+Medido pela fachada em oito páginas de um PDF de 7,5 MB, a 300 dpi:
+
+| | antes | depois |
+|---|---:|---:|
+| tempo | 5,9 s | **2,8 s** |
+| pico de memória | 268 MB | **110 MB** |
+| leituras integrais do PDF | 18 | **1** |
+
+- **O `sha256` da origem era recalculado a cada acesso.** É uma propriedade, e
+  `_evidences_pdf` a lia **uma vez por página** para pôr no `metadata` de cada
+  evidência: oito páginas custavam 18 leituras integrais do arquivo, 135 MB
+  hasheados. Num livro de 300 páginas e 100 MB seriam 600 leituras e 60 GB.
+  Agora é calculado uma vez por objeto — que é congelado, e a origem não muda
+  debaixo dele — e em pedaços de 1 MB, para o livro não precisar caber na
+  memória só para ser identificado.
+- **`evidences()` segurava todas as páginas na mão.** A lista mantinha o raster
+  de cada uma viva até o fim — 8 MB por página a 300 dpi, 2,4 GB num livro de
+  300 —, enquanto quem consome processa uma e esquece. Virou gerador, e o que
+  `process` retém depois de mandar a página para o lote é a evidência **sem
+  pixels** (`sem_raster`), com as medidas guardadas. Com um trabalhador, que é
+  o padrão, há um raster vivo por vez; com vários, o `ThreadPoolExecutor`
+  submete tudo de uma vez e o custo volta a ser o de antes — é o preço do
+  paralelismo, e não uma regressão do laço. A validação da origem continua
+  adiantada: quem chama espera o erro onde chamou, não na primeira iteração.
+- **`process` rasterizava o documento uma segunda vez** só para pôr a inspeção
+  no `metadata` (`self.inspect(source, options)`), e de quebra relia o arquivo
+  para o `sha256`. Mas `_enrich_page` já grava layout, roteamento, tipo de
+  origem, dpi, hash e camada textual em toda página processada — inclusive na
+  que veio do cache, que os carrega no JSON. A inspeção passou a ser derivada
+  dali (`PageInspection.da_pagina`), e sai **idêntica** à que a segunda passada
+  produzia: conferido campo a campo nas páginas 30 e 31 do Aagaard. O que
+  faltava era o roteamento das regiões **do layout** (o resultado processado
+  roteia as regiões que leu, que não são as mesmas), e `_enrich_page` passou a
+  gravá-lo também — de graça, porque os `specs` já estavam calculados ali.
+- **O cache não guardava nada, e não sabia de que modelo era o que guardava.**
+  `cache_dir` vazio queria dizer "sem cache", e não "no lugar de sempre":
+  `scripts/processar_editorial.py` pedia cache por padrão e não guardava nada,
+  e ninguém via, porque um cache que nunca acerta é indistinguível de um que
+  não existe. Agora o padrão é `config.paths.cache_ocr_dir()` — na área do
+  usuário, porque o cwd de quem abre por atalho não é a raiz do projeto — e
+  **os três pesos entram na chave** (`custom_model.pth`, `diagrama_modelo.pth`,
+  `ocupacao_modelo.pth`): sem eles, treinar o modelo e reprocessar o mesmo PDF
+  servia a leitura do modelo velho como se fosse a do novo. É o mesmo defeito
+  que a §3.2 anotou sobre o motor ausente — a página lida sem o Tesseract
+  voltava depois de instalá-lo.
+
+Duas decisões de borda que vale registrar: a assinatura dos pesos custa um
+sha256 por arquivo e só é paga quando **há** cache para acertar (`use_cache`
+falso não paga); e a suíte aponta `PYBOXEDITOR_CACHE_DIR` para uma pasta
+temporária de sessão (`tests/conftest.py`), pela mesma razão da guarda da base
+de ocupação: pasta de verdade não é lugar de teste, e um teste servindo
+resultado gravado por outro é pior que lento.
+
+O que **não** foi feito, e fica anotado: a pasta do cache não é podada por
+ninguém. Cada página é um JSON de alguns KB e a chave inclui os pesos, então
+uma troca de modelo deixa o que ficou para trás sem uso — apagar a pasta é
+seguro a qualquer momento.
+
+Aceite: `tests/test_pipeline_cache_e_memoria.py` (13).
+
 ## 5. O que fica, em ordem
 
 Cada item tem critério de aceite; nenhum é pré-requisito de outro fora da
@@ -644,9 +710,12 @@ ordem indicada.
    página nova está no fim de `preview_ocr/referencia/LEIA-ME.txt`. **Falta a
    transcrição**: cinco das oito famílias — imagem, tabela, trama, negativo e
    diagramas — têm menos de três páginas.
-7. **Cache e memória do caminho novo**: `evidences()` como gerador, `sha256`
+7. ~~**Cache e memória do caminho novo**: `evidences()` como gerador, `sha256`
    uma vez, `inspect()` fora de `process()`, chave com a assinatura dos três
-   pesos, `cache_dir` padrão em `config.paths.data_dir()`.
+   pesos, `cache_dir` padrão em `config.paths.data_dir()`.~~ — feito (4.10):
+   oito páginas passaram de 5,9 s / 268 MB / 18 leituras do PDF para 2,8 s /
+   110 MB / 1 leitura, com a inspeção derivada saindo idêntica à que a segunda
+   passada produzia. Falta poda da pasta do cache, anotada lá.
 8. **Poda**: apagar `ocr_hybrid`, `ocr_fusion`, `ocr_context`, `ocr_review`,
    `ocr_export`, `_page_from_text`; rebaixar `Phase3Processor`/`FusionEngine`/
    `ocr_layout` a biblioteca de inspeção; reescrever
