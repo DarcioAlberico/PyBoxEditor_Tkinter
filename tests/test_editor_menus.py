@@ -176,3 +176,60 @@ def test_o_menu_de_contexto_vem_da_tabela_e_os_submenus_dinamicos_se_preenchem()
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def _clone_do_menu(j, menu):
+    """O caminho do clone que o Tk faz do `menu` para a barra da janela.
+
+    É o widget que aparece na tela e dispara o `<<MenuSelect>>` — e o que o
+    `tkinter` não sabe converter em objeto Python.
+    """
+    tcl = j.tk
+    for filho in tcl.splitlist(tcl.call("winfo", "children", str(j))):
+        if "#" not in filho:
+            continue
+        for neto in tcl.splitlist(tcl.call("winfo", "children", filho)):
+            if neto.rpartition("#")[2] == str(menu).rpartition(".")[2]:
+                return neto
+    return None
+
+
+def test_percorrer_o_menu_da_barra_nao_estala_no_clone_do_tk():
+    """
+    Defeito de 2026-09-22: cada passada do mouse por um menu da barra levantava
+    `ValueError: substring not found` numa caixa de erro.
+
+    Quem percorre não é o menu montado aqui: é o **clone** que o Tk cria ao
+    pendurar a barra no `Toplevel`. O `tkinter` não acha widget Python para o
+    nome dele e deixa `evento.widget` como string — e ali `menu.index("active")`
+    era `str.index`.
+    """
+    with _Janela() as t:
+        j = t.j
+        m = j.menus
+        j.update_idletasks()
+        menu, indice, _item = m.itens["salvar"][0]
+        clone = _clone_do_menu(j, menu)
+        assert clone, "o Tk não clonou a barra — o teste perdeu o objeto"
+        assert m._menu_do_caminho(clone) is menu
+
+        # O evento chega como o Tk o manda: o caminho do clone, em texto.
+        j.tk.call(clone, "activate", indice)
+        m._ao_percorrer(type("E", (), {"widget": clone})())
+        assert j.campos["aviso"].cget("text") == "Salvar  (Ctrl+S)"
+
+        # E o item desabilitado continua dizendo a fase, pelo `@y` do clone.
+        original = j.comandos.pop("preferencias")
+        try:
+            m.atualizar(j.modo_atual())
+            outro, i, _it = m.itens["preferencias"][0]
+            clone_de_fora = _clone_do_menu(j, outro)
+            y = j.tk.getint(j.tk.call(clone_de_fora, "yposition", i)) + 1
+            m._ao_percorrer(type("E", (), {"widget": clone_de_fora, "y": y})())
+            assert "ED-13" in j.campos["aviso"].cget("text")
+        finally:
+            j.comandos["preferencias"] = original
+            m.atualizar(j.modo_atual())
+
+        # Caminho que não é menu nenhum não levanta nada.
+        m._ao_percorrer(type("E", (), {"widget": ".nao.existe"})())

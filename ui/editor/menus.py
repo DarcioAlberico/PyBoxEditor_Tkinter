@@ -643,18 +643,42 @@ class Menus:
         `<<MenuSelect>>`: o Tk não ativa entrada desabilitada (`activate` numa delas
         deixa a ativa em `none`), então a entrada sob o mouse vem de `@y` — o `y` do
         evento, ou o do ponteiro.
+
+        **Quem percorre não é o menu que montamos: é o clone dele** (defeito de
+        2026-09-22). Ao pendurar a barra num `Toplevel`, o Tk cria uma cópia de
+        cada menu com nome próprio — `.!editorjanela.#!editorjanela#!menu` —, e
+        é essa que aparece na tela e dispara o evento. O `tkinter` não acha
+        widget Python para esse caminho e deixa `evento.widget` **string**; ali
+        `menu.index("active")` era `str.index`, e cada passada do mouse pelo
+        menu levantava `ValueError: substring not found` numa caixa de erro.
+
+        Daí as duas metades: o índice é perguntado ao **clone**, por caminho,
+        porque é ele que tem a entrada ativa e a geometria na tela; e a tabela é
+        consultada pelo **original**, que é a chave de `mapa`.
         """
-        menu = evento.widget
+        caminho = str(getattr(evento, "widget", "") or "")
+        menu = self._menu_do_caminho(caminho)
+        if menu is None:
+            return
+        tcl = menu.tk
+
+        def indice_de(especificacao: str) -> int | None:
+            bruto = tcl.call(caminho, "index", especificacao)
+            if bruto is None or str(bruto) in ("none", ""):
+                return None
+            return int(tcl.getint(bruto))
+
         try:
-            indice = menu.index("active")
-            if indice is None or indice == "none":
+            indice = indice_de("active")
+            if indice is None:
                 y = getattr(evento, "y", None)
                 if y is None or y < 0:
-                    y = menu.winfo_pointery() - menu.winfo_rooty()
-                indice = menu.index(f"@{int(y)}") if y is not None and y >= 0 else None
-        except tk.TclError:
+                    y = (tcl.call("winfo", "pointery", caminho)
+                         - tcl.call("winfo", "rooty", caminho))
+                indice = indice_de(f"@{int(y)}") if y is not None and y >= 0 else None
+        except (tk.TclError, ValueError):
             return
-        if indice is None or indice == "none":
+        if indice is None:
             return
         nome = self.mapa.get((menu, int(indice)))
         if nome is None:
@@ -668,6 +692,28 @@ class Menus:
                     atalho = acelerador_no_modo(item.comando, modo)
                     self.janela.status(f"{item.rotulo}" + (f"  ({atalho})" if atalho else ""))
                 return
+
+    def _menu_do_caminho(self, caminho: str) -> tk.Menu | None:
+        """
+        O menu que montamos, a partir do caminho Tk que o evento trouxe.
+
+        O clone que o Tk faz para a barra chama-se como o original com os
+        pontos virados `#`, no último componente do caminho: o clone de
+        `.j.!menu.!menu2` é `.j.#j#!menu.#j#!menu#!menu2`. Desfazer a troca
+        devolve o caminho do original, e é ele que está no `mapa`.
+        """
+        if not caminho:
+            return None
+        ultimo = caminho.rpartition(".")[2]
+        alvo = ultimo.replace("#", ".") if ultimo.startswith("#") else caminho
+        for tentativa in (alvo, caminho):
+            try:
+                widget = self.janela.nametowidget(tentativa)
+            except (KeyError, tk.TclError):
+                continue
+            if isinstance(widget, tk.Menu):
+                return widget
+        return None
 
     def lar(self, nome: str) -> tuple[tk.Menu, int, Item]:
         """A entrada que é o lar do comando (a que não é alias); `KeyError` se não há item."""
