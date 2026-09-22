@@ -290,7 +290,7 @@ class JanelaDoEditor(tk.Toplevel):
         self.painel_de_propriedades.pack(fill="both", expand=True)
         self.propriedades = self.painel_de_propriedades
         self.quadro_xadrez = ttk.LabelFrame(self.direita, text="Xadrez")
-        self.xadrez = tk.Label(self.quadro_xadrez, text="Tabuleiro, paleta e posição — chega na ED-05", anchor="nw",
+        self.xadrez = tk.Label(self.quadro_xadrez, text="Paleta de xadrez (ED-05)", anchor="nw",
                                takefocus=1, highlightthickness=2, padx=6, pady=4, wraplength=200, justify="left")
         self.xadrez.pack(fill="both", expand=True)
         self.direita.add(self.quadro_propriedades, weight=1)
@@ -1893,6 +1893,9 @@ class JanelaDoEditor(tk.Toplevel):
             return alvo["id"]
         if nome == "editar_ilha":
             return self.executar("editar_ilha")
+        if nome == "editar_posicao":
+            self._texto().selecionar_objeto(alvo["id"])
+            return self.executar("editar_posicao")
         return None
 
     def _resolver_destino(self, href: str, de_arquivo: str) -> tuple[str, str]:
@@ -2112,7 +2115,7 @@ class JanelaDoEditor(tk.Toplevel):
     def sobre(self) -> str:
         texto = ("Editor de livro do PyBoxEditor\n\nModo texto (à maneira do WordPad e do Word) e modo código "
                  "(à maneira do Sigil), sobre o mesmo livro; salva EPUB 3.\n\n"
-                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-06, ED-06b, ED-07, ED-08, ED-09, "
+                 "Fases prontas: ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, "
                  "ED-09b, ED-10.")
         self.caixas.informar(texto, "Sobre o editor de livro")
         return texto

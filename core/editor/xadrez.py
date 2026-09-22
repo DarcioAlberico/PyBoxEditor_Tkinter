@@ -1,7 +1,8 @@
 """
 Xadrez sobre o modelo: os lances da notação, a partida que eles formam, a posição
 em qualquer ponto, a validação, figurinas ↔ letras, os NAGs, jogadores e aberturas,
-legendas e fontes (ED-05; SPEC_EDITOR §11.3–§11.7, DEC-06).
+legendas e fontes (ED-05; SPEC_EDITOR §11.3–§11.7, DEC-06) — e as marcas e setas, a
+legenda sugerida e a chave de símbolos (ED-05b; §11.1, §11.7, §11.10).
 
 ## Só a notação participa
 
@@ -21,6 +22,13 @@ bate com a linha" (é o erro de OCR mais comum). `posicao_apos()` percorre o seg
 que contém o cursor com uma pilha de variantes (`(`/`)` e `[`/`]` — cada variante parte
 da posição **anterior** ao lance que a abre) e devolve a posição da linha em que o
 cursor está, o lado proposto e o primeiro lance ilegal, que interrompe.
+
+## A legenda sugerida propõe o lado; não o grava
+
+`legenda_sugerida()` escreve "Diagrama 12: após 23…♖xe4 — Pretas jogam" com o lado
+que o **número do lance seguinte** diz (`24.` → brancas, `24…` → pretas) ou, sem ele, o
+que a posição diz; devolve o lado à parte e não toca em `Diagrama.lado` — quem grava é
+"Lado a jogar ▸" (DEC-06: o livro só afirma o que sabe).
 
 ## A sugestão de lance ilegal não passa por `core.notacao`
 
@@ -776,10 +784,242 @@ def diagrama_dos_lances(blocos: Sequence[Bloco], ate: tuple[int, int], **campos:
     return Diagrama(fen=fen, lado=posicao.lado, **campos), posicao
 
 
+# ----------------------------------------------------------------------
+# Marcas e setas (ED-05b; §11.1)
+# ----------------------------------------------------------------------
+
+#: O aviso que fica no diagrama em modo `fonte` com marcas ou setas: o `div.diagrama` é
+#: texto na fonte de diagrama, e não tem onde desenhar um anel nem uma seta.
+AVISO_DE_MARCAS = "marcas e setas não saem em fonte"
+_RE_CASA = re.compile(r"^[a-h][1-8]$")
+_RE_SETA = re.compile(r"([a-h][1-8])\s*(?:-+>?|–|→|>|x)\s*([a-h][1-8])")
+
+
+def casa_valida(nome: str) -> bool:
+    return bool(_RE_CASA.match(nome or ""))
+
+
+def analisar_marcas(texto: str) -> list[str]:
+    """"e4 d5, F7" → `["e4", "d5", "f7"]` — sem repetir; o que não é casa é ignorado."""
+    saida: list[str] = []
+    for parte in re.split(r"[\s,;]+", (texto or "").strip().lower()):
+        if casa_valida(parte) and parte not in saida:
+            saida.append(parte)
+    return saida
+
+
+def analisar_setas(texto: str) -> list[tuple[str, str]]:
+    """"g1-f3 e2→e4, c6xd4" → `[("g1", "f3"), ("e2", "e4"), ("c6", "d4")]` — sem repetir nem seta parada."""
+    saida: list[tuple[str, str]] = []
+    for m in _RE_SETA.finditer((texto or "").lower()):
+        par = (m.group(1), m.group(2))
+        if par[0] != par[1] and par not in saida:
+            saida.append(par)
+    return saida
+
+
+def texto_das_marcas(d: Diagrama) -> str:
+    return " ".join(d.marcas)
+
+
+def texto_das_setas(d: Diagrama) -> str:
+    return " ".join(f"{de}-{para}" for de, para in d.setas)
+
+
+def conferir_marcas(d: Diagrama) -> Diagrama:
+    """Põe (ou tira) o `AVISO_DE_MARCAS` conforme o modo e as marcas/setas; devolve o mesmo diagrama."""
+    partes = [parte for parte in (d.aviso or "").split("; ") if parte and parte != AVISO_DE_MARCAS]
+    if d.modo == "fonte" and (d.marcas or d.setas):
+        partes.append(AVISO_DE_MARCAS)
+    d.aviso = "; ".join(partes)
+    return d
+
+
+# ----------------------------------------------------------------------
+# Legenda sugerida (ED-05b; §11.7)
+# ----------------------------------------------------------------------
+
+POSICAO_INICIAL = {"pt": "posição inicial", "en": "starting position"}
+APOS = {"pt": "após", "en": "after"}
+
+
+def _lado_do_numero_seguinte(blocos: Sequence[Bloco], i: int) -> str:
+    """O lado que o primeiro número de lance depois do bloco `i` diz (no mesmo segmento), ou ""."""
+    segmento = next((s for s in segmentos(blocos) if s.inicio <= i < s.fim), None)
+    fim = segmento.fim if segmento is not None else len(blocos)
+    for k in range(i + 1, fim):
+        bloco = blocos[k]
+        if isinstance(bloco, Diagrama):
+            return ""
+        if not e_notacao(bloco):
+            continue
+        for token in tokens(_texto_de_notacao(bloco)):
+            if token.tipo == "numero":
+                return token.lado
+            if token.tipo == "lance":
+                return ""
+    return ""
+
+
+def legenda_sugerida(blocos: Sequence[Bloco], i: int, idioma: str = "pt") -> tuple[str, str]:
+    """
+    `("Diagrama 12: após 23…♖xe4 — Pretas jogam", lado proposto)` para o diagrama em `i`.
+
+    O lance é o último da linha antes do diagrama (com a pilha de variantes da
+    `posicao_apos`); sem lance, "posição inicial" quando é ela, ou nada. O lado vem do
+    número seguinte e, sem ele, da posição — e é **proposto**, não gravado.
+    """
+    d = blocos[i]
+    if not isinstance(d, Diagrama):
+        raise ValueError("o bloco não é um diagrama")
+    idioma = idioma.split("-")[0].lower()
+    idioma = idioma if idioma in LEGENDA_DE_LADO else "pt"
+    posicao = posicao_apos(blocos, (i, 0))
+    board = posicao.board
+    corpo = ""
+    if board.move_stack:
+        antes = board.copy()
+        movimento = antes.pop()
+        san = antes.san(movimento)
+        pontos = "." if antes.turn else "…"
+        corpo = f"{APOS[idioma]} {antes.fullmove_number}{pontos}{para_figurinas(san, 'en')}"
+    else:
+        import chess
+
+        if board.board_fen() == chess.STARTING_BOARD_FEN and _posicao_do_fen(d.fen) == chess.STARTING_BOARD_FEN:
+            corpo = POSICAO_INICIAL[idioma]
+    lado = _lado_do_numero_seguinte(blocos, i) or posicao.lado
+    prefixo = f"Diagrama {d.numero}: " if d.numero is not None else ""
+    if not prefixo and corpo:
+        corpo = corpo[0].upper() + corpo[1:]
+    texto = prefixo + corpo
+    lado_txt = LEGENDA_DE_LADO[idioma].get(lado, "")
+    if lado_txt:
+        texto = (texto.rstrip(": ") + " — " if texto else "") + lado_txt
+    return texto, lado
+
+
+# ----------------------------------------------------------------------
+# Chave de símbolos (ED-05b; §11.10)
+# ----------------------------------------------------------------------
+
+@dataclass
+class SimboloUsado:
+    simbolo: str
+    codigo: int | None          # None para os ambíguos digitados (`=`, `∞`…)
+    descricao: str
+    quantos: int
+
+
+def _descricao_da_barra(simbolo: str) -> str:
+    for _familia, pares in nags.NAGS_POR_FAMILIA:
+        for s, descricao in pares:
+            if s == simbolo:
+                return descricao
+    return ""
+
+
+def nags_usados(livro: Livro) -> list[SimboloUsado]:
+    """
+    Os NAGs do livro, na ordem do padrão: os **marcados** (`papel="nag"` com código) e os
+    **digitados** (tokens `nag` das linhas de jogo que nenhum trecho marcado cobre). Os
+    ambíguos digitados (`=`, `∞`) entram sem código, com o enunciado da barra rápida. A
+    própria chave (`semantica="glossary"`) não conta.
+    """
+    codigos = _codigo_do_simbolo()
+    por_codigo: dict[int, int] = {}
+    simbolo_do_codigo: dict[int, str] = {}
+    ambiguos: dict[str, int] = {}
+    for cap in livro.capitulos:
+        if cap.semantica == "glossary":
+            continue
+        for bloco in modelo.blocos_do_capitulo(cap):
+            if not isinstance(bloco, Paragrafo):
+                continue
+            for t in bloco.trechos:
+                if t.papel == "nag" and t.nag is not None and t.texto:
+                    por_codigo[t.nag] = por_codigo.get(t.nag, 0) + 1
+                    simbolo_do_codigo.setdefault(t.nag, t.texto)
+            if not e_notacao(bloco):
+                continue
+            # o texto com os trechos marcados apagados em branco: só sobra o digitado
+            texto = "".join((" " if t.quebra_antes else "") + (" " * len(t.texto) if t.papel == "nag" else t.texto)
+                            for t in bloco.trechos)
+            for token in tokens(texto):
+                if token.tipo != "nag":
+                    continue
+                codigo = codigos.get(token.texto)
+                if codigo is None:
+                    ambiguos[token.texto] = ambiguos.get(token.texto, 0) + 1
+                else:
+                    por_codigo[codigo] = por_codigo.get(codigo, 0) + 1
+                    simbolo_do_codigo.setdefault(codigo, token.texto)
+    saida: list[SimboloUsado] = []
+    for nag in nags.TABELA:
+        if nag.codigo in por_codigo:
+            saida.append(SimboloUsado(simbolo_do_codigo.get(nag.codigo) or nag.simbolo, nag.codigo, nag.descricao,
+                                      por_codigo[nag.codigo]))
+    for _familia, pares in nags.NAGS_POR_FAMILIA:
+        for simbolo, descricao in pares:
+            if simbolo in ambiguos:
+                saida.append(SimboloUsado(simbolo, None, descricao, ambiguos.pop(simbolo)))
+    for simbolo, quantos in ambiguos.items():
+        saida.append(SimboloUsado(simbolo, None, _descricao_da_barra(simbolo), quantos))
+    return saida
+
+
+TITULO_DA_CHAVE = {"pt": "Chave de símbolos", "en": "Key to symbols"}
+SEM_SIMBOLOS = {"pt": "(nenhum símbolo de xadrez no livro)", "en": "(no chess symbols in the book)"}
+
+
+def chave_de_simbolos(livro: Livro, arquivo: str | None = None, idioma: str = "pt") -> Capitulo:
+    """
+    A página da chave (§11.10): `semantica="glossary"` (`<body epub:type="glossary">`),
+    um parágrafo `p.chave` por NAG usado — o símbolo como trecho `papel="nag"` com o
+    código (na fonte de símbolos quando a do texto não o desenha) e o enunciado de
+    `nags.rotulo`, na ordem do padrão. Uma chave que já existe é **refeita** no lugar;
+    senão o capítulo entra no fim do livro. Devolve o capítulo.
+    """
+    idioma = idioma.split("-")[0].lower()
+    idioma = idioma if idioma in TITULO_DA_CHAVE else "pt"
+    usados = nags_usados(livro)
+    blocos: list[Bloco] = [Titulo(trechos=[Trecho(texto=TITULO_DA_CHAVE[idioma])], nivel=1)]
+    if not usados:
+        blocos.append(Paragrafo(trechos=[Trecho(texto=SEM_SIMBOLOS[idioma])]))
+    for usado in usados:
+        familia = "simbolos" if any(ord(c) >= PISO_DO_SIMBOLO for c in usado.simbolo) else ""
+        simbolo = Trecho(texto=usado.simbolo, papel="nag", nag=usado.codigo, familia=familia)
+        if usado.codigo is not None:
+            rotulo = nags.rotulo(nags.POR_CODIGO[usado.codigo])
+            enunciado = rotulo.split(maxsplit=2)[2] if len(rotulo.split(maxsplit=2)) == 3 else usado.descricao
+            resto = f"\u2003{enunciado} (${usado.codigo})"
+        else:
+            resto = f"\u2003{usado.descricao}"
+        blocos.append(Paragrafo(trechos=[simbolo, Trecho(texto=resto)], classe="chave"))
+    existente = next((c for c in livro.capitulos if c.semantica == "glossary"), None)
+    if existente is not None:
+        existente.blocos = blocos
+        existente.titulo = TITULO_DA_CHAVE[idioma]
+        return existente
+    from core.editor import livro_ops
+
+    vizinho = livro.capitulos[-1] if livro.capitulos else None
+    if arquivo is None:
+        pasta = vizinho.arquivo.rsplit("/", 1)[0] + "/" if vizinho is not None and "/" in vizinho.arquivo else ""
+        arquivo = livro_ops.nome_livre(livro, f"{pasta}chave-de-simbolos.xhtml")
+    cap = Capitulo(arquivo=arquivo, titulo=TITULO_DA_CHAVE[idioma], blocos=blocos, semantica="glossary",
+                   folhas=list(vizinho.folhas) if vizinho is not None else list(livro.folhas[:1]),
+                   idioma=vizinho.idioma if vizinho is not None else "")
+    livro.capitulos.append(cap)
+    return cap
+
+
 __all__ = ["Token", "tokens", "lance_em_san", "Segmento", "segmentos", "Posicao", "posicao_apos", "Problema",
            "validar", "melhor_lance_legal", "custo_da_troca", "para_letras", "para_figurinas", "e_notacao",
            "figurina_ao_digitar", "marcar_lances", "marcar_nags", "Sugestao", "sugerir_jogadores_e_aberturas",
            "marcar_jogador_abertura", "chave_de_jogador", "alt_de", "legenda_de_lado", "cabecalho_em_legenda",
            "texto_da_referencia", "tipo_de_referencia", "alvos_de_referencia", "fonte_do_livro",
            "fonte_dos_simbolos_do_livro", "diagrama_dos_lances", "FIGURINAS", "LETRAS", "JOGADORES_CONHECIDOS",
-           "NAGS_AMBIGUOS", "ESTILOS_DE_NOTACAO"]
+           "NAGS_AMBIGUOS", "ESTILOS_DE_NOTACAO", "AVISO_DE_MARCAS", "casa_valida", "analisar_marcas",
+           "analisar_setas", "texto_das_marcas", "texto_das_setas", "conferir_marcas", "legenda_sugerida",
+           "SimboloUsado", "nags_usados", "chave_de_simbolos", "TITULO_DA_CHAVE"]

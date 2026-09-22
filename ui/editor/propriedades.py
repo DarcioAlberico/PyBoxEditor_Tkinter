@@ -154,7 +154,9 @@ class PainelDePropriedades(ttk.Frame):
             linha = self._fixo("FEN:", campos.get("fen", ""), linha)
             linha = self._fixo("Lado:", {"w": "brancas", "b": "pretas"}.get(campos.get("lado", ""), "?"), linha)
             linha = self._entrada("id", "Âncora (id):", campos.get("id", ""), linha)
-            self.aviso.configure(text="Editar a posição, a orientação e as coordenadas chega na ED-05.")
+            self.aviso.configure(text="Posição, orientação, coordenadas, marcas e legenda: Editar posição… "
+                                      "(Enter sobre o diagrama) e o menu Xadrez.")
+            self._acao("Editar posição…", "editar_posicao")
         elif tipo == "nota":
             linha = self._fixo("Número:", str(campos.get("numero", "")), linha)
             linha = self._combo("tipo", "Tipo:", campos.get("tipo", "rodape"), TIPOS_DE_NOTA, linha)

@@ -83,12 +83,13 @@ class Caixas:
         self.tabela_resposta = None
         self.imagem_resposta = ""
         self.diagrama_resposta = None
+        self.marcas_resposta = None
         c = janela.caixas
         c.entrada = lambda mensagem, *a, **k: self.chamadas.append(("entrada", mensagem))
         c.falha = lambda mensagem, detalhe: self.chamadas.append(("falha", mensagem, detalhe))
         c.informar = lambda mensagem, *a, **k: self.chamadas.append(("informar", mensagem))
         c.pergunta = lambda mensagem, *a, **k: (self.chamadas.append(("pergunta", mensagem)), self.pergunta_resposta)[1]
-        c.pedir_texto = lambda *a, **k: self.texto_resposta
+        c.pedir_texto = lambda *a, **k: (self.chamadas.append(("pedir_texto",) + tuple(a)), self.texto_resposta)[1]
         c.pedir_inteiro = lambda *a, **k: self.inteiro_resposta
         c.escolher = lambda *a, **k: self.escolha_resposta
         c.formulario = lambda *a, **k: self.formulario_resposta
@@ -102,6 +103,8 @@ class Caixas:
         c.tabela = lambda: self.tabela_resposta
         c.diagrama = lambda diagrama=None, **k: (self.chamadas.append(("diagrama", diagrama)),
                                                  self.diagrama_resposta)[1]
+        c.marcas_e_setas = lambda diagrama=None, **k: (self.chamadas.append(("marcas_e_setas", diagrama)),
+                                                       self.marcas_resposta)[1]
 
     def entradas(self):
         return [c[1] for c in self.chamadas if c[0] == "entrada"]

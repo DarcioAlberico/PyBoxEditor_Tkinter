@@ -702,6 +702,12 @@ class Caixas:
 
         return DialogoDeDiagrama(self.master, diagrama, recorte=recorte, idioma=idioma, titulo=titulo).mostrar()
 
+    def marcas_e_setas(self, diagrama: Any, idioma: str = "en") -> Any:
+        """Marcas e setas… (§11.1, ED-05b): o `Diagrama` com as marcas e setas novas, ou `None`."""
+        from ui.editor.diagrama import DialogoDeMarcasESetas
+
+        return DialogoDeMarcasESetas(self.master, diagrama, idioma=idioma).mostrar()
+
     def ir_para(self, tipos: Sequence[tuple[str, str]], atual: str = "", numero: int = 1) -> tuple[str, int] | None:
         """"Ir para…": `(tipo, número)`; `tipos` são pares `(chave, rótulo)`."""
         rotulos = {chave: rotulo for chave, rotulo in tipos}

@@ -14,7 +14,10 @@ letras, marcar lances/NAGs/jogador/abertura, numerar, cabeçalho em legenda, as 
 a fonte dos símbolos e a fonte de diagrama do livro, a referência cruzada e a inserção
 de um símbolo com o seu código (`inserir_simbolo_de_xadrez`, que a barra e a paleta
 chamam). O painel "Xadrez" e a barra de xadrez são preenchidos aqui
-(`ui/editor/paleta.py`).
+(`ui/editor/paleta.py`). Da ED-05b: "Marcas e setas…" (a `DialogoDeMarcasESetas`),
+"Legenda sugerida" (a proposta numa caixa de texto; o lado proposto vai à barra de
+status, não ao diagrama) e "Chave de símbolos" (o capítulo `glossary`, refeito no lugar
+quando já existe).
 
 ## O alvo é o diagrama do cursor
 
@@ -29,7 +32,7 @@ import copy
 from typing import Any, Callable, Sequence
 
 from core.editor import modelo, xadrez as xadrez_mod, xhtml
-from core.editor.modelo import Diagrama, Paragrafo, Titulo
+from core.editor.modelo import Diagrama, Paragrafo, Titulo, Trecho
 from ui.editor.paleta import (FIGURINAS, PainelDeXadrez, codigo_do_simbolo, precisa_da_fonte_de_simbolos,
                               preencher_barra_de_xadrez)
 from ui.editor.resultados import Resultado
@@ -56,11 +59,14 @@ class Xadrez:
             "paleta_de_nags": x.paleta_de_nags, "fonte_dos_simbolos": x.fonte_dos_simbolos,
             "fonte_de_diagrama": x.fonte_de_diagrama, "inserir_referencia": x.inserir_referencia,
             "inserir_simbolo_de_xadrez": x.inserir_simbolo_de_xadrez,
+            # ED-05b
+            "marcas_e_setas": x.marcas_e_setas, "legenda_sugerida": x.legenda_sugerida,
+            "chave_de_simbolos": x.chave_de_simbolos,
         }
         self.so_no_texto = ("editar_posicao", "diagrama_dos_lances", "girar_diagrama", "coordenadas_do_diagrama",
                             "lado_a_jogar", "indicador_de_lado", "figurinas_para_letras", "letras_para_figurinas",
                             "marcar_lances", "marcar_nags", "marcar_jogador", "cabecalho_em_legenda",
-                            "inserir_referencia")
+                            "inserir_referencia", "marcas_e_setas", "legenda_sugerida")
         self.painel: PainelDeXadrez | None = None
         self._instalar_painel()
         janela.itens_dinamicos["lado"] = self.itens_de_lado
@@ -110,6 +116,7 @@ class Xadrez:
             setattr(novo, chave, valor)
         if novo.lado == "" and novo.lado_indicador:
             novo.lado_indicador = ""
+        xadrez_mod.conferir_marcas(novo)
         texto.substituir_objeto(d.id, novo)
         return novo
 
@@ -218,6 +225,59 @@ class Xadrez:
             raise ValueError("o lado a jogar é desconhecido: escolha brancas ou pretas antes do indicador (DEC-06)")
         self.j._gravar_preferencia("indicador_de_lado", indicador)
         return self._trocar(texto, d, lado_indicador=indicador).lado_indicador
+
+    # -- ED-05b: marcas e setas, legenda sugerida ----------------------------------------
+
+    def marcas_e_setas(self, marcas: Sequence[str] | None = None,
+                       setas: Sequence[Sequence[str]] | None = None) -> Diagrama | None:
+        """Marcas e setas… (§11.1): a caixa sobre o diagrama do cursor; em modo `fonte` fica o aviso."""
+        texto, d = self._diagrama_alvo()
+        if marcas is None and setas is None:
+            novo = self.j.caixas.marcas_e_setas(d, idioma=self._idioma())
+            if novo is None:
+                return None
+            marcas, setas = list(novo.marcas), list(novo.setas)
+        marcas = [m for m in (marcas or []) if xadrez_mod.casa_valida(m)]
+        setas = [(a, b) for a, b in (tuple(s) for s in (setas or [])) if xadrez_mod.casa_valida(a)
+                 and xadrez_mod.casa_valida(b) and a != b]
+        novo = self._trocar(texto, d, marcas=marcas, setas=setas)
+        self.j.status(f"Marcas: {len(marcas)} · setas: {len(setas)}" + (f" — {novo.aviso}" if novo.aviso else ""))
+        return novo
+
+    def legenda_sugerida(self, legenda: str | None = None) -> str | None:
+        """Legenda sugerida (§11.7): "Diagrama 12: após 23…♖xe4 — Pretas jogam"; o lado é proposto, não gravado."""
+        texto, d = self._diagrama_alvo()
+        cap = texto.sincronizar()
+        blocos = list(cap.blocos)
+        ids = [b.id for b in blocos]
+        if d.id not in ids:
+            raise ValueError("o diagrama precisa estar no corpo do capítulo")
+        sugestao, lado = xadrez_mod.legenda_sugerida(blocos, ids.index(d.id), self._idioma())
+        if legenda is None:
+            legenda = self.j.caixas.pedir_texto("Legenda sugerida", "Legenda:", sugestao)
+            if legenda is None:
+                return None
+        legenda = legenda.strip()
+        self._trocar(texto, d, legenda=[Trecho(texto=legenda)] if legenda else [])
+        aviso = ""
+        if lado and lado != d.lado:
+            rotulo = {"w": "brancas", "b": "pretas"}[lado]
+            aviso = f" — lado proposto: {rotulo} (não gravado; Lado a jogar ▸ grava)"
+        self.j.status(f"Legenda: {legenda or '(vazia)'}{aviso}")
+        return legenda
+
+    def chave_de_simbolos(self) -> str:
+        """Chave de símbolos (§11.10): o capítulo `glossary` com os NAGs usados, aberto no fim."""
+        j = self.j
+        projeto = j._exigir_projeto()
+        j._sincronizar_tudo()
+        cap = xadrez_mod.chave_de_simbolos(projeto.livro, idioma=self._idioma())
+        usados = xadrez_mod.nags_usados(projeto.livro)
+        j.operacoes._depois(cap.arquivo)
+        j.abrir_capitulo(cap.arquivo)
+        j.status(f"Chave de símbolos: {len(usados)} símbolo(s) em {cap.arquivo}")
+        j.log.info("Chave de símbolos refeita: %s (%d símbolos).", cap.arquivo, len(usados))
+        return cap.arquivo
 
     def itens_de_lado(self) -> list[tuple[str, Callable[[], Any] | None]]:
         try:

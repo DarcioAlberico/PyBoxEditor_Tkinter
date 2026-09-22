@@ -22,6 +22,14 @@ moldura, cantos, corpo, indicador de lado); **Identificação** (número, legend
 estado e aviso). O recorte impresso fica ao lado do tabuleiro quando existe. A
 legalidade é aviso com ícone e texto, nunca recusa: uma posição de estudo pode ser
 impossível de propósito.
+
+## `DialogoDeMarcasESetas` (ED-05b)
+
+O mesmo tabuleiro, só para desenhar: um clique numa casa põe ou tira o anel, arrastar
+de uma casa a outra põe a seta (arrastar de novo a tira), e as duas caixas de texto
+("e4 d5", "g1-f3 e2-e4") dizem o mesmo por escrito — é o que se grava em
+`data-marcas`/`data-setas`. Em modo `fonte` a caixa avisa que nada disso sai no
+arquivo (`xadrez.AVISO_DE_MARCAS`), mas grava: a escolha do modo é de outra caixa.
 """
 
 from __future__ import annotations
@@ -185,9 +193,9 @@ class ObjetoDeDiagrama(ObjetoBase):
         d: Diagrama = self.objeto
         texto = "".join(t.texto for t in d.legenda)
         prefixo = f"Diagrama {d.numero}" if d.numero is not None else ""
-        if prefixo and texto:
+        if prefixo and texto and not texto.startswith(prefixo):
             return f"{prefixo}. {texto}"
-        return prefixo or texto
+        return texto or prefixo
 
     def dica(self) -> str:
         d: Diagrama = self.objeto
@@ -454,8 +462,159 @@ class DialogoDeDiagrama(_Dialogo):
             alt=self.var_alt.get().strip(), recorte=d.recorte, estado="ok", aviso="")
         if novo.lado == "" and novo.lado_indicador:
             novo.lado_indicador = ""          # sem lado, sem indicador (DEC-06)
-        return novo
+        return xadrez.conferir_marcas(novo)
 
 
-__all__ = ["ObjetoDeDiagrama", "DialogoDeDiagrama", "desenhar_no_canvas", "figuras_para", "fontes_de_diagrama",
-           "CASA_PX", "COR_DA_MARCA", "COR_DA_SETA"]
+# ----------------------------------------------------------------------
+# Marcas e setas (ED-05b)
+# ----------------------------------------------------------------------
+
+class DialogoDeMarcasESetas(_Dialogo):
+    """Ver o cabeçalho. `mostrar()` devolve o `Diagrama` com as marcas e setas novas, ou `None`."""
+
+    def __init__(self, master: tk.Misc, diagrama: Diagrama, idioma: str = "en", alto_contraste: bool = False,
+                 titulo: str = "Marcas e setas"):
+        super().__init__(master, titulo)
+        self.original = diagrama
+        self.diagrama = modelo.de_dict(modelo.para_dict(diagrama))
+        self.idioma = idioma
+        self.alto_contraste = alto_contraste
+        self.marcas: list[str] = list(diagrama.marcas)
+        self.setas: list[tuple[str, str]] = [tuple(s) for s in diagrama.setas]
+        self.casa = 34
+        self._arrasto: str | None = None
+        self._sincronizando = False
+
+    # -- construção -------------------------------------------------------------
+
+    def _construir(self) -> tk.Toplevel:
+        top = self._abrir((False, False))
+        d = self.diagrama
+        corpo = ttk.Frame(top, padding=10)
+        corpo.pack(fill="both", expand=True)
+        self.figuras = figuras_para(top, self.casa - 2)
+        margem = int(self.casa * 0.6) if d.coordenadas else 4
+        self.x0, self.y0 = margem, 4
+        largura = margem + 8 * self.casa + 4
+        altura = 8 * self.casa + (int(self.casa * 0.6) if d.coordenadas else 4) + 4
+        self.canvas = tk.Canvas(corpo, width=largura, height=altura, background="#ffffff", highlightthickness=2,
+                                highlightbackground="#ffffff", highlightcolor=COR_DO_FOCO, takefocus=1,
+                                cursor="crosshair")
+        self.canvas.grid(row=0, column=0, rowspan=4, sticky="n")
+        self.canvas.bind("<ButtonPress-1>", self._no_clique)
+        self.canvas.bind("<ButtonRelease-1>", self._no_solta)
+        ttk.Label(corpo, text="Clique numa casa: marca. Arraste de uma casa a outra: seta.",
+                  foreground="#666666", wraplength=260, justify="left").grid(row=0, column=1, sticky="nw",
+                                                                             padx=(10, 0))
+        ttk.Label(corpo, text="Marcas (casas):").grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
+        self.var_marcas = tk.StringVar(master=top, value=xadrez.texto_das_marcas(d))
+        self.entrada_marcas = ttk.Entry(corpo, textvariable=self.var_marcas, width=34)
+        self.entrada_marcas.grid(row=2, column=1, sticky="ew", padx=(10, 0))
+        ttk.Label(corpo, text="Setas (de-para):").grid(row=3, column=1, sticky="nw", padx=(10, 0), pady=(8, 0))
+        self.var_setas = tk.StringVar(master=top, value=xadrez.texto_das_setas(d))
+        self.entrada_setas = ttk.Entry(corpo, textvariable=self.var_setas, width=34)
+        self.entrada_setas.grid(row=4, column=1, sticky="new", padx=(10, 0))
+        for entrada in (self.entrada_marcas, self.entrada_setas):
+            entrada.bind("<FocusOut>", lambda e: self._do_texto())
+            entrada.bind("<Return>", lambda e: (self._do_texto(), "break")[1])
+        ttk.Button(corpo, text="Limpar", command=self.limpar).grid(row=5, column=1, sticky="w", padx=(10, 0),
+                                                                   pady=(8, 0))
+        self.lbl_aviso = ttk.Label(corpo, text="", foreground="#8a5a00", wraplength=300, justify="left")
+        self.lbl_aviso.grid(row=5, column=0, sticky="w", pady=(8, 0))
+        self._botoes(corpo, "OK").grid(row=6, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        self.desenhar()
+        return top
+
+    def _foco_inicial(self) -> None:
+        if self.top is not None:
+            self.canvas.focus_set()
+
+    # -- o desenho ------------------------------------------------------------------
+
+    def desenhar(self) -> None:
+        d = self.diagrama
+        d.marcas, d.setas = list(self.marcas), [tuple(s) for s in self.setas]
+        self.canvas.delete("all")
+        desenhar_no_canvas(self.canvas, d, self.casa, self.figuras, alto_contraste=self.alto_contraste,
+                           x0=self.x0, y0=self.y0)
+        aviso = xadrez.conferir_marcas(modelo.de_dict(modelo.para_dict(d))).aviso
+        self.lbl_aviso.config(text=("⚠ " + aviso) if aviso else "")
+
+    def _casa_em(self, x: int, y: int) -> str | None:
+        coluna, linha = (x - self.x0) // self.casa, (y - self.y0) // self.casa
+        if not (0 <= coluna < 8 and 0 <= linha < 8):
+            return None
+        if self.diagrama.orientacao == "preta":
+            coluna, linha = 7 - coluna, 7 - linha
+        return f"{'abcdefgh'[int(coluna)]}{8 - int(linha)}"
+
+    def _no_clique(self, evento: Any) -> None:
+        self.canvas.focus_set()
+        self._arrasto = self._casa_em(evento.x, evento.y)
+
+    def _no_solta(self, evento: Any) -> None:
+        de, para = self._arrasto, self._casa_em(evento.x, evento.y)
+        self._arrasto = None
+        if de is None or para is None:
+            return
+        if de == para:
+            self.alternar_marca(de)
+        else:
+            self.alternar_seta(de, para)
+
+    def alternar_marca(self, casa: str) -> bool:
+        """Põe a marca na casa, ou a tira se já estava; devolve se ficou marcada."""
+        if casa in self.marcas:
+            self.marcas.remove(casa)
+            ficou = False
+        else:
+            self.marcas.append(casa)
+            ficou = True
+        self._sincronizar_texto()
+        return ficou
+
+    def alternar_seta(self, de: str, para: str) -> bool:
+        par = (de, para)
+        if par in self.setas:
+            self.setas.remove(par)
+            ficou = False
+        else:
+            self.setas.append(par)
+            ficou = True
+        self._sincronizar_texto()
+        return ficou
+
+    def limpar(self) -> None:
+        self.marcas, self.setas = [], []
+        self._sincronizar_texto()
+
+    def _sincronizar_texto(self) -> None:
+        self._sincronizando = True
+        try:
+            d = self.diagrama
+            d.marcas, d.setas = list(self.marcas), [tuple(s) for s in self.setas]
+            self.var_marcas.set(xadrez.texto_das_marcas(d))
+            self.var_setas.set(xadrez.texto_das_setas(d))
+        finally:
+            self._sincronizando = False
+        self.desenhar()
+
+    def _do_texto(self) -> None:
+        """As caixas de texto mandam: o que está escrito vira as marcas e setas do tabuleiro."""
+        if self._sincronizando:
+            return
+        self.marcas = xadrez.analisar_marcas(self.var_marcas.get())
+        self.setas = xadrez.analisar_setas(self.var_setas.get())
+        self._sincronizar_texto()
+
+    # -- resultado ---------------------------------------------------------------------
+
+    def _ler(self) -> Diagrama:
+        self._do_texto()
+        novo = modelo.de_dict(modelo.para_dict(self.original))
+        novo.marcas, novo.setas = list(self.marcas), [tuple(s) for s in self.setas]
+        return xadrez.conferir_marcas(novo)
+
+
+__all__ = ["ObjetoDeDiagrama", "DialogoDeDiagrama", "DialogoDeMarcasESetas", "desenhar_no_canvas", "figuras_para",
+           "fontes_de_diagrama", "CASA_PX", "COR_DA_MARCA", "COR_DA_SETA"]

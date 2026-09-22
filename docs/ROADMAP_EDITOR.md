@@ -2,7 +2,7 @@
 
 Versão: 1.3
 Data: 2026-09-19
-Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b e ED-10 implementadas** (2026-09-21)
+Status: **ED-00, ED-01, ED-02, ED-03, ED-04, ED-05, ED-05b, ED-06, ED-06b, ED-07, ED-08, ED-09, ED-09b e ED-10 implementadas** (2026-09-21)
 Documento complementar a [`SPEC_EDITOR.md`](SPEC_EDITOR.md) v1.2 (a especificação; este
 roadmap cita as seções dela por número) e a [`../ROADMAP.md`](../ROADMAP.md) (o registro
 histórico do projeto — as fases daqui usam o prefixo `ED-` para não colidir com a
@@ -1063,6 +1063,46 @@ desenhar`; `ui/editor/diagrama.py` e `core/editor/xadrez.py` (ED-05); `core/nags
 .venv/Scripts/python.exe -m pytest tests/test_editor_xadrez_extras.py tests/test_editor_diagrama.py tests/test_f58_render_diagrama.py -q -p no:cacheprovider -o addopts=""
 ```
 
+### Registro — 2026-09-21 — IMPLEMENTADA
+
+Entregue em `core/editor/xadrez.py` (`conferir_marcas`, `analisar_marcas`/`analisar_setas`,
+`legenda_sugerida`, `nags_usados`, `chave_de_simbolos`), `ui/editor/diagrama.py`
+(`DialogoDeMarcasESetas`; a `DialogoDeDiagrama` confere o aviso ao gravar), os três
+comandos em `ui/editor/xadrez.py` (`marcas_e_setas`, `legenda_sugerida`,
+`chave_de_simbolos`), `Caixas.marcas_e_setas`, o botão "Editar posição…" do painel
+Propriedades (`ui/editor/propriedades.py`, `janela.py`) e `tests/test_editor_xadrez_extras.py`
+(6 testes; a ED-05 já tinha posto `marcas`/`setas` no `render_diagrama.desenhar` e no
+`png_do_diagrama`). Conferido na tela com o processo DPI-aware: a caixa com os anéis, a
+seta e as duas caixas de texto em sincronia; o diagrama do capítulo com marcas, seta,
+indicador e a legenda sugerida; o diagrama em fonte com o aviso; e a página da chave.
+
+**O que divergiu da spec, e por quê:**
+
+- **Uma caixa própria para marcas e setas**, e não um grupo na caixa do diagrama: um
+  clique na casa põe/tira o anel, arrastar de uma casa a outra põe/tira a seta, e as duas
+  caixas de texto ("e4 d5", "g1-f3 e2→e4") dizem o mesmo por escrito — o texto é a
+  forma que se grava (`data-marcas`, `data-setas`) e a que se digita sem mouse.
+- **`conferir_marcas` mantém o aviso** (`"marcas e setas não saem em fonte"`) em toda
+  troca que passa pelo controlador (`_trocar`) e pelas duas caixas, e o tira quando o
+  modo volta a `png` — sem apagar outro aviso que o diagrama já tivesse.
+- **A legenda sugerida entra por uma caixa de texto** (`pedir_texto` com a proposta),
+  para o autor emendar antes de gravar; o **lado proposto vai à barra de status** ("lado
+  proposto: brancas — não gravado; Lado a jogar ▸ grava") e nunca a `Diagrama.lado`.
+  O lado vem do número do lance seguinte (`24.`/`24…`) e, sem ele, da posição; a
+  variante não conta (o último lance é o da linha principal, pela pilha da
+  `posicao_apos`); a posição inicial tem nome; sem lance e sem número fica só "Pretas
+  jogam". A tela não repete "Diagrama 12" quando a legenda já começa por ele.
+- **A chave é uma lista de `p.chave`** (classe, não estilo: o dialeto não tem esse
+  estilo e a classe volta do XHTML): o símbolo como trecho `papel="nag"` com o código
+  (na fonte de símbolos quando a do texto não o desenha), o enunciado de `nags.rotulo`
+  e `($código)` — o rótulo inteiro repetiria o símbolo. Os ambíguos digitados (`=`)
+  entram sem código, com o enunciado da barra rápida; a prosa fora de linha de jogo
+  não conta; a própria chave não conta. Refeita **no lugar** quando já existe uma
+  página `glossary`; senão entra no **fim da espinha** e não no sumário (é uma página
+  de apoio; quem quiser a põe pelo painel Sumário).
+- **Botão "Editar posição…" nas Propriedades** do diagrama, no lugar do aviso "chega na
+  ED-05" que a ED-04 deixou.
+
 ---
 
 ## ED-06 — Busca, substituição, ir para, ortografia, símbolos, contagem
@@ -1940,7 +1980,7 @@ wheel posicional: roda `appy.py --editor <livro sintético> --fechar-apos 1
 | ED-03 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text` em vez de `<<Modified>>`; modelo em cache + `sincronizar(reler=True)`; tags `pid:`/`pcls:`/`pex:`/`sub:` nos internos; `_fundem` por tupla; enter no título abre corpo |
 | ED-04 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | bindtag por instância e proxy em `proc` Tcl (defeitos latentes); faixa de notas como blocos `dn:`; célula = `TextoRico(celula=True)` com reconciliação adiada; `inserir_bloco_no_cursor`; `Fragmento.notas`; `_antes_forcado`; `end-1c`; itens fora da §7.3 |
 | ED-05 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | diagrama na tela em `Canvas` (o PNG do `render_diagrama` fica para o EPUB); `melhor_lance_legal` copiado, com desempate por prefixo; caixa sem painel de amostra; `diagrama_dos_lances` grava o lado; `NAGS_AMBIGUOS`; `Segmento.aviso`; `ao_fechar_token`/`inserir_formatado`/`apagar_bloco`/`NAO_SE_ESTENDEM` no `TextoRico`; dois escopos de validar no menu; `de_fen` não promove o lado do FEN; hunks de `core/diagrama.py` e `ui/main_window.py` sobre `cf6f152` |
-| ED-05b | a fazer | | | |
+| ED-05b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | caixa própria de marcas e setas (clique, arrastar, texto); `conferir_marcas` mantém o aviso no `_trocar` e nas caixas; a legenda sugerida vai numa caixa de texto e o lado proposto à barra de status; a chave é `p.chave` com símbolo + enunciado + `$código`, refeita no lugar, no fim da espinha e fora do sumário; `p.chave` como classe; a tela não repete "Diagrama n"; botão "Editar posição…" nas Propriedades |
 | ED-06 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `Alvo` com deslocamento e chave; célula/legenda não endereçáveis; formato do primeiro caractere; um ponto composto na aba, um por capítulo fechado; texto/arquivos marcados com item; "Ir para…" nos dois modos; `e_notacao` copiada; `lexico` sem `notacao` no topo; caixa única do `F7` com "Trocar todas"; `core/editor/simbolos.py`; `Ctrl+Shift+X` exige 4 dígitos; contagem da barra = `estatisticas` |
 | ED-06b | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `pt.hunspell.gz` + `core/afixos.py` em vez de lista chã (10,4 M formas); `Lexico.flexoes`; desempate por prefixo; propor/aplicar com prévia; espaço só antes de lance; bloco marcado `pybox:hifenizar` na folha; buscas salvas com comandos internos |
 | ED-07 | **implementada** | 2026-09-19 | (ver "Registro" da fase) | proxy do `Text`; desfazer por operação com grupos; faixa mínima de 60 linhas; `casamento` escuro; eventos virtuais para os diálogos; `markers` no `pytest.ini` |
