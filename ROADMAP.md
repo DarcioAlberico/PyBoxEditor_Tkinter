@@ -12002,7 +12002,7 @@ suíte sai de 1.850 para 1.886, verde.
 
 ---
 
-## F110 — O livro já trazia o texto, e o projeto o leu da imagem — A FAZER
+## F110 — O livro já trazia o texto, e o projeto o leu da imagem — CONCLUÍDA (a camada tipográfica; o OCR de fábrica continua no OCR)
 
 `core/livro.py:1124`, na docstring de `extrair_pagina`, na letra: *"Uma página do PDF vira
 parágrafos e figuras, **lendo só a imagem**."*
@@ -12055,6 +12055,14 @@ nunca o chama.
 O que falta é uma função que devolva `PaginaExtraida` em vez de escrever PDF. O
 intermediário não muda, e por isso `exportar.py` não muda.
 
+*Corrigido na implementação (2026-09-22): as duas peças não faziam o que o parágrafo acima
+diz.* `is_diagram_span` é um esboço que devolve sempre `False`, e `is_block_a_diagram` exige
+quatro linhas num bloco — no Dvoretsky cada casa é um bloco de uma linha só: simulado na
+p. 21 (`analisar_substituicao(dry_run=True)`), nenhum diagrama é reconhecido e os 128 spans
+de Chess-Merida entram como figurina solta, cada casa apagada e reescrita. `mapa_glifos` não
+guarda mapa nenhum: ele reescreve o ToUnicode de uma cópia do PDF, com o modelo de glifos. A
+função nova (`core/pdf_nativo.py`) não usa nenhuma das duas.
+
 ### A escolha é por página, e o de hoje fica de reserva
 
 Página sem camada, ou com camada que a régua recuse, cai no OCR de sempre. O Seirawan e o
@@ -12072,6 +12080,125 @@ de treino encolhe em silêncio e ninguém liga uma coisa à outra.
 
 Os 28% de páginas sem camada, que são o Seirawan e o Razuvaev inteiros. Ali só a F112
 ajuda.
+
+### O que a régua achou: 72% com camada, e um livro só com o texto do livro (2026-09-22)
+
+A tabela da abertura contou **camada**, e camada não é texto do livro. Seis dos oito livros
+são digitalizações que passaram pelo Acrobat: o ClearScan vetoriza o glifo digitalizado numa
+fonte sintetizada (`Fd350139`) e dá a ela o Unicode que o OCR dele achou — a prosa quase
+limpa, a notação ilegível, que é o que a docstring de `core/livro.py` documenta —, e o Paper
+Capture põe o OCR como texto **invisível** sobre a imagem. A régua de `core/pdf_nativo.py`
+recusa pelo que o OCR de fábrica deixa no arquivo, e não pela qualidade do texto (uma régua
+de dicionário aprovaria a prosa do ClearScan). `scripts/medir_camada.py`, as 8.334 páginas de
+`PDF/` em ~23 s:
+
+| livro | páginas | lidas da camada | recusadas, e por quê |
+|---|---:|---:|---|
+| Dvoretsky · Endgame Manual (2025) | 816 | **815** | 1 sem camada (a capa) |
+| Nunn · Secrets of Rook Endings | 354 | 0 | 352 fonte do ClearScan, 1 invisível, 1 sem camada |
+| Darcy Lima · A Estratégia | 319 | 0 | 318 texto invisível (Paper Capture), 1 sem camada |
+| Aagaard · Attacking Manual I | 263 | 0 | 243 fonte do ClearScan, 15 sem camada, 5 invisível |
+| Yusupov · Chess Evolution 1 | 264 | 0 | 209 fonte do ClearScan, 51 invisível, 4 sem camada |
+| Yusupov · Complete | 2.612 | 0 | 1.873 fonte do ClearScan, 416 invisível, 322 sem camada |
+| Seirawan · Xadrez Vitorioso | 230 | 0 | 230 sem camada |
+| Razuvaev · Akiba Rubinstein | 604 | 0 | 604 sem camada |
+
+As cópias "mapeamento corrigido" e a amostra do ABBYY em `Convertidos/` também saem inteiras
+recusadas. **As quatro páginas de referência do A/B continuam indo ao OCR** — o corpus de
+medição não muda (`test_a_regua_recusa_as_digitalizacoes_do_corpus`). E o livro que a régua
+aceita é justamente o pior da F104 (3,93% fora do dicionário pelo OCR).
+
+### O Dvoretsky, lido do arquivo
+
+O PDF é nascido digital: Times New Roman no texto, as figurinas na `SemFigNormal` (o `K`
+*é* o rei; a chave de símbolos da p. 788 dá `²`→`⩲`, `™`→`□`, `…`→`Δ`, `„`→`⇄`, `§`→`♙`), e
+cada diagrama em **Chess-Merida, uma casa por glifo** — `*` casa clara vazia, `+` escura, `l`
+rei preto em casa clara —, com os rótulos `8`–`1` e `a`–`h` em Arial em volta, o número do
+diagrama embaixo e a letra de quem joga (`W`, `B`, `W?`, `B?`) embaixo dele. Medido nos
+1.273 diagramas: **315 de 315** letras concordam com o primeiro lance do texto que as segue.
+
+`pdf_nativo.extrair` no livro inteiro, 815 páginas em **53 s** (66 ms/página, quase tudo o
+desenho dos diagramas):
+
+| | |
+|---|---|
+| diagramas | **1.273**, todos com o FEN decodificado da fonte — a paridade das casas é a prova do mapa |
+| orientação | confirmada pelas coordenadas nos 1.273 |
+| lado a jogar | lido da legenda em 1.235 (780 `w`, 455 `b`); 38 por convenção, declarada |
+| legendas | todo tabuleiro com a sua, inclusive as 25 que a paginação mandou para a página seguinte e as de dois diagramas lado a lado |
+| títulos | os 15 capítulos como `<h1>` (`Chapter 1 Pawn Endgames`), 488 títulos de seção e 334 cabeçalhos de diagrama como `<h2>` |
+| mobília | nenhuma linha de conteúdo retirada (o livro não imprime cabeçalho nem número de página na camada) |
+
+A camada contra o OCR de produção, **nas mesmas 12 páginas** (21, 22, 46, 100, 158, 250,
+350, 450, 550, 650, 750, 783), com a camada como referência — num livro nascido digital ela
+é o texto que o autor escreveu (`scripts/medir_camada.py --comparar`):
+
+| | OCR (cadeia + Tesseract) | camada |
+|---|---:|---:|
+| CER prosa / notação / total | 1,52% / 1,82% / **1,58%** (WER 2,97%) | 0 por construção |
+| diagramas com a posição certa | 20 de 20 | 20 de 20 |
+| diagramas com o lado certo | **13 de 20** — os 7 outros saíram `w` onde a legenda diz `B` | 20 de 20 |
+| tempo por página | 3,71 s | **0,08 s** (46×) |
+
+O EPUB das páginas 15–60 lidas da camada passa no `epubcheck` 5.3.0 sem uma mensagem, com o
+sumário por capítulo (`Foreword`, `Chapter 1 Pawn Endgames`) que a F111 deixou para cá.
+
+### Onde está
+
+- `core/pdf_nativo.py`, novo. A régua (`avaliar_pagina`, `avaliar`, `amostrar`: texto
+  invisível, fonte do ClearScan ou do Tesseract, glifo sem Unicode, fonte de xadrez sem mapa,
+  produtor de OCR, página girada, texto sobre a imagem da página inteira); a página
+  (`extrair_pagina`: glifos do `rawdict`, colunas pela régua do OCR —
+  `BoxService.detectar_colunas` —, parágrafo por recuo/salto/corpo, hífen de fim de linha só
+  sai com o dicionário, negrito da fonte, figurina herdando o negrito do lance, título de
+  capítulo pelo corpo e de seção isolado na coluna, diagrama da fonte com rótulos, cabeçalho,
+  legenda e lado, imagem embutida lida por `diagrama.ler` com o porteiro da F58 quando é
+  tabuleiro); o livro (`ligar_legendas`, `retirar_mobilia`, `extrair` → `Extracao` com as
+  páginas e os vereditos — sem modelo nem Tesseract).
+- `core/livro.py`: `extrair(camada="nunca"|"auto"|"sempre")` escolhe por página; o padrão é
+  `"nunca"`, para os instrumentos do OCR não passarem a medir outra coisa.
+  `PaginaExtraida.leitura` (`"imagem"`/`"camada"`) e `Figura.marcas` (o `x` das casas-chave).
+  `retirar_cabecalhos` pula a página da camada — a assinatura vazia de `2019.` e de `1-17`
+  somava com a dos números de página e apagava 16 linhas de conteúdo do Dvoretsky.
+- `core/editorial_adapters.py` leva `leitura` e `marks` de ida e de volta, e a evidência da
+  página da camada é `pdf_text`; `core/editor/importar_ir.py` passa as marcas ao diagrama do
+  editor; `core/editorial_legacy.OpcoesDeLeitura.camada`.
+- A caixa de exportação ganha "Ler do próprio PDF as páginas nascidas digitais", ligada e
+  lembrada, com a amostra da régua; o relatório das duas exportações conta as páginas da
+  camada. A caixa do livro cresceu 7 px (578), e a do documento editorial ficou nos 655 — o
+  quadro novo foi para a coluna da direita, que era a mais baixa.
+- `scripts/medir_camada.py`: a régua nos livros, e `--comparar` para a camada contra o OCR.
+- `tests/test_f110_camada.py`, 51 testes (os do corpus pulam sem o PDF), dois deles pela janela: a caixa e a ação de menu inteira.
+
+### A revisão
+
+Uma revisão independente do módulo, com os dois defeitos que confirmou reproduzidos em PDF
+sintético: **o glifo solto da fonte de diagrama vazava para a prosa** — a casa vazia `+`
+fora de tabuleiro saía como `+` no meio da frase (agora só a peça solta fica, como figurina;
+o resto some) — e **a legenda livre do diagrama de cima engolia o cabeçalho do de baixo**
+quando os dois estão empilhados perto (agora a linha centrada na janela de cabeçalho do
+tabuleiro de baixo é dele). Das quatro possíveis, três foram corrigidas: o **número solto**
+(`37`) deixou de ser legenda estrita — era o fólio do pé virando legenda do último diagrama,
+e o do alto sendo religado da página anterior; só vale colado ao tabuleiro —, a vizinhança
+que junta glifos em tabuleiro caiu de 1,5 para 1,2 casa (dois diagramas lado a lado a menos
+de meia casa viravam um grupo só), e o redesenho do lado religado ganhou a mesma proteção
+dos outros. A quarta era contagem de caracteres fora por um espaço, corrigida. Cada
+correção tem teste, e os dois confirmados foram conferidos falhando sem ela. O livro inteiro
+saiu idêntico depois.
+
+### O que se perde, cumprido
+
+A página da camada não tem box nem confiança por glifo: não entra na coleta, não enfileira
+linha na revisão, e o relatório diz quantas vieram da camada. Os mapas de fonte são os vistos
+num PDF — Chess-Merida/MERIFONT, SkakNew-Diagram, SemFig —; um diagrama numa fonte de xadrez
+sem mapa manda a página inteira para o OCR, e acrescentar uma fonte é uma linha em
+`FONTES_DE_DIAGRAMA` (mais o mapa em `core/dados/fontes_de_diagrama.json`).
+
+### O que fica
+
+A prosa do ClearScan. Ela é quase limpa e a notação dele não é; ler a prosa da camada e o
+lance do OCR na mesma linha é outra fase, e precisa de medida antes — a `FusionEngine`, que
+preferia a camada na notação, foi o que a revisão de 2026-09-18 derrubou.
 
 ---
 

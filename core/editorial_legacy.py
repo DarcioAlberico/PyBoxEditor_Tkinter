@@ -40,9 +40,14 @@ class OpcoesDeLeitura:
     """O que a exportação de livro pergunta ao usuário, num objeto só.
 
     Os padrões são os de `livro.extrair`; `diagramas`, `coordenadas`,
-    `fonte`, `moldura`, `cantos` e `probabilidade` têm o significado de lá.
-    `modelo_de_linha` liga o CRNN próprio como leitor de faixa — e só vale se
-    `linha_trainer.modelo_utilizavel` disser que ele passa no portão.
+    `fonte`, `moldura`, `cantos`, `probabilidade` e `camada` têm o
+    significado de lá. `modelo_de_linha` liga o CRNN próprio como leitor de
+    faixa — e só vale se `linha_trainer.modelo_utilizavel` disser que ele
+    passa no portão.
+
+    `camada` fica `"nunca"` aqui pelo mesmo motivo que lá: quem mede o leitor
+    (`scripts/fila_de_suspeitas.py`) não pode passar a medir outra coisa sem
+    pedir. A janela pede `"auto"` (F110).
     """
 
     idioma: str = "en"
@@ -57,6 +62,7 @@ class OpcoesDeLeitura:
     coletor: Optional[Callable] = None
     modelo_de_linha: bool = False
     dpi: int = 300
+    camada: str = "nunca"
     extras: dict = field(default_factory=dict)
 
     def kwargs(self) -> dict:
@@ -64,7 +70,8 @@ class OpcoesDeLeitura:
         saida = {"idioma_ocr": self.idioma, "fusao": self.fusao,
                  "diagramas": self.diagramas, "coordenadas": self.coordenadas,
                  "lex": self.lex, "probabilidade": self.probabilidade,
-                 "coletor": self.coletor, "dpi": self.dpi}
+                 "coletor": self.coletor, "dpi": self.dpi,
+                 "camada": self.camada}
         if self.fonte is not None:
             saida["fonte"] = self.fonte
         if self.moldura is not None:

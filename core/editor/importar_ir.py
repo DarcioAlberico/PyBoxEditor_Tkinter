@@ -74,6 +74,11 @@ def _fen_completo(fen: str) -> str:
     return f"{partes[0]} w - - 0 1" if partes else ""
 
 
+def _casa_valida(casa: str) -> bool:
+    """`c6` sim, `z9` não — a marca que não é casa não entra no diagrama do editor."""
+    return len(casa) == 2 and casa[0] in "abcdefgh" and casa[1] in "12345678"
+
+
 def _codigos_de_suspeita(block: EditorialBlock) -> str:
     """Os códigos que fazem do bloco um suspeito (§10.6.5), ou "" quando não é."""
     codigos = [c for c in block.decision.reason_codes if c not in PROCEDENCIA]
@@ -181,7 +186,9 @@ class _Construtor:
             return Diagrama(fen=_fen_completo(fen), lado="",
                             orientacao="preta" if str(valor.get("orientation") or "") == "preta" else "branca",
                             coordenadas=bool(valor.get("coordinates")), fonte=fonte, modo="png", recorte=recorte,
-                            aviso=str(valor.get("warning") or ""))
+                            aviso=str(valor.get("warning") or ""),
+                            # As casas que o livro marcou (F110, lidas da camada do PDF).
+                            marcas=[str(c) for c in valor.get("marks") or [] if _casa_valida(str(c))])
         aviso = str(valor.get("warning") or "") or ("diagrama numa faixa da página" if origin == "faixa"
                                                     else "diagrama sem posição lida")
         self.relatorio.aviso(f"página {page.page_index + 1}, bloco {block.id}: {aviso} — ficou como figura")

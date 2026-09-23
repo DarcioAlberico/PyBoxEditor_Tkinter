@@ -80,6 +80,10 @@ class OpcoesDeExportacao:
     coletar: bool = False
     teto: Optional[int] = None
     modelo_de_linha: bool = False
+    #: Ler da camada do PDF as páginas nascidas digitais (F110) — ligado por
+    #: padrão, porque a régua (`pdf_nativo.avaliar_pagina`) só aceita a camada
+    #: que é o texto do livro, e a digitalização vai ao OCR do mesmo jeito.
+    ler_camada: bool = True
     extras: dict = field(default_factory=dict)
 
     #: O que não é preferência: caminho, páginas e o que a ação põe em `extras`.
@@ -118,7 +122,14 @@ class OpcoesDeExportacao:
                 opcoes.teto = int(opcoes.teto)
             except (TypeError, ValueError):
                 opcoes.teto = None
+        if not isinstance(opcoes.ler_camada, bool):
+            opcoes.ler_camada = True
         return opcoes
+
+    @property
+    def camada(self) -> str:
+        """O `camada=` de `livro.extrair` (F110)."""
+        return "auto" if self.ler_camada else "nunca"
 
     @property
     def diagramas_no_arquivo(self) -> str:
@@ -143,7 +154,8 @@ class DialogoDeExportacao:
                  idioma_detectado: Optional[str] = None,
                  motor_de_prosa: Tuple[bool, str] = (True, ""),
                  modelo_de_linha: Tuple[bool, str] = (False, ""),
-                 titulo: str = "Exportar livro"):
+                 titulo: str = "Exportar livro",
+                 camada: Optional[Tuple[int, int]] = None):
         self.parent = parent
         self.entrada = entrada
         self.total_paginas = max(1, int(total_paginas))
@@ -153,6 +165,9 @@ class DialogoDeExportacao:
         self.motor_de_prosa = motor_de_prosa
         self.modelo_de_linha = modelo_de_linha
         self.titulo = titulo
+        #: `(aceitas, amostradas)` da régua da camada de texto
+        #: (`pdf_nativo.avaliar`) numa amostra do PDF, ou `None`.
+        self.camada = camada
         self.resultado: Optional[OpcoesDeExportacao] = None
         self._settings = None
 
@@ -202,9 +217,18 @@ class DialogoDeExportacao:
         self._construir_arquivo(esquerda, guardadas)
         self._construir_leitura(esquerda, guardadas)
 
-        direita = ttk.LabelFrame(corpo, text="diagramas", padding=8)
-        direita.grid(row=1, column=1, sticky="nw")
+        # A coluna da direita leva o diagrama e, embaixo dele, a camada de texto
+        # (F110): ela é a mais baixa das duas — 383 px contra 459 e 543 da
+        # esquerda —, e o quadro novo cabe ali sem a caixa do documento
+        # editorial passar da altura da tela de 768 px.
+        lado = ttk.Frame(corpo)
+        lado.grid(row=1, column=1, sticky="nw")
+        direita = ttk.LabelFrame(lado, text="diagramas", padding=8)
+        direita.pack(fill="x")
         self._construir_diagramas(direita, guardadas)
+        camada = ttk.LabelFrame(lado, text="camada de texto do PDF", padding=8)
+        camada.pack(fill="x", pady=(8, 0))
+        self._construir_camada(camada, guardadas)
 
         self.lbl_aviso = ttk.Label(corpo, foreground="#B71C1C", wraplength=760,
                                    justify="left")
@@ -386,6 +410,27 @@ class DialogoDeExportacao:
         self.painel.pack(fill="x", pady=(10, 0))
         self._mudou_o_desenho()
 
+    def _construir_camada(self, pai, guardadas: OpcoesDeExportacao):
+        self.var_camada = tk.BooleanVar(value=guardadas.ler_camada)
+        ttk.Checkbutton(pai, text="Ler do próprio PDF as páginas nascidas digitais — "
+                                  "texto e diagramas exatos, sem OCR",
+                        variable=self.var_camada).pack(anchor="w")
+        self.lbl_camada = ttk.Label(pai, foreground="gray30", wraplength=640,
+                                    justify="left", text=self._texto_da_camada())
+        self.lbl_camada.pack(anchor="w", padx=(20, 0))
+
+    def _texto_da_camada(self) -> str:
+        """O que a régua achou na amostra — e o que se perde com a camada."""
+        if self.camada is None:
+            return ("A digitalização e o OCR de fábrica vão ao OCR de sempre; "
+                    "a página da camada não entra na coleta nem na fila de revisão.")
+        aceitas, amostradas = self.camada
+        if not aceitas:
+            return (f"Nenhuma das {amostradas} páginas amostradas é camada "
+                    "tipográfica (digitalização ou OCR de fábrica): o livro vai ao OCR.")
+        return (f"A régua aceitou {aceitas} de {amostradas} páginas amostradas; "
+                "a página da camada não entra na coleta nem na fila de revisão.")
+
     # ------------------------------------------------------------------
     # Reagir
     # ------------------------------------------------------------------
@@ -492,7 +537,8 @@ class DialogoDeExportacao:
             fonte=fonte, moldura=moldura, cantos=cantos, corpo_pt=corpo,
             reparar=bool(self.var_reparar.get()),
             coletar=bool(self.var_coletar.get()), teto=teto,
-            modelo_de_linha=bool(self.var_modelo.get())), None
+            modelo_de_linha=bool(self.var_modelo.get()),
+            ler_camada=bool(self.var_camada.get())), None
 
     def _validar(self):
         if not hasattr(self, "btn_ok"):

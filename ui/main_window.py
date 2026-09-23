@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 from core import (coleta, exportar, formato_box, leitura_de_linha,
-                  lexico, livro, nags, proporcao, vertical)
+                  lexico, livro, nags, pdf_nativo, proporcao, vertical)
 from core.chess_pdf_processor import (CHESS_UNICODE, analisar_substituicao)
 from core.mapa_glifos import caminhos_do_relatorio as caminhos_do_mapa
 from core.mapa_glifos import corrigir_mapeamento
@@ -2012,8 +2012,15 @@ class MainWindow(tk.Frame):
                     titulo, f"Não foi possível ler o número de páginas do PDF:\n{erro}")
                 return None, None, True
         idioma_detectado = None
+        camada = None
         if e_pdf:
             idioma_detectado, _detectado = self._idioma_do_livro(entrada, perguntar=False)
+            # A régua da camada de texto numa amostra do livro (F110): a caixa
+            # diz quantas páginas sairiam do próprio arquivo antes de ler.
+            try:
+                camada = pdf_nativo.amostrar(entrada)
+            except Exception:  # noqa: BLE001 — a sondagem que falha não barra a exportação
+                camada = None
         disponivel, motivo = self.ocr_service.tesseract_disponivel(idioma_detectado or "en")
         modelo_path, meta_path = caminhos_modelo_linha()
         opcoes = self.DIALOGO_DE_EXPORTACAO(
@@ -2021,7 +2028,7 @@ class MainWindow(tk.Frame):
             configuracoes=self._configuracoes, idioma_detectado=idioma_detectado,
             motor_de_prosa=(disponivel, motivo),
             modelo_de_linha=modelo_utilizavel(meta_path, modelo_path),
-            titulo=titulo).mostrar()
+            titulo=titulo, camada=camada).mostrar()
         if opcoes is not None and opcoes.idioma != (idioma_detectado or "en"):
             # A sondagem é por pacote de idioma (`eng`/`por`): quem trocou o
             # idioma na caixa é sondado de novo, senão o "disponível" do inglês
@@ -2078,7 +2085,8 @@ class MainWindow(tk.Frame):
             fonte=opcoes.fonte, moldura=opcoes.moldura, cantos=opcoes.cantos,
             probabilidade=(self.learning_service.probabilidade_de
                            if opcoes.reparar else None),
-            coletor=coletor, modelo_de_linha=opcoes.modelo_de_linha)
+            coletor=coletor, modelo_de_linha=opcoes.modelo_de_linha,
+            camada=opcoes.camada)
 
         def trabalho(handle):
             # O adapter converte o cancelamento da UI para o token público do
@@ -2130,6 +2138,13 @@ class MainWindow(tk.Frame):
                       f"Caracteres lidos: {caracteres}",
                       f"Leitor de faixa: {extrator.leitor_de_faixa}",
                       f"Idioma: {idioma}"]
+            da_camada = pdf_nativo.contar_leituras(
+                extrator.ultimas_paginas)[pdf_nativo.LEITURA_CAMADA]
+            if da_camada:
+                # F110: a página da camada não tem as duas leituras por linha
+                # que enchem a fila — ela sai de fora da revisão, e isso é dito.
+                linhas.append(f"Páginas lidas da camada do PDF: {da_camada} — "
+                              "sem OCR, fora da coleta e da fila de revisão.")
             if coletor is not None:
                 linhas += ["", f"Para revisão: {coletor.resumo()}",
                            f"em {os.path.abspath(coletor.pasta)}"]
@@ -2347,12 +2362,17 @@ class MainWindow(tk.Frame):
 
     def exportar_livro_action(self):
         """
-        Lê o PDF **como imagem** e escreve um EPUB ou DOCX.
+        Lê o PDF e escreve um EPUB ou DOCX.
 
-        É o único caminho que não usa a camada de texto do PDF. Nestes livros
-        ela vem de um OCR de fábrica que erra a notação inteira — medido na
-        página 11 do Yusupov, `'•. hb7 2.hb7 l2Jd7 3.ha8 Wlxa8'` onde o nosso
-        OCR lê `'1...♗xb7 2.♗xb7 ♘d7 3.♗xa8 ♕xa8'`.
+        **A digitalização é lida como imagem**, porque nela a camada de texto
+        vem de um OCR de fábrica que erra a notação inteira — medido na página
+        11 do Yusupov, `'•. hb7 2.hb7 l2Jd7 3.ha8 Wlxa8'` onde o nosso OCR lê
+        `'1...♗xb7 2.♗xb7 ♘d7 3.♗xa8 ♕xa8'`. **A página nascida digital é
+        lida da camada** (F110, `core/pdf_nativo.py`), com a opção ligada na
+        caixa: texto, figurinas e diagramas saem do próprio arquivo, exatos e
+        sem OCR. Quem decide página a página é a régua
+        (`pdf_nativo.avaliar_pagina`), e o relatório do fim conta os dois
+        caminhos.
 
         **Uma caixa só** (`DialogoDeExportacao`, 2026-09-18) no lugar das
         catorze perguntas encadeadas de antes: formato, destino, páginas,
@@ -2442,7 +2462,8 @@ class MainWindow(tk.Frame):
                                     coordenadas=coordenadas,
                                     moldura=moldura, cantos=cantos,
                                     fonte=fonte_do_diagrama,
-                                    progress_callback=progresso)
+                                    progress_callback=progresso,
+                                    camada=opcoes.camada)
             h.log("Escrevendo o arquivo...")
             titulo, autor = livro.titulo_e_autor(input_pdf)
             exportar.exportar(paginas_extraidas, saida, formato=formato,
@@ -2476,6 +2497,17 @@ class MainWindow(tk.Frame):
                 # página lida como uma coluna só, as duas se misturam.
                 linhas.append(f"Páginas lidas em mais de uma coluna: "
                               f"{varias} de {len(paginas)}")
+            # **De onde veio cada página tem de aparecer** (F110): a da camada
+            # do PDF não tem box nem confiança por glifo, e por isso não
+            # alimenta a coleta nem a fila de revisão — a base de treino não
+            # pode encolher sem ninguém ver.
+            leituras = pdf_nativo.contar_leituras(paginas)
+            if leituras[pdf_nativo.LEITURA_CAMADA]:
+                linhas.append(
+                    f"Páginas lidas da camada do PDF: "
+                    f"{leituras[pdf_nativo.LEITURA_CAMADA]} de {len(paginas)} — "
+                    "texto e diagramas do próprio arquivo, sem OCR; elas não "
+                    "entram na coleta nem na fila de revisão.")
             if desenhar and diagramas:
                 # Quem caiu para o recorte é o que o usuário precisa saber para
                 # conferir: são as páginas em que a leitura não convenceu.
@@ -2483,7 +2515,20 @@ class MainWindow(tk.Frame):
                 recortados = [
                     f"  página {p.numero + 1}: {b.aviso}"
                     for p in paginas for b in p.blocos
-                    if isinstance(b, livro.Figura) and b.aviso]
+                    if isinstance(b, livro.Figura) and b.aviso
+                    and b.origem != "render"]
+                # O desenho com ressalva é o da camada sem coordenada impressa:
+                # a posição é exata, a orientação é suposta.
+                ressalvas = [
+                    f"  página {p.numero + 1}: {b.aviso}"
+                    for p in paginas for b in p.blocos
+                    if isinstance(b, livro.Figura) and b.aviso
+                    and b.origem == "render"]
+                if ressalvas:
+                    linhas.append(f"Desenhados com ressalva ({len(ressalvas)}):")
+                    linhas += ressalvas[:6]
+                    if len(ressalvas) > 6:
+                        linhas.append(f"  ... e mais {len(ressalvas) - 6}")
                 if recortados:
                     linhas.append(f"Caíram para o recorte do scan "
                                   f"({len(recortados)}):")
@@ -2559,8 +2604,15 @@ class MainWindow(tk.Frame):
             if coletor is not None:
                 linhas += ["", f"Para revisão: {coletor.resumo()}",
                            f"em {os.path.abspath(coletor.pasta)}"]
-            linhas += ["", "O texto veio do nosso OCR — a camada de texto do "
-                       "PDF foi ignorada."]
+            da_camada = leituras[pdf_nativo.LEITURA_CAMADA]
+            if paginas and da_camada == len(paginas):
+                linhas += ["", "O texto e os diagramas vieram da camada do PDF — "
+                           "nenhuma página passou pelo OCR."]
+            elif not da_camada:
+                linhas += ["", "O texto veio do nosso OCR — "
+                           + ("a régua não reconheceu camada tipográfica neste PDF."
+                              if opcoes.ler_camada else
+                              "a leitura da camada do PDF estava desligada.")]
             # A caixa termina com o arquivo aberto — no leitor, na pasta ou, se
             # for EPUB, no editor de livros (ED-02, SPEC_EDITOR §7.2).
             self.DIALOGO_DE_CONCLUSAO(

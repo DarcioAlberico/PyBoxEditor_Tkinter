@@ -558,7 +558,11 @@ class _App:
             cantos=cantos, corpo_pt=corpo,
             coletar=bool(r.get("Guardar")), teto=r.get("Teto"),
             reparar=bool(r.get("Consertar")),
-            modelo_de_linha=bool(r.get("Modelo")))
+            modelo_de_linha=bool(r.get("Modelo")),
+            # Os PDFs destes testes nascem digitais (`insert_text`), e a régua
+            # da camada (F110) os leria do arquivo: estes testes são do OCR, e
+            # só lê a camada quem pede `Camada`.
+            ler_camada=bool(r.get("Camada")))
 
     def __enter__(self):
         from conftest import raiz_tk

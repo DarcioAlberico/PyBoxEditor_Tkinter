@@ -292,6 +292,12 @@ class Figura:
     lado_a_jogar: Optional[str] = None
     #: `"legenda"` ou `"convencao"`. Ver `lado_a_jogar`.
     lado_origem: str = "convencao"
+    #: As casas que o livro marcou no diagrama (`"c6"`), quando se sabe (F110):
+    #: o `x` das casas-chave do Dvoretsky, que a fonte de diagrama compõe como
+    #: glifo. Saem no desenho como anel (`render_diagrama.desenhar(marcas=)`),
+    #: e é daqui que quem redesenha a figura as tira — sem isto, redesenhar
+    #: para pôr o indicador de lado apagaria a marca.
+    marcas: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -370,6 +376,12 @@ class PaginaExtraida:
     #: e uma página sem Tesseract era bit a bit igual a uma página em branco.
     #: O relatório do fim da exportação conta quantas páginas ficaram assim.
     motor_indisponivel: str = ""
+    #: Por onde a página foi lida (F110): `"imagem"` é o OCR deste módulo, e
+    #: `"camada"` é o texto que o próprio PDF traz (`core/pdf_nativo.py`). A
+    #: página da camada não tem box nem confiança por glifo, e por isso não
+    #: alimenta a coleta nem a fila de revisão — o relatório da exportação
+    #: conta quantas vieram de cada caminho, para isso não acontecer calado.
+    leitura: str = "imagem"
 
     @property
     def texto(self) -> str:
@@ -2859,6 +2871,13 @@ def retirar_cabecalhos(paginas: Sequence[PaginaExtraida]
     por_pagina = []
     for pagina in paginas:
         candidatos = []
+        # A página lida da camada do PDF tem régua própria, com a prova do vão
+        # que esta não tem (`pdf_nativo.retirar_mobilia`, F110): aqui, a
+        # assinatura vazia de `2019.` e de `1-17` se somava à dos números de
+        # página, e três delas bastavam para apagar conteúdo.
+        if getattr(pagina, "leitura", "imagem") == "camada":
+            por_pagina.append(candidatos)
+            continue
         for margem, p in _nas_margens(pagina):
             inicio, fim = _linha_da_margem(p, margem)
             linha = p.texto[inicio:fim].strip()
@@ -3796,19 +3815,49 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             cantos: str = render_diagrama.CANTO_PADRAO,
             lex: Optional["lexico.Lexico"] = None,
             probabilidade: Optional[Callable] = None,
-            progress_callback=None) -> List[PaginaExtraida]:
-    """Lê o PDF inteiro (ou as páginas pedidas) como imagem."""
+            progress_callback=None,
+            camada: str = "nunca") -> List[PaginaExtraida]:
+    """
+    Lê o PDF inteiro (ou as páginas pedidas).
+
+    **`camada` diz se a página que já traz o texto é lida dele** (F110). Com
+    `"nunca"` — o padrão, e o que os instrumentos do OCR medem — toda página é
+    lida como imagem. Com `"auto"`, a página que `pdf_nativo.avaliar_pagina`
+    aceita sai da camada do PDF, texto e diagramas, e o resto sai do OCR de
+    sempre; com `"sempre"`, sai da camada toda página que tem texto, inclusive
+    o OCR de fábrica que a régua recusaria. A página da camada tem as passadas
+    dela — a legenda religada entre páginas e a mobília pela régua do vão
+    (`pdf_nativo.ligar_legendas`, `retirar_mobilia`) — e fica fora da do
+    cabeçalho de baixo; o corte de coladas e o negrito medem o caractere, que
+    ela não tem, e a deixam como está.
+    """
     import os
     if not os.path.exists(input_pdf):
         raise FileNotFoundError(f"Arquivo não encontrado: {input_pdf}")
+    from core import pdf_nativo
+    if camada not in pdf_nativo.MODOS:
+        raise ValueError(f"modo de camada inválido: {camada!r} "
+                         f"(use um de {pdf_nativo.MODOS})")
 
     doc = fitz.open(input_pdf)
     try:
+        carimbo = pdf_nativo.produtor(doc) if camada != "nunca" else ""
         numeros = list(range(len(doc))) if paginas is None else list(paginas)
         saida = []
         for i, numero in enumerate(numeros):
             if progress_callback:
                 progress_callback(i, len(numeros))
+            if camada != "nunca":
+                veredito = pdf_nativo.avaliar_pagina(doc[numero], numero=numero,
+                                                     produtor=carimbo)
+                if veredito.aceita or (camada == "sempre" and veredito.tem_texto):
+                    saida.append(pdf_nativo.extrair_pagina(
+                        doc[numero], numero=numero, dpi=dpi, dpi_figura=dpi_figura,
+                        idioma=idioma_ocr, lex=lex, diagramas=diagramas,
+                        coordenadas=coordenadas, fonte=fonte,
+                        lado_do_diagrama=lado_do_diagrama, moldura=moldura,
+                        cantos=cantos))
+                    continue
             saida.append(extrair_pagina(doc[numero], classificar, numero=numero,
                                         dpi=dpi, conf_minima=conf_minima,
                                         dpi_figura=dpi_figura, coletor=coletor,
@@ -3824,6 +3873,15 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         probabilidade=probabilidade))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
+        if camada != "nunca":
+            # A legenda que a paginação mandou para a página seguinte volta ao
+            # diagrama da camada, e a mobília da camada sai pela régua dela,
+            # que tem a prova do vão (`pdf_nativo.retirar_mobilia`); a de baixo
+            # não olha as páginas da camada.
+            pdf_nativo.ligar_legendas(saida, idioma=idioma_ocr,
+                                      lado_do_diagrama=lado_do_diagrama,
+                                      moldura=moldura, cantos=cantos)
+            pdf_nativo.retirar_mobilia(saida)
         # **O cabeçalho de página sai antes de tudo** (F109): ele não é prosa,
         # e o que vem depois — o vocabulário do livro, o negrito — mede-se
         # sobre a prosa. Só o livro inteiro o reconhece, e é por isso que ele

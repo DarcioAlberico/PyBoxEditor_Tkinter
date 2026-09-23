@@ -258,7 +258,11 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
     """
     indice = int(pagina.numero)
     page_id = f"{document_id}-p{indice + 1:04d}"
-    pagina_ref = _source_ref(document_id, indice, source_kind="legacy")
+    # A página lida da camada do PDF (F110) não é leitura do modelo: a
+    # procedência dela é o texto do arquivo, e é isso que a evidência diz.
+    leitura = str(getattr(pagina, "leitura", "imagem") or "imagem")
+    procedencia = "pdf_text" if leitura == "camada" else "legacy"
+    pagina_ref = _source_ref(document_id, indice, source_kind=procedencia)
     largura = int(getattr(pagina, "largura", 0) or 0)
     altura = int(getattr(pagina, "altura", 0) or 0)
     roteamento = list(getattr(pagina, "roteamento", []) or [])
@@ -297,7 +301,7 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
             if (legado.topo is not None and legado.pe is not None
                     and largura > 0 and legado.pe > legado.topo):
                 bloco_ref = _source_ref(
-                    document_id, indice, source_kind="legacy",
+                    document_id, indice, source_kind=procedencia,
                     bbox=(0, int(legado.topo), largura, int(legado.pe)))
             registros = [i for i in getattr(legado, "registros", []) or []
                          if 0 <= int(i) < len(roteamento)]
@@ -335,6 +339,9 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
                                  or lado_jogar.do_fen(legado.fen or "") or "w"),
                 "side_to_move_source": {"legenda": "legend"}.get(
                     legado.lado_origem, "assumed"),
+                # As casas que o livro marcou (F110): sem elas, o diagrama que
+                # ia e voltava perdia o `x` das casas-chave no redesenho.
+                "marks": [str(casa) for casa in getattr(legado, "marcas", None) or []],
             }
             kind = _kind_da_figura(legado.origem)
             texto = legado.fen or ""
@@ -343,7 +350,7 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
             caixa = _caixa(getattr(legado, "caixa", None))
             if caixa:
                 value["bbox"] = list(caixa)
-                bloco_ref = _source_ref(document_id, indice, source_kind="legacy",
+                bloco_ref = _source_ref(document_id, indice, source_kind=procedencia,
                                         bbox=caixa)
             # O diagrama que o porteiro recusou saiu como recorte, e o aviso
             # diz por quê: não é uma posição lida, e a fila tem de mostrá-lo.
@@ -372,7 +379,7 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
         evidence.append(Evidence(
             evidence_id, bloco_ref, observed_text=texto,
             confidence=0.0 if status == "unresolved" else 1.0,
-            engine="legacy", metadata=dict(metadata),
+            engine=procedencia, metadata=dict(metadata),
         ))
         evidence_ids = [evidence_id]
         linhas: list[dict[str, Any]] = []
@@ -408,6 +415,7 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
             "largura": largura, "dpi": int(getattr(pagina, "dpi", 0) or 0),
             "cabecalhos": list(pagina.cabecalhos), "roteamento": roteamento,
             "motor_indisponivel": motor_indisponivel,
+            "leitura": leitura,
         }
     }
     # `image_width`/`dpi` no metadata da página é o que o PDF pesquisável lê
@@ -504,6 +512,7 @@ def _figura_do_valor(valor: Mapping[str, Any]) -> Any:
                       else None),
         lado_origem=("legenda" if origem_do_lado in ("legend", "legenda")
                      else "convencao"),
+        marcas=[str(casa) for casa in valor.get("marks") or []],
     )
 
 
@@ -576,6 +585,7 @@ def pagina_editorial_para_extraida(page: EditorialPage, *,
     pagina.cabecalhos = [str(item) for item in legado.get("cabecalhos") or []]
     pagina.roteamento = [dict(item) for item in legado.get("roteamento") or []]
     pagina.motor_indisponivel = str(legado.get("motor_indisponivel") or "")
+    pagina.leitura = str(legado.get("leitura") or "imagem")
     if not pagina.largura:
         pagina.largura = int(page.metadata.get("image_width") or 0)
     if not pagina.altura:

@@ -9,6 +9,11 @@ de implementação pertencem às specs e aos ADRs.
   imutável que não pode ser substituída por uma versão corrigida.
 - **Página**: unidade física do documento-fonte, com imagem, dimensões, número
   físico e, quando existir, camada de texto original.
+- **Camada tipográfica**: camada de texto que é o texto composto do livro — o
+  PDF nascido digital, com fonte de texto, fonte de figurina e diagrama em fonte
+  de xadrez —, e não o OCR de fábrica (texto invisível sobre a imagem, fonte
+  sintetizada pelo ClearScan). Só ela é lida como texto; a página que não a tem
+  vai ao OCR, e a régua que decide é por página.
 - **Região**: área semântica da página, como prosa, título, cabeçalho, rodapé,
   legenda, notação, tabela ou diagrama.
 - **Glifo**: símbolo visual individual reconhecido na página. Pode ser letra,
