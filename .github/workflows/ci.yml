@@ -21,6 +21,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      # O Xvfb é o display que o runner não tem: sem ele, todo teste que abre
+      # janela Tk morre em "no display name". A FreeSerif é a candidata de Linux
+      # em `CHESS_FONT_CANDIDATES` para os símbolos que a DejaVu não desenha.
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y xvfb fonts-freefont-ttf
+
       - name: Install project and development tools
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,tools,docx,ocr,ml]"
 
@@ -56,4 +62,4 @@ jobs:
           PY
 
       - name: Run deterministic tests
-        run: python -m pytest -q -m "not gui"
+        run: xvfb-run -a python -m pytest -q -m "not gui"

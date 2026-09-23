@@ -234,7 +234,11 @@ def test_png_legivel_nao_confunde_caminho_com_corrupcao():
 
         assert png_legivel(valido) is True,             "PNG válido em pasta não-ASCII marcado como ilegível"
         assert png_legivel(corrompido) is False
-        assert cv2.imread(valido, cv2.IMREAD_GRAYSCALE) is None,             "se o OpenCV passou a ler caminho não-ASCII, revisar png_legivel"
+        if sys.platform.startswith("win"):
+            # O canário é do Windows, onde o OpenCV não abre caminho não-ASCII;
+            # no Linux ele abre, e não há o que revisar.
+            assert cv2.imread(valido, cv2.IMREAD_GRAYSCALE) is None, \
+                "se o OpenCV passou a ler caminho não-ASCII, revisar png_legivel"
 
 
 def test_ilegivel_vai_para_quarentena_nao_para_o_lixo():
