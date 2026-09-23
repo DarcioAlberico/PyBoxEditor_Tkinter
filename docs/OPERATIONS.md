@@ -9,7 +9,12 @@ Configurações e falhas não são gravadas ao lado do código instalado. O cami
 - Linux/macOS: `$XDG_DATA_HOME/PyBoxEditor` ou `~/.local/share/PyBoxEditor`.
 
 O `Settings.save()` escreve em arquivo temporário e faz substituição atômica,
-evitando deixar JSON parcialmente escrito após uma interrupção.
+evitando deixar JSON parcialmente escrito após uma interrupção. Antes, relê o
+arquivo e aplica por cima só as chaves que aquela instância mudou: a janela
+principal, o editor de livros e o `appy.py --editor` gravam o mesmo
+`settings.json`, cada um com o seu `Settings`, e nenhum desfaz o que o outro
+gravou — a não ser na mesma chave, em que vale a última gravação (as
+preferências do editor são uma chave só, `editor`).
 
 ## Diagnóstico
 

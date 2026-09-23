@@ -198,6 +198,27 @@ def test_ac8_reverter_checkpoint_diferenca_e_restaurar(tmp_path):
     assert [d.estado for d in projeto.diferenca(ponto2)] and any(d.estado == "removido" for d in projeto.diferenca(ponto2))
 
 
+def test_a_diferenca_nao_conta_o_carimbo_de_quando_o_livro_foi_gravado(tmp_path, monkeypatch):
+    """
+    Comparar grava o livro atual, e gravar carimba o `dcterms:modified` com a hora de agora: com o
+    relógio virando o segundo entre o ponto e a comparação, o OPF saía "alterado" sem nada ter
+    mudado — no uso, sempre (o ponto é de minutos antes); no AC-8, às vezes, e a CI caiu nisso.
+    """
+    caminho = str(tmp_path / "livro.epub")
+    epub.escrever(epub.novo_livro("L", "A", "pt"), caminho)
+    projeto = pj.Projeto.abrir(caminho)
+    segundos = iter(range(60))
+    monkeypatch.setattr(epub, "_agora", lambda: f"2026-09-23T18:27:{next(segundos):02d}Z")
+    ponto = projeto.checkpoint("antes")
+    assert projeto.diferenca(ponto) == []
+    # O que muda de verdade no OPF continua aparecendo — e só isso.
+    projeto.livro.capitulos.append(m.Capitulo(arquivo="Text/cap-0002.xhtml", blocos=[_paragrafo("novo")]))
+    opf = {d.arquivo: d for d in projeto.diferenca(ponto)}["OEBPS/package.opf"]
+    mudadas = [linha for linha in opf.diff.splitlines() if linha[:1] in "+-" and linha[:3] not in ("+++", "---")]
+    assert any("<itemref" in linha for linha in mudadas)
+    assert not any("dcterms:modified" in linha for linha in mudadas), mudadas
+
+
 def test_o_projeto_novo_sabe_o_nome_e_recusa_salvar_sem_caminho(tmp_path):
     projeto = pj.Projeto.novo("Meu livro", "Eu")
     assert projeto.nome == "Meu livro" and projeto.caminho is None

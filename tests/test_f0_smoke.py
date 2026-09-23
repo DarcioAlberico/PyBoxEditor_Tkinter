@@ -147,9 +147,11 @@ def test_helv_falha_na_deteccao():
 def test_substituicao_ponta_a_ponta_gera_glifos_reais():
     """Era: o PDF de saída trazia '·' no lugar de cada peça, sem erro nenhum.
 
-    Constrói um PDF, trata 'arial' como fonte de xadrez (o PyMuPDF reporta o
+    Constrói um PDF, trata a Helvetica como fonte de xadrez (o PyMuPDF reporta o
     nome interno da fonte, então não dá para forjar 'Merida'), converte, e
-    confere que os símbolos saíram inteiros.
+    confere que os símbolos saíram inteiros. É a Helvetica das fontes-base do
+    PDF, que o PyMuPDF traz consigo: a Arial da pasta de fontes do Windows
+    prendia o teste a um sistema só.
     """
     original = cpp.CHESS_FONT_KEYWORDS[:]
     tmpdir = tempfile.mkdtemp()
@@ -159,12 +161,11 @@ def test_substituicao_ponta_a_ponta_gera_glifos_reais():
     try:
         doc = fitz.open()
         page = doc.new_page()
-        page.insert_font(fontname="F0", fontfile=r"C:\Windows\Fonts\arial.ttf")
-        page.insert_text((50, 100), "KQRBN", fontname="F0", fontsize=14)
+        page.insert_text((50, 100), "KQRBN", fontname="helv", fontsize=14)
         doc.save(entrada)
         doc.close()
 
-        cpp.CHESS_FONT_KEYWORDS[:] = ["arial"]
+        cpp.CHESS_FONT_KEYWORDS[:] = ["helvetica"]
         paginas, trocas = cpp.substitute_chess_glyphs(entrada, saida)
 
         assert paginas == 1 and trocas == 1

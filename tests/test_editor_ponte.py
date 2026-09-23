@@ -6,7 +6,8 @@ e as leituras, com "Marcar como revisto" (AC-ED11-5); salvar grava os eventos no
 o relatório diz que o negrito não viaja; o EPUB salvo religa o documento ao reabrir; na
 janela principal, "Abrir no editor" depois de exportar monta o livro das páginas, a fila
 fica com "Exportar com as correções" desabilitado e o aviso, e a caixa de conclusão da
-exportação revisada oferece o editor (AC-ED11-6).
+exportação revisada oferece o editor (AC-ED11-6). E a principal e o editor que ela abre
+gravam o mesmo `settings.json` sem que um desfaça o que o outro gravou.
 
 Rodar sem pytest:      .venv/Scripts/python.exe tests/test_editor_ponte.py
 """
@@ -331,6 +332,48 @@ def test_a_fila_de_verdade_desabilita_o_botao_com_o_aviso(monkeypatch):
         janela2.destroy()
     finally:
         raiz.destroy()
+
+
+# ----------------------------------------------------------------------
+# As duas janelas gravam o mesmo settings.json
+# ----------------------------------------------------------------------
+
+def test_a_principal_e_o_editor_nao_desfazem_as_preferencias_um_do_outro(tmp_path, monkeypatch):
+    """
+    A principal e o editor que ela abre têm cada um o seu `Settings` sobre o mesmo
+    `settings.json`, lido ao nascer. Escolher o próximo PDF na principal devolvia ao disco
+    a foto que ela tinha lido — e os recentes do editor sumiam; o layout que o editor grava
+    ao fechar desfazia, do mesmo jeito, o diretório escolhido na principal.
+    """
+    for variavel in ("LOCALAPPDATA", "APPDATA", "XDG_DATA_HOME"):
+        monkeypatch.setenv(variavel, str(tmp_path / "dados"))
+    from tkinter import filedialog
+
+    from config.paths import settings_path
+    from core.editor import epub
+    from editor_livros import livro_de_teste
+
+    arquivo = settings_path()
+    assert tmp_path in arquivo.parents, "o teste não grava no settings.json de verdade"
+    livro = os.path.abspath(str(tmp_path / "livro.epub"))
+    epub.escrever(livro_de_teste(), livro)
+    pdfs = iter([str(tmp_path / "pdfs-1" / "a.pdf"), str(tmp_path / "pdfs-2" / "b.pdf")])
+    monkeypatch.setattr(filedialog, "askopenfilename", lambda **k: next(pdfs))
+
+    def gravado():
+        return json.loads(arquivo.read_text(encoding="utf-8"))
+
+    with _App() as app:
+        app.win._abrir_para_exportar("Selecionar PDF", [("Arquivos PDF", "*.pdf")])
+        editor = app.win.abrir_editor_de_livro(livro)
+        assert editor.projeto is not None and gravado()["editor"]["recentes"] == [livro]
+        app.win._abrir_para_exportar("Selecionar PDF", [("Arquivos PDF", "*.pdf")])
+        assert gravado()["ultimo_diretorio_de_entrada"] == str(tmp_path / "pdfs-2")
+        assert gravado().get("editor", {}).get("recentes") == [livro], "a principal desfez os recentes do editor"
+        assert editor.fechar()
+        assert "layout" in gravado()["editor"]
+        assert gravado()["ultimo_diretorio_de_entrada"] == str(tmp_path / "pdfs-2"), \
+            "o editor desfez o diretório escolhido na principal"
 
 
 if __name__ == "__main__":

@@ -168,7 +168,14 @@ def livro_grande(capitulos: int = 300, caracteres: int = 300_000, diagramas: int
 
 
 def _rss_mb() -> float:
-    """O RSS do processo em MB: `psutil` quando há; senão o `GetProcessMemoryInfo` do Windows; senão 0."""
+    """
+    O RSS **atual** do processo em MB: `psutil` quando há; senão o `GetProcessMemoryInfo` do
+    Windows; senão o `/proc/self/statm` do Linux; senão o `ru_maxrss`; senão 0.
+
+    O `ru_maxrss` fica por último porque é outra medida: é o pico, e no Linux o pico atravessa
+    o `execve` — o processo que o pytest lança nasce com o RSS do pai, e o AC-005 medido num
+    processo próprio dava os 645 MB do pytest (com Torch e cv2) em vez dos ~90 do editor.
+    """
     try:
         import psutil
 
@@ -195,6 +202,12 @@ def _rss_mb() -> float:
         funcao.restype = wintypes.BOOL
         if funcao(kernel32.GetCurrentProcess(), ctypes.byref(contadores), contadores.cb):
             return contadores.WorkingSetSize / (1024 * 1024)
+    try:
+        with open("/proc/self/statm") as f:
+            paginas_residentes = int(f.read().split()[1])
+        return paginas_residentes * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
+    except (OSError, ValueError, IndexError, AttributeError):
+        pass
     try:
         import resource
 
