@@ -119,5 +119,31 @@ def test_ligar_na_janela_liga_so_os_escopos_de_janela_e_fundo():
         raiz.destroy()
 
 
+class _JanelaDe:
+    """Um widget que responde `tk windowingsystem` e, fora do Windows, recusa `<Key-App>` como o Tk do X11."""
+
+    def __init__(self, sistema):
+        self.tk = type("_Tk", (), {"call": staticmethod(lambda *a: sistema)})()
+        self.sistema, self.ligadas = sistema, []
+
+    def bind(self, sequencia, handler):
+        if sequencia == "<Key-App>" and self.sistema != "win32":
+            raise tk.TclError('bad event type or keysym "App"')
+        self.ligadas.append(sequencia)
+
+
+def test_a_tecla_de_menu_do_windows_fica_de_fora_no_x11():
+    """
+    No X11 o `bind` de `<Key-App>` é erro, e ele derrubava a construção da janela do editor
+    inteira — o `appy.py --editor` não abria no Linux. Lá a mesma tecla é `<Key-Menu>`.
+    """
+    for sistema, com_app in (("x11", False), ("win32", True)):
+        janela = _JanelaDe(sistema)
+        ligacao = atalhos.ligar(janela, atalhos.TABELA, {}, escopos=("janela", "fundo"), frente=False, bindtag="t")
+        assert ("<Key-App>" in janela.ligadas) is com_app, sistema
+        assert "<Key-Menu>" in janela.ligadas and "<Shift-F10>" in janela.ligadas, sistema
+        assert "<Key-App>" in ligacao.handlers
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

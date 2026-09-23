@@ -185,6 +185,11 @@ TABELA: tuple[Atalho, ...] = (
 #: O que o `Text` faria sozinho e a janela não deixa: colar a seleção primária.
 NEUTRALIZADAS = ("<Key-Insert>", "<<PasteSelection>>")
 
+#: A tecla de menu tem dois nomes, `App` no Tk do Windows e `Menu` no X11, e a tabela traz
+#: os dois. O Tk do Windows aceita os dois; o do X11 recusa `App` no `bind` ("bad event type
+#: or keysym") e derruba a janela inteira — por isso `ligar` o deixa de fora fora do Windows.
+SO_NO_WINDOWS = frozenset({"<Key-App>"})
+
 
 # ----------------------------------------------------------------------
 # Consultas à tabela
@@ -323,18 +328,21 @@ def ligar(widget: tk.Misc, tabela: Sequence[Atalho], comandos: dict[str, Callabl
         return despachar
 
     handlers = {sequencia: fazer_handler(sequencia) for sequencia in sequencias}
+    fora = frozenset() if str(widget.tk.call("tk", "windowingsystem")) == "win32" else SO_NO_WINDOWS
     if frente:
         tags = list(widget.bindtags())
         if nome not in tags:
             tags.insert(1, nome)
             widget.bindtags(tuple(tags))
         for sequencia, handler in handlers.items():
-            widget.bind_class(nome, sequencia, handler)
+            if sequencia not in fora:
+                widget.bind_class(nome, sequencia, handler)
         for sequencia in NEUTRALIZADAS:
             widget.bind_class(nome, sequencia, lambda e: "break")
     else:
         for sequencia, handler in handlers.items():
-            widget.bind(sequencia, handler)
+            if sequencia not in fora:
+                widget.bind(sequencia, handler)
     return Ligacao(nome, sequencias, handlers)
 
 
