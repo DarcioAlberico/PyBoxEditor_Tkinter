@@ -44,6 +44,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -61,6 +62,9 @@ SUFIXO_DO_RASCUNHO = ".autosave.json"
 SUFIXO_DOS_CHECKPOINTS = ".checkpoints"
 VERSAO_DO_RASCUNHO = 1
 _TEXTUAIS = (".xhtml", ".html", ".htm", ".css", ".opf", ".ncx", ".xml", ".svg", ".txt", ".js", ".json")
+#: O carimbo que `epub.escrever` põe no OPF com a hora de agora. A diferença grava o livro atual
+#: de novo para comparar, e o carimbo mudaria sem nada no livro ter mudado.
+_CARIMBO = re.compile(rb'<meta property="dcterms:modified">[^<]*</meta>')
 
 
 def pasta_de_rascunhos() -> str:
@@ -263,6 +267,9 @@ class Projeto:
         finally:
             self.livro.zip_de_origem = zip_antes
             shutil.rmtree(pasta, ignore_errors=True)
+        for nome in set(de) & set(para):
+            if nome.lower().endswith(".opf"):
+                para[nome] = _com_o_carimbo_de(para[nome], de[nome])     # o de agora não é diferença
         saida: list[Diferenca] = []
         for nome in sorted(set(de) | set(para)):
             if nome not in para:
@@ -289,6 +296,12 @@ class Projeto:
 
 def _nome_seguro(rotulo: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in rotulo.strip())[:40] or "ponto"
+
+
+def _com_o_carimbo_de(dados: bytes, modelo: bytes) -> bytes:
+    """O OPF `dados` com o `dcterms:modified` do OPF `modelo`, quando este o tem."""
+    achado = _CARIMBO.search(modelo)
+    return _CARIMBO.sub(lambda _: achado.group(0), dados) if achado else dados
 
 
 def _entradas(caminho: str) -> dict[str, bytes]:
