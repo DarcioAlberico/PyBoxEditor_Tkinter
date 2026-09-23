@@ -62,4 +62,10 @@ jobs:
           PY
 
       - name: Run deterministic tests
-        run: xvfb-run -a python -m pytest -q -m "not gui"
+        run: xvfb-run -a python -m pytest -q -m "not gui and not slow"
+
+      # As medições de desempenho (`slow`) rodam num processo só delas, como no gate de
+      # docs/OPERATIONS.md: o teto de memória do AC-005 é o do editor, e no processo da suíte
+      # inteira o RSS medido era o que os quase três mil testes anteriores tinham carregado.
+      - name: Run performance measurements
+        run: xvfb-run -a python -m pytest -q -m "slow and not gui"
