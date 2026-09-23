@@ -205,17 +205,23 @@ def test_ac004_nenhuma_falha_silenciosa():
 
 @pytest.mark.slow
 def test_ac005_desempenho_do_livro_grande_dentro_dos_orcamentos():
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
-    import medir_editor
-    from conftest import raiz_tk
+    """
+    A medida roda num processo só dela, como o `appy.py --editor`: o teto de memória é o do
+    editor com o livro grande, e o processo do pytest carrega o que a suíte carrega — o
+    `conftest` puxa o cv2, a trava das páginas rotuladas puxa o Torch, e no Linux isso sozinho
+    já dava 670 MB. Sozinho, o editor com o livro fica em 90 MB (Windows, 2026-09-23).
+    """
+    import json
+    import subprocess
 
-    raiz = raiz_tk()
-    if raiz is None:
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    codigo = ("import json, sys; sys.path.insert(0, 'scripts'); import medir_editor; "
+              "print(json.dumps(medir_editor.medir_livro(capitulos=300, caracteres=300_000, diagramas=500)))")
+    saida = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, cwd=raiz, timeout=600)
+    if saida.returncode != 0 and "no display" in saida.stderr:
         pytest.skip("sem display")
-    try:
-        medidas = medir_editor.medir_livro(capitulos=300, caracteres=300_000, diagramas=500, raiz=raiz)
-    finally:
-        raiz.destroy()
+    assert saida.returncode == 0, saida.stderr
+    medidas = json.loads(saida.stdout.strip().splitlines()[-1])
     assert medidas["abrir_s"] <= 3.0, medidas
     assert medidas["capitulo_s"] <= 0.5, medidas
     assert medidas["modo_s"] <= 1.0, medidas
