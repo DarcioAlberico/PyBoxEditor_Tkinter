@@ -88,13 +88,21 @@ class ExtratorDeLivro:
     `extrator(caminho, options, token)` devolve a lista de `PaginaExtraida`
     das páginas pedidas em `options.page_indices` (todas, se `None`), lendo
     com `livro.extrair`. `ultimas_paginas` guarda a última lista lida.
+
+    `progresso(atual, total)` é chamado antes de cada página e no fim, na
+    thread de quem lê — é o que a janela põe na barra de status. A fachada não
+    tem canal de progresso, e sem ele a ação "Documento editorial" passava o
+    livro inteiro com a barra girando e "Carregando modelo neural..." escrito:
+    não havia como distinguir quarenta minutos de leitura de uma página presa.
     """
 
     def __init__(self, learning_service: Any, ocr_service: Any,
-                 opcoes: OpcoesDeLeitura | None = None):
+                 opcoes: OpcoesDeLeitura | None = None,
+                 progresso: Optional[Callable[[int, int], None]] = None):
         self.learning_service = learning_service
         self.ocr_service = ocr_service
         self.opcoes = opcoes or OpcoesDeLeitura()
+        self.progresso = progresso
         self.ultimas_paginas: List[Any] = []
         self.leitor_de_faixa = "tesseract"
 
@@ -138,9 +146,22 @@ class ExtratorDeLivro:
         def progresso(atual, total):
             if token is not None:
                 token.raise_if_cancelled()
+            if self.progresso is not None:
+                self.progresso(atual, total)
 
         kwargs = self.opcoes.kwargs()
         kwargs["dpi"] = dpi
+        provar = kwargs.get("probabilidade")
+        if provar is not None and token is not None:
+            # **O reparo de colagem é o laço mais longo de uma página**, e o
+            # token só era consultado entre páginas: com a prova visual ligada,
+            # o "Cancelar" esperava a página acabar — e uma página do sumário
+            # do Rabinovich passou mais de uma hora nele (F119). A prova é a pergunta
+            # que o reparo repete, então é nela que o cancelamento entra.
+            def probabilidade(recorte, char, _provar=provar):
+                token.raise_if_cancelled()
+                return _provar(recorte, char)
+            kwargs["probabilidade"] = probabilidade
         self.ultimas_paginas = list(livro.extrair(
             str(caminho), classificar, paginas=paginas,
             ler_pagina=ler_pagina, ler_faixa=ler_faixa,
@@ -149,11 +170,14 @@ class ExtratorDeLivro:
 
 
 def pipeline_de_producao(learning_service: Any, ocr_service: Any,
-                         opcoes: OpcoesDeLeitura | None = None):
-    """`(pipeline, extrator)`: a `EditorialPipeline` com o leitor medido dentro."""
+                         opcoes: OpcoesDeLeitura | None = None,
+                         progresso: Optional[Callable[[int, int], None]] = None):
+    """`(pipeline, extrator)`: a `EditorialPipeline` com o leitor medido dentro.
+    `progresso` é o do `ExtratorDeLivro`."""
     from core.editorial_pipeline import EditorialPipeline
 
-    extrator = ExtratorDeLivro(learning_service, ocr_service, opcoes)
+    extrator = ExtratorDeLivro(learning_service, ocr_service, opcoes,
+                               progresso=progresso)
     return EditorialPipeline(legacy_extractor=extrator), extrator
 
 

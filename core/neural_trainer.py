@@ -700,9 +700,19 @@ class NeuralPredictor:
         # Por que a carga recusou, e o que dá para dizer a quem carregou.
         self.erro = ""
         self.aviso = ""
+        # O softmax de cada recorte já lido; ver `_probabilidades`.
+        self._recortes = {}
+
+    #: Quantos recortes `_probabilidades` guarda antes de esvaziar a memória.
+    #: A prova de uma palavra passa por algumas centenas de recortes distintos, e
+    #: cada um custa poucos KB aqui (os bytes do recorte e o vetor); esvaziar
+    #: inteira, e não um por um, é o que dispensa trava entre a thread da
+    #: interface e a da exportação — trocar o dicionário é uma operação só.
+    RECORTES_GUARDADOS = 4096
 
     def load(self):
         self.erro = self.aviso = ""
+        self._recortes = {}
         if not os.path.exists(self.model_path) or not os.path.exists(self.meta_path):
             return False
 
@@ -842,9 +852,25 @@ class NeuralPredictor:
         return float(min(1.0, max(0.0, 1.0 - p2 / p1)))
 
     def _probabilidades(self, img_np):
-        """O softmax da rede para um recorte, ou None se ela não carregou."""
+        """O softmax da rede para um recorte, ou None se ela não carregou.
+
+        **Guardado por recorte** (F119). A prova do reparo pergunta ao mesmo
+        pedaço de papel por uma letra de cada vez — uma por candidato do
+        dicionário —, e cada pergunta era uma passada da rede para ler uma
+        posição só do mesmo vetor: no sumário do Rabinovich, 22.852 candidatos
+        sobre sete boxes. O vetor é o mesmo para qualquer letra, e a rede é
+        determinística, então nenhum número muda; a temperatura entra na chave
+        porque é ela que faz o vetor, e o `load` esvazia a memória porque os
+        pesos podem ter mudado.
+        """
         if not self.loaded:
             return None
+
+        img_np = np.ascontiguousarray(img_np)
+        chave = (self.temperatura, img_np.shape, img_np.dtype.str, img_np.tobytes())
+        guardado = self._recortes.get(chave)
+        if guardado is not None:
+            return guardado
 
         if len(img_np.shape) == 3:
             img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
@@ -855,7 +881,11 @@ class NeuralPredictor:
         tensor = torch.tensor(img[None, None, :, :]).to(self.device)
         with torch.no_grad():
             saida = self.model(tensor)
-            return F.softmax(saida / self.temperatura, dim=1)[0]
+            probs = F.softmax(saida / self.temperatura, dim=1)[0]
+        if len(self._recortes) >= self.RECORTES_GUARDADOS:
+            self._recortes = {}
+        self._recortes[chave] = probs
+        return probs
 
     def predict(self, img_np):
         if not self.loaded:

@@ -130,6 +130,58 @@ def test_as_paginas_pedidas_e_o_cancelamento_chegam_ao_leitor(tmp_path):
         extrator(pdf, ProcessOptions(dpi=150), Cancelado())
 
 
+def test_o_progresso_de_cada_pagina_chega_a_quem_pediu(tmp_path):
+    """F119: a fachada não tem canal de progresso, e a janela mostrava a barra
+    girando o livro inteiro. O extrator repassa o `progress_callback` de
+    `livro.extrair` — antes de cada página e no fim."""
+    pdf = _pdf(tmp_path / "livro.pdf", paginas=3)
+    vistos = []
+    pipeline, _extrator = pipeline_de_producao(
+        _Aprendizado(), _OCR(), OpcoesDeLeitura(diagramas="recorte"),
+        progresso=lambda atual, total: vistos.append((atual, total)))
+    pipeline.process(DocumentSource.from_path(pdf),
+                     ProcessOptions(use_cache=False, dpi=150))
+    assert vistos == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
+def test_a_prova_do_reparo_consulta_o_cancelamento(monkeypatch):
+    """F119: com o reparo de colagem ligado, uma página passou mais de uma hora
+    na prova visual, e o token só era consultado entre páginas. A `probabilidade`
+    que chega a `livro.extrair` consulta o token antes de perguntar ao modelo —
+    e sem token ela chega como veio."""
+    from core.ocr_runtime import OCRCancelled
+    from core.services.task_service import Cancelled
+
+    recebido = {}
+    monkeypatch.setattr(livro, "extrair", lambda *a, **k: recebido.update(k) or [])
+    perguntas = []
+
+    def probabilidade(recorte, char):
+        perguntas.append(char)
+        return 0.9
+
+    extrator = ExtratorDeLivro(_Aprendizado(), _OCR(),
+                               OpcoesDeLeitura(probabilidade=probabilidade))
+    extrator("livro.pdf", ProcessOptions(dpi=150), None)
+    assert recebido["probabilidade"] is probabilidade
+
+    class Token:
+        cancelado = False
+
+        def raise_if_cancelled(self):
+            if self.cancelado:
+                raise OCRCancelled("cancelado")
+
+    token = Token()
+    extrator("livro.pdf", ProcessOptions(dpi=150), token)
+    provar = recebido["probabilidade"]
+    assert provar(None, "y") == 0.9 and perguntas == ["y"]
+    token.cancelado = True
+    with pytest.raises(Cancelled):
+        provar(None, "n")
+    assert perguntas == ["y"], "a pergunta cancelada não pode chegar ao modelo"
+
+
 def test_o_modelo_de_linha_so_entra_se_passa_no_portao(tmp_path, monkeypatch):
     import config.paths as paths
     pesos = tmp_path / "text_line_model.pth"

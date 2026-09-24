@@ -469,7 +469,7 @@ class BoxService:
 
     @staticmethod
     def provar_letras(imagem_cinza: np.ndarray, box: BoxEntry, letras: str,
-                      probabilidade) -> float:
+                      probabilidade, pedacos: Optional[dict] = None) -> float:
         """
         Quanto o desenho deste box sustenta **estas** letras, de 0 a 1 (F69).
 
@@ -495,6 +495,13 @@ class BoxService:
         partições que só diferem da segunda junta em diante. Guardar a resposta
         por `(início, fim, letra)` não muda nota nenhuma — o modelo é
         determinístico — e é o que faz a fase caber em minutos.
+
+        **`pedacos` estende essa memória à página** (F119): é o dicionário que
+        `prova_de_reparo` passa a todas as chamadas, um por box. Os candidatos
+        de uma palavra caem sobre os mesmos boxes e perguntam as mesmas letras
+        aos mesmos recortes — o alfabeto é pequeno e os cortes são cinco por
+        junta —, e com a memória só desta chamada cada candidato repagava o
+        modelo. Sem ele, a memória é desta chamada, como sempre foi.
         """
         largura = box.x2 - box.x1
         if not letras or largura <= 0:
@@ -506,7 +513,9 @@ class BoxService:
                 return negativo.positivar(pedaco)
             return pedaco
 
-        visto = {}
+        visto = ({} if pedacos is None else pedacos.setdefault(
+            (box.x1, box.y1, box.x2, box.y2, bool(getattr(box, "negativo", False))),
+            {}))
 
         def pontuar(ini, fim, c):
             chave = (ini, fim, c)
@@ -582,8 +591,25 @@ class BoxService:
         palavra caem todos sobre os mesmos boxes, e muitos repetem as letras do
         trecho (`dynamic` e `dynamics` perguntam o mesmo `yn`). Sem ela cada
         candidato repagaria a varredura inteira de `provar_letras`.
+
+        **E são três memórias** (F119), da maior para a menor: a do trecho
+        inteiro (`memoria`), a das letras que cabem num box (`por_box`) e a do
+        recorte (`pedacos`), que `provar_letras` consulta antes de perguntar ao
+        modelo. A primeira só acerta quando o candidato repete o trecho inteiro;
+        as outras duas acertam sempre que ele repete o pedaço de um box ou uma
+        letra num recorte já visto — que é quase sempre. No `Matewith` do
+        sumário do Rabinovich são 22.852 candidatos sobre os mesmos sete boxes.
         """
         memoria = {}
+        por_box = {}
+        pedacos = {}
+
+        def provar_box(i, letras):
+            chave = (i, letras)
+            if chave not in por_box:
+                por_box[chave] = BoxService.provar_letras(
+                    imagem_cinza, boxes[i], letras, probabilidade, pedacos)
+            return por_box[chave]
 
         def provar(caixas, letras: str) -> float:
             caixas = tuple(caixas)
@@ -594,8 +620,7 @@ class BoxService:
                 return memoria[chave]
 
             if len(caixas) == 1:
-                nota = BoxService.provar_letras(imagem_cinza, boxes[caixas[0]],
-                                                letras, probabilidade)
+                nota = provar_box(caixas[0], letras)
             else:
                 nota = 0.0
                 for cortes in itertools.combinations(range(1, len(letras)),
@@ -603,9 +628,7 @@ class BoxService:
                     limites = (0,) + cortes + (len(letras),)
                     menor = 1.0
                     for (ini, fim), i in zip(zip(limites, limites[1:]), caixas):
-                        menor = min(menor, BoxService.provar_letras(
-                            imagem_cinza, boxes[i], letras[ini:fim],
-                            probabilidade))
+                        menor = min(menor, provar_box(i, letras[ini:fim]))
                         if menor == 0.0:
                             break
                     nota = max(nota, menor)

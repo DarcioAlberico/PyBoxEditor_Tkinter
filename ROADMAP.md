@@ -13622,6 +13622,126 @@ desiste, a prova nem é consultada, o caminho sem prova desiste igual, uma ânco
 
 ---
 
+## F119 — A prova do reparo perguntava à rede uma letra de cada vez, e a exportação passava horas no sumário — CONCLUÍDA
+
+"O Exportar/livro pelo nosso OCR parece travar" (2026-09-23). A sessão aberta era a do
+**Documento editorial** — o mesmo leitor (`livro.extrair`) e a mesma caixa do "Livro" — sobre
+*The Russian Endgame Handbook* do Rabinovich (525 páginas, ClearScan: a régua da F110 recusa
+a camada e tudo vai ao OCR), com o reparo de colagem ligado. Ela estava **na página 4 havia
+mais de uma hora**, com seis núcleos ocupados, a memória parada e nenhuma operação de disco:
+nem o PNG que o `pytesseract` grava por página.
+
+Achado sem instalar nada: a pilha da thread da tarefa lida de fora pela tabela
+`_Py_DebugOffsets` que o CPython 3.13 põe no começo do `_PyRuntime`. Todas as amostras
+diziam o mesmo:
+
+    extrair_pagina → _reparar_texto → lexico.reparar → prova_de_reparo.provar
+      → provar_letras → probabilidade_de → SimpleCNN.forward
+
+A página 4 é o sumário. Na linha 7, `B. Mate with the queen........ l8`, o OCR leu
+`Matewith`; os boxes largos mascaram sete das oito letras, o trecho começa em 0, o
+`_candidatos` perde a inicial e vai ao balde `(comprimento, None)` — a forma que a F118
+registrou e deixou de fora —, e o dicionário devolve **22.852 candidatos**, cada um cobrado
+uma varredura de `provar_letras`. A ~27 candidatos por segundo, catorze minutos numa palavra.
+O sumário do livro tem 35 palavras assim nas páginas 4 a 7 (`Bish()p`, `F()rcing`,
+`maj()rity` — o `o` desta fonte sai `()`), de 1.612 a 22.852 candidatos, e nenhuma sai com
+reparo.
+
+### Por que não o teto de candidatos da F118
+
+A F118 sugeriu "acima de N é empate" e não o pôs por falta da varredura. A varredura foi
+feita — as 12 páginas de `paginas_rotuladas`, com a prova — e **reprova o teto**: 8 dos 20
+reparos aceitos vêm de mais de mil candidatos. São as palavras curtas e comuns em que a
+colagem pega a primeira letra, justamente as que o balde sem inicial arrasta inteiro:
+
+| lido | candidatos | reparo aceito |
+|---|---:|---|
+| `wih` | 12.768 | `with` (0,849) |
+| `kiow` | 12.680 | `know` (0,989) |
+| `rwo` | 3.434 | `two` (0,997) |
+| `tbe` | 2.566 | `the` (0,981) |
+| `fow` | 1.812 | `few` (0,999) |
+| `Bawo` | 420 | `Benko` (0,983) |
+
+Qualquer teto abaixo de 12.768 perde o `with`; abaixo de 1.812, perde os cinco. O número de
+candidatos não mede se o molde estreita; mede o tamanho do balde.
+
+### O que entrou
+
+**O custo deixou de ser por candidato.** A nota não muda — a rede é determinística —, só
+deixa de ser recalculada:
+
+- `NeuralPredictor._probabilidades` guarda o softmax **por recorte** (a temperatura na chave;
+  o `load` esvazia). A prova pergunta ao mesmo pedaço de papel por uma letra de cada vez, e
+  cada pergunta era uma passada da rede para ler uma posição do mesmo vetor.
+- `prova_de_reparo` passa a ter três memórias: a do trecho, que já havia; a das letras que
+  cabem num box (`por_box`); e a do recorte e letra (`provar_letras(pedacos=)`), que antes
+  valia só dentro de uma chamada.
+
+**A barra do "Documento editorial" diz a página.** A fachada não tem canal de progresso, e
+a ação rodava com a barra girando e "Carregando modelo neural..." o livro inteiro — quarenta
+minutos de leitura e uma página presa eram a mesma tela. `ExtratorDeLivro` e
+`pipeline_de_producao` recebem `progresso=`, e a barra passa a ser determinada.
+
+**O "Cancelar" alcança o reparo.** O token era consultado entre páginas; com a prova ligada,
+cancelar esperava a página acabar. A `probabilidade` que chega a `livro.extrair` consulta o
+cancelamento antes de perguntar à rede, nas duas ações.
+
+### Medido
+
+O corpus rotulado sai **idêntico palavra a palavra** — as 101 palavras que chegam à busca,
+os 20 reparos, as notas e as contagens de prova —, e o tempo das 11 páginas cai de mais de
+15 minutos (a rodada antiga foi interrompida no prazo, ainda na p. 11 do *Practical Chess
+Defence*, entre o `xf6er` de 7.129 candidatos e o `rwo` de 3.434) para **36 s**.
+
+No sumário do Rabinovich, com o reparo ligado (`py -3.13`, o interpretador do app):
+
+| página | antes | só `pedacos` | as três memórias | sem reparo |
+|---|---|---:|---:|---:|
+| 4 | mais de 1 h, sem terminar | 76,8 s | **20,6 s** | 12,7 s |
+| 5 | — | 95,4 s | **24,1 s** | 16,7 s |
+| 6 | — | 88,2 s | **22,9 s** | 12,5 s |
+| 7 | — | 40,5 s | **13,6 s** | 9,1 s |
+
+O `Matewith` sozinho: ~14 min → 12,5 s → **1,7 s**. Na janela de verdade (ação editorial,
+reparo ligado, páginas 3 a 6), a barra vai de "página 0/4" a "4/4", a ação inteira leva
+72,7 s e o laço do Tk volta a cada 32 ms (p99 128 ms) durante a exportação toda.
+
+Sem o reparo o livro já saía: as 525 páginas em 43,5 min (4,9 s por página, máximo 17 s).
+Era o reparo que prendia, e a barra parada que não deixava ver.
+
+### O que fica registrado, e não entrou
+
+- **A thread da interface ainda para antes da caixa**: a carga do modelo no
+  `_avisar_do_modelo` (2,5 s, uma vez por sessão — o docstring já aceita) e a régua da
+  camada (`pdf_nativo.amostrar`), que levou 5,5 s no livro do Darcy Lima e 0,1 a 0,5 s nos
+  outros. Passa do limite em que o Windows escreve "Não está respondendo" só nesse livro.
+- **`provar_letras` ainda enumera `5^(n-1)` partições por candidato.** Com as memórias, o
+  que sobra é Python (1,7 s no `Matewith`); se um dia pesar, é um máximo de mínimos numa
+  cadeia, e sai por programação dinâmica.
+- **O Tesseract é chamado sem prazo.** Nenhuma página travou nele aqui, mas um executável
+  que não volta prende a tarefa do mesmo jeito.
+- **O `o` lido `()` no sumário do ClearScan** é da leitura, não do reparo.
+
+### Onde está
+
+- `core/neural_trainer.py` — `NeuralPredictor._probabilidades` e `RECORTES_GUARDADOS`.
+- `core/services/box_service.py` — `provar_letras(pedacos=)`, `prova_de_reparo` com
+  `por_box` e `pedacos`.
+- `core/editorial_legacy.py` — `ExtratorDeLivro(progresso=)`, `pipeline_de_producao(progresso=)`
+  e a `probabilidade` que consulta o token.
+- `ui/main_window.py` — o progresso e a barra determinada do "Documento editorial"; a
+  `probabilidade` cancelável do "Livro".
+
+Cobertura: `tests/test_f119_prova_por_recorte.py` (5 testes — a letra repetida não volta à
+rede, a nota é a mesma com e sem a memória e por box, o vetor serve a todas as letras, o
+`load` esvazia, e `provar_letras` sem `pedacos` é o de antes), dois em
+`tests/test_fachada_de_producao.py` (o progresso de cada página, o cancelamento dentro da
+prova) e um em `tests/test_f26_livro.py` (a barra determinada com a página). Suíte: 3013
+(`-m "not slow"`).
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

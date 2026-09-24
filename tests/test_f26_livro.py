@@ -713,6 +713,30 @@ def test_o_documento_editorial_em_json_com_coleta_nao_estoura(monkeypatch):
         assert any("Para revisão" in aviso for aviso in app.avisos)
 
 
+def test_o_documento_editorial_mostra_a_pagina_na_barra(monkeypatch):
+    """F119: a ação editorial rodava com a barra girando e sem número — um livro
+    de 525 páginas sendo lido e uma página presa eram a mesma tela. A barra passa
+    a ser determinada, e a dizer em que página a leitura está."""
+    tmp = tempfile.mkdtemp()
+    monkeypatch.chdir(tmp)
+    entrada = os.path.join(tmp, "livro.pdf")
+    saida = os.path.join(tmp, "doc.json")
+    _pdf_de_uma_pagina(entrada)
+    with _App(entrada, saida) as app:
+        status = app.win.status
+        original = status.set_progress
+        vistos = []
+
+        def set_progress(atual, total, mensagem=""):
+            vistos.append((atual, total, mensagem, str(status.progress.cget("mode"))))
+            original(atual, total, mensagem)
+
+        status.set_progress = set_progress
+        app.rodar_editorial()
+        assert not app.erros, app.erros
+        assert (1, 1, "Processamento editorial: página 1/1", "determinate") in vistos, vistos
+
+
 def test_extensao_desconhecida_recusa_antes_de_ler_o_pdf():
     """
     O formato sai da extensão do arquivo escolhido. Sem esta guarda, o caminho

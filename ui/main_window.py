@@ -2103,7 +2103,9 @@ class MainWindow(tk.Frame):
 
             handle.log("Carregando modelo neural...")
             pipeline, extrator = pipeline_de_producao(
-                self.learning_service, self.ocr_service, opcoes_de_leitura)
+                self.learning_service, self.ocr_service, opcoes_de_leitura,
+                progresso=lambda atual, total: handle.progress(
+                    atual, total, f"página {atual}/{total}"))
             source = DocumentSource.from_path(origem)
             options = ProcessOptions(
                 language=idioma, use_cache=False,
@@ -2165,8 +2167,9 @@ class MainWindow(tk.Frame):
                 self.parent, "Documento editorial concluído", linhas, arquivos[0],
                 abrir_no_editor=self._abridor_do_editor(documento)).mostrar()
 
-        self._run_task("Processamento editorial", trabalho, concluir,
-                       indeterminado=True)
+        # Barra determinada, com a página: girando sem número, a barra não
+        # distinguia um livro de 525 páginas sendo lido de uma página presa (F119).
+        self._run_task("Processamento editorial", trabalho, concluir)
 
     def _escrever_documento_editorial(self, pipeline, documento, paginas, opcoes,
                                       origem: str):
@@ -2432,6 +2435,12 @@ class MainWindow(tk.Frame):
                 h.raise_if_cancelled()
                 h.progress(atual, total, f"página {atual}/{total}")
 
+            def probabilidade(recorte, char):
+                # O reparo de colagem é o laço mais longo da página, e o
+                # cancelamento só era visto entre páginas (F119).
+                h.raise_if_cancelled()
+                return self.learning_service.probabilidade_de(recorte, char)
+
             paginas_extraidas = livro.extrair(input_pdf,
                                     self.learning_service.leitor_de_texto(idioma),
                                     paginas=paginas,
@@ -2455,9 +2464,8 @@ class MainWindow(tk.Frame):
                                     # é ela que autoriza trocar `Dmamic` por
                                     # `Dynamic`. Sem ela o reparo não roda, e é
                                     # assim que o "não" da pergunta o desliga.
-                                    probabilidade=(
-                                        self.learning_service.probabilidade_de
-                                        if reparar else None),
+                                    probabilidade=(probabilidade if reparar
+                                                   else None),
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
                                     moldura=moldura, cantos=cantos,
