@@ -13742,6 +13742,163 @@ prova) e um em `tests/test_f26_livro.py` (a barra determinada com a página). Su
 
 ---
 
+## F121 — O pontilhado do sumário virava a régua de tamanho, e o ponto saía apóstrofo — CONCLUÍDA
+
+Achado de passagem da F112. Na janela, o veto de tamanho da F106 compara o maior lado do
+recorte com `proporcao.altura_de_referencia` — a mediana da altura dos boxes da página —, e
+é ela que separa o `.` (até 0,7 da referência) do `■` (daí para cima). **Num sumário de
+pontilhado os pontos são a maioria dos boxes**, e a mediana vira a altura de um ponto. Na
+p. 8 do Seirawan, que é rotulada:
+
+- 1.838 dos 2.173 boxes são `.` (85%), e a mediana é 6 px — a de um ponto;
+- o ponto mede de 0,83 a 1,83 da referência, e nenhum dos 1.838 cabe como `.`;
+- `ler_texto(recorte, referencia, idioma="pt")` lê **1.431 dos 2.173 boxes como `'`**, e a
+  página sai com 14,40% de acerto. Sem a referência, 1.836 dos 1.838 pontos saem `.`.
+
+E o par que o veto existe para separar se invertia: com a referência na altura do ponto, um
+ponto de 6×6 cabe como `■`. O caminho do livro (`core/livro.py`) não passa `referencia` e
+nunca foi afetado; afetados são as duas ações «Detectar e preencher» e todo `ler_texto` com
+referência.
+
+### Por que não o percentil, nem "o que não é miúdo perto das letras da página"
+
+Foram as duas saídas que o achado apontou, e as duas foram medidas no mesmo material: as 27
+páginas com `.box` (as 12 de `paginas_rotuladas` e outras 15 em `PDF/`) e as 18 primeiras
+páginas de cada um dos nove livros de `PDF/` — 161, renderizadas e segmentadas como a janela
+faz, porque é nelas que moram os sumários.
+
+| régua | p. 8 do Seirawan | páginas com `.box` em que a referência muda (de 27) | primeiras páginas em que muda (de 161) |
+|---|---:|---:|---:|
+| a mediana (F106) | 6 | — | — |
+| p75 | 7 | 25 | 153 |
+| mediana dos boxes acima de 0,4 do p90 | 28 | 13 | 48 |
+| portão pelo 20º box mais alto | 28 | 1 | 10 |
+| **a linha (esta fase)** | **28** | **1** | **8** |
+
+- **O percentil não alcança.** Na p. 8 os pontos são 85% dos boxes, e o p75 ainda é de
+  ponto (7 px). Subir o percentil só empurra o defeito para o sumário seguinte, de mais
+  pontos.
+- **"O que não é miúdo perto do topo da página" conserta a p. 8 e mexe em outras doze**,
+  cinco delas entre as onze em que o envelope da F106 foi medido (Kasparov pp. 13, 14, 33,
+  57 e 128). O motivo é tipográfico: a mediana de uma página de texto mora na fronteira entre
+  as letras de altura de x e as altas, e tirar os miúdos — até 12% dos boxes nas páginas
+  com `.box` — basta para ela pular para as altas (Darcy Lima p. 204, de 44 para 54). Na
+  página de rosto do Seirawan (p. 4), cujo título ocupa 15% dos boxes, ia de 35 para 55 —
+  para 90 com o corte em 0,5.
+- **O portão pelo 20º box mais alto** — trocar só quando a mediana é menor que um quarto
+  dele — muda só a p. 8 entre as rotuladas, mas tem margem de nada: o ponto de sumário mede
+  de 0,11 a 0,18 desse box, e as páginas de abertura, em que o 20º box é letra de título
+  (*Calculation* pp. 12 e 16, Seirawan p. 6), de 0,28 a 0,31. A abertura do capítulo 1 do
+  Yusupov (p. 9, diagramas ao lado do texto) já dá 0,24, e a referência dela ia de 19 para
+  31.
+
+A raiz das três é a mesma: **a distribuição das alturas sozinha não separa o sumário da
+página de rosto.** "85% de boxes pequenos e 15% bem maiores" descreve as duas — na p. 8, os
+pontos e as letras dos títulos; na p. 4, o texto e as letras do título. O que as separa não
+está no histograma: é o ponto do pontilhado **morar dentro da altura das letras da própria
+linha**, porque ele liga o título ao número da página, e o texto da página de rosto não
+morar na linha do título.
+
+### O que entrou
+
+`proporcao.altura_de_referencia` pergunta à linha. A mediana continua sendo a referência, até
+o último pixel, **menos quando ela é de miúdos**: se a maioria dos boxes da altura da mediana
+tem o centro dentro da faixa vertical de alguma letra — um box de 2,5 a 10 vezes a mediana —,
+a referência passa a ser a mediana dessas letras. As faixas das letras se unem e cada centro
+é procurado por bisseção, na thread da interface como antes: 1,2 ms na p. 8 (2.220 boxes) e
+4,7 ms na página maior da varredura, a capa do Seirawan com 5.530.
+
+Os dois números da faixa estão em `LETRA_SOBRE_O_MIUDO`, e os dois saíram de medida:
+
+- **Embaixo, 2,5.** O `.` mais gordo que a F106 mediu vai a 0,50 da mediana e a maiúscula a
+  1,4, então a maiúscula da linha dele passa de 2,8 vezes o ponto. Em 2 a regra já dispara
+  em duas páginas comuns: a p. 7 do *Attacking Manual*, cujo `J` desce da base e mede 2,05
+  vezes a mediana — três `J` cobrem 57% dos boxes da altura dela numa página de 236 —, e a
+  abertura do capítulo 1 do *Calculation* (p. 16). **De 2,5 a 4, as páginas que disparam são
+  as mesmas.**
+- **Em cima, 10.** O ponto mais fino medido é 0,15 da mediana, e a maiúscula dá 9,3 vezes
+  ele. Acima disso não é letra — é moldura, fio de tabela, figura —, e a faixa de uma moldura
+  abrigaria a página inteira. De 8 a 15 as páginas que disparam são as mesmas; em 6 sai uma
+  das capas.
+
+Duas escolhas de forma. A faixa é só vertical, sem o `x`: as colunas se somam, e tanto faz —
+pergunta-se se o miúdo está na altura de uma letra, e não de qual. E ela pede o **centro** do
+miúdo, e não ele inteiro: o ponto que desce um pixel abaixo da base continua na linha.
+
+### Medido — `medir_referencia.py`
+
+**Onde a referência muda.** Nas 27 páginas com `.box`, em uma: a p. 8 do Seirawan, de 6 para
+28 — tanto com os boxes do gabarito quanto com os que a janela gera (`--gerados`). Nas outras
+26 ela é a mediana de antes, e por isso o `medir_proporcao.py` sai **idêntico, byte a byte**,
+antes e depois: as 12 páginas rotuladas, 11.628 caracteres, os cinco níveis de engrossamento
+e a lista de exemplos. O `medir_cadeia.py` segmenta essas 12 páginas do jeito dele
+(`segmentar(..., "arbitrado")`), e com esses boxes a referência também é a mesma nas 12.
+
+Nas 161 primeiras páginas dos nove livros, em oito:
+
+| página | boxes | referência | leituras que mudam |
+|---|---:|---:|---|
+| Seirawan p. 8 — sumário | 2.220 | 6 → 28 | 1.858 (`'`→`.` 1.448, `,`→`.` 236, `i`→`.` 108) |
+| Darcy Lima p. 2 — índice | 2.736 | 11 → 57 | 2.004 (`'`→`.` 1.692, `,`→`.` 155, `*`→`.` 135) |
+| Darcy Lima p. 3 — índice | 2.798 | 11 → 54 | 1.812 (`'`→`.` 1.434, `,`→`.` 282) |
+| Darcy Lima p. 4 — índice | 2.850 | 11 → 57 | 1.881 (`'`→`.` 1.419, `,`→`.` 370) |
+| Yusupov CE1 p. 14 — exercícios | 592 | 6 → 30 | 6: os pontos de `Ex. 1-1` a `Ex. 1-6` |
+| Darcy Lima, Razuvaev e Seirawan p. 1 — capas | 596 a 5.530 | 4–6 → 14–33 | 154, 182 e 3.617: cisco de foto |
+
+Na p. 14 do Yusupov a mediana é o cisco da hachura dos seis diagramas, e as seis leituras que
+mudam são, uma por uma, o ponto de `Ex.` — cinco saíam `'` e uma `*`. Nas capas a regra
+dispara porque o cisco da foto também mora na altura dos blocos maiores; ali não há texto a
+ler de um jeito nem do outro. **A maior fração sem disparo** é 0,50, a da outra página de
+exercícios do Yusupov (p. 15) — a regra pede mais da metade —, e numa página de texto é 0,29:
+a abertura do capítulo 1 que o portão pelo 20º box errava. Nas páginas com `.box`, 0,14. Os
+sumários ficam em 0,99 e 1,00.
+
+**O par.** O `.` e o `■` rotulados das 27 páginas, em múltiplos da referência:
+
+| | `.` (3.194) | do lado errado do corte 0,7 | `■` (6) | do lado errado |
+|---|---|---:|---|---:|
+| antes | 0,15 a 1,83 | 1.839 | 1,22 a 1,55 | 0 |
+| depois | 0,15 a 1,14 | **1** | 1,22 a 1,55 | 0 |
+
+Na p. 8, os pontos vão de 0,83–1,83 para **0,18–0,39**. O único `.` que sobra acima do corte
+é o `♗` de `13.♗d4`, na p. 20 do Kasparov, rotulado `.` — erro do gabarito, um recorte de
+33×33. O vão da F106 continua onde estava.
+
+**A leitura, com o gabarito** (`ler_texto`, rede e veto, `idioma="pt"`), na p. 8: 1.837
+leituras mudam, e a página vai de **14,40% para 98,85%**. Pelo rótulo são 1.836 consertos e
+uma quebra — e a quebra é do gabarito: o box rotulado `,` que agora sai `.` (0,91) é um ponto
+do pontilhado logo depois de "Índice". Ele saía `,` porque o veto recusava o ponto.
+
+### O que fica registrado, e não entrou
+
+- **O quebrador de linhas da janela usa a mesma mediana**, para `CAIXA_CURTA`,
+  `FOLGA_DE_LINHA` e `FOLGA_DE_COLUNA` (`leitura_de_linha.quebrar_em_linhas`). Na p. 8 ele dá
+  22 linhas com a mediana de ponto e 21 com a das letras: uma quebra a mais, não conferida
+  contra gabarito. O `preprocess.denoise`, que a F106 cita como "o mesmo denominador", não
+  muda nada ali: o piso de 2 px² decide com as duas medianas.
+- **O miúdo que não mora em linha nenhuma** — cisco entre as linhas de uma página suja — não
+  é pontilhado, e a referência fica com a mediana; um teste diz isso na letra. É a pergunta
+  que separa o sumário da página de rosto, e ela não sabe responder outra coisa.
+- **O caminho do livro não passa referência** (F106) e continua sem o teste de tamanho: não
+  chegam lá nem o defeito nem a correção.
+
+### Onde está
+
+- `core/proporcao.py` — `altura_de_referencia`, `_letras_que_abrigam` e `LETRA_SOBRE_O_MIUDO`.
+- `medir_referencia.py` refaz as tabelas: as páginas com `.box` (com `--gerados`, a partir dos
+  boxes da janela), `--primeiras 18` para as primeiras páginas de cada livro, `--pdf ...
+  --paginas` para uma página qualquer.
+
+Cobertura: `tests/test_f121_pontilhado.py`, 11 testes. Os sete do sumário falham sem a
+correção: o ponto cabe como `.` e não como `■`, a referência é a das letras, a cadeia da
+janela e o `ler_texto` leem `.`, 90% de pontos ainda acham as letras, e o ponto um pixel
+abaixo da base continua na linha. Os outros quatro prendem o que ela não pode mexer: a página
+comum fica com a mediana até o pixel, a página de rosto não troca o texto pelo título, a
+moldura não abriga a página, e o miúdo fora das linhas não é pontilhado. Suíte: 2.993 e 12
+puladas, com as `slow`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)

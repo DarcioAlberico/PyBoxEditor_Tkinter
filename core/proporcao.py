@@ -68,6 +68,12 @@ e a 300 dpi tem pontos de tamanhos diferentes). **Sem a referência, o teste de
 tamanho não roda**: quem não a tem passa `None` e fica só com a proporção. É o
 caso do PDF pesquisável, que reconhece recorte a recorte sem a página à mão.
 
+A mediana tem uma exceção, e ela é o sumário (F121): lá os pontos do pontilhado
+são a maioria dos boxes, a mediana vira a altura de um ponto e o próprio ponto
+seria vetado como grande demais. Quando a mediana é de miúdos que moram dentro
+da altura das letras da linha, a referência passa a ser a mediana das letras —
+ver `altura_de_referencia`.
+
 ## Medido
 
 `medir_proporcao.py`, nas 11 páginas rotuladas — 10.641 caracteres.
@@ -122,7 +128,8 @@ envelope pela mesma faixa dos seus pares medidos — `—` e `–` são o `-` ma
 longo, e `|` é o `l` sem cabeça —, e não por medição própria.
 """
 
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+import bisect
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 INFINITO = float("inf")
 
@@ -162,6 +169,21 @@ TAMANHO: Dict[str, Tuple[float, float]] = {
 #: 2.421 vetos; 12 é folga para o dia em que uma classe nova estreitar o topo.
 CANDIDATAS = 12
 
+#: Quantas vezes mais alta que o box miúdo — o ponto do pontilhado, a vírgula, o
+#: cisco — é a letra da linha que o abriga (F121), em múltiplos da mediana.
+#:
+#: Embaixo, 2,5: o `.` mais gordo medido vai a 0,50 da mediana da página (F106) e
+#: a maiúscula a 1,4, então a maiúscula da linha dele passa de 2,8 vezes o ponto.
+#: Em 2 a regra já dispara em duas páginas comuns — a p. 7 do *Attacking Manual*,
+#: cujo `J` desce da base e mede 2,05 vezes a mediana, e a abertura de capítulo da
+#: p. 16 do *Calculation* —, porque uma letra só abriga a linha inteira dela. De
+#: 2,5 a 4, as páginas que disparam são as mesmas.
+#:
+#: Em cima, 10: o ponto mais fino medido é 0,15 da mediana, e a maiúscula dá 9,3
+#: vezes ele. O que passa de dez vezes o ponto não é letra — é moldura, fio de
+#: tabela, figura —, e a faixa dele abrigaria a página inteira.
+LETRA_SOBRE_O_MIUDO = (2.5, 10.0)
+
 
 def altura_de_referencia(boxes: Sequence) -> Optional[float]:
     """
@@ -174,11 +196,69 @@ def altura_de_referencia(boxes: Sequence) -> Optional[float]:
 
     Mediana, e não média: uma página com diagrama tem componentes de centenas de
     pixels no meio do texto, e a média os deixaria entrar.
+
+    **Menos quando a mediana é de miúdos** (F121). Num sumário de pontilhado os
+    pontos são a maioria dos boxes — 1.838 de 2.173 na p. 8 do Seirawan —, a
+    mediana vira a altura de um ponto, e o próprio ponto mede 1,0 dela: o veto o
+    recusava como grande demais, e a rede dava a candidata seguinte que cabe, o
+    `'`. Ali a referência passa a ser a mediana das letras (`_letras_que_abrigam`).
+
+    **A pergunta é feita à linha, e não à distribuição das alturas**, porque a
+    distribuição sozinha não separa o sumário da página de rosto: 85% de pontos
+    com 15% de letras e 85% de texto com 15% de letras de título têm a mesma
+    forma. O que os separa é o ponto morar **dentro da altura das letras da
+    própria linha**, e o texto não morar na do título. Numa página comum a regra
+    nunca dispara, e a referência é a mediana de sempre, até o último pixel — é
+    sobre ela que o envelope de `TAMANHO` foi medido.
     """
-    alturas = sorted(b.y2 - b.y1 for b in boxes if b.y2 > b.y1)
-    if not alturas:
+    faixas = [(b.y1, b.y2) for b in boxes if b.y2 > b.y1]
+    if not faixas:
         return None
-    return float(alturas[len(alturas) // 2])
+    alturas = sorted(y2 - y1 for y1, y2 in faixas)
+    mediana = alturas[len(alturas) // 2]
+    letras = _letras_que_abrigam(faixas, mediana)
+    if letras:
+        return float(letras[len(letras) // 2])
+    return float(mediana)
+
+
+def _letras_que_abrigam(faixas: Sequence[Tuple[int, int]],
+                        mediana: int) -> List[int]:
+    """
+    As alturas das letras da página, em ordem, se a mediana é de miúdos; senão, `[]`.
+
+    Letra é o box de 2,5 a 10 vezes a mediana (`LETRA_SOBRE_O_MIUDO`); a mediana é
+    de miúdos quando a maioria dos boxes da altura dela tem o centro dentro da
+    faixa vertical de alguma letra — o ponto do pontilhado mora na linha do
+    título que ele liga ao número da página.
+
+    A linha é só a faixa vertical, sem o `x`: as colunas de uma página se somam,
+    e tanto faz — pergunta-se se o miúdo está na altura de uma letra, e não de
+    qual. E a faixa pede só o centro do miúdo, e não ele inteiro: o ponto que
+    desce um pixel abaixo da base das letras continua na linha delas.
+    """
+    minimo, maximo = LETRA_SOBRE_O_MIUDO
+    letras = sorted((y1, y2) for y1, y2 in faixas
+                    if minimo * mediana <= y2 - y1 <= maximo * mediana)
+    if not letras:
+        return []
+
+    unidas: List[List[int]] = []
+    for y1, y2 in letras:
+        if unidas and y1 <= unidas[-1][1]:
+            unidas[-1][1] = max(unidas[-1][1], y2)
+        else:
+            unidas.append([y1, y2])
+    inicios = [y1 for y1, _y2 in unidas]
+
+    centros = [(y1 + y2) / 2 for y1, y2 in faixas if y2 - y1 == mediana]
+    dentro = 0
+    for centro in centros:
+        i = bisect.bisect_right(inicios, centro) - 1
+        dentro += i >= 0 and centro <= unidas[i][1]
+    if 2 * dentro <= len(centros):
+        return []
+    return sorted(y2 - y1 for y1, y2 in letras)
 
 
 def cabe(char: str, largura: float, altura: float,
