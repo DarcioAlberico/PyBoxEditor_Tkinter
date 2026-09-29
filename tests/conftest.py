@@ -23,14 +23,80 @@ interpretador Tcl, que nenhum teste modifica.
 Mora aqui também a guarda da **base de ocupação de verdade** — ver
 `_a_suite_nao_escreve_na_base_de_ocupacao` — e a do **cache do OCR**, que desde
 2026-09-22 tem pasta padrão na área do usuário. As duas são de sessão inteira,
-e por isso não cabem num arquivo de teste.
+e por isso não cabem num arquivo de teste. A da **pasta de dados** —
+`_reapontar_a_pasta_de_dados` — vale para a sessão inteira pelo mesmo motivo, e
+roda antes de todas: na importação deste arquivo.
 """
 
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 import tkinter as tk
 
 import pytest
+
+
+# ----------------------------------------------------------------------
+# A pasta de dados de quem roda a suíte não é rascunho de teste
+# ----------------------------------------------------------------------
+
+#: As variáveis de onde `config.paths.data_dir()` tira a pasta de dados: no
+#: Windows `LOCALAPPDATA` e, sem ela, `APPDATA`; fora dele `XDG_DATA_HOME`.
+VARIAVEIS_DA_PASTA_DE_DADOS = ("LOCALAPPDATA", "APPDATA", "XDG_DATA_HOME")
+
+#: Como elas estavam antes da suíte — é por elas que se acha a pasta de verdade
+#: (`test_pasta_de_dados_da_suite.py`).
+AMBIENTE_ORIGINAL = {nome: os.environ.get(nome) for nome in VARIAVEIS_DA_PASTA_DE_DADOS}
+
+#: A pasta que a suíte usa no lugar dela; some no fim do processo.
+PASTA_DE_DADOS_DA_SUITE = os.path.realpath(tempfile.mkdtemp(prefix="pyboxeditor-dados-da-suite-"))
+
+
+def _reapontar_a_pasta_de_dados():
+    """
+    O `settings.json`, o `crash_log.txt` e os `rascunhos/` da suíte ficam numa pasta
+    temporária, e não na de quem a roda.
+
+    **Não é zelo: aconteceu.** Em 2026-09-22 o `settings.json` de verdade tinha seis
+    `editor.recentes`, todos `...\\pytest-of-...\\test_ac6_abrir_no_editor_apos_0\\
+    saida.epub` ou `editado.epub`, com `editor.diretorios` na mesma pasta de teste e
+    `editor.idioma_ortografia` trocado para `"und"` — a língua da ortografia do
+    usuário virou a do livro sintético. O `test_ac6_…` do `test_editor_ponte.py`
+    abre a `JanelaDoEditor` sem `settings=`, e ela cai no `Settings()` padrão, que é
+    `config.paths.settings_path()`. Numa suíte rastreada, foi o único teste a gravar
+    ali; o próximo que esquecer o `settings=` já nasce coberto.
+
+    **Na importação, e não numa fixture de sessão** como a do cache do OCR: a
+    fixture só roda antes do primeiro teste, depois da coleta — e a coleta importa
+    todos os módulos de teste, e este arquivo importa `core` logo abaixo. Um módulo
+    que calculasse a pasta ao ser importado guardaria a de verdade. Hoje nenhum
+    calcula (`data_dir()` relê o ambiente a cada chamada, e o `Settings()` padrão só
+    é aberto quando se pede); daqui em diante isso deixa de depender de nenhum
+    calcular.
+
+    **Pelo ambiente, e não trocando `data_dir`:** os testes que sobem o `appy.py
+    --editor` num subprocesso herdam o ambiente, e o `crash_log.txt` e os
+    `rascunhos/` deles caem na mesma pasta; o `PYBOXEDITOR_SETTINGS` que eles
+    passam só cobre o `settings.json`. As três variáveis, e não só `LOCALAPPDATA`:
+    `APPDATA` é o que `data_dir()` usa quando `LOCALAPPDATA` falta, e
+    `XDG_DATA_HOME` é o de fora do Windows — e o de um teste que finja outra
+    plataforma trocando `sys.platform`.
+
+    Nada que a suíte precisa sai dessas variáveis: os pesos (`custom_model.pth`,
+    `text_line_model.*`, `core/dados/*.pth`) vêm de `projeto_dir()` (e do cwd), o
+    Tesseract do `PATH` ou de `C:\\Program Files`, e o Pillow procura fonte em
+    `WINDIR` — e a suíte inteira passa com as três reapontadas.
+    """
+    for nome in VARIAVEIS_DA_PASTA_DE_DADOS:
+        pasta = os.path.join(PASTA_DE_DADOS_DA_SUITE, nome)
+        os.makedirs(pasta, exist_ok=True)
+        os.environ[nome] = pasta
+    atexit.register(shutil.rmtree, PASTA_DE_DADOS_DA_SUITE, ignore_errors=True)
+
+
+_reapontar_a_pasta_de_dados()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
