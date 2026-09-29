@@ -546,18 +546,34 @@ class BoxService:
             passos.append(d)
             d += BoxService.PASSO_DE_PROVA
 
-        melhor = 0.0
-        for combinacao in itertools.product(passos, repeat=len(letras) - 1):
-            limites = [0]
-            for i, desloc in enumerate(combinacao, start=1):
-                corte = int(round(letra * (i + desloc)))
-                # Cada pedaço precisa sobrar com alguma coisa dentro.
-                limites.append(min(largura - 1, max(limites[-1] + 1, corte)))
-            limites.append(largura)
-            melhor = max(melhor, nota(limites))
-            if melhor == 1.0:
-                break
-        return melhor
+        # **Por programação dinâmica, e não pelas `5^(n-1)` partições** (PD-02,
+        # registrado na F119). O corte da junta `j` depende só do corte da
+        # junta anterior — a repartição igual, o deslocamento, e o "cada pedaço
+        # com alguma coisa dentro" que o empurra para depois dele —, e a nota é
+        # a do pedaço mais fraco: é um caminho de gargalo, em que o melhor até
+        # um corte basta para continuar dele. `estados` guarda, por posição do
+        # último corte, a melhor nota até ali. A nota é **a mesma** da
+        # enumeração, até o último bit — `min` e `max` não arredondam —, e um
+        # teste compara as duas; a enumeração do `Matewith` (oito letras,
+        # 78.125 partições) custava 1,7 s de Python por candidato.
+        estados = {0: 1.0}
+        for j in range(1, len(letras)):
+            c = letras[j - 1]
+            proximos = {}
+            for ini, ate_aqui in estados.items():
+                for desloc in passos:
+                    corte = int(round(letra * (j + desloc)))
+                    # Cada pedaço precisa sobrar com alguma coisa dentro.
+                    fim = min(largura - 1, max(ini + 1, corte))
+                    valor = min(ate_aqui, pontuar(ini, fim, c))
+                    if valor > proximos.get(fim, -1.0):
+                        proximos[fim] = valor
+            # Um caminho que já zerou não sobe mais: é o `return 0.0` do `nota`.
+            estados = {fim: v for fim, v in proximos.items() if v > 0.0}
+            if not estados:
+                return 0.0
+        return max(min(v, pontuar(ini, largura, letras[-1]))
+                   for ini, v in estados.items())
 
     @staticmethod
     def prova_de_reparo(imagem_cinza: np.ndarray, boxes: List[BoxEntry],
