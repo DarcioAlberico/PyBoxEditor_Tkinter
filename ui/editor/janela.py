@@ -552,6 +552,10 @@ class JanelaDoEditor(tk.Toplevel):
 
         self.leitura_de_pdf = LeituraDePdf(self)          # ED-17: Arquivo → Abrir PDF…
         self.registrar_comandos(self.leitura_de_pdf.comandos)
+        from ui.editor.original import Original
+
+        self.original = Original(self)                    # ED-18: a página do PDF ao lado, F4 nas suspeitas
+        self.registrar_comandos(self.original.comandos)
         self.registrar_comandos({"ir_para_destino": self.ir_para_destino, "clipes": self.clipes_comando,
                                  "aplicar_clipe": self.aplicar_clipe})
 
@@ -1184,6 +1188,8 @@ class JanelaDoEditor(tk.Toplevel):
             self.abas.trocar_widget(aba, "texto", lambda frame, a: self._criar_texto(frame, a, cap))
             self.validacao.limpar()
             self.log.info("Modo texto: %s.", aba.nome)
+        if hasattr(self, "original"):
+            self.original.reabrir(aba)            # ED-18: a página original atravessa a troca de modo
         aba.widget.foco()
         self.atualizar()
         return aba.modo
@@ -1264,6 +1270,8 @@ class JanelaDoEditor(tk.Toplevel):
         else:
             self.painel_de_propriedades.texto_rico = None
         self.painel_de_propriedades.atualizar()
+        if hasattr(self, "original"):
+            self.original.reabrir(aba)            # ED-18: a página original ligada acompanha a aba
         self.atualizar()
 
     def _botao_direito(self, evento: Any) -> str:

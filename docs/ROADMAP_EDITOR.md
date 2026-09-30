@@ -2291,6 +2291,52 @@ as figurinas e as ligaduras, e o OCR lê os diagramas das p. 20–21 como texto.
 
 ---
 
+## ED-18 — A página original do PDF ao lado do texto, as suspeitas e "Reler do PDF"
+
+**Origem:** `docs/ANALISE_JANELA_EDITOR.md` §4.4 (itens 4 e 5): o modo de conferência do ABBYY
+FineReader dentro do editor.
+
+**Entrega:**
+- `core/editor/original.py` (sem Tk): `caixa_em_pontos` (a caixa da leitura, em pixels a
+  `dpi`, → pontos do PDF), `origem_na_linha` (a origem no modo código, pela última tag com
+  `data-origem-*` em ≤ linha), `bloco_no_ponto`, `suspeitos`/`vizinha_suspeita` (com volta),
+  `trocar_pagina` (tira os blocos de uma página e põe os relidos no lugar do primeiro; o que o
+  usuário escreveu e a `MarcaDePagina` ficam), `pdf_do_livro` (`livro.origem.pdf`, que
+  sobrevive ao EPUB) e `dpis_do_documento`.
+- `ui/editor/original.py`: `PainelOriginal` — a página na largura do painel, a caixa do bloco
+  sob o cursor em laranja com trama (a caixa do leitor vai de margem a margem, e só o contorno
+  sumia nas bordas), as suspeitas da página em vermelho tracejado, o motivo no rodapé; clique
+  na página → o bloco daquele ponto. `Original` — `F9` liga/desliga **na janela** (toda aba de
+  capítulo que fica ativa o ganha, e ele atravessa a troca de modo), `F4`/`Shift+F4` pelas
+  suspeitas do livro com "Suspeita k de n", e "Reler a página do PDF…" (escolhe como ler, roda
+  pelo processo da ED-17, pergunta, cria ponto de verificação, troca os blocos e traz as
+  imagens novas).
+- `operacoes.por_ao_lado`/`tirar_do_lado`: a divisória da aba aceita prévia **e** original
+  (nesta ordem; com três painéis, em terços); a chave `previa_divisao` virou `divisao`.
+- `LeituraDePdf.iniciar(pedido, ao_fim=…)`: o destino do JSON lido pode ser outro que não o
+  livro novo.
+- Menus: Exibir → Página original do PDF; Ferramentas → Próxima suspeita / Suspeita anterior /
+  Reler a página do PDF…. Atalhos `F9`, `F4`, `Shift+F4`.
+
+**AC:**
+- AC-ED18-1 Escala, origem na linha, bloco no ponto (o menor ganha), volta das suspeitas, troca
+  da página (inclusive página sem blocos e página fora do livro).
+- AC-ED18-2 `F9` mostra a página e a caixa e segue o cursor no texto e no código; bloco sem
+  origem mostra o aviso; prévia + original = três painéis; fechar os dois devolve o editor.
+- AC-ED18-3 O clique na página leva ao bloco; ponto vazio avisa.
+- AC-ED18-4 `F4` vai à suspeita de outro capítulo e o painel vai junto, com o motivo.
+- AC-ED18-5 Sem PDF / PDF sumido: a frase certa. Reler (leitor de mentira) troca só os blocos
+  da página, na aba também; sem origem recusa.
+- AC-ED18-6 Conferência com o Khenkin real (p. 20–21 da ED-17): o parágrafo de lixo
+  `♖Wh ± ⩲♘ Wh…` aparece em destaque sobre as filas do meio de um diagrama — o painel mostra de
+  onde veio o erro do OCR.
+
+**Divergências:** o "Reler" é por **página**, não por bloco (recortar um bloco e reler só ele
+pede o leitor por faixa, fora do processo à parte); os blocos relidos não entram na ponte com a
+revisão (o log diz). O painel usa o dpi do documento editorial quando o livro o tem e 300 senão.
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
@@ -2315,4 +2361,5 @@ as figurinas e as ligaduras, e o OCR lê os diagramas das p. 20–21 como texto.
 | ED-13 | **implementada** | 2026-09-22 | (ver "Registro" da fase) | o `CF_HTML` só inline vira um parágrafo; as preferências aplicam na hora só o que é de tela (tema/tabulação nas abas novas); os botões `ttk` dos painéis Estilos e Busca ganharam `AnelDeFoco`; o `F` do tabuleiro sincroniza a orientação da caixa; o gate usa `pip wheel` porque `build/` estala o `python -m build`; a medição do AC-005 corre na raiz da sessão |
 | ED-14 | **commitada** | 2026-09-30 | 7256363 | prévia pelo `fitz.Story` em vez do `TextoRico` (DEC-05 substituída na prévia); divisória `tk.PanedWindow` com o editor irmão (`lift`); ids `__l<linha>` só na cópia; `Montador` reaproveita `pdf_io._Montador` para fontes e PNG de diagrama |
 | ED-15 | **commitada** | 2026-09-30 | c7d7970 | não abre sozinha em Dividido (só avisa); `p.diagrama` do Calibre não é o diagrama do editor; imagem sozinha vira `figure`; âncora usada vira `id` do bloco; `<style>` do tradutor sai do `<head>` |
-| ED-17 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | script próprio em vez de estender o `processar_editorial.py` (que tem trabalho do usuário sem commit); veredito de "tem texto" só com `fitz` no diálogo (o `pdf_nativo` puxa o leitor); corrida do `fim` achada na conferência |
+| ED-17 | **commitada** | 2026-09-30 | b076566 | script próprio em vez de estender o `processar_editorial.py` (que tem trabalho do usuário sem commit); veredito de "tem texto" só com `fitz` no diálogo (o `pdf_nativo` puxa o leitor); corrida do `fim` achada na conferência |
+| ED-18 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | reler por página, não por bloco; painel ligado na janela (não por aba); `previa_divisao` → `divisao` com prévia e original juntos; caixa com trama porque a do leitor vai de margem a margem |

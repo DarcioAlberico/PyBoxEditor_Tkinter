@@ -35,6 +35,7 @@ class LeituraDePdf:
         self._agendado: str | None = None
         self._fim: dict | None = None
         self._erro: dict | None = None
+        self._ao_fim: Callable[[str], Any] | None = None
         self.ultimo_erro = ""
         self.comandos = {"abrir_pdf": self.abrir_pdf, "cancelar_pdf": self.cancelar}
 
@@ -78,8 +79,12 @@ class LeituraDePdf:
 
     # -- ler ----------------------------------------------------------------------------
 
-    def iniciar(self, pedido: ap.Pedido) -> ap.Tarefa:
+    def iniciar(self, pedido: ap.Pedido, ao_fim: Callable[[str], Any] | None = None) -> ap.Tarefa:
+        """Dispara a leitura; no fim, `ao_fim(json)` (o "Reler do PDF", ED-18) ou o livro novo."""
         j = self.j
+        if self.tarefa is not None and not self.tarefa.terminou:
+            raise ValueError("já há um PDF sendo lido (Arquivo → Cancelar leitura do PDF para parar)")
+        self._ao_fim = ao_fim
         self.pedido = pedido
         self.ultimo_erro = ""
         self._fim = self._erro = None
@@ -156,6 +161,8 @@ class LeituraDePdf:
         arquivo = str(fim.get("arquivo") or (self.pedido.saida if self.pedido else ""))
         for aviso in fim.get("avisos") or ():
             j.log.warning("PDF: %s", aviso)
+        if self._ao_fim is not None:
+            return self._ao_fim(arquivo)
         from core.editorial_model import EditorialDocument
 
         documento = EditorialDocument.load_json(arquivo)

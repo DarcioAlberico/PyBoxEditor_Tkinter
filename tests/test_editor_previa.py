@@ -85,7 +85,7 @@ def test_f12_liga_a_previa_ao_lado_do_codigo_e_ela_segue_o_cursor():
         assert previa is not None and aba.dados["previa"] is previa and previa.pronta
         assert j.menus.estado("previa") == "normal"
         # código e prévia repartem a largura numa divisória (antes a prévia ficava com ~30 px)
-        divisao = aba.dados["previa_divisao"]
+        divisao = aba.dados["divisao"]
         editor = aba.widget
         assert divisao.winfo_manager() == "pack" and len(divisao.panes()) == 2
         if divisao.winfo_width() > 100:
@@ -102,12 +102,12 @@ def test_f12_liga_a_previa_ao_lado_do_codigo_e_ela_segue_o_cursor():
         # o clique na prévia leva o código à linha
         previa.ao_clicar(linha_do_titulo + 1)
         assert editor.posicao[0] == linha_do_titulo + 1
-        assert j.executar("previa") is None and "previa" not in aba.dados and "previa_divisao" not in aba.dados
+        assert j.executar("previa") is None and "previa" not in aba.dados and "divisao" not in aba.dados
         assert editor.winfo_manager() == "pack"
         # ligada de novo e trocando de modo, a prévia sai com a divisória
         j.executar("previa")
         j.executar("alternar_modo")
-        assert j.aba_ativa().modo == "texto" and "previa" not in aba.dados and "previa_divisao" not in aba.dados
+        assert j.aba_ativa().modo == "texto" and "previa" not in aba.dados and "divisao" not in aba.dados
 
 
 def test_ac7_abrir_alvo_real_troca_de_aba_e_vai_ao_id_ou_a_regra():

@@ -97,8 +97,9 @@ class Abas(ttk.Notebook):
 
     def trocar_widget(self, aba: Aba, modo: str, criar: Callable[[ttk.Frame, Aba], Any]) -> Any:
         """Destrói o widget da aba e põe outro no lugar (a troca de modo)."""
-        # A prévia é do modo código: sai junto, com a divisória onde ela e o código moram.
-        for chave in ("previa", "previa_divisao"):
+        # Os painéis ao lado (prévia, original) saem junto, com a divisória onde eles e o editor moram;
+        # quem os quer de volta no modo novo os repõe (a janela, para o original).
+        for chave in ("previa", "original", "divisao"):
             ao_lado = aba.dados.pop(chave, None)
             if ao_lado is not None:
                 try:

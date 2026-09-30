@@ -820,16 +820,7 @@ class OperacoesDoLivro:
         if ligar is None:
             ligar = atual is None
         if not ligar:
-            if atual is not None:
-                divisao = aba.dados.pop("previa_divisao", None)
-                if divisao is not None:
-                    self._lembrar_divisao(divisao)
-                    divisao.forget(editor)
-                atual.destroy()
-                aba.dados.pop("previa", None)
-                if divisao is not None:
-                    divisao.destroy()
-                editor.pack(fill="both", expand=True)
+            self.tirar_do_lado(aba, "previa")
             j.status("Prévia fechada.")
             j.atualizar()
             return None
@@ -841,20 +832,11 @@ class OperacoesDoLivro:
         folhas = j._folhas_de(cap) if cap is not None else ()
         # Código | prévia numa divisória arrastável (ED-14). Com dois `pack(side="left")` o
         # `tk.Text` do código pedia a largura toda e a prévia ficava com ~30 px.
-        divisao = tk.PanedWindow(aba.frame, orient="horizontal", sashwidth=6, sashrelief="raised",
-                                 borderwidth=0, opaqueresize=False)
-        previa = Previa(divisao, atraso_ms=int(j._preferencia("previa_ms", 300)),
-                        ao_clicar=lambda linha: (editor.ir_para(int(linha)), editor.foco()),
-                        estilo_de_tela=j._estilo_de_tela(), folhas=folhas, recursos=j._dados_do_recurso,
-                        livro=projeto.livro)
-        editor.pack_forget()
-        divisao.pack(fill="both", expand=True)
-        divisao.add(editor, stretch="always", minsize=160)
-        divisao.add(previa, stretch="always", minsize=160)
-        editor.lift(divisao)                 # o editor é filho do quadro da aba, não da divisória
-        aba.dados["previa"] = previa
-        aba.dados["previa_divisao"] = divisao
-        self._por_divisao(divisao)
+        previa = self.por_ao_lado(aba, "previa", lambda divisao: Previa(
+            divisao, atraso_ms=int(j._preferencia("previa_ms", 300)),
+            ao_clicar=lambda linha: (editor.ir_para(int(linha)), editor.foco()),
+            estilo_de_tela=j._estilo_de_tela(), folhas=folhas, recursos=j._dados_do_recurso,
+            livro=projeto.livro))
         editor.texto.bind("<<Mudou>>", lambda e: self._previa_mudou(aba), add="+")
         editor.texto.bind("<<CursorMoveu>>", lambda e: self._previa_cursor(aba), add="+")
         previa.atualizar(editor.texto_todo(), aba.arquivo)
@@ -862,8 +844,57 @@ class OperacoesDoLivro:
         j.atualizar()
         return previa
 
+    #: A ordem dos painéis à direita do editor, na divisória da aba.
+    PAINEIS_AO_LADO = ("previa", "original")
+
+    def por_ao_lado(self, aba: Any, chave: str, criar: Callable[[Any], Any]) -> Any:
+        """
+        Um painel (`criar(divisao)`) à direita do editor da aba, na divisória que ela divide com
+        os outros (`PAINEIS_AO_LADO`, nesta ordem). A divisória nasce com o primeiro painel.
+        """
+        editor = aba.widget
+        divisao = aba.dados.get("divisao")
+        if divisao is None:
+            divisao = tk.PanedWindow(aba.frame, orient="horizontal", sashwidth=6, sashrelief="raised",
+                                     borderwidth=0, opaqueresize=False)
+            editor.pack_forget()
+            divisao.pack(fill="both", expand=True)
+            divisao.add(editor, stretch="always", minsize=160)
+            editor.lift(divisao)             # o editor é filho do quadro da aba, não da divisória
+            aba.dados["divisao"] = divisao
+        painel = criar(divisao)
+        depois = [aba.dados.get(c) for c in self.PAINEIS_AO_LADO[self.PAINEIS_AO_LADO.index(chave) + 1:]]
+        seguinte = next((p for p in depois if p is not None), None)
+        if seguinte is not None:
+            divisao.add(painel, before=seguinte, stretch="always", minsize=160)
+        else:
+            divisao.add(painel, stretch="always", minsize=160)
+        aba.dados[chave] = painel
+        self._por_divisao(divisao)
+        return painel
+
+    def tirar_do_lado(self, aba: Any, chave: str) -> bool:
+        """Tira o painel `chave`; sem nenhum, a divisória some e o editor volta ao `pack`."""
+        painel = aba.dados.pop(chave, None)
+        if painel is None:
+            return False
+        divisao = aba.dados.get("divisao")
+        if divisao is not None:
+            if len(divisao.panes()) == 2:
+                self._lembrar_divisao(divisao)
+            divisao.forget(painel)
+        painel.destroy()
+        if divisao is not None and len(divisao.panes()) <= 1:
+            aba.dados.pop("divisao", None)
+            divisao.forget(aba.widget)
+            divisao.destroy()
+            aba.widget.pack(fill="both", expand=True)
+        elif divisao is not None:
+            self._por_divisao(divisao)
+        return True
+
     def _por_divisao(self, divisao: Any) -> None:
-        """A divisória na fração lembrada (`previa_fracao`, 0,5 na primeira vez)."""
+        """A divisória na fração lembrada (`previa_fracao`, 0,5 na primeira vez); com três, em terços."""
         try:
             fracao = float(self.j._preferencia("previa_fracao", 0.5) or 0.5)
         except (TypeError, ValueError):
@@ -873,7 +904,12 @@ class OperacoesDoLivro:
         def por(_evento: Any = None) -> None:
             largura = divisao.winfo_width()
             if largura > 1:
-                divisao.sash_place(0, int(largura * fracao), 0)
+                n = len(divisao.panes())
+                if n == 2:
+                    divisao.sash_place(0, int(largura * fracao), 0)
+                else:
+                    for k in range(n - 1):
+                        divisao.sash_place(k, int(largura * (k + 1) / n), 0)
                 divisao.unbind("<Map>")
 
         divisao.bind("<Map>", por, add="+")

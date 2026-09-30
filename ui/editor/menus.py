@@ -191,6 +191,7 @@ EXIBIR = (
     _i("Modo dividido (código + prévia)", "modo_dividido", "ED-15"),
     _i("Alternar modo", "alternar_modo"),
     _i("Prévia", "previa", "ED-08", CODIGO),
+    _i("Página original do PDF", "painel_original", "ED-18"),
     SEP,
     _i("Capítulo seguinte", "capitulo_seguinte"),
     _i("Capítulo anterior", "capitulo_anterior"),
@@ -378,6 +379,9 @@ FERRAMENTAS = (
     _i("Apagar recursos não usados…", "apagar_recursos", "ED-08"),
     _i("Apagar classes CSS não usadas…", "apagar_classes", "ED-08"),
     _i("Limpar marcação importada…", "limpar_importado", "ED-15"),
+    _i("Próxima suspeita", "proxima_suspeita", "ED-18"),
+    _i("Suspeita anterior", "suspeita_anterior", "ED-18"),
+    _i("Reler a página do PDF…", "reler_do_pdf", "ED-18"),
     _i("Clipes…", "clipes", "ED-02"),
 )
 
