@@ -189,5 +189,6 @@ display onde der; captura DPI-aware a 1360×768 como gate visual).
 | Fase | Estado |
 |---|---|
 | ED-14 | **commitada** 2026-09-30 (`7256363`) — ver `ROADMAP_EDITOR.md` |
-| ED-15 | **implementada** 2026-09-30 — ver `ROADMAP_EDITOR.md` |
-| ED-16 … ED-18 | a fazer |
+| ED-15 | **commitada** 2026-09-30 (`c7d7970`) — ver `ROADMAP_EDITOR.md` |
+| ED-17 | **implementada** 2026-09-30 — ver `ROADMAP_EDITOR.md` |
+| ED-16, ED-18 | a fazer |

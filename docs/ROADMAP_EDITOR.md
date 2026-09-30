@@ -2245,6 +2245,52 @@ As regras `.calibre*` ficam na folha — "Apagar classes CSS não usadas…" as 
 
 ---
 
+## ED-17 — Arquivo → Abrir PDF…: páginas pelo nosso OCR, como livro novo
+
+**Origem:** `docs/ANALISE_JANELA_EDITOR.md` §4.4. Até aqui o PDF chegava ao editor por fora
+(janela principal → Exportar → Documento editorial → "Abrir no editor"). **Decisão do usuário
+(2026-09-30):** o PDF aberto vira **livro novo**.
+
+**Entrega:**
+- `scripts/pdf_para_editor.py`: o leitor de produção montado como o "Documento editorial" da
+  janela principal (`pipeline_de_producao`, camada `auto`/`nunca`/`sempre`, léxico do idioma,
+  reparo opcional, a poda F112 onde `OpcoesDeLeitura` já a aceita), só nas páginas pedidas,
+  gravando o documento editorial em JSON; canal de uma linha JSON por evento no stdout
+  (`inicio`, `etapa`, `progresso`, `fim`, `erro`), o resto desviado ao stderr. **Roda em outro
+  processo** porque o editor não carrega `torch`/`numpy` (DEC-07).
+- `core/editor/abrir_pdf.py` (sem Tk): `faixa_de`/`texto_da_faixa` ("30-45, 60"),
+  `saida_padrao` (o JSON ao lado do PDF, `<nome>_p30-45.json`), `comando`, `informacoes` (só
+  `fitz`) e a `Tarefa` (Popen sem janela, leitura do canal numa thread, `cancelar` mata).
+- `ui/editor/dialogo_pdf.py`: `DialogoAbrirPdf` — miniaturas desenhadas sob demanda, clique e
+  Shift+clique, campo de páginas nos dois sentidos, leitura (Automático / Só OCR / Só texto do
+  PDF), idioma, um capítulo por página ou por título, reparo, onde gravar; 660×560, cabe em
+  1360×768. `ProgressoDePdf` não modal, com Cancelar.
+- `ui/editor/pdf.py`: `LeituraDePdf` (comandos `abrir_pdf`, `cancelar_pdf`), acompanhando pelo
+  `after`; no fim, `conversoes.abrir_documento_editorial` (a ponte da ED-11: marcas de página,
+  `data-origem-*`, diário da revisão ao lado do JSON). As escolhas ficam nas preferências
+  (`abrir_pdf`). Menu Arquivo: "Abrir PDF… (páginas pelo OCR)" e "Cancelar leitura do PDF".
+
+**AC:**
+- AC-ED17-1 Faixa, saída e comando; a `Tarefa` lê o canal, separa o texto solto e o stderr;
+  cancelar mata o processo.
+- AC-ED17-2 O diálogo marca nos dois sentidos, recusa faixa fora do PDF sem fechar e devolve o
+  `Pedido`.
+- AC-ED17-3 Na janela, com um leitor de mentira: livro novo, sem caminho e sujo, diário ao lado
+  do JSON; erro do leitor → caixa com a frase e o livro anterior fica; cancelar; segunda leitura
+  recusada enquanto a primeira corre.
+- AC-ED17-4 (`slow`) O leitor de verdade lê duas páginas geradas.
+- AC-ED17-5 Conferência na tela com o Khenkin real (458 p.), páginas 20–21, Só OCR: 13,8 s até
+  o livro aberto em Dividido.
+
+**Defeito achado e corrigido na conferência:** o `fim` chega antes de o processo sair; a
+leitura guardava o evento numa variável local, reagendava e o perdia ("saiu com o código 0").
+Agora fica no objeto; o leitor de mentira do teste demora a sair depois do `fim`.
+
+**Achado fora da fase (tarefa à parte):** no Khenkin, a camada `auto` aceita um texto que perde
+as figurinas e as ligaduras, e o OCR lê os diagramas das p. 20–21 como texto.
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
@@ -2268,4 +2314,5 @@ As regras `.calibre*` ficam na folha — "Apagar classes CSS não usadas…" as 
 | ED-12 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | um `Story` para o livro inteiro com ids prefixados por capítulo; cabeçalho/rodapé por `insert_text` (Helvetica, Latin-1); notas no fim do capítulo; PGN pelo `chess.pgn` com um exportador por partida, título sem lances não é partida, ambíguo vira comentário; índice `p.indice` refeito no lugar, alvo com `id_persistente`, `role` pelo HTML; opções de DOCX/PDF das preferências (sem caixa); "Imprimir…" = PDF temporário aberto; decisão da medição: **convive** |
 | ED-13 | **implementada** | 2026-09-22 | (ver "Registro" da fase) | o `CF_HTML` só inline vira um parágrafo; as preferências aplicam na hora só o que é de tela (tema/tabulação nas abas novas); os botões `ttk` dos painéis Estilos e Busca ganharam `AnelDeFoco`; o `F` do tabuleiro sincroniza a orientação da caixa; o gate usa `pip wheel` porque `build/` estala o `python -m build`; a medição do AC-005 corre na raiz da sessão |
 | ED-14 | **commitada** | 2026-09-30 | 7256363 | prévia pelo `fitz.Story` em vez do `TextoRico` (DEC-05 substituída na prévia); divisória `tk.PanedWindow` com o editor irmão (`lift`); ids `__l<linha>` só na cópia; `Montador` reaproveita `pdf_io._Montador` para fontes e PNG de diagrama |
-| ED-15 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | não abre sozinha em Dividido (só avisa); `p.diagrama` do Calibre não é o diagrama do editor; imagem sozinha vira `figure`; âncora usada vira `id` do bloco; `<style>` do tradutor sai do `<head>` |
+| ED-15 | **commitada** | 2026-09-30 | c7d7970 | não abre sozinha em Dividido (só avisa); `p.diagrama` do Calibre não é o diagrama do editor; imagem sozinha vira `figure`; âncora usada vira `id` do bloco; `<style>` do tradutor sai do `<head>` |
+| ED-17 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | script próprio em vez de estender o `processar_editorial.py` (que tem trabalho do usuário sem commit); veredito de "tem texto" só com `fitz` no diálogo (o `pdf_nativo` puxa o leitor); corrida do `fim` achada na conferência |

@@ -548,6 +548,10 @@ class JanelaDoEditor(tk.Toplevel):
         """O livro no modo código (§9): o menu Livro, relatórios, validação, prévia, metadados completos."""
         self.operacoes = OperacoesDoLivro(self)
         self.registrar_comandos(self.operacoes.comandos)
+        from ui.editor.pdf import LeituraDePdf
+
+        self.leitura_de_pdf = LeituraDePdf(self)          # ED-17: Arquivo → Abrir PDF…
+        self.registrar_comandos(self.leitura_de_pdf.comandos)
         self.registrar_comandos({"ir_para_destino": self.ir_para_destino, "clipes": self.clipes_comando,
                                  "aplicar_clipe": self.aplicar_clipe})
 
@@ -2802,6 +2806,8 @@ class JanelaDoEditor(tk.Toplevel):
         self._desinstalar_guarda_no_parent()
         if hasattr(self, "operacoes"):
             self.operacoes.fechar()
+        if hasattr(self, "leitura_de_pdf"):
+            self.leitura_de_pdf.fechar()
         self.mensagens.desinstalar(self.log)
         try:
             self.task.shutdown()
