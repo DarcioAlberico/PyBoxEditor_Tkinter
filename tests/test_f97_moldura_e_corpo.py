@@ -269,13 +269,15 @@ def test_a_caixa_do_docx_mede_o_tabuleiro_e_nao_a_coluna():
     em autoajuste quem decide é o Word na hora de abrir, e uma célula mais
     larga que o tabuleiro poria a moldura longe dele.
 
-    16 pt por casa dão 128 pt de tabuleiro, que são 2560 twips.
+    16 pt por casa dão 128 pt de tabuleiro, mais a folga de 1,5 pt sem a qual
+    o Word joga a oitava casa para a linha de baixo (PD-09): 129,5 pt, que são
+    2590 twips.
     """
     _caminho, xml = _docx(_paginas(_figura("simples")), diagramas="fonte",
                           corpo_pt=16)
-    assert '<w:tblW w:type="dxa" w:w="2560"/>' in xml
-    assert '<w:gridCol w:w="2560"/>' in xml
-    assert '<w:tcW w:type="dxa" w:w="2560"/>' in xml
+    assert '<w:tblW w:type="dxa" w:w="2590"/>' in xml
+    assert '<w:gridCol w:w="2590"/>' in xml
+    assert '<w:tcW w:type="dxa" w:w="2590"/>' in xml
     assert '<w:tblLayout w:type="fixed"/>' in xml
     # Alinhado à esquerda dentro da caixa: centrar devolveria a voz ao espaço
     # do fim da fila, que é a casa clara vazia da Chess Merida.

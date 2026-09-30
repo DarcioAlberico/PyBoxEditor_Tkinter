@@ -207,8 +207,9 @@ def test_no_docx_o_diagrama_com_coordenada_deixa_de_virar_imagem():
 
     with zipfile.ZipFile(caminho) as z:
         xml = z.read("word/document.xml").decode("utf-8")
-    # Dez casas de 16 pt são 160 pt, que são 3200 twips.
-    assert '<w:tblW w:type="dxa" w:w="3200"/>' in xml
+    # Dez casas de 16 pt são 160 pt, mais a folga de 1,5 pt sem a qual o Word
+    # joga a última casa para a linha de baixo (PD-09): 3230 twips.
+    assert '<w:tblW w:type="dxa" w:w="3230"/>' in xml
     # E a caixa não põe moldura: o texto já traz a sua.
     assert 'w:val="nil"' in xml and "double" not in xml
 

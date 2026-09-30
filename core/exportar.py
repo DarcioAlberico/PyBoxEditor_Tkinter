@@ -731,6 +731,17 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
             z.writestr(nome, dados)
 
 
+#: O que a caixa do diagrama em fonte tem a mais que `corpo × colunas` (PD-09).
+#: **Com a largura exata, o Word 16 (16.0.14334) joga o oitavo glifo para a
+#: linha seguinte**, e o tabuleiro sai em dezesseis filas de sete casas e uma —
+#: aberto no Word e exportado para PDF, nas duas fontes. O editor mediu o mesmo
+#: na ED-09 (0,5 pt dobra, 1 pt não) e usa 1,5 (`docx_io.FOLGA_DA_CAIXA_PT`);
+#: este exportador ficou com a largura exata, porque o teste dele lia o XML e
+#: não o Word. A moldura fica 1,5 pt além da oitava casa, à direita: meia
+#: espessura de filete, que no papel não se vê.
+FOLGA_DA_CAIXA_PT = 1.5
+
+
 def _caixa_do_diagrama(doc, moldura: str, largura_pt: float,
                        descricao: str = ""):
     """
@@ -1055,7 +1066,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 colunas = max(len(linha) for linha in bloco.linhas)
                 caixa = _caixa_do_diagrama(
                     doc, "sem" if bloco.linhas_emolduradas else moldura,
-                    corpo_pt * colunas, _alternativo(bloco))
+                    corpo_pt * colunas + FOLGA_DA_CAIXA_PT, _alternativo(bloco))
                 for i_linha, linha in enumerate(bloco.linhas):
                     # A célula já nasce com um parágrafo vazio, e ele é o da
                     # primeira fila: um `add_paragraph` aqui deixaria uma linha
