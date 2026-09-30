@@ -435,6 +435,9 @@ class _ImagemDoPdf:
 
     #: (x1, y1, x2, y2) em pixels da página lida.
     caixa: Tuple[int, int, int, int]
+    #: O objeto de imagem inteiro, quando a figura é só parte dele (a gravura
+    #: com o quadro oval da legenda embaixo) — ver `_moldura_da_gravura`.
+    objeto: Optional[Tuple[int, int, int, int]] = None
 
     @property
     def topo(self) -> int:
@@ -554,6 +557,157 @@ def _tabuleiros_das_imagens(img: np.ndarray, imagens: Sequence[_ImagemDoPdf],
                                 tabuleiro=r,
                                 rotulos=diagrama.ler_rotulos(img, r, escala, classificar)))
     return ficam, achados
+
+
+#: A régua da gravura, medida nas 579 imagens embutidas do Yusupov e nas 509 do
+#: Aagaard (*Attacking Manual*), ClearScan os dois. Tinta é o pixel abaixo de
+#: 128 no recorte a `DPI_DA_GRAVURA`; a foto em retícula de 1 bit vira, nessa
+#: resolução, uma massa só.
+#:
+#:     imagem                              tinta   maior componente   proporção
+#:     foto e gravura (9 no Yusupov)       0,44–0,89     0,99–1,00      1,0–1,8
+#:     faixa de cabeçalho (228)            0,58–0,75     0,99–1,00      9–12
+#:     quadro de texto com faixa           0,21–0,22     0,87–0,94      3,5
+#:     quadro oval da legenda              0,09          0,25           2,7
+#:     diagrama                            0,20          0,17–0,19      0,9
+#:
+#: A faixa passa na tinta e no componente e cai na proporção e na altura
+#: (16 pt); o quadro e o diagrama caem na tinta.
+GRAVURA_TINTA = 0.35
+GRAVURA_MAIOR = 0.9
+GRAVURA_ALTURA_PT = 36.0
+GRAVURA_PROPORCAO = 3.0
+DPI_DA_GRAVURA = 100
+#: Folga, em fração do lado da imagem, até a qual a caixa da gravura vai à
+#: borda da imagem (a sombra da foto do Yusupov: 10 a 15 px de 900).
+GRAVURA_FOLGA = 0.05
+
+
+def _gravuras_do_pdf(page: Optional[fitz.Page], img: np.ndarray) -> List[_ImagemDoPdf]:
+    """
+    A foto e a gravura que o PDF embute numa página que **não** é tipografia.
+
+    **O caso é o Yusupov (ClearScan).** O retrato de Morphy da p. 76 é lido
+    como texto — o traço fino da gravura vira `= ⯹ ⩲ ♖ ♕`, treze parágrafos de
+    sopa —, e nas pp. 148 e 206 a foto engolia a página: a segmentação a via
+    como um componente só, a altura de letra da página ia a 359 px, e a página
+    saía **vazia**, sem foto e sem legenda. No *Attacking Manual* as aberturas
+    de capítulo são foto com o título em branco por cima, que o OCR também não
+    lia.
+
+    A página tipográfica tem a sua porta (`_imagens_do_pdf`), em que toda imagem
+    é figura. Aqui não: no ClearScan a faixa de cabeçalho `A.Yusupov –
+    M.Chandler` é imagem com texto. Quem separa é a tinta (ver a tabela acima).
+    A figura é o **maior componente**, e não a imagem inteira: em cinco das
+    fotos do Yusupov o objeto de imagem traz embaixo o quadro oval da legenda,
+    que tem de continuar sendo lido.
+    """
+    import cv2
+
+    from core import pdf_nativo
+
+    if page is None or page.rotation % 360:
+        return []
+    area = abs(page.rect) or 1.0
+    caixas = [fitz.Rect(info.get("bbox") or (0, 0, 0, 0)) & page.rect
+              for info in page.get_image_info()]
+    # A imagem que sozinha cobre a página é o fundo — o scan que o ClearScan do
+    # *Attacking Manual* guarda atrás de cada página, com a foto por cima. Ela
+    # não é candidata e não entra na soma, que é a da digitalização em tiras.
+    caixas = [r for r in caixas if not r.is_empty
+              and abs(r) < pdf_nativo.COBERTURA_DE_DIGITALIZACAO * area]
+    if sum(abs(r) for r in caixas) >= pdf_nativo.COBERTURA_DE_DIGITALIZACAO * area:
+        return []
+    candidatas = [r for r in caixas
+                  if abs(r) >= pdf_nativo.AREA_MINIMA_DE_IMAGEM * area
+                  and r.height >= GRAVURA_ALTURA_PT
+                  and max(r.width, r.height) <= GRAVURA_PROPORCAO * min(r.width, r.height)]
+    if not candidatas:
+        return []
+    if pdf_nativo.avaliar_pagina(page, produtor=pdf_nativo.produtor(page.parent)).tipografica:
+        return []
+
+    fator = img.shape[1] / max(1.0, page.rect.width)
+    reducao = DPI_DA_GRAVURA / 72.0 / fator
+    saida: List[_ImagemDoPdf] = []
+    for rect in candidatas:
+        x0, y0 = max(0, int(rect.x0 * fator)), max(0, int(rect.y0 * fator))
+        x1 = min(img.shape[1], int(round(rect.x1 * fator)))
+        y1 = min(img.shape[0], int(round(rect.y1 * fator)))
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            continue
+        pequeno = cv2.resize(img[y0:y1, x0:x1],
+                             (max(1, int((x1 - x0) * reducao)), max(1, int((y1 - y0) * reducao))),
+                             interpolation=cv2.INTER_AREA)
+        tinta = pequeno < 128
+        total = int(tinta.sum())
+        if total < GRAVURA_TINTA * tinta.size:
+            continue
+        n, _rotulos, medidas, _c = cv2.connectedComponentsWithStats(
+            tinta.astype(np.uint8), connectivity=8)
+        if n < 2:
+            continue
+        maior = 1 + int(np.argmax(medidas[1:, cv2.CC_STAT_AREA]))
+        if medidas[maior, cv2.CC_STAT_AREA] < GRAVURA_MAIOR * total:
+            continue
+        mx, my, mw, mh = (int(v) for v in medidas[maior, :4])
+        caixa = [x0 + int(mx / reducao), y0 + int(my / reducao),
+                 min(x1, x0 + int(round((mx + mw) / reducao))),
+                 min(y1, y0 + int(round((my + mh) / reducao)))]
+        # A sombra da foto é outro componente, colado na borda: a caixa vai até
+        # a borda da imagem quando a folga é pequena. A folga grande é a do
+        # quadro da legenda, que fica de fora para ser lido.
+        folga_x, folga_y = GRAVURA_FOLGA * (x1 - x0), GRAVURA_FOLGA * (y1 - y0)
+        if caixa[0] - x0 <= folga_x:
+            caixa[0] = x0
+        if caixa[1] - y0 <= folga_y:
+            caixa[1] = y0
+        if x1 - caixa[2] <= folga_x:
+            caixa[2] = x1
+        if y1 - caixa[3] <= folga_y:
+            caixa[3] = y1
+        saida.append(_ImagemDoPdf(tuple(caixa), objeto=(x0, y0, x1, y1)))
+    return saida
+
+
+_PALAVRA = re.compile(r"[A-Za-z]{3,}")
+
+
+def _moldura_da_gravura(linha: Sequence[BoxEntry], texto: str,
+                        gravuras: Sequence[_ImagemDoPdf], lex) -> bool:
+    """
+    A linha lida dentro do objeto da gravura, fora da foto, que não tem palavra.
+
+    É a moldura dupla do quadro oval da legenda no Yusupov — o objeto de imagem
+    traz a foto e, embaixo, o oval —: a legenda é lida (`n r n=n= ⇄` saía
+    junto dela, e `Whn n n nn n`, `Ari ar`), e o traço do oval não. A régua é
+    ter palavra: a legenda sempre tem uma que o dicionário conhece. Sem
+    dicionário, a de letras — três seguidas, em metade do que não é espaço.
+    """
+    if not gravuras or not linha:
+        return False
+    cx = (min(b.x1 for b in linha) + max(b.x2 for b in linha)) / 2
+    cy = (min(b.y1 for b in linha) + max(b.y2 for b in linha)) / 2
+    if not any(g.objeto and g.objeto[0] <= cx <= g.objeto[2] and g.objeto[1] <= cy <= g.objeto[3]
+               for g in gravuras):
+        return False
+    palavras = _PALAVRA.findall(texto)
+    if lex is not None and not lex.vazio:
+        return not any(lex.conhece(p) for p in palavras)
+    visiveis = [c for c in texto if not c.isspace()]
+    letras = sum(c.isascii() and c.isalpha() for c in visiveis)
+    return not palavras or letras < 0.5 * max(1, len(visiveis))
+
+
+def _sem_gravuras(img: np.ndarray, gravuras: Sequence[_ImagemDoPdf]) -> np.ndarray:
+    """A página que se lê: a gravura pintada de branco (a cópia, e não `img`)."""
+    if not gravuras:
+        return img
+    limpa = img.copy()
+    for g in gravuras:
+        x0, y0, x1, y1 = g.caixa
+        limpa[y0:y1, x0:x1] = 255
+    return limpa
 
 
 @dataclass
@@ -3682,9 +3836,22 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         raise ValueError(f"modo de fusão inválido: {fusao!r} "
                          f"(use um de {MODOS_DE_FUSAO})")
 
-    img = _pagina_cinza(page, dpi)
+    original = _pagina_cinza(page, dpi)
+    # A gravura sai da leitura antes de a página ser segmentada: pintada de
+    # branco na cópia que se lê, e recortada do original como figura.
+    gravuras = _gravuras_do_pdf(page, original)
+    img = _sem_gravuras(original, gravuras)
     boxes, tabuleiros, _escala, respingos, colunas = caixas_e_diagramas(
         img, classificar)
+
+    if gravuras and not boxes and not tabuleiros:
+        # A página era só a gravura (a foto sem legenda): entra a foto.
+        blocos = []
+        for g in gravuras:
+            png, larg, alt = _png_do_recorte(original, g.caixa, dpi, dpi_figura, tons=0)
+            blocos.append(Figura(png, larg, alt, origem="pagina"))
+        return PaginaExtraida(numero=numero, blocos=blocos, altura=int(img.shape[0]),
+                              largura=int(img.shape[1]), dpi=int(dpi))
 
     if not boxes and not tabuleiros:
         # Página de imagem: entra inteira, como está.
@@ -3700,6 +3867,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                  if not any(_centro_dentro(b, i.caixa) for i in imagens)]
         imagens, novos = _tabuleiros_das_imagens(img, imagens, _escala or 1, classificar)
         tabuleiros = list(tabuleiros) + novos
+    imagens = list(imagens) + gravuras
 
     # **A régua do box largo e a prova visual são da página inteira**, e por
     # isso saem daqui e não de dentro da linha: `_largura_de_referencia` mede a
@@ -3785,6 +3953,9 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr,
             candidatas=candidatas)
         fracos += n
+        if _moldura_da_gravura(linha, texto, gravuras, lex):
+            roteamento.append({**registro, "moldura_da_gravura": True, "texto": ""})
+            continue
         if origem == "glyph":
             # A sobra curta do detector que o motor já cobriu inteira não vira
             # linha. E a linha que ficou com a cadeia própria recebe só as
@@ -3909,7 +4080,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
 
     def blocos_de(item) -> List[Bloco]:
         if isinstance(item, _ImagemDoPdf):
-            png, larg, alt = _png_do_recorte(img, item.caixa, dpi, dpi_figura, tons=0)
+            png, larg, alt = _png_do_recorte(original, item.caixa, dpi, dpi_figura, tons=0)
             return [Figura(png, larg, alt, origem="pagina")]
         return figura(item)
 
