@@ -125,6 +125,15 @@ def test_nao_junta_composto_cuja_esquerda_ja_e_palavra(lex):
     assert lexico.juntar_hifenizadas(linhas, lex) == []
 
 
+def test_nao_junta_o_hifen_do_lance():
+    """`...b4-`+`b3.` virava a consulta `b`+`b` (o núcleo tira o algarismo), e o
+    dicionário conhece `bb`: o Dvoretsky saía com `...b4b3`, `e3e4`, `f3pawn`."""
+    lex = lexico.Lexico(palavras={"bb", "ee", "hc", "fpawn"})
+    for linhas in ([["...b4-"], ["b3."]], [["play", "e3-"], ["e4", "when"]],
+                   [["the", "h3-"], ["c8", "diagonal"]], [["the", "f3-"], ["pawn"]]):
+        assert lexico.juntar_hifenizadas(linhas, lex) == [], linhas
+
+
 def test_nao_junta_sem_dicionario():
     linhas = [["em-"], ["barrassment"]]
     assert lexico.juntar_hifenizadas(linhas, lexico.Lexico()) == []

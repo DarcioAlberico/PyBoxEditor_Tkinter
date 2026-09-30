@@ -300,6 +300,13 @@ def juntar_hifenizadas(linhas: Sequence[Sequence[str]],
         if not ultima.endswith(tuple(HIFENS)):
             continue
         esquerda = ultima.rstrip(HIFENS)
+        # **O hífen de quebra fica entre letras.** `nucleo` tira das pontas o
+        # que não é letra, e o lance `...b4-`+`b3.` virava a consulta `b`+`b`,
+        # que o dicionário conhece: o Dvoretsky saía com `...b4b3`, `e3e4`,
+        # `h3c8 diagonal` — 24 lances colados no livro. Com algarismo encostado
+        # no hífen, de um lado ou do outro, ele é da notação.
+        if not (esquerda[-1:].isalpha() and seguinte[0][:1].isalpha()):
+            continue
         nuc_e, _ = nucleo(esquerda)
         nuc_d, _ = nucleo(seguinte[0])
         if not nuc_e or not nuc_d:
