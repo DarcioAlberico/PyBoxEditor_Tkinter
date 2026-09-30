@@ -2198,8 +2198,7 @@ marcação importada, `calibreN` **vira estilo do dialeto** (ED-15); PDF aberto 
 
 **Medido:** capítulo de 9 KB em 22 ms (4 fatias) e ~35 ms por fatia em imagem a 110 dpi.
 
-**Falta para depois:** a SPEC_EDITOR (DEC-05, §9.6) ainda descreve a prévia antiga — fica
-para quando o usuário commitar o trabalho dele nela.
+**SPEC:** DEC-05 e §9.6 reescritas depois da fase (2026-09-30), a pedido do usuário.
 
 ---
 

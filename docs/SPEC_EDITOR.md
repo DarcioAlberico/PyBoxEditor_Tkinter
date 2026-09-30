@@ -277,12 +277,21 @@ modelo; `TextoRico.ponto()` delega; desfazer num capítulo **não desenhado** re
 modelo e marca a aba para recarregar. Nasce na ED-00 porque ED-01 e ED-03 (mesma onda) o
 consomem.
 
-### DEC-05 — Pré-visualização própria, mais o navegador do sistema; renderizador HTML embutido é opcional
+### DEC-05 — Pré-visualização desenhada pelo `fitz.Story`, mais o navegador do sistema
 
-O painel "Prévia" é o **próprio modo texto, somente leitura**, sincronizado por
-`Bloco.linha_fonte`. "Abrir no navegador" grava o capítulo numa pasta temporária e
-chama o navegador do sistema. `tkinterweb` (extra `[editor-previa]`) vira uma terceira
-aba quando instalado.
+*Revista na ED-14 (2026-09-30; `docs/ANALISE_JANELA_EDITOR.md`).* Até ali o painel "Prévia"
+era o próprio modo texto, somente leitura: não aplicava a CSS do livro, mostrava as mesmas
+ilhas do modo texto e, posto em dois `pack(side="left")` ao lado do código, abria com ~30 px.
+
+O painel "Prévia" **desenha o capítulo** com o `fitz.Story` — o motor do PDF paginado da
+ED-12, que já é dependência obrigatória: a CSS do capítulo, as fontes (`@font-face`, a de
+símbolos e as de diagrama) e as imagens do livro, em fatias da largura do painel empilhadas
+num `Canvas` que **rola sem emenda** (decisão do usuário: rolagem contínua, como o Sigil, e
+não páginas). A sincronia com o código é pela linha da fonte, marcada só numa **cópia** do
+texto (§9.6). O que o `Story` não faz (`float`, `flex`, `position`) quase não aparece num
+livro de xadrez; para a fidelidade absoluta fica "Abrir no navegador", que grava o capítulo
+numa pasta temporária e chama o navegador do sistema. O `tkinterweb` (extra
+`[editor-previa]`) deixou de ser preciso: a prévia não o usa.
 
 ### DEC-06 — O diagrama é bloco de primeira classe
 
@@ -345,8 +354,8 @@ Pretas: …"), e o FEN fica em `data-fen` e `title`.
   `core/editor/*` e `ui/editor/*`. Um teste em subprocesso confere `sys.modules` (e é
   repetido pelas fases que tocam nesses módulos).
 
-`python-docx` continua extra `[docx]`; `epubcheck` vira `[epub-validacao]`; `tkinterweb`
-é `[editor-previa]`. O realce é próprio (§9.2).
+`python-docx` continua extra `[docx]`; `epubcheck` vira `[epub-validacao]`; o
+`[editor-previa]` (`tkinterweb`) ficou sem uso desde a ED-14 (DEC-05). O realce é próprio (§9.2).
 
 ### DEC-08 — UTF-8 sem BOM em tudo, e XHTML sempre bem-formado ao salvar
 
@@ -854,7 +863,9 @@ Colar sem formatação · Colar como XHTML (ED-04) · Selecionar tudo · Selecio
 Seguir link (ED-04) · Maiúsculas/minúsculas ▸ · Pincel de formatação (ED-03) ·
 Autocompletar · Comentar/descomentar (ED-07) · Preferências… (ED-13).
 
-**Exibir**: Modo texto · Modo código (ED-02) · Prévia (ED-08) · Capítulo seguinte /
+**Exibir**: Modo texto · Modo código (ED-02) · Modo dividido — código com a prévia ao lado
+(ED-15) · Prévia (ED-08; desenhada pelo `fitz.Story` desde a ED-14) · Página original do PDF
+(ED-18) · Capítulo seguinte /
 anterior · Painel seguinte / anterior · Foco no editor (ED-02) · Navegador · Sumário ·
 Estilos · Propriedades · Xadrez · Busca e mensagens · Barra de formatação · Barra de
 xadrez (ED-02; a barra de xadrez é preenchida na ED-05) · Mostrar invisíveis (ED-03) ·
@@ -948,6 +959,7 @@ a ação principal do objeto e não é um comando).
 | `Ctrl+Shift+8` | keycode | invisíveis | texto |
 | `Ctrl+KP_Add` / `Ctrl+KP_Subtract` / `Ctrl+0` | `KP_Add` / `KP_Subtract` / keycode | zoom (mais `Ctrl+roda`, conveniência de mouse fora da tabela) | ambos |
 | `F11` / `F12` | | alternar modo / prévia | ambos / código |
+| `Ctrl+F11` | | modo dividido (código + prévia, ED-15) | ambos |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | `Next` / `Prior` | capítulo seguinte / anterior | ambos |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | | **sair do editor** (nativo do `Text`; listado para constar em "Ajuda → Atalhos") | ambos |
 | `Ctrl+T` / `F8` | | sumário / metadados | ambos |
@@ -1110,7 +1122,7 @@ edição. "Largura de leitura como página" (~65 caracteres, faixa cinza).
 |---|---|---|
 | Book Browser | Navegador: árvore na disposição do livro; arrastar reordena; contexto completo (renomear, renomear vários, excluir, adicionar arquivo/cópia, novo capítulo/folha, capa, semântica, mover, juntar, dividir, abrir com…) | ED-08 |
 | Code View | Realce, números de linha, linha atual, casamento, auto-indentação, `</` completa, `Ctrl+Space`, comentar, zoom, `Ctrl+B/I/U` envolvendo a seleção; dobra — não (§15) | ED-07 |
-| Preview | DEC-05 | ED-08 |
+| Preview | DEC-05: o capítulo desenhado pelo `fitz.Story`, ao lado do código numa divisória; modo dividido | ED-08, ED-14, ED-15 |
 | Go to link/style, and back | `abrir_alvo` injetado; troca de aba real na ED-08 | ED-07 |
 | TOC painel / Generate / Edit / HTML TOC | Painel Sumário; gerar com níveis; editor; "ao dividir"; página de sumário | ED-08 |
 | Metadata Editor / Add Cover / Semantics | §5 `Metadados`; capa com invólucro SVG (`properties="svg"`, `cover-image`, `<meta name="cover">`, marco); semântica (§9.7) e marcos | ED-08 |
@@ -1160,8 +1172,31 @@ cópia, abrir com programa externo.
 
 ### 9.6 Prévia
 
-`Previa(atraso_ms=300)` (o teste usa `0` + `update()`); mal-formado mantém a anterior;
-clique → `linha_fonte`.
+Desde a ED-14 (DEC-05). Duas camadas:
+
+- `core/editor/previa_story.py` (sem Tk). `marcar_linhas(texto)` devolve uma **cópia** do
+  XHTML com `id="__l<linha>"` na tag de abertura de cada elemento de bloco que não tem `id`
+  (os que têm entram no mapa pelo próprio `id`) — o arquivo salvo nunca muda. `Montador`
+  guarda o que não muda entre dois redesenhos: os bytes dos recursos, pedidos a
+  `recursos(href)` uma vez só (o que falta também não é repedido), com `src` e `url()`
+  reescritos para o caminho relativo ao OPF, e — com o `livro` — as regras de fonte e os PNG
+  de diagrama que o livro ainda não tem, pelo `pdf_io._Montador`, para a prévia e o PDF
+  desenharem igual. `desenhar(texto, arquivo, folhas, largura_pt)` devolve o `Desenho`: o PDF
+  em memória, fatias de `largura_pt` × 720 pt e `posicoes` = `(linha, fatia, retângulo)` lidas
+  de `Story.element_positions`; `linha_em(fatia, x, y)` (o bloco mais interno sob o ponto; no
+  empate de área, o filho) e `posicao_da_linha(linha)` (o último bloco que começa em ≤ linha).
+  Os avisos de CSS do MuPDF não vão ao stderr durante o desenho.
+- `ui/editor/previa.py`: `Previa(atraso_ms=300, folhas, recursos, livro)` é um `Canvas`
+  rolável; só as fatias visíveis (±1) viram `PhotoImage`; redesenha `atraso_ms` depois da
+  última mudança (o teste usa `0`) e quando a largura muda; mantém a rolagem ao redesenhar.
+  XHTML mal-formado **ou recusado pelo MuPDF** mantém o desenho anterior e escreve o erro no
+  rodapé (AC-ED08-7). `ir_ao_bloco(linha)` rola até o bloco e o contorna (o cursor do código
+  chama); o clique devolve a linha por `ao_clicar(linha)`.
+
+Na janela, `F12` (e "Modo dividido", `Ctrl+F11`) põe código e prévia numa divisória
+`tk.PanedWindow` (`aba.dados["divisao"]`, que também recebe a página original da ED-18, nesta
+ordem: prévia, original); a divisória nasce na fração lembrada (`previa_fracao`, 0,5 na
+primeira vez, entre 0,2 e 0,8) e a troca de modo desfaz os painéis ao lado.
 
 ### 9.7 Semântica
 
