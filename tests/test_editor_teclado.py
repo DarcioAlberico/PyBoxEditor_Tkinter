@@ -35,6 +35,7 @@ def test_gui_f6_percorre_os_paineis_e_shift_f6_volta():
         j = t.j
         j.deiconify()
         j.focus_force()
+        j.mostrar_painel("busca", True)              # o caderno de baixo nasce recolhido (ED-16)
         j.update()
         j.paineis["navegador"].foco()
         j.update()

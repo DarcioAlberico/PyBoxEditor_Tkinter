@@ -278,7 +278,10 @@ def test_ac9_o_layout_persiste_entre_janelas_na_mesma_preferencia():
     settings = Settings(os.path.join(pasta, "settings.json"))
     with _Janela(abrir=False, settings=settings, pasta=pasta) as t:
         j = t.j
-        assert all(p.visivel for p in j.paineis.values())
+        # ED-16: o caderno de baixo nasce recolhido; os outros painéis, visíveis
+        assert all(p.visivel for p in j.paineis.values() if p.grupo != "inferior")
+        assert not j.paineis["busca"].visivel and str(j.inferior) not in j.centro.panes()
+        j.mostrar_painel("busca", True)
         j.mostrar_painel("navegador", False)
         j.mostrar_painel("xadrez", False)
         j.mostrar_barra("xadrez", False)
@@ -667,6 +670,7 @@ def test_gui_ac9_esconder_o_painel_focado_devolve_o_foco_e_ac12_painel_seguinte_
         j = t.j
         j.deiconify()
         j.focus_force()
+        j.mostrar_painel("busca", True)              # o caderno de baixo nasce recolhido (ED-16)
         j.update()
         j.paineis["navegador"].foco()
         j.update()

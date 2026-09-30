@@ -142,6 +142,8 @@ TITULO = "Editor de livro"
 CHAVE_DAS_PREFERENCIAS = "editor"
 INTERVALO_DO_RASCUNHO_S = 60.0
 #: A ordem lógica de tabulação da §7.1 — fixa, independente do encaixe.
+#: A versão do layout gravado: abaixo dela, os padrões novos se aplicam uma vez (ED-16: o painel de baixo recolhido).
+VERSAO_DO_LAYOUT = 16
 ORDEM_DOS_PAINEIS = ("navegador", "sumario", "estilos", "editor", "propriedades", "xadrez", "busca", "resultados",
                      "mensagens", "validacao")
 #: (formato, rótulo, fase) — a tabela inteira mora em `ui/editor/conversoes.py` desde a ED-10.
@@ -235,6 +237,7 @@ class JanelaDoEditor(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.fechar)
         self._instalar_guarda_no_parent()
         self._restaurar_layout()
+        self.bind("<Configure>", lambda e: self._reavaliar_fileira() if e.widget is self else None, add="+")
         if projeto is not None:
             self._instalar_projeto(projeto)
         self.atualizar()
@@ -249,6 +252,9 @@ class JanelaDoEditor(tk.Toplevel):
         self.columnconfigure(0, weight=1)
         self.barras = ttk.Frame(self)
         self.barras.grid(row=0, column=0, sticky="ew")
+        #: A fileira de cima (ED-16): a barra de arquivo e a do modo lado a lado, quando cabem.
+        self.fileira = ttk.Frame(self.barras)
+        self._lado_a_lado: bool | None = None
         self.barra_de_arquivo = barra_mod.Barra(self.barras, self, barra_mod.BOTOES_DE_ARQUIVO, "arquivo")
         self.barra_de_arquivo.pack(side="top", fill="x")
         self.barra_de_formatacao = barra_mod.Barra(self.barras, self, barra_mod.BOTOES_DE_FORMATACAO, "formatacao")
@@ -344,17 +350,37 @@ class JanelaDoEditor(tk.Toplevel):
             "validacao": Painel("validacao", "inferior", self.validacao,
                                 lambda: self._focar_inferior(self.validacao, self.validacao.foco)),
         }
+        self._abrir_ao_definir(self.resultados)
+        self._abrir_ao_definir(self.validacao)
         for nome in ("navegador", "sumario", "estilos", "propriedades", "xadrez", "busca", "barra_de_formatacao",
                      "barra_de_xadrez", "invisiveis", "quebra_automatica", "tela_cheia", "numeros_de_linha",
                      "realce_da_linha", "figurinas_ao_digitar"):
             self.variaveis[nome] = tk.BooleanVar(master=self, value=nome not in ("invisiveis", "tela_cheia"))
 
     def _focar_inferior(self, painel: tk.Misc, foco: Callable[[], Any] | None = None) -> None:
+        self._mostrar_inferior(painel)
+        (foco or painel.focus_set)()
+
+    def _mostrar_inferior(self, painel: tk.Misc) -> None:
+        """O painel de baixo aberto (ele nasce recolhido, ED-16) e na aba `painel`, sem tirar o foco."""
+        if not self.paineis["busca"].visivel:
+            self.mostrar_painel("busca", True)
         try:
             self.inferior.select(painel)
         except tk.TclError:
             pass
-        (foco or painel.focus_set)()
+
+    def _abrir_ao_definir(self, painel: Any) -> None:
+        """Resultados e Validação abrem o painel de baixo quando recebem o que mostrar."""
+        definir = painel.definir
+
+        def definir_e_mostrar(*args: Any, **kw: Any) -> Any:
+            resultado = definir(*args, **kw)
+            if args and args[0]:
+                self._mostrar_inferior(painel)
+            return resultado
+
+        painel.definir = definir_e_mostrar
 
     def _focar_navegador(self) -> None:
         self.navegador.focus_set()
@@ -1198,10 +1224,7 @@ class JanelaDoEditor(tk.Toplevel):
         onde = f"linha {erro.linha}, col {erro.coluna}"
         self.validacao.definir([Resultado(aba.arquivo, onde, erro.mensagem,
                                           {"linha": erro.linha, "coluna": erro.coluna})], "XHTML mal-formado")
-        try:
-            self.inferior.select(self.validacao)
-        except tk.TclError:
-            pass
+        self._mostrar_inferior(self.validacao)
         self.log.error("%s: %s", aba.nome, erro)
         self.status(f"{aba.nome}: {erro}")
 
@@ -2412,19 +2435,57 @@ class JanelaDoEditor(tk.Toplevel):
         self._gravar_layout()
         return bool(visivel)
 
-    def _empilhar_barras(self) -> None:
-        """A ordem das barras: arquivo, a do modo (formatação ou código), xadrez, clipes."""
-        for barra in (self.barra_de_arquivo, self.barra_de_formatacao, self.barra_de_codigo, self.barra_de_xadrez):
+    def _empilhar_barras(self, largura: int | None = None) -> None:
+        """
+        A ordem das barras: arquivo, a do modo (formatação ou código), xadrez, clipes. As duas
+        primeiras dividem uma fileira quando a janela as comporta (ED-16: numa tela de 768 px
+        cada fileira de botões é texto que não se vê); numa janela estreita, empilham.
+        """
+        for barra in (self.fileira, self.barra_de_arquivo, self.barra_de_formatacao, self.barra_de_codigo,
+                      self.barra_de_xadrez):
             barra.pack_forget()
-        self.barra_de_arquivo.pack(side="top", fill="x")
+        self.fileira.pack(side="top", fill="x")
+        self.barra_de_arquivo.pack(in_=self.fileira, side="left")
+        do_modo = None
         if self.variaveis["barra_de_formatacao"].get():
             do_modo = self.barra_de_codigo if self.modo_atual() == "codigo" else self.barra_de_formatacao
-            do_modo.pack(side="top", fill="x")
+        self._lado_a_lado = do_modo is not None and self._cabem_lado_a_lado(do_modo, largura)
+        if do_modo is not None:
+            if self._lado_a_lado:
+                do_modo.pack(in_=self.fileira, side="left", padx=(8, 0))
+            else:
+                do_modo.pack(side="top", fill="x")
         if self.variaveis["barra_de_xadrez"].get():
             self.barra_de_xadrez.pack(side="top", fill="x")
         if self.barra_de_clipes is not None and self.barra_de_clipes.winfo_ismapped():
             self.barra_de_clipes.pack_forget()
             self.barra_de_clipes.pack(side="top", fill="x")
+
+    def _cabem_lado_a_lado(self, do_modo: tk.Misc, largura: int | None = None) -> bool:
+        """As duas barras cabem na `largura` (a da janela, sem ela)?"""
+        if self.barra_de_arquivo.winfo_reqwidth() <= 1 or do_modo.winfo_reqwidth() <= 1:
+            # O Tk só calcula a largura pedida no ocioso; a guarda evita o `<Configure>` reentrar aqui.
+            self._medindo_barras = True
+            try:
+                self.update_idletasks()
+            finally:
+                self._medindo_barras = False
+        if largura is None:
+            largura = self.winfo_width()
+            if largura <= 1:                      # ainda não desenhada: a pedida
+                try:
+                    largura = int(self.geometry().split("x")[0])
+                except (ValueError, tk.TclError):
+                    largura = self.winfo_reqwidth()
+        return self.barra_de_arquivo.winfo_reqwidth() + do_modo.winfo_reqwidth() + 16 <= largura
+
+    def _reavaliar_fileira(self, _evento: Any = None) -> None:
+        """Ao mudar a largura da janela: a fileira junta ou separa as duas barras, se a resposta mudou."""
+        if getattr(self, "_medindo_barras", False) or not self.variaveis["barra_de_formatacao"].get():
+            return
+        do_modo = self.barra_de_codigo if self.modo_atual() == "codigo" else self.barra_de_formatacao
+        if self._cabem_lado_a_lado(do_modo) != self._lado_a_lado:
+            self._empilhar_barras()
 
     def _painel_com_foco(self) -> str | None:
         try:
@@ -2697,7 +2758,7 @@ class JanelaDoEditor(tk.Toplevel):
             self.log.warning("preferências não gravadas: %s", erro)
 
     def layout(self) -> dict[str, Any]:
-        return {"geometria": self.geometry() if self.winfo_exists() else "",
+        return {"versao": VERSAO_DO_LAYOUT, "geometria": self.geometry() if self.winfo_exists() else "",
                 "paineis": {n: p.visivel for n, p in self.paineis.items() if n != "editor"},
                 "barras": {"formatacao": self.variaveis["barra_de_formatacao"].get(),
                            "xadrez": self.variaveis["barra_de_xadrez"].get()}}
@@ -2727,6 +2788,10 @@ class JanelaDoEditor(tk.Toplevel):
             for nome, visivel in barras.items():
                 if nome in ("formatacao", "xadrez") and not visivel:
                     self.mostrar_barra(nome, False)
+        if int(layout.get("versao", 0) or 0) < VERSAO_DO_LAYOUT:
+            # ED-16: o painel de baixo nasce recolhido — também para quem já tinha um layout
+            # gravado, uma vez; depois vale o que o usuário escolher (Ctrl+F e os relatórios o abrem).
+            self.mostrar_painel("busca", False)
 
     # ==================================================================
     # Rascunho, guarda e fechamento

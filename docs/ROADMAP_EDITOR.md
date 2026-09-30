@@ -2337,6 +2337,42 @@ revisão (o log diz). O painel usa o dpi do documento editorial quando o livro o
 
 ---
 
+## ED-16 — A janela compacta
+
+**Origem:** `docs/ANALISE_JANELA_EDITOR.md` §3 e §4.3. Em 1360×768 a 125%, três fileiras de
+botões e o caderno de baixo sempre aberto deixavam ~420 px para o texto. Meta: ≥ 560.
+
+**Entrega:**
+- **Uma fileira** para a barra de arquivo e a do modo (formatação ou código), lado a lado quando
+  cabem (`_cabem_lado_a_lado`, reavaliado no `<Configure>` da janela); numa janela estreita, a
+  do modo desce para a própria fileira. A barra de xadrez continua abaixo.
+- **O caderno de baixo (Busca · Resultados · Mensagens · Validação) nasce recolhido** e abre
+  sozinho quando é preciso: `Ctrl+F`/`Ctrl+H` (já abriam), qualquer `_focar_inferior`, Resultados
+  ou Validação que recebem itens (`_abrir_ao_definir`) e o XHTML mal-formado. O layout gravado
+  ganhou `versao` (`VERSAO_DO_LAYOUT = 16`): num layout de antes, o caderno recolhe **uma vez**; a
+  partir daí vale a escolha do usuário.
+- **Símbolos de vantagem maiores** (`paleta.fonte_do_simbolo`): a 10 pt, `⩲` (+ sobre =) e `±`
+  (+ sobre −) eram o mesmo borrão — a fonte tem os dois; era o tamanho.
+
+**AC:**
+- AC-ED16-1 Fileira junta a 1360 px, empilha a 640, a barra de código entra no modo código, a de
+  xadrez fica abaixo, sem a barra do modo só a de arquivo.
+- AC-ED16-2 Caderno recolhido por padrão; `localizar`, resultados com itens e a validação o
+  abrem na aba certa; resultados vazios não.
+- AC-ED16-3 Layout de antes recolhe uma vez e grava a versão; aberto pelo usuário, fica aberto.
+- AC-ED16-4 Medido na janela DPI-aware em 1360×697 (a área útil de 728 menos o título), com o
+  Kasparov: **editor com 575 px** de altura (eram ~420), nos modos texto e dividido.
+
+**Testes antigos ajustados:** `test_ac9_o_layout_persiste…` agora exige o caderno recolhido no
+começo; os dois de `F6` abrem o caderno antes de percorrer a ordem (a ordem não mudou).
+
+**Não feito (fica para outra fase, se o usuário quiser):** colunas laterais em abas, painel
+Propriedades que encolhe quando vazio, botões N/I/S/T que mostram o estado, e tirar a
+duplicação entre a barra de xadrez e o painel Xadrez — cada um mexe em muitos testes de foco e
+de layout, e a meta de altura já foi atingida sem eles.
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
@@ -2362,4 +2398,5 @@ revisão (o log diz). O painel usa o dpi do documento editorial quando o livro o
 | ED-14 | **commitada** | 2026-09-30 | 7256363 | prévia pelo `fitz.Story` em vez do `TextoRico` (DEC-05 substituída na prévia); divisória `tk.PanedWindow` com o editor irmão (`lift`); ids `__l<linha>` só na cópia; `Montador` reaproveita `pdf_io._Montador` para fontes e PNG de diagrama |
 | ED-15 | **commitada** | 2026-09-30 | c7d7970 | não abre sozinha em Dividido (só avisa); `p.diagrama` do Calibre não é o diagrama do editor; imagem sozinha vira `figure`; âncora usada vira `id` do bloco; `<style>` do tradutor sai do `<head>` |
 | ED-17 | **commitada** | 2026-09-30 | b076566 | script próprio em vez de estender o `processar_editorial.py` (que tem trabalho do usuário sem commit); veredito de "tem texto" só com `fitz` no diálogo (o `pdf_nativo` puxa o leitor); corrida do `fim` achada na conferência |
-| ED-18 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | reler por página, não por bloco; painel ligado na janela (não por aba); `previa_divisao` → `divisao` com prévia e original juntos; caixa com trama porque a do leitor vai de margem a margem |
+| ED-18 | **commitada** | 2026-09-30 | e75a3a0 | reler por página, não por bloco; painel ligado na janela (não por aba); `previa_divisao` → `divisao` com prévia e original juntos; caixa com trama porque a do leitor vai de margem a margem |
+| ED-16 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | só fileira, caderno recolhido com versão do layout e glifos maiores; colunas em abas, Propriedades encolhível, N/I/S/T com estado e a duplicação do xadrez ficaram de fora; largura como argumento no teste (janela escondida só aceita o primeiro `geometry` no Windows) |

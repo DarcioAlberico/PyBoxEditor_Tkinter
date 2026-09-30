@@ -89,7 +89,7 @@ class _Grade(ttk.Frame):
     def adicionar(self, simbolo: str, descricao: str, rotulo: str | None = None) -> tk.Button:
         k = len(self.botoes)
         botao = tk.Button(self, text=rotulo or simbolo, width=3 if rotulo is None else None, padx=4, pady=2,
-                          font=("Segoe UI Symbol", 11), relief="raised", takefocus=1, highlightthickness=2,
+                          font=fonte_do_simbolo(simbolo, 11), relief="raised", takefocus=1, highlightthickness=2,
                           highlightcolor="#0645ad", command=lambda s=simbolo: self.ao_escolher(s))
         botao.grid(row=k // self.colunas, column=k % self.colunas, padx=1, pady=1, sticky="nsew")
         Dica(botao, f"{simbolo}  {descricao}".strip())
@@ -236,8 +236,18 @@ def preencher_barra_de_xadrez(barra: Barra, janela: Any) -> None:
     barra.adicionar("validar_notacao", "Validar", "Validar notação do capítulo")
 
 
+#: Os símbolos de vantagem, que a 10 pt não se distinguem (⩲ é "+ sobre =", ± é "+ sobre −").
+SIMBOLOS_MIUDOS = frozenset("±∓⩲⩱")
+
+
+def fonte_do_simbolo(simbolo: str, corpo: int) -> tuple[str, int]:
+    """A fonte do botão de `simbolo`: os de vantagem, 3 pt maiores (ED-16)."""
+    return ("Segoe UI Symbol", corpo + 3 if simbolo in SIMBOLOS_MIUDOS else corpo)
+
+
 def _botao_de_simbolo(barra: Barra, janela: Any, simbolo: str, descricao: str) -> tk.Button:
-    botao = tk.Button(barra, text=simbolo, width=2, padx=3, pady=1, font=("Segoe UI Symbol", 10), relief="raised",
+    botao = tk.Button(barra, text=simbolo, width=2, padx=3, pady=0 if simbolo in SIMBOLOS_MIUDOS else 1,
+                      font=fonte_do_simbolo(simbolo, 10), relief="raised",
                       takefocus=1, highlightthickness=2, highlightcolor="#0645ad",
                       command=lambda s=simbolo: janela.executar("inserir_simbolo_de_xadrez", s))
     botao.pack(side="left", padx=1, pady=2)
