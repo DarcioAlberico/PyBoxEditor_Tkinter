@@ -1,8 +1,9 @@
 """
 Testes de `ui/editor/previa.py` e da prévia na janela (ED-08; SPEC_EDITOR DEC-05, §9.6):
-`Previa(atraso_ms=0)` + `update()` mostra o `<p>`; um XHTML mal-formado mantém a prévia
-anterior; `ir_ao_bloco(linha)`; `abrir_alvo` real troca de aba (AC-ED08-7); `F12` liga e
-desliga a prévia ao lado do código, que segue o cursor e devolve a linha ao clique.
+`Previa(atraso_ms=0)` desenha o capítulo pelo `fitz.Story` (ED-14); um XHTML mal-formado
+mantém a prévia anterior; `ir_ao_bloco(linha)` contorna o bloco; `abrir_alvo` real troca de
+aba (AC-ED08-7); `F12` liga e desliga a prévia numa divisória ao lado do código, que segue o
+cursor e devolve a linha ao clique.
 
 Rodar sem pytest:      python tests/test_editor_previa.py
 """
@@ -25,42 +26,48 @@ XHTML = ('<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org
          "<p>Segundo <strong>forte</strong>.</p>\n</body>\n</html>\n")
 
 
-def test_ac7_a_previa_mostra_o_p_mantem_a_anterior_no_mal_formado_e_vai_ao_bloco():
+def test_ac7_a_previa_desenha_mantem_a_anterior_no_mal_formado_e_vai_ao_bloco():
     raiz = raiz_tk()
     if raiz is None:
         pytest.skip("sem display")
     try:
+        raiz.geometry("600x500")
         cliques = []
-        previa = Previa(raiz, atraso_ms=0, ao_clicar=cliques.append)
+        previa = Previa(raiz, atraso_ms=0, ao_clicar=cliques.append,
+                        folhas=[("Styles/e.css", "h1 { font-size: 2em; } p { text-indent: 1em; }")])
         previa.pack(fill="both", expand=True)
-        previa.atualizar(XHTML, "c.xhtml")
         raiz.update()
-        textos = [m.texto_de(b) for b in previa.texto_rico.sincronizar().blocos]
-        assert textos == ["Título", "Primeiro parágrafo.", "Segundo forte."]
-        assert str(previa.texto_rico.texto.cget("state")) == "disabled" and previa.erro is None
+        previa.atualizar(XHTML, "Text/c.xhtml")
+        raiz.update()
+        assert previa.pronta and previa.erro is None and previa.rodape.cget("text") == ""
+        assert [linha for linha, _p, _r in previa.desenho.posicoes] == [7, 8, 9]
+        # a fatia é da largura do painel (a raiz do teste fica escondida: vale o `width` pedido) e virou imagem
+        if previa.canvas.winfo_ismapped():
+            assert abs(previa.desenho.largura_pt * previa.px_por_pt() - previa.canvas.winfo_width()) < 3
+        assert previa.canvas.find_withtag("fatia")
+        anterior = previa.desenho
         # mal-formado: fica a anterior, com o erro no rodapé
-        previa.atualizar(XHTML.replace("</p>\n</body>", "\n</body>"), "c.xhtml")
+        previa.atualizar(XHTML.replace("</p>\n</body>", "\n</body>"), "Text/c.xhtml")
         raiz.update()
         assert previa.erro is not None and "mal-formado" in previa.rodape.cget("text")
-        assert [m.texto_de(b) for b in previa.texto_rico.sincronizar().blocos] == textos
-        # de volta ao bom, o rodapé limpa; `ir_ao_bloco` pela linha da fonte
-        previa.atualizar(XHTML, "c.xhtml")
+        assert previa.desenho is anterior
+        # de volta ao bom, o rodapé limpa; `ir_ao_bloco` pela linha da fonte, com contorno
+        previa.atualizar(XHTML, "Text/c.xhtml")
         raiz.update()
         assert previa.rodape.cget("text") == ""
-        blocos = previa.capitulo.blocos
-        assert [b.linha_fonte for b in blocos] == [7, 8, 9]
-        assert previa.ir_ao_bloco(8) == blocos[1].id and previa.texto_rico.bloco_atual() == blocos[1].id
-        assert previa.ir_ao_bloco(100) == blocos[2].id and previa.ir_ao_bloco(1) == blocos[0].id
+        assert previa.ir_ao_bloco(8) == 8 and previa.canvas.find_withtag("bloco")
+        assert previa.ir_ao_bloco(100) == 9 and previa.ir_ao_bloco(1) == 7
         # o clique devolve a linha da fonte do bloco clicado
-        previa.texto_rico.ir_para(blocos[2].id, 2)
-        assert previa.linha_do_indice("insert") == 9
+        _linha, _pagina, (x0, y0, x1, y1) = previa.desenho.posicao_da_linha(9)
+        escala = previa.px_por_pt()
+        assert previa.linha_em((x0 + x1) / 2 * escala, (y0 + y1) / 2 * escala) == 9
         # com atraso, a última chamada é a que vale
         previa.atraso_ms = 50
-        previa.atualizar(XHTML.replace("Primeiro", "Um"), "c.xhtml")
-        previa.atualizar(XHTML.replace("Primeiro", "Dois"), "c.xhtml")
-        raiz.after(150, raiz.quit)
+        previa.atualizar(XHTML.replace("Primeiro", "Um"), "Text/c.xhtml")
+        previa.atualizar(XHTML.replace("Primeiro", "Dois"), "Text/c.xhtml")
+        raiz.after(200, raiz.quit)
         raiz.mainloop()
-        assert [m.texto_de(b) for b in previa.texto_rico.sincronizar().blocos][1] == "Dois parágrafo."
+        assert "Dois" in previa._texto
     finally:
         raiz.destroy()
 
@@ -74,21 +81,33 @@ def test_f12_liga_a_previa_ao_lado_do_codigo_e_ela_segue_o_cursor():
         aba = j.aba_ativa()
         j._gravar_preferencia("previa_ms", 0)
         previa = j.executar("previa")
-        assert previa is not None and aba.dados["previa"] is previa and previa.capitulo is not None
-        assert previa.winfo_manager() == "pack" and j.menus.estado("previa") == "normal"
-        # o cursor no código leva a prévia ao bloco; uma edição redesenha
+        j.update()
+        assert previa is not None and aba.dados["previa"] is previa and previa.pronta
+        assert j.menus.estado("previa") == "normal"
+        # código e prévia repartem a largura numa divisória (antes a prévia ficava com ~30 px)
+        divisao = aba.dados["previa_divisao"]
         editor = aba.widget
+        assert divisao.winfo_manager() == "pack" and len(divisao.panes()) == 2
+        if divisao.winfo_width() > 100:
+            assert 0.3 < divisao.sash_coord(0)[0] / divisao.winfo_width() < 0.7
+        # o cursor no código leva a prévia ao bloco; uma edição redesenha
         linha_do_titulo = int(editor.texto.search("<h1", "1.0").split(".")[0])
         editor.ir_para(linha_do_titulo)
         j.update()
-        assert previa.texto_rico.bloco_atual() == previa.bloco_da_linha(linha_do_titulo)
+        assert previa.linha_marcada == linha_do_titulo and previa.canvas.find_withtag("bloco")
+        antes = len(previa.desenho.posicoes)
         editor.texto.insert(f"{linha_do_titulo}.0", "<p>Inserido pela prévia.</p>\n")
         j.update()
-        assert any(m.texto_de(b) == "Inserido pela prévia." for b in previa.capitulo.blocos)
+        assert len(previa.desenho.posicoes) == antes + 1
         # o clique na prévia leva o código à linha
         previa.ao_clicar(linha_do_titulo + 1)
         assert editor.posicao[0] == linha_do_titulo + 1
-        assert j.executar("previa") is None and "previa" not in aba.dados
+        assert j.executar("previa") is None and "previa" not in aba.dados and "previa_divisao" not in aba.dados
+        assert editor.winfo_manager() == "pack"
+        # ligada de novo e trocando de modo, a prévia sai com a divisória
+        j.executar("previa")
+        j.executar("alternar_modo")
+        assert j.aba_ativa().modo == "texto" and "previa" not in aba.dados and "previa_divisao" not in aba.dados
 
 
 def test_ac7_abrir_alvo_real_troca_de_aba_e_vai_ao_id_ou_a_regra():

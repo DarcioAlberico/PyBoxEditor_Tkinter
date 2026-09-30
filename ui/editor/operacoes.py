@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tkinter as tk
 from typing import Any, Callable, Sequence
 
 from core.editor import epub, livro_ops, relatorios, sumario as core_sumario, validacao
@@ -810,9 +811,14 @@ class OperacoesDoLivro:
             ligar = atual is None
         if not ligar:
             if atual is not None:
+                divisao = aba.dados.pop("previa_divisao", None)
+                if divisao is not None:
+                    self._lembrar_divisao(divisao)
+                    divisao.forget(editor)
                 atual.destroy()
                 aba.dados.pop("previa", None)
-                editor.pack_forget()
+                if divisao is not None:
+                    divisao.destroy()
                 editor.pack(fill="both", expand=True)
             j.status("Prévia fechada.")
             return None
@@ -822,19 +828,54 @@ class OperacoesDoLivro:
         projeto = j._exigir_projeto()
         cap = projeto.livro.capitulo(aba.arquivo)
         folhas = j._folhas_de(cap) if cap is not None else ()
-        previa = Previa(aba.frame, atraso_ms=int(j._preferencia("previa_ms", 300)),
+        # Código | prévia numa divisória arrastável (ED-14). Com dois `pack(side="left")` o
+        # `tk.Text` do código pedia a largura toda e a prévia ficava com ~30 px.
+        divisao = tk.PanedWindow(aba.frame, orient="horizontal", sashwidth=6, sashrelief="raised",
+                                 borderwidth=0, opaqueresize=False)
+        previa = Previa(divisao, atraso_ms=int(j._preferencia("previa_ms", 300)),
                         ao_clicar=lambda linha: (editor.ir_para(int(linha)), editor.foco()),
-                        estilo_de_tela=j._estilo_de_tela(), folhas=folhas, recursos=j._dados_do_recurso)
-        # Os dois lado a lado, com a largura dividida: dois `side="left"` expansíveis repartem o extra.
+                        estilo_de_tela=j._estilo_de_tela(), folhas=folhas, recursos=j._dados_do_recurso,
+                        livro=projeto.livro)
         editor.pack_forget()
-        editor.pack(side="left", fill="both", expand=True)
-        previa.pack(side="left", fill="both", expand=True)
+        divisao.pack(fill="both", expand=True)
+        divisao.add(editor, stretch="always", minsize=160)
+        divisao.add(previa, stretch="always", minsize=160)
+        editor.lift(divisao)                 # o editor é filho do quadro da aba, não da divisória
         aba.dados["previa"] = previa
+        aba.dados["previa_divisao"] = divisao
+        self._por_divisao(divisao)
         editor.texto.bind("<<Mudou>>", lambda e: self._previa_mudou(aba), add="+")
         editor.texto.bind("<<CursorMoveu>>", lambda e: self._previa_cursor(aba), add="+")
         previa.atualizar(editor.texto_todo(), aba.arquivo)
         j.status("Prévia aberta (F12 fecha).")
         return previa
+
+    def _por_divisao(self, divisao: Any) -> None:
+        """A divisória na fração lembrada (`previa_fracao`, 0,5 na primeira vez)."""
+        try:
+            fracao = float(self.j._preferencia("previa_fracao", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            fracao = 0.5
+        fracao = min(0.8, max(0.2, fracao))
+
+        def por(_evento: Any = None) -> None:
+            largura = divisao.winfo_width()
+            if largura > 1:
+                divisao.sash_place(0, int(largura * fracao), 0)
+                divisao.unbind("<Map>")
+
+        divisao.bind("<Map>", por, add="+")
+        divisao.update_idletasks()
+        por()
+
+    def _lembrar_divisao(self, divisao: Any) -> None:
+        try:
+            largura = divisao.winfo_width()
+            x = divisao.sash_coord(0)[0]
+        except (tk.TclError, IndexError):
+            return
+        if largura > 1:
+            self.j._gravar_preferencia("previa_fracao", round(min(0.8, max(0.2, x / largura)), 3))
 
     def _previa_mudou(self, aba: Any) -> None:
         previa = aba.dados.get("previa")
@@ -843,7 +884,7 @@ class OperacoesDoLivro:
 
     def _previa_cursor(self, aba: Any) -> None:
         previa = aba.dados.get("previa")
-        if previa is not None and aba.widget is not None and previa.capitulo is not None:
+        if previa is not None and aba.widget is not None and previa.pronta:
             previa.ir_ao_bloco(aba.widget.posicao[0])
 
     def fechar(self) -> None:

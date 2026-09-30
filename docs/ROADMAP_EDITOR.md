@@ -2158,6 +2158,51 @@ Python 3.13.2):**
 
 ---
 
+## ED-14 — A prévia de verdade (`fitz.Story`), numa divisória
+
+**Origem:** `docs/ANALISE_JANELA_EDITOR.md` (2026-09-30). A prévia da ED-08 era o próprio
+`TextoRico` só de leitura (DEC-05): não aplicava a CSS e mostrava as mesmas ilhas do modo
+texto; e abria com ~30 px, porque código e prévia iam em dois `pack(side="left")` e o
+`tk.Text` pedia a largura toda. **Esta fase substitui a DEC-05** na parte da prévia: o
+painel passa a desenhar o capítulo pelo `fitz.Story`, o mesmo motor do PDF da ED-12 — nada
+novo no `pyproject`. "Abrir no navegador" continua para a fidelidade absoluta.
+
+**Decisões do usuário (2026-09-30):** rolagem **contínua** (não páginas); ao limpar a
+marcação importada, `calibreN` **vira estilo do dialeto** (ED-15); PDF aberto no editor vira
+**livro novo** (ED-17).
+
+**Entrega:**
+- `core/editor/previa_story.py` (sem Tk): `marcar_linhas` (cópia com `id="__l<linha>"` nos
+  blocos sem `id`), `Montador` (recursos pelo caminho do OPF, em cache; fontes e PNG de
+  diagrama pelo `pdf_io._Montador` quando há livro), `desenhar` → `Desenho` (PDF em memória,
+  fatias da largura do painel, `posicoes` linha → página + retângulo, `linha_em`,
+  `posicao_da_linha`).
+- `ui/editor/previa.py`: `Canvas` rolável; só as fatias visíveis (±1) viram `PhotoImage`;
+  redesenho 300 ms depois da última tecla e ao mudar a largura; contorno laranja no bloco do
+  cursor; clique → linha; mal-formado **ou recusado pelo MuPDF** mantém a anterior com o erro
+  no rodapé.
+- `operacoes.previa`: código | prévia num `tk.PanedWindow` com a divisória a 50% e a fração
+  lembrada (`previa_fracao`, entre 0,2 e 0,8); `abas.trocar_widget` desfaz a prévia e a
+  divisória na troca de modo.
+
+**AC:**
+- AC-ED14-1 A prévia desenha texto, CSS e imagens do capítulo; a marcação do
+  *immersive-translate* sai como texto, sem ilha (`test_marcacao_importada_desenha_sem_ilhas`).
+- AC-ED14-2 Linha → bloco e bloco → linha, em capítulo de várias fatias; o bloco mais
+  interno ganha o clique.
+- AC-ED14-3 Recursos buscados uma vez por prévia aberta (o que falta também não é repedido).
+- AC-ED14-4 `F12` põe código e prévia numa divisória com a prévia entre 30% e 70% da largura;
+  fechar devolve o editor ao `pack`; trocar de modo leva a prévia e a divisória embora.
+- AC-ED14-5 Conferência visual a 1360×768, DPI-aware, com o Kasparov (`pagina-0021`):
+  diagrama PNG, CSS e figurinas na prévia.
+
+**Medido:** capítulo de 9 KB em 22 ms (4 fatias) e ~35 ms por fatia em imagem a 110 dpi.
+
+**Falta para depois:** a SPEC_EDITOR (DEC-05, §9.6) ainda descreve a prévia antiga — fica
+para quando o usuário commitar o trabalho dele nela.
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
@@ -2180,3 +2225,4 @@ Python 3.13.2):**
 | ED-11 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `page_break` no meio da página vira `QuebraDePagina`; `Figura` sem posição leva o aviso em `alt`/`title`; suspeita = códigos em `data-suspeito`, frases e leituras vindas do documento; a tabela ignora o preenchimento retangular; o `Diagrama` só gera evento quando a colocação ou a orientação muda; um EPUB exportado vira o caminho do projeto; o EPUB salvo religa o JSON ao reabrir; `page_break`/`header`/`footer` não geram `reject`; a fila com "Exportar" desabilitado pelo `aviso_da_exportacao`; `cv2` entra no editor só ao salvar um livro com ponte |
 | ED-12 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | um `Story` para o livro inteiro com ids prefixados por capítulo; cabeçalho/rodapé por `insert_text` (Helvetica, Latin-1); notas no fim do capítulo; PGN pelo `chess.pgn` com um exportador por partida, título sem lances não é partida, ambíguo vira comentário; índice `p.indice` refeito no lugar, alvo com `id_persistente`, `role` pelo HTML; opções de DOCX/PDF das preferências (sem caixa); "Imprimir…" = PDF temporário aberto; decisão da medição: **convive** |
 | ED-13 | **implementada** | 2026-09-22 | (ver "Registro" da fase) | o `CF_HTML` só inline vira um parágrafo; as preferências aplicam na hora só o que é de tela (tema/tabulação nas abas novas); os botões `ttk` dos painéis Estilos e Busca ganharam `AnelDeFoco`; o `F` do tabuleiro sincroniza a orientação da caixa; o gate usa `pip wheel` porque `build/` estala o `python -m build`; a medição do AC-005 corre na raiz da sessão |
+| ED-14 | **implementada** | 2026-09-30 | — (sem commit) | prévia pelo `fitz.Story` em vez do `TextoRico` (DEC-05 substituída na prévia); divisória `tk.PanedWindow` com o editor irmão (`lift`); ids `__l<linha>` só na cópia; `Montador` reaproveita `pdf_io._Montador` para fontes e PNG de diagrama |
