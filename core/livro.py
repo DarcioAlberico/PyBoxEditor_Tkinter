@@ -424,6 +424,97 @@ def _dentro(b: BoxEntry, rect) -> bool:
     return rect[0] <= b.x1 and b.x2 <= rect[2] and rect[1] <= b.y1 and b.y2 <= rect[3]
 
 
+def _centro_dentro(b: BoxEntry, rect) -> bool:
+    cx, cy = (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2
+    return rect[0] <= cx <= rect[2] and rect[1] <= cy <= rect[3]
+
+
+@dataclass
+class _ImagemDoPdf:
+    """Uma imagem que o PDF embute e que não é tabuleiro — sai como figura."""
+
+    #: (x1, y1, x2, y2) em pixels da página lida.
+    caixa: Tuple[int, int, int, int]
+
+    @property
+    def topo(self) -> int:
+        return self.caixa[1]
+
+
+#: Fração das caixas da página acima da qual a imagem é a página, e não uma
+#: figura dentro dela: numa digitalização toda letra está dentro da imagem; nos
+#: quatro recortes da p. 21 do Khenkin, 61 das 606.
+CAIXAS_DA_IMAGEM = 0.5
+
+
+def _imagens_do_pdf(page: fitz.Page, forma, boxes: Sequence[BoxEntry],
+                    tabuleiros: Sequence["Diagrama"]) -> List[_ImagemDoPdf]:
+    """
+    As imagens do PDF que entram como figura, e não como texto lido.
+
+    **O caso é o Khenkin do calibre** (p. 21): uma imagem de 273x288 px com
+    quatro recortes de canto de tabuleiro, que não são 8x8 e portanto não são
+    diagrama. Lida como página, cada peça virava uma figurina solta, e saíam
+    seis parágrafos de lixo (`♗`, `⩲ ♖`, `⨼⨼ f⇄`). O PDF diz onde a imagem
+    está (`get_image_info`); a leitura por imagem só não perguntava.
+
+    **Só na página cujo texto é tipografia** (`pdf_nativo.Veredito.tipografica`).
+    Ali o texto está na camada, e o que o compositor pôs em imagem é imagem. No
+    ClearScan e na digitalização a imagem embutida é o resto do scan — as faixas
+    de cabeçalho do Yusupov (`A.Yusupov – M.Chandler`, branco sobre cinza) são
+    imagem com texto, e virariam figura muda: medido, 9 de 15 páginas dele
+    ganhavam figura sem essa porta.
+
+    Fica de fora também, e o texto de dentro continua sendo lido, a imagem que:
+
+      - é pequena demais para ser figura (`AREA_MINIMA_DE_IMAGEM` da F110) — a
+        figurina em imagem do calibre, que o OCR lê como figurina;
+      - é a digitalização: cobre a página (`COBERTURA_DE_DIGITALIZACAO`, também
+        somando todas, para a digitalização em tiras), ou tem dentro mais da
+        metade das letras da página (`CAIXAS_DA_IMAGEM`);
+      - encosta num tabuleiro achado — o diagrama em imagem é do `figura`.
+    """
+    from core import pdf_nativo
+
+    # A página girada fica com o caminho de antes: o `bbox` da imagem vem sem o
+    # giro, e a página lida vem com ele. Sem `page` (o teste que entrega a
+    # imagem pronta a `_pagina_cinza`), não há PDF a quem perguntar.
+    if page is None or page.rotation % 360:
+        return []
+    area = abs(page.rect) or 1.0
+    fator = forma[1] / max(1.0, page.rect.width)
+    caixas = []
+    for info in page.get_image_info():
+        rect = fitz.Rect(info.get("bbox") or (0, 0, 0, 0)) & page.rect
+        if not rect.is_empty:
+            caixas.append(rect)
+    if sum(abs(r) for r in caixas) >= pdf_nativo.COBERTURA_DE_DIGITALIZACAO * area:
+        return []
+    if not any(abs(r) >= pdf_nativo.AREA_MINIMA_DE_IMAGEM * area for r in caixas):
+        return []
+    if not pdf_nativo.avaliar_pagina(page, produtor=pdf_nativo.produtor(page.parent)).tipografica:
+        return []
+
+    saida: List[_ImagemDoPdf] = []
+    for rect in caixas:
+        if abs(rect) < pdf_nativo.AREA_MINIMA_DE_IMAGEM * area:
+            continue
+        r = rect * fitz.Matrix(fator, fator)
+        caixa = (max(0, int(r.x0)), max(0, int(r.y0)),
+                 min(int(forma[1]), int(round(r.x1))), min(int(forma[0]), int(round(r.y1))))
+        if caixa[2] <= caixa[0] or caixa[3] <= caixa[1]:
+            continue
+        if any(min(caixa[2], d.tabuleiro[2]) > max(caixa[0], d.tabuleiro[0])
+               and min(caixa[3], d.tabuleiro[3]) > max(caixa[1], d.tabuleiro[1])
+               for d in tabuleiros):
+            continue
+        dentro = sum(1 for b in boxes if _centro_dentro(b, caixa))
+        if dentro > CAIXAS_DA_IMAGEM * max(1, len(boxes)):
+            continue
+        saida.append(_ImagemDoPdf(caixa))
+    return saida
+
+
 @dataclass
 class Diagrama:
     """
@@ -3484,6 +3575,11 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                               blocos=[Figura(png, larg, alt, origem="pagina")],
                               pagina_de_imagem=True)
 
+    imagens = _imagens_do_pdf(page, img.shape, boxes, tabuleiros)
+    if imagens:
+        boxes = [b for b in boxes
+                 if not any(_centro_dentro(b, i.caixa) for i in imagens)]
+
     # **A régua do box largo e a prova visual são da página inteira**, e por
     # isso saem daqui e não de dentro da linha: `_largura_de_referencia` mede a
     # largura de caractere linha a linha mas precisa da página para o piso, e a
@@ -3682,10 +3778,17 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     # Por coluna e, dentro dela, por altura: é a ordem em que elas saem quando
     # não houver texto embaixo de que pendurá-las.
     pendentes = sorted(
-        ((_coluna_de((d.tabuleiro[0] + d.tabuleiro[2]) / 2, colunas), d)
-         for d in tabuleiros),
+        [(_coluna_de((d.tabuleiro[0] + d.tabuleiro[2]) / 2, colunas), d)
+         for d in tabuleiros]
+        + [(_coluna_de((i.caixa[0] + i.caixa[2]) / 2, colunas), i) for i in imagens],
         key=lambda par: (par[0], par[1].topo))
     corrente: List[Linha] = []
+
+    def blocos_de(item) -> List[Bloco]:
+        if isinstance(item, _ImagemDoPdf):
+            png, larg, alt = _png_do_recorte(img, item.caixa, dpi, dpi_figura, tons=0)
+            return [Figura(png, larg, alt, origem="pagina")]
+        return figura(item)
 
     def despejar(coluna: int, ate: Optional[int] = None) -> None:
         """As figuras daquela coluna que já passaram — todas, se `ate` é None."""
@@ -3697,7 +3800,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 continue
             resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
             corrente = []
-            resultado.blocos.extend(figura(d))
+            resultado.blocos.extend(blocos_de(d))
         pendentes = restam
 
     def soltar_tabela(ate: Optional[int] = None) -> None:
@@ -3728,7 +3831,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     corrente = []
     soltar_tabela()
     for _col, d in pendentes:
-        resultado.blocos.extend(figura(d))
+        resultado.blocos.extend(blocos_de(d))
 
     # As células contam como caractere da página: são texto lido, e é por este
     # número que o relatório do fim da exportação diz se a página rendeu (F72).

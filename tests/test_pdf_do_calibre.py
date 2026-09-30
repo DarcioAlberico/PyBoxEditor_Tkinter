@@ -14,8 +14,11 @@ inteiro. Três coisas dele não estão onde a camada as procura:
     reamostrada tem uma linha cinza nas divisas das filas), e o tabuleiro
     virava parágrafo. `diagrama._de_moldura_partida` o acha pelas faixas.
 
-E um quarto, que aparecia junto: a linha de prosa colada em cima do tabuleiro
-perdia as letras que descem (`j gy` virava o título do diagrama).
+E dois que apareciam junto: a linha de prosa colada em cima do tabuleiro
+perdia as letras que descem (`j gy` virava o título do diagrama), e a imagem
+com quatro recortes de canto de tabuleiro (p. 21), que não é diagrama, virava
+seis parágrafos de figurinas soltas — agora sai como figura
+(`livro._imagens_do_pdf`), só onde a camada é tipografia.
 
 Os testes montam os casos com o PyMuPDF e com numpy; os do fim rodam sobre o
 PDF do Khenkin quando ele está na máquina (`KHENKIN_PDF`, ou uma pasta
@@ -98,7 +101,7 @@ def _pdf_sem_unicode_na_ligadura(caminho, nome_da_ligadura="f_i"):
     doc = fitz.open()
     p = doc.new_page(width=600, height=400)
     p.insert_font(fontname="prova", fontbuffer=_fonte_com_ligadura(nome_da_ligadura))
-    p.insert_text((20, 40), "battleﬁeld tabled battleﬁeld", fontname="prova",
+    p.insert_text((20, 40), "battle\ufb01eld tabled battle\ufb01eld", fontname="prova",
                   fontsize=10)
     for i in range(12):
         p.insert_text((20, 60 + 16 * i), "tabled battle tabled battle tabled battle",
@@ -124,13 +127,13 @@ def test_a_ligadura_sem_unicode_se_le_pelo_nome_do_glifo(tmp_path):
     pytest.importorskip("fontTools")
     pdf = _pdf_sem_unicode_na_ligadura(tmp_path / "l.pdf")
     with fitz.open(pdf) as doc:
-        assert "�" in "".join(chr(c[0]) for t in doc[0].get_texttrace()
+        assert "\ufffd" in "".join(chr(c[0]) for t in doc[0].get_texttrace()
                                    for c in t["chars"]), "o PDF de prova não perdeu o Unicode"
     [veredito] = pdf_nativo.avaliar(pdf)
     assert veredito.aceita, veredito.motivo
     [pagina] = pdf_nativo.extrair(pdf).paginas
     assert "battlefield" in pagina.texto
-    assert "�" not in pagina.texto
+    assert "\ufffd" not in pagina.texto
 
 
 def test_a_ligadura_que_o_nome_nao_diz_manda_a_pagina_ao_ocr(tmp_path):
@@ -274,6 +277,81 @@ def test_o_cabecalho_inteiro_na_faixa_fica_no_diagrama():
 
 
 # ----------------------------------------------------------------------
+# A imagem do PDF que não é tabuleiro
+# ----------------------------------------------------------------------
+
+#: A página de prova tem 600x800 pt; lida a 300 dpi, 2500x3333 px.
+FORMA = (int(800 * 300 / 72), int(600 * 300 / 72))
+
+
+def _pagina_com_imagens(*retangulos, texto=True):
+    """Prosa em Helvetica no alto e no pé da página (a camada tipográfica), e
+    as imagens pedidas."""
+    doc = fitz.open()
+    p = doc.new_page(width=600, height=800)
+    if texto:
+        for y in (40, 56, 72, 740, 756, 772):
+            p.insert_text((40, y), "Mating situations in which the rook delivers a "
+                          "linear blow can also arise on the files.", fontsize=10)
+    pix = fitz.Pixmap(fitz.csGRAY, fitz.IRect(0, 0, 60, 60), False)
+    pix.clear_with(180)
+    for r in retangulos:
+        p.insert_image(fitz.Rect(*r), pixmap=pix)
+    doc = fitz.open("pdf", doc.tobytes())
+    return doc, doc[0]
+
+
+def _em_pixels(*r):
+    return tuple(int(v * 300 / 72) for v in r)
+
+
+def _letras_fora(n=200):
+    """Caixas de letra espalhadas fora da imagem, como a prosa da página."""
+    return [BoxEntry("a", 100 + (k % 40) * 50, 100 + (k // 40) * 60,
+                     130 + (k % 40) * 50, 140 + (k // 40) * 60) for k in range(n)]
+
+
+def test_a_imagem_do_meio_da_pagina_sai_como_figura():
+    """Os quatro recortes da p. 21 do Khenkin: nem tabuleiro, nem texto."""
+    _doc, pagina = _pagina_com_imagens((200, 300, 400, 500))
+    dentro = [BoxEntry("♖", *_em_pixels(250, 350, 262, 364))]
+    [imagem] = livro._imagens_do_pdf(pagina, FORMA, _letras_fora() + dentro, [])
+    assert all(abs(a - b) <= 1 for a, b in zip(imagem.caixa, _em_pixels(200, 300, 400, 500)))
+    assert livro._centro_dentro(dentro[0], imagem.caixa)
+
+
+def test_sem_tipografia_a_imagem_e_resto_do_scan():
+    """ClearScan ou digitalização: a camada não é tipografia, e a imagem do meio
+    da página (a faixa de cabeçalho do Yusupov) continua sendo lida como texto."""
+    _doc, pagina = _pagina_com_imagens((200, 300, 400, 500), texto=False)
+    assert livro._imagens_do_pdf(pagina, FORMA, _letras_fora(), []) == []
+
+
+def test_a_digitalizacao_nao_vira_figura():
+    """A página inteira em imagem — e a digitalização em quatro tiras."""
+    _doc, inteira = _pagina_com_imagens((0, 0, 600, 800))
+    assert livro._imagens_do_pdf(inteira, FORMA, _letras_fora(), []) == []
+    _doc, tiras = _pagina_com_imagens(*[(0, 200 * k, 600, 200 * (k + 1)) for k in range(4)])
+    assert livro._imagens_do_pdf(tiras, FORMA, _letras_fora(), []) == []
+
+
+def test_a_imagem_com_a_maior_parte_das_letras_e_a_pagina():
+    """A digitalização que não cobre a página (margem larga): as letras estão dentro dela."""
+    _doc, pagina = _pagina_com_imagens((20, 20, 580, 600))
+    letras = [BoxEntry("a", *_em_pixels(40 + (k % 20) * 25, 40 + (k // 20) * 30,
+                                        52 + (k % 20) * 25, 52 + (k // 20) * 30))
+              for k in range(300)]
+    assert livro._imagens_do_pdf(pagina, FORMA, letras + _letras_fora(20), []) == []
+
+
+def test_a_figurina_em_imagem_e_o_diagrama_em_imagem_ficam_de_fora():
+    _doc, pagina = _pagina_com_imagens((100, 100, 113.5, 114), (200, 300, 360, 460))
+    tabuleiro = _em_pixels(203, 303, 357, 457)
+    d = livro.Diagrama(exclusao=tabuleiro, tabuleiro=tabuleiro)
+    assert livro._imagens_do_pdf(pagina, FORMA, _letras_fora(), [d]) == []
+
+
+# ----------------------------------------------------------------------
 # O Khenkin, quando ele está na máquina
 # ----------------------------------------------------------------------
 
@@ -306,3 +384,14 @@ def test_khenkin_os_tres_tabuleiros_da_pagina_20_sao_achados():
         Image.fromarray(img), max_contornos=BoxService.MAX_CONTORNOS_DE_TEXTO,
         binaria_inicial=binaria)
     assert len(diag.localizar(antes, escala=escala, imagem=img, binaria=th)) == 3
+
+
+def test_khenkin_os_recortes_da_pagina_21_saem_como_uma_figura():
+    """Antes: seis parágrafos de figurinas soltas entre as duas prosas."""
+    with fitz.open(_khenkin()) as doc:
+        pagina = livro.extrair_pagina(doc[20], lambda *a, **k: ("a", 0.99), numero=20)
+    figuras = [b for b in pagina.blocos
+               if isinstance(b, livro.Figura) and b.origem == "pagina"]
+    assert len(figuras) == 1
+    antes = pagina.blocos[pagina.blocos.index(figuras[0]) - 1]
+    assert isinstance(antes, livro.Paragrafo) and len(antes.texto) > 100

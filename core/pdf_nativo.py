@@ -540,6 +540,12 @@ class Veredito:
     caracteres: int = 0
     #: As fontes da página, da que mais escreve para a que menos.
     fontes: Tuple[str, ...] = ()
+    #: O texto da página é tipografia — o que o compositor escreveu, e não o
+    #: que um OCR achou —, mesmo que a página tenha sido recusada por outro
+    #: motivo (a figurina em imagem do Khenkin). Numa página assim, a imagem
+    #: embutida é figura de verdade, e não o resto da digitalização
+    #: (`livro._imagens_do_pdf`).
+    tipografica: bool = False
 
     @property
     def tem_texto(self) -> bool:
@@ -603,9 +609,22 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
             letras.extend((tuple(item[3]), tamanho) for item in caracteres
                           if item[0] not in _ESPACOS)
     fontes = tuple(nome for nome, _n in por_fonte.most_common())
+    programa = produtor_de_ocr(produtor)
+    area = abs(page.rect) or 1.0
+    digitalizada = any(
+        abs(fitz.Rect(info.get("bbox") or (0, 0, 0, 0)) & page.rect)
+        >= COBERTURA_DE_DIGITALIZACAO * area for info in page.get_image_info())
+    # O que o OCR de fábrica deixa no arquivo, e nada mais: a página recusada
+    # por figurina em imagem, glifo sem nome ou fonte de xadrez sem mapa
+    # continua sendo tipografia (`Veredito.tipografica`).
+    tipografica = not (page.rotation % 360 or total < CARACTERES_MINIMOS
+                       or invisiveis > LIMITE_DE_OCR * total
+                       or de_ocr > LIMITE_DE_OCR * total
+                       or sem_unicode > LIMITE_DE_OCR * total
+                       or programa or digitalizada)
 
     def recusa(motivo: str) -> Veredito:
-        return Veredito(numero, False, motivo, total, fontes)
+        return Veredito(numero, False, motivo, total, fontes, tipografica)
 
     if page.rotation % 360:
         return recusa(f"página girada ({page.rotation}°)")
@@ -635,17 +654,13 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     if desconhecida:
         return recusa(f"fonte de xadrez sem mapa ({desconhecida}): o diagrama "
                       "dela não se decodifica, e vai à imagem")
-    programa = produtor_de_ocr(produtor)
     if programa:
         return recusa(f"o PDF foi carimbado por um programa de OCR ({programa})")
     if girados > LIMITE_DE_GIRADOS * total:
         return recusa(f"texto fora da horizontal ({girados} de {total})")
-    area = abs(page.rect) or 1.0
-    for info in page.get_image_info():
-        caixa = fitz.Rect(info.get("bbox") or (0, 0, 0, 0)) & page.rect
-        if abs(caixa) >= COBERTURA_DE_DIGITALIZACAO * area:
-            return recusa("texto sobre a imagem da página inteira: é digitalização")
-    return Veredito(numero, True, "camada tipográfica", total, fontes)
+    if digitalizada:
+        return recusa("texto sobre a imagem da página inteira: é digitalização")
+    return Veredito(numero, True, "camada tipográfica", total, fontes, tipografica)
 
 
 def avaliar(caminho: str, paginas: Optional[Sequence[int]] = None) -> List[Veredito]:
