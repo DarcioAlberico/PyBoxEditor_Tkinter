@@ -87,8 +87,11 @@ class Xadrez:
             j.xadrez.destroy()
         except Exception:      # noqa: BLE001 — o rótulo de espera pode não existir
             pass
+        acoes = (("Diagrama", "Inserir diagrama… (Ctrl+Shift+D)", lambda: j.executar("inserir_diagrama")),
+                 ("Posição", "Editar posição… (Ctrl+Shift+P)", lambda: j.executar("editar_posicao")),
+                 ("Validar", "Validar notação do capítulo", lambda: j.executar("validar_notacao")))
         self.painel = PainelDeXadrez(j.quadro_xadrez, ao_inserir=self.inserir_simbolo_de_xadrez,
-                                     ao_sair=j.foco_no_editor, status=j.status)
+                                     ao_sair=j.foco_no_editor, status=j.status, acoes=acoes)
         self.painel.pack(fill="both", expand=True)
         j.xadrez = self.painel
         if "xadrez" in j.paineis:

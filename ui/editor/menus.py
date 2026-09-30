@@ -206,7 +206,7 @@ EXIBIR = (
     _check("Xadrez", "painel_xadrez", "xadrez"),
     _check("Busca e mensagens", "painel_busca", "busca"),
     _check("Barra de formatação", "barra_de_formatacao", "barra_de_formatacao"),
-    _check("Barra de xadrez", "barra_de_xadrez", "barra_de_xadrez"),
+    _check("Barra de xadrez (com o painel Xadrez fechado)", "barra_de_xadrez", "barra_de_xadrez"),
     SEP,
     _check("Mostrar invisíveis", "invisiveis", "invisiveis", "ED-02", TEXTO),
     _check("Quebra automática de linha", "quebra_automatica", "quebra_automatica"),

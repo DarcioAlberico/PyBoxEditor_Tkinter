@@ -192,4 +192,5 @@ display onde der; captura DPI-aware a 1360×768 como gate visual).
 | ED-15 | **commitada** 2026-09-30 (`c7d7970`) — ver `ROADMAP_EDITOR.md` |
 | ED-17 | **commitada** 2026-09-30 (`b076566`) — ver `ROADMAP_EDITOR.md` |
 | ED-18 | **commitada** 2026-09-30 (`e75a3a0`) — ver `ROADMAP_EDITOR.md` |
-| ED-16 | **implementada** 2026-09-30 — editor com 575 px em 1360×728 (eram ~420); ver `ROADMAP_EDITOR.md` |
+| ED-16 | **commitada** 2026-09-30 (`3ba30ef`) — editor com 575 px em 1360×728 (eram ~420) |
+| ED-16b | **implementada** 2026-09-30 — N/I/S/T com estado, sem paleta repetida, Propriedades encolhível, coluna em abas: editor com 619 px |

@@ -266,7 +266,8 @@ class JanelaDoEditor(tk.Toplevel):
 
         self.paned = ttk.PanedWindow(self, orient="horizontal")
         self.paned.grid(row=1, column=0, sticky="nsew")
-        self.esquerda = ttk.PanedWindow(self.paned, orient="vertical")
+        # A coluna esquerda em abas (ED-16b): cada lista com a altura toda, em vez de três terços.
+        self.esquerda = ColunaEmAbas(self.paned)
         self.centro = ttk.PanedWindow(self.paned, orient="vertical")
         self.direita = ttk.PanedWindow(self.paned, orient="vertical")
         self.paned.add(self.esquerda, weight=1)
@@ -274,19 +275,21 @@ class JanelaDoEditor(tk.Toplevel):
         self.paned.add(self.direita, weight=1)
 
         # Esquerda: Navegador, Sumário, Estilos
-        self.quadro_navegador = ttk.LabelFrame(self.esquerda, text="Navegador")
+        self.quadro_navegador = ttk.Frame(self.esquerda, padding=2)
         self.painel_navegador = Navegador(self.quadro_navegador, self)
         self.painel_navegador.pack(fill="both", expand=True)
         self.navegador = self.painel_navegador.arvore
-        self.quadro_sumario = ttk.LabelFrame(self.esquerda, text="Sumário")
+        self.quadro_sumario = ttk.Frame(self.esquerda, padding=2)
         self.painel_sumario = PainelDeSumario(self.quadro_sumario, self)
         self.painel_sumario.pack(fill="both", expand=True)
         self.arvore_do_sumario = self.painel_sumario.arvore
-        self.quadro_estilos = ttk.LabelFrame(self.esquerda, text="Estilos")
+        self.quadro_estilos = ttk.Frame(self.esquerda, padding=2)
         self._texto_de_reserva = TextoRico(self.quadro_estilos)          # o alvo do painel sem aba aberta
         self.painel_de_estilos = PainelDeEstilos(self.quadro_estilos, self._texto_de_reserva, "",
                                                  ao_gravar=self._gravar_folha_padrao)
         self.painel_de_estilos.pack(fill="both", expand=True)
+        self.esquerda.rotulos = {str(self.quadro_navegador): "Navegador", str(self.quadro_sumario): "Sumário",
+                                 str(self.quadro_estilos): "Estilos"}
         for quadro in (self.quadro_navegador, self.quadro_sumario, self.quadro_estilos):
             self.esquerda.add(quadro, weight=1)
 
@@ -312,7 +315,8 @@ class JanelaDoEditor(tk.Toplevel):
         self.painel_de_propriedades = PainelDePropriedades(self.quadro_propriedades, None,
                                                            ao_acao=self._acao_das_propriedades,
                                                            verificar_destino=self.destino_existe,
-                                                           descrever_suspeita=self.descrever_suspeita)
+                                                           descrever_suspeita=self.descrever_suspeita,
+                                                           ao_mudar_vazio=self._propriedades_vazias)
         self.painel_de_propriedades.pack(fill="both", expand=True)
         self.propriedades = self.painel_de_propriedades
         self.quadro_xadrez = ttk.LabelFrame(self.direita, text="Xadrez")
@@ -335,9 +339,12 @@ class JanelaDoEditor(tk.Toplevel):
         self.campos["aviso"].pack(side="left", fill="x", expand=True)
 
         self.paineis = {
-            "navegador": Painel("navegador", "esquerda", self.quadro_navegador, self._focar_navegador),
-            "sumario": Painel("sumario", "esquerda", self.quadro_sumario, self._focar_sumario),
-            "estilos": Painel("estilos", "esquerda", self.quadro_estilos, self.painel_de_estilos.lista.focus_set),
+            "navegador": Painel("navegador", "esquerda", self.quadro_navegador,
+                                self.esquerda.focar(self.quadro_navegador, self._focar_navegador)),
+            "sumario": Painel("sumario", "esquerda", self.quadro_sumario,
+                              self.esquerda.focar(self.quadro_sumario, self._focar_sumario)),
+            "estilos": Painel("estilos", "esquerda", self.quadro_estilos,
+                              self.esquerda.focar(self.quadro_estilos, self.painel_de_estilos.lista.focus_set)),
             "editor": Painel("editor", "centro", self.abas, self.foco_no_editor),
             "propriedades": Painel("propriedades", "direita", self.quadro_propriedades,
                                    self.painel_de_propriedades.foco),
@@ -1083,6 +1090,7 @@ class JanelaDoEditor(tk.Toplevel):
     def _ligar_editor(self, widget: Any, aba: Aba) -> None:
         widget.texto.bind("<<Mudou>>", lambda e, a=aba: self._mudou(a), add="+")
         widget.texto.bind("<<CursorMoveu>>", lambda e, a=aba: self._cursor_moveu(a), add="+")
+        widget.texto.bind("<<FormatoMudou>>", lambda e: self._atualizar_formato(), add="+")
         widget.texto.bind("<Button-3>", self._botao_direito, add="+")
         atalhos_mod.ligar(widget.texto, atalhos_mod.TABELA, self._despacho, self.modo_atual)
 
@@ -1269,8 +1277,20 @@ class JanelaDoEditor(tk.Toplevel):
         if aba is self.aba_ativa() and isinstance(aba.widget, TextoRico) and not self._foco_no_painel_de_propriedades():
             self.painel_de_propriedades.atualizar(forcar=True)
 
+    def _atualizar_formato(self) -> None:
+        """Os botões N/I/S/T acompanham o cursor do modo texto (ED-16b)."""
+        aba = self.aba_ativa()
+        estado = None
+        if aba is not None and isinstance(aba.widget, TextoRico):
+            try:
+                estado = aba.widget.estado_de_formato()
+            except tk.TclError:
+                estado = None
+        self.barra_de_formatacao.marcar_formato(estado)
+
     def _cursor_moveu(self, aba: Aba) -> None:
         if aba is self.aba_ativa():
+            self._atualizar_formato()
             self._atualizar_posicao(aba)
             if isinstance(aba.widget, TextoRico) and not self._foco_no_painel_de_propriedades():
                 self.painel_de_propriedades.atualizar()
@@ -2403,6 +2423,8 @@ class JanelaDoEditor(tk.Toplevel):
                 grupo.forget(painel.widget)
             painel.visivel = bool(visivel)
             self._ajustar_laterais()
+            if nome == "xadrez":
+                self._empilhar_barras()           # a barra de xadrez volta quando o painel sai (ED-16b)
         if nome in self.variaveis:
             self.variaveis[nome].set(bool(visivel))
         if not visivel and tinha_foco:
@@ -2455,11 +2477,47 @@ class JanelaDoEditor(tk.Toplevel):
                 do_modo.pack(in_=self.fileira, side="left", padx=(8, 0))
             else:
                 do_modo.pack(side="top", fill="x")
-        if self.variaveis["barra_de_xadrez"].get():
+        if self.variaveis["barra_de_xadrez"].get() and not self._painel_de_xadrez_visivel():
+            # Com o painel Xadrez à vista, a barra seria a mesma paleta repetida (ED-16b).
             self.barra_de_xadrez.pack(side="top", fill="x")
         if self.barra_de_clipes is not None and self.barra_de_clipes.winfo_ismapped():
             self.barra_de_clipes.pack_forget()
             self.barra_de_clipes.pack(side="top", fill="x")
+
+    #: A altura do painel Propriedades vazio: a moldura e "Nada sob o cursor." (ED-16b).
+    ALTURA_DAS_PROPRIEDADES_VAZIAS = 64
+
+    def _propriedades_vazias(self, vazio: bool) -> None:
+        """Vazio, o painel Propriedades encolhe e o Xadrez ganha a coluna; com algo, volta à altura de antes."""
+        self._propriedades_vazio = vazio
+        try:
+            self.after_idle(self._ajustar_propriedades)
+        except tk.TclError:
+            pass
+
+    def _ajustar_propriedades(self) -> None:
+        if not self.winfo_exists() or not (self.paineis["propriedades"].visivel and self.paineis["xadrez"].visivel):
+            return
+        altura = self.direita.winfo_height()
+        if altura <= 1:
+            return
+        try:
+            atual = self.direita.sashpos(0)
+        except tk.TclError:
+            return
+        if getattr(self, "_propriedades_vazio", False):
+            if atual > self.ALTURA_DAS_PROPRIEDADES_VAZIAS + 8:
+                self._sash_das_propriedades = atual          # a altura que o usuário tinha, para voltar a ela
+            self.direita.sashpos(0, self.ALTURA_DAS_PROPRIEDADES_VAZIAS)
+        else:
+            pedida = self.quadro_propriedades.winfo_reqheight()
+            alvo = getattr(self, "_sash_das_propriedades", None) or min(pedida, int(altura * 0.6))
+            if atual < alvo:
+                self.direita.sashpos(0, alvo)
+
+    def _painel_de_xadrez_visivel(self) -> bool:
+        paineis = getattr(self, "paineis", None)
+        return bool(paineis) and "xadrez" in paineis and paineis["xadrez"].visivel
 
     def _cabem_lado_a_lado(self, do_modo: tk.Misc, largura: int | None = None) -> bool:
         """As duas barras cabem na `largura` (a da janela, sem ela)?"""
@@ -2725,6 +2783,7 @@ class JanelaDoEditor(tk.Toplevel):
                 self.campos[nome].configure(text="")
         self.campos["modo"].configure(text="MODO CÓDIGO" if modo == "codigo" else "MODO TEXTO")
         self._atualizar_posicao(aba)
+        self._atualizar_formato()
         self._atualizar_contagem()
         if aba is not None and isinstance(aba.widget, EditorDeCodigo):
             self.variaveis["numeros_de_linha"].set(aba.widget._numeros_de_linha)
@@ -2895,6 +2954,38 @@ class JanelaDoEditor(tk.Toplevel):
 # ----------------------------------------------------------------------
 # Auxiliares
 # ----------------------------------------------------------------------
+
+class ColunaEmAbas(ttk.Notebook):
+    """
+    A coluna esquerda como abas (ED-16b) — Navegador · Sumário · Estilos —, falando a língua do
+    `ttk.PanedWindow` que o resto da janela usa para mostrar e esconder painéis: `panes`, `add`
+    e `insert` com `weight` (ignorado), `forget`. `rotulos` dá o texto da aba de cada quadro.
+    """
+
+    def __init__(self, master: tk.Misc, **kw: Any):
+        super().__init__(master, **kw)
+        self.rotulos: dict[str, str] = {}
+
+    def panes(self) -> tuple[str, ...]:
+        return tuple(str(t) for t in self.tabs())
+
+    def add(self, child: tk.Misc, weight: int = 1, **kw: Any) -> None:  # noqa: ARG002 — a assinatura do paned
+        kw.setdefault("text", self.rotulos.get(str(child), ""))
+        super().add(child, **kw)
+
+    def insert(self, pos: Any, child: tk.Misc, weight: int = 1, **kw: Any) -> None:  # noqa: ARG002
+        kw.setdefault("text", self.rotulos.get(str(child), ""))
+        super().insert(pos, child, **kw)
+
+    def focar(self, quadro: tk.Misc, foco: Callable[[], Any]) -> Callable[[], Any]:
+        """O foco de um painel da coluna: a aba dele à frente, e então o widget."""
+        def focar() -> Any:
+            if str(quadro) in self.panes():
+                self.select(quadro)
+                self.update_idletasks()
+            return foco()
+        return focar
+
 
 def _por_em(paned: ttk.PanedWindow, posicao: int, widget: tk.Misc) -> None:
     """`insert` numa posição do `PanedWindow` — ou `add`, porque `insert` no fim (ou no vazio) é erro no Tk."""

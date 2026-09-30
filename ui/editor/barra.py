@@ -101,6 +101,9 @@ BOTOES_DE_ARQUIVO = (
 )
 #: Os botões da vista da aba: um só fica marcado, o da vista atual (ED-15).
 VISTAS = {"modo_texto": "texto", "modo_codigo": "codigo", "modo_dividido": "dividido"}
+#: Os botões de alternância da formatação (ED-16b): ficam marcados conforme o cursor, cada um na sua letra.
+ALTERNAVEIS = {"negrito": ("bold",), "italico": ("italic",), "sublinhado": ("underline",),
+               "tachado": ("overstrike",)}
 BOTOES_DE_FORMATACAO = (
     ("negrito", "N", "Negrito (Ctrl+B)"),
     ("italico", "I", "Itálico (Ctrl+I)"),
@@ -143,6 +146,7 @@ class Barra(ttk.Frame):
         self.aneis: dict[str, AnelDeFoco] = {}
         self.estilo_combo: ttk.Combobox | None = None
         self.vista: tk.StringVar | None = None
+        self.formato: dict[str, tk.BooleanVar] = {}
         for comando, texto, dica in botoes:
             if comando == "-":
                 ttk.Separator(self, orient="vertical").pack(side="left", fill="y", padx=4, pady=2)
@@ -150,7 +154,13 @@ class Barra(ttk.Frame):
             self.adicionar(comando, texto, dica)
 
     def adicionar(self, comando: str, texto: str, dica: str = "") -> ttk.Button:
-        if comando in VISTAS:
+        if comando in ALTERNAVEIS:
+            self.formato[comando] = tk.BooleanVar(self, value=False)
+            estilo = _estilo_da_letra(self, comando)
+            anel = AnelDeFoco(self, lambda pai, c=comando, t=texto: ttk.Checkbutton(
+                pai, text=t, command=lambda: self._alternar_formato(c), variable=self.formato[c],
+                style=estilo, width=max(3, len(t) + 2)))
+        elif comando in VISTAS:
             if self.vista is None:
                 self.vista = tk.StringVar(self, value="")
             anel = AnelDeFoco(self, lambda pai, c=comando, t=texto: ttk.Radiobutton(
@@ -181,6 +191,20 @@ class Barra(ttk.Frame):
         atual = operacoes.vista_atual() if operacoes is not None else ""
         self.vista.set(atual)
 
+    def marcar_formato(self, estado: dict[str, bool] | None) -> None:
+        """Os botões N/I/S/T mostram o formato do cursor (`None`: nenhum ligado — o modo código)."""
+        for nome, variavel in self.formato.items():
+            variavel.set(bool((estado or {}).get(nome, False)))
+
+    def _alternar_formato(self, comando: str) -> None:
+        # O `Checkbutton` já trocou a marca; quem manda é o editor, que devolve o estado real.
+        try:
+            self.janela.executar(comando)
+        finally:
+            atualizar = getattr(self.janela, "_atualizar_formato", None)
+            if atualizar is not None:
+                atualizar()
+
     def _escolher_vista(self, comando: str) -> None:
         # O `Radiobutton` já marcou; se a troca não aconteceu (XHTML mal-formado, sem aba), volta à real.
         try:
@@ -195,6 +219,19 @@ class Barra(ttk.Frame):
         return None
 
 
+def _estilo_da_letra(widget: tk.Misc, comando: str) -> str:
+    """O estilo `ttk` do botão de alternância: o *Toolbutton* com a letra em negrito, itálico, etc."""
+    import tkinter.font as tkfont
+
+    nome = f"{comando.capitalize()}.Toolbutton"
+    estilo = ttk.Style(widget)
+    if not estilo.configure(nome):
+        base = tkfont.nametofont("TkDefaultFont").actual()
+        fonte = (base["family"], base["size"], *ALTERNAVEIS[comando])
+        estilo.configure(nome, font=fonte, anchor="center")
+    return nome
+
+
 class BarraDeXadrez(Barra):
     """Vazia na ED-02: a ED-05 a preenche (figurinas brancas, NAGs, Diagrama, Posição, Validar)."""
 
@@ -205,4 +242,5 @@ class BarraDeXadrez(Barra):
 
 
 __all__ = ["AnelDeFoco", "Dica", "Barra", "BarraDeXadrez", "BOTOES_DE_ARQUIVO", "BOTOES_DE_FORMATACAO", "VISTAS",
+           "ALTERNAVEIS",
            "BOTOES_DE_CODIGO"]

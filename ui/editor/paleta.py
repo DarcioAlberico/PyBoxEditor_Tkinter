@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from core import nags
 from core.estilo_do_livro import PISO_DO_SIMBOLO
-from ui.editor.barra import Barra, Dica
+from ui.editor.barra import AnelDeFoco, Barra, Dica
 
 FIGURINAS = (("♔", "Rei"), ("♕", "Dama"), ("♖", "Torre"), ("♗", "Bispo"), ("♘", "Cavalo"), ("♙", "Peão"))
 LADO_DO_BOTAO_PX = 24
@@ -122,13 +122,25 @@ class PainelDeXadrez(ttk.Frame):
     """
 
     def __init__(self, master: tk.Misc, ao_inserir: Callable[[str], Any], ao_sair: Callable[[], Any] | None = None,
-                 status: Callable[[str], Any] | None = None, **kw: Any):
+                 status: Callable[[str], Any] | None = None,
+                 acoes: Sequence[tuple[str, str, Callable[[], Any]]] = (), **kw: Any):
         super().__init__(master, **kw)
         self.ao_inserir = ao_inserir
         self.ao_sair = ao_sair
         self.status = status or (lambda texto: None)
         self.grades: list[_Grade] = []
         self.descricoes: dict[str, str] = {}
+        # O que só a barra de xadrez tinha (Diagrama, Posição, Validar): com o painel à vista, a
+        # barra some (ED-16b) — figurinas e NAGs já estão aqui —, e estes três vêm para o topo.
+        self.acoes: dict[str, ttk.Button] = {}
+        if acoes:
+            topo = ttk.Frame(self)
+            topo.pack(side="top", fill="x", padx=4, pady=(4, 0))
+            for rotulo, dica, funcao in acoes:
+                anel = AnelDeFoco(topo, lambda pai, r=rotulo, f=funcao: ttk.Button(pai, text=r, command=f))
+                anel.pack(side="left", padx=(0, 4))
+                Dica(anel.widget, dica)
+                self.acoes[rotulo] = anel.widget
         rolagem = ttk.Frame(self)
         rolagem.pack(fill="both", expand=True)
         self.canvas = tk.Canvas(rolagem, highlightthickness=0, borderwidth=0)

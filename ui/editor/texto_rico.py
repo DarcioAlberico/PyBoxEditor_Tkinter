@@ -2825,6 +2825,24 @@ class TextoRico(ttk.Frame):
             return tuple(t for t in self.texto.tag_names(f"{indice}-1c") if T.e_de_caractere(t))
         return tuple(t for t in self.texto.tag_names(indice) if T.e_de_caractere(t))
 
+    def estado_de_formato(self, atributos: tuple[str, ...] = ("negrito", "italico", "sublinhado", "tachado")) \
+            -> dict[str, bool]:
+        """
+        O que os botões de alternância mostram (ED-16b): com seleção, ligado se **todo** o
+        intervalo tem o marcador (a mesma regra de `alternar`); sem seleção, o do caractere antes
+        do cursor, ou o pendente, que é o que a próxima letra vai ter.
+        """
+        selecao = self.selecao()
+        tags = () if selecao else self._tags_no_cursor()
+        estado: dict[str, bool] = {}
+        for atributo in atributos:
+            tag = ATRIBUTOS_ALTERNAVEIS[atributo]
+            if selecao:
+                estado[atributo] = self._todos_tem(tag, *selecao)
+            else:
+                estado[atributo] = bool(self._pendente.get(atributo, tag in tags))
+        return estado
+
     def alternar(self, atributo: str) -> bool:
         """
         Negrito, itálico, sublinhado, tachado, versalete, sobrescrito, subscrito: com
@@ -2840,6 +2858,7 @@ class TextoRico(ttk.Frame):
             atual = self._pendente.get(atributo, tag in self._tags_no_cursor())
             self._pendente[atributo] = not atual
             self._pendente_em = self.texto.index("insert")
+            self._avisar_formato()
             return not atual
         ini, fim = selecao
         ligado = not self._todos_tem(tag, ini, fim)
@@ -2849,7 +2868,15 @@ class TextoRico(ttk.Frame):
             self._trocar_tag(ini, fim, tirar=(tag,))
         self._reconciliar(self._blocos_entre(ini, fim), coalescer=False, rotulo=atributo)
         self.texto.tag_add("sel", ini, fim)
+        self._avisar_formato()
         return ligado
+
+    def _avisar_formato(self) -> None:
+        """`<<FormatoMudou>>`: os botões N/I/S/T da janela se remarcam (ED-16b) — o Ctrl+B não move o cursor."""
+        try:
+            self.texto.event_generate("<<FormatoMudou>>")
+        except tk.TclError:
+            pass
 
     def aplicar(self, **atributos: Any) -> None:
         """

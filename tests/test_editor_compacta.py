@@ -39,9 +39,14 @@ def test_a_fileira_junta_as_barras_quando_cabem_e_empilha_quando_nao():
         # estreita: a do modo desce para a sua própria fileira
         j._empilhar_barras(640)
         assert j._lado_a_lado is False and _mestre(j.barra_de_formatacao) == str(j.barras)
-        # e a barra de xadrez continua abaixo das duas
+        # com o painel Xadrez à vista, a barra de xadrez não repete a paleta (ED-16b); fechado, ela
+        # volta, abaixo das duas
+        assert not j.barra_de_xadrez.winfo_manager()
+        j.mostrar_painel("xadrez", False)
         ordem = [str(w) for w in j.barras.pack_slaves()]
         assert ordem.index(str(j.fileira)) < ordem.index(str(j.barra_de_xadrez))
+        j.mostrar_painel("xadrez", True)
+        assert not j.barra_de_xadrez.winfo_manager()
         # sem a barra do modo, só a de arquivo na fileira
         j.mostrar_barra("formatacao", False)
         j._empilhar_barras(1360)

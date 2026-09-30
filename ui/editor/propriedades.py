@@ -43,9 +43,13 @@ COR_DE_ERRO = "#b00020"
 class PainelDePropriedades(ttk.Frame):
     def __init__(self, master: tk.Misc, texto: Any = None, ao_acao: Callable[[str, dict[str, Any]], Any] | None = None,
                  verificar_destino: Callable[[str], bool] | None = None,
-                 descrever_suspeita: Callable[[Any], tuple[list[str], list[str]]] | None = None, **kw: Any):
+                 descrever_suspeita: Callable[[Any], tuple[list[str], list[str]]] | None = None,
+                 ao_mudar_vazio: Callable[[bool], Any] | None = None, **kw: Any):
         super().__init__(master, **kw)
         self.texto_rico = texto
+        #: Avisado quando o painel fica vazio ou deixa de estar (ED-16b: a janela o encolhe).
+        self.ao_mudar_vazio = ao_mudar_vazio
+        self.vazio: bool | None = None
         self.ao_acao = ao_acao
         self.verificar_destino = verificar_destino
         self.descrever_suspeita = descrever_suspeita
@@ -183,6 +187,17 @@ class PainelDePropriedades(ttk.Frame):
         else:
             ttk.Label(self.corpo, text="Nada sob o cursor.", foreground="#555555").grid(row=linha, column=0, sticky="w")
         self.botao_aplicar.state(["!disabled"] if self.variaveis or self.caixas_de_texto else ["disabled"])
+        vazio = not tipo and linha == 0
+        if vazio:
+            # A moldura já diz "Propriedades"; vazio, o título de dentro só repetia (e o Aplicar não serve).
+            self.titulo.configure(text="")
+            self.rodape.grid_remove()
+        else:
+            self.rodape.grid()
+        if vazio != self.vazio:
+            self.vazio = vazio
+            if self.ao_mudar_vazio is not None:
+                self.ao_mudar_vazio(vazio)
 
     def _origem_e_suspeita(self, linha: int) -> int:
         """A proveniência do bloco e, se é suspeito, os motivos, as leituras e "Marcar como revisto" (ED-11)."""

@@ -2373,6 +2373,39 @@ de layout, e a meta de altura já foi atingida sem eles.
 
 ---
 
+## ED-16b — O resto da janela compacta
+
+**Origem:** os quatro itens que a ED-16 deixou de fora, pedidos pelo usuário (2026-09-30).
+
+**Entrega:**
+- **N/I/S/T com estado:** `ttk.Checkbutton` *Toolbutton*, cada um na sua letra (negrito, itálico,
+  sublinhado, riscado — estilos `Negrito.Toolbutton` etc.), marcados por
+  `TextoRico.estado_de_formato()` (com seleção, a regra do `alternar`: todo o intervalo; sem, o
+  caractere antes do cursor ou o pendente). A janela remarca no `<<CursorMoveu>>`, depois do clique
+  e no evento novo `<<FormatoMudou>>` que o `alternar` gera (o `Ctrl+B` não move o cursor). No
+  código, nenhum marcado.
+- **Sem a paleta repetida:** o painel Xadrez tinha todas as figurinas e NAGs da barra; ganhou no
+  topo Diagrama · Posição · Validar (com anel de foco, AC-006), e a barra de xadrez só aparece
+  com o painel fechado (menu: "Barra de xadrez (com o painel Xadrez fechado)").
+- **Propriedades que encolhe:** `ao_mudar_vazio` avisa a janela; vazio, a divisória da direita vai
+  a 64 px (a moldura e "Nada sob o cursor."), o título interno repetido some e o "Aplicar" sai;
+  com algo sob o cursor, volta à altura que o usuário tinha.
+- **Coluna esquerda em abas:** `ColunaEmAbas(ttk.Notebook)` com `panes`/`add`/`insert`/`forget`
+  do `PanedWindow` que o resto da janela usa; as molduras viraram `Frame` (o título está na aba);
+  o foco de cada painel traz a aba à frente (F6 continua percorrendo a mesma ordem).
+
+**AC:**
+- AC-ED16b-1 N/I/S/T acompanham cursor, seleção e `Ctrl+B`; vazios no código.
+- AC-ED16b-2 O painel Xadrez tem as três ações; à vista, a barra some; fechado, ela volta; desligada
+  no menu, não volta.
+- AC-ED16b-3 Vazio → divisória a 64 px, sem título e sem Aplicar; de volta → a altura de antes.
+- AC-ED16b-4 A coluna tem três abas; o foco escolhe a aba; esconder/mostrar tira e repõe no lugar;
+  sem abas, a coluna sai.
+- AC-ED16b-5 Medido em 1360×697 DPI-aware com o Kasparov: **editor com 619 px** (575 na ED-16,
+  ~420 antes da análise); `⩲` e `±` distinguíveis no painel.
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
@@ -2399,4 +2432,5 @@ de layout, e a meta de altura já foi atingida sem eles.
 | ED-15 | **commitada** | 2026-09-30 | c7d7970 | não abre sozinha em Dividido (só avisa); `p.diagrama` do Calibre não é o diagrama do editor; imagem sozinha vira `figure`; âncora usada vira `id` do bloco; `<style>` do tradutor sai do `<head>` |
 | ED-17 | **commitada** | 2026-09-30 | b076566 | script próprio em vez de estender o `processar_editorial.py` (que tem trabalho do usuário sem commit); veredito de "tem texto" só com `fitz` no diálogo (o `pdf_nativo` puxa o leitor); corrida do `fim` achada na conferência |
 | ED-18 | **commitada** | 2026-09-30 | e75a3a0 | reler por página, não por bloco; painel ligado na janela (não por aba); `previa_divisao` → `divisao` com prévia e original juntos; caixa com trama porque a do leitor vai de margem a margem |
-| ED-16 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | só fileira, caderno recolhido com versão do layout e glifos maiores; colunas em abas, Propriedades encolhível, N/I/S/T com estado e a duplicação do xadrez ficaram de fora; largura como argumento no teste (janela escondida só aceita o primeiro `geometry` no Windows) |
+| ED-16 | **commitada** | 2026-09-30 | 3ba30ef | só fileira, caderno recolhido com versão do layout e glifos maiores; colunas em abas, Propriedades encolhível, N/I/S/T com estado e a duplicação do xadrez ficaram de fora; largura como argumento no teste (janela escondida só aceita o primeiro `geometry` no Windows) |
+| ED-16b | **implementada** | 2026-09-30 | (ver "Registro" da fase) | a barra de xadrez some com o painel à vista em vez de encolher (os três botões dela foram para o painel); `<<FormatoMudou>>` novo no `TextoRico` |
