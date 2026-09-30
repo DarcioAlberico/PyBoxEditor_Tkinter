@@ -278,9 +278,9 @@ def test_o_seletor_de_pdf_e_a_caixa_sao_pedidos(tmp_path, monkeypatch):
 @pytest.mark.slow
 def test_o_leitor_de_verdade_le_duas_paginas(tmp_path):
     """O script de verdade (modelo, Tesseract, camada do PDF) em duas páginas geradas."""
-    from config.paths import caminhos_modelo_glifos
+    from config import paths
 
-    if not os.path.isfile(str(caminhos_modelo_glifos()[0])):
+    if not paths.caminhos_dos_pesos()["glifos"].exists():
         # O modelo é treinado na máquina de quem usa (`*.pth` no .gitignore): a CI não o tem.
         pytest.skip("custom_model.pth fica fora do git; sem ele o leitor de produção não monta")
     pdf = _pdf(tmp_path / "real.pdf", paginas=2)
