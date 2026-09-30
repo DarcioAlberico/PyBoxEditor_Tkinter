@@ -2085,6 +2085,9 @@ class MainWindow(tk.Frame):
             fonte=opcoes.fonte, moldura=opcoes.moldura, cantos=opcoes.cantos,
             probabilidade=(self.learning_service.probabilidade_de
                            if opcoes.reparar else None),
+            # A caixa pela geometria da linha (F112): o top-k da rede, que a
+            # poda consulta quando a leitura não cabe no corpo da linha.
+            candidatas=self.learning_service.candidatas,
             coletor=coletor, modelo_de_linha=opcoes.modelo_de_linha,
             camada=opcoes.camada)
 
@@ -2466,6 +2469,8 @@ class MainWindow(tk.Frame):
                                     # assim que o "não" da pergunta o desliga.
                                     probabilidade=(probabilidade if reparar
                                                    else None),
+                                    # A caixa pela geometria da linha (F112).
+                                    candidatas=self.learning_service.candidatas,
                                     diagramas="render" if desenhar else "recorte",
                                     coordenadas=coordenadas,
                                     moldura=moldura, cantos=cantos,

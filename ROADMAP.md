@@ -12386,7 +12386,7 @@ um EPUB sem `dc:language` devolve 1 e `RSC-005`). A suíte sai de 1.886 para 1.9
 
 ---
 
-## F112 — A geometria decide a caixa, e um dos dois caminhos não pede rótulo nenhum — A FAZER
+## F112 — A geometria decide a caixa, e um dos dois caminhos não pede rótulo nenhum — CONCLUÍDA (o caminho de Baird; o com rótulo continua esperando o rótulo)
 
 A causa que a F14 nomeou, a F19 mediu, a F107 destravou e ninguém ainda consertou. Ela
 responde por **2.141 palavras, 10,4% da prosa** do livro medido.
@@ -12500,6 +12500,175 @@ F108 deixaria de ser regra imperativa que precisa de exceção para `Nf3` e pass
 
 O Seirawan e o Razuvaev. São 834 páginas sem uma linha de camada de texto, e ali não há
 língua para consultar nem contexto para pedir: quem lê é o pixel.
+
+### Antes de começar, a premissa foi remedida — e tinha mudado
+
+Os 10,4% da prosa são de 2026-08-25, e **a prosa deixou de ser da cadeia** desde então: a
+fusão por palavra da OCR-11/12 (`livro._fundir_por_palavra`) guarda o lance da âncora e toma
+a prosa do Tesseract. Medido com o `medir_prosa.py --epub` nos dois livros que o usuário
+exportou em 2026-09-23 com o app aberto, nenhum deles visto pelo modelo:
+
+| livro | palavras de prosa | família B (caixa) | `S/s` | `C/c` | `(O+0)/o` |
+|---|---:|---:|---:|---:|---:|
+| Rabinovich · The Russian Endgame Handbook | 68.066 | 16 (0,02%) | 0,019 | 0,017 | 0,069 |
+| Stean · Simple Chess | 17.407 | 5 (0,03%) | 0,041 | 0,041 | 0,068 |
+
+`S/s` de inglês normal é 0,047 (o Kasparov, F108). E na notação, que continua com a cadeia:
+no Rabinovich, **2** lances com a coluna em maiúscula e **2** `X` de captura em 26.656
+lances; no Stean, **10** `X` em 3.314, e os roques saem `0-0` 8 vezes e `O-O` 4.
+
+**Onde a caixa da cadeia ainda chega ao arquivo**, então: o lance; a célula de tabela e o
+cabeçalho do diagrama, que o motor não cobre; e a página inteira quando não há Tesseract —
+a exportação deixa seguir sem ele, e ali a p. 30 do Aagaard sai com 25% de CER na prosa. É
+para esses lugares que esta fase serve, e é neles que ela se mede.
+
+### O que entrou
+
+`core/geometria_da_linha.py`, que é a p. 8 de Baird: **cada leitura propõe uma altura de
+x** (um `s` de 20 px diz "20", um `S` de 20 px diz "14"), a linha vota a dela pela mediana
+ponderada pela confiança, a base sai de uma reta robusta (Theil-Sen) pelas bases que as
+leituras propõem, e a leitura que não cabe no corpo votado é trocada pela candidata da rede
+que cabe. A tabela das classes — onde o corpo de cada uma começa e acaba, em alturas de x
+acima da base — está em `core/dados/geometria_das_classes.json`, 82 classes medidas nas
+páginas rotuladas por `medir_geometria.py --gravar`.
+
+O livro a liga por um parâmetro, `candidatas(recorte, k)`, em `livro.extrair`,
+`extrair_pagina`, `_ler_linha`, `_texto_da_linha` e `_faixa_em_texto`. `None` é o padrão,
+como o `probabilidade` da F69: quem chama sem ele lê como antes. As duas exportações da
+janela (Livro e Documento editorial, por `OpcoesDeLeitura.candidatas`) passam
+`learning_service.candidatas`, e o `scripts/processar_editorial.py` também. **A linha passa a
+ser classificada inteira antes de ser montada**: o coletor, o marcador e o piso de confiança
+recebem a leitura já podada.
+
+Três escolhas, e cada uma saiu de medida.
+
+**A medida é o corpo de tinta dentro do recorte, e não a caixa.** A primeira varredura usou a
+caixa, e as quebras reais tinham uma causa só: o pingo do `i` entrava na caixa da letra
+anterior (`w|ith`, `v|isão`, `ha|v|ing`), e o `w` ficava com o topo de um `W`. O corpo é a
+faixa de linhas com tinta de maior massa: o pingo e o acento destacados ficam de fora, e a
+caixa frouxa é aparada à tinta. Com isso as dez quebras reais daquela varredura sumiram. E
+veio de brinde o que a F19 media como impossível: o corpo do `i` é a haste, com o topo na
+altura de x, e passa a haver o que o separe do `1` (a F19 mediu d' = 0,01 para `i/1` com a
+caixa inteira) e do `l` — que a tabela mede largo, com desvio 0,18, e por isso só cai
+quando a haste lida fica abaixo da altura votada.
+
+**Só se troca dentro de um grupo de mesmo desenho**: `c/C`, `o/O/0`, `s/S`, `u/U`, `v/V`,
+`w/W`, `x/X`, `z/Z`, `p/P`, `9/g/q`, `,/'/’/‘`, `./,` e `i/l/1/I`. Baird poda toda
+interpretação que não cabe; aqui a rede já acerta 98% e é melhor que a geometria em tudo o
+que não é tamanho, e solta a poda trocava `)` por `J`, `H` por `R` e `♔` por `♗`. O ponto e o
+apóstrofo não são grupo: o ponto alto costuma ser o pingo de um `i` partido (família A da
+F109), e trocá-lo por `'` não conserta nada.
+
+**Dígito só vira letra dentro de palavra, e letra só vira dígito dentro de número**, pelo
+vizinho de caixa na régua do espaço da linha. Livro de algarismo de texto põe o `1` e o `0`
+na altura de x, e sem a trava `1.e4` sairia `i.e4`. É o filtro *"all-alphabetic or
+all-numeric"* que o próprio Baird descreve na §5, reduzido ao vizinho. Entre as candidatas
+que cabem, vence a do tipo do vizinho — o `O` e o `0` têm o mesmo corpo.
+
+**A troca sai com a massa do grupo** entre as candidatas, e não com a probabilidade da
+substituta: a rede não separa os dois lados do par, e o `o` que ela deu 0,08 contra 0,9 do
+`O` seria derrubado pelo piso do livro — a troca viraria buraco. Pelo mesmo motivo a leitura
+**fraca que cabe enquanto o resto do grupo não cabe** sobe para a massa do grupo: é o `o`
+repartido entre `o`, `0` e `O` que nenhum alcançava 0,5 e o livro apagava (F107, *"Cmbinatin
+invlving bihp"*).
+
+### Medido
+
+**Nas páginas rotuladas, com a população do livro.** `medir_geometria.py` segmenta como o
+`livro.caixas_e_diagramas`, corta as linhas como o `quebrar_em_linhas`, lê pelo
+`leitor_de_texto` e casa cada caixa com o gabarito pelo centro. **Cada livro é medido com a
+tabela estimada nos outros**, porque é o caso da produção: o livro exportado não está nas
+páginas rotuladas. 31.956 caracteres, 7 livros:
+
+| | leitura | no texto (com o piso de confiança) |
+|---|---:|---:|
+| sem a poda | 98,07% | 97,74% |
+| com a poda | **98,26%** | **97,94%** |
+
+91 trocas no texto: **73 consertos**, 10 neutras e 8 quebras. **As 8 quebras são todas erro
+do gabarito**, conferidas a olho: `Marin's` rotulado com vírgula, `Chéron,` com apóstrofo,
+`Seirawan` com `W` duas vezes, `sacrifíCio`, e o `0` de `c0ntrajogo`, `0s peões` e
+`Glossári0`. Os consertos: `l`→`i` 23, `0`→`o` 20, `'`→`,` 9, o `o` que o piso apagava 9,
+`c`→`C` 6. Nenhum livro piora; o Seirawan, que é escaneado e em português, vai de 95,98% para
+**97,21%**.
+
+Isto é o piso do ganho, e não o ganho: são as páginas em que o modelo treinou (F117), e ali
+a rede já erra pouca caixa.
+
+**No corredor do corpus, no modo de produção** (`scripts/rodada_do_corpus.py`, fusão por
+palavra): nenhuma página piora, e o que muda é a notação, que é o que a cadeia ainda decide.
+
+| página | antes | depois | notação antes | notação depois |
+|---|---:|---:|---:|---:|
+| Aagaard p. 30 | 1,37% | **1,30%** | 3,14% | 2,93% |
+| Nunn p. 237 (tabela) | 1,87% | **1,76%** | 3,63% | 3,39% |
+| Yusupov p. 34 | 0,71% | 0,71% | 0,76% | 0,76% |
+| Yusupov p. 47 | 2,50% | 2,50% | 0,00% | 0,00% |
+| **corpus** | 1,62% | **1,59%** | 1,99% | **1,88%** |
+
+No texto: `58.♘xc4?` volta a ter a vírgula, e a célula `w♖g1,` volta a ser `W♖g1,`. A
+rodada sem a poda (`--sem-geometria`) reproduz a de 2026-09-22 casa por casa, que é a prova
+de que a linha classificada inteira antes de montada não mudou nada por si.
+
+**Só com a cadeia, sem Tesseract** (`ab_ocr_livro.py --modos glifo`): Aagaard p. 30 de
+**18,92% para 16,18%** (prosa 24,87% → 21,51%, notação 6,69% → 5,23%) e Nunn p. 237 de 8,29%
+para 7,88% — `c0uld`→`could`, `w0n`→`won`, `Morales'`→`Morales,`, `W:W1n`→`W:Win`.
+
+**Num livro que o modelo não viu, só com a cadeia** (`medir_prosa.py --pdf`, Yusupov Chess
+Evolution 1, p. 8–47): palavras de prosa com defeito de **14,38% para 13,51%** (520 → 491),
+a família D (dígito dentro da palavra) de **5,28% para 1,87%**, `(O+0)/o` de 0,084 para
+0,065 e `V/v` de 0,060 para 0,041. O `S/s` já estava normal (0,045) nos dois lados: o `S` de
+0,203 que a F107 mediu era do modelo de agosto, e os retreinos o levaram.
+
+### O que não entrou, com o número
+
+- **A tolerância única** — desvio de 0,12 para toda classe, em vez do medido. Pega o `s`
+  lido `S`, que a tabela deixa passar, mas quebrou o `l` de "clássico" no Darcy Lima, cuja
+  fonte tem ascendente curto. No protótipo (a mesma população, com a régua de vizinho de
+  antes), +73 −9 contra +64 −5 no texto, com uma quebra real. Ficou a tolerância medida, e
+  o `s` lido `S` fica — `test_o_s_lido_maiusculo_fica_porque_a_tabela_mistura_fontes` diz
+  isso na letra.
+- **Por que o `S` fica**: a altura de caixa alta sobre a de x é da fonte, e varia de 1,32
+  (Darcy Lima) e 1,37 (Seirawan) a 1,41 (Kasparov), 1,45 (Nunn), 1,63 (Aagaard, *Practical
+  Chess Defence*) e 1,67 (*Attacking Manual*). A tabela de todos junta as seis, o `S` fica
+  com desvio 0,15, e o `s` lido `S` cai a 2,8 desvios, abaixo do veto. **A tabela por livro
+  é o próximo passo**, e ela não pede rótulo: sai das maiúsculas sem par do próprio livro.
+- **A adaptação por linha** — a altura de caixa alta e a de ascendente estimadas das
+  maiúsculas e algarismos sem par da própria linha. No mesmo protótipo, +65 −6 contra
+  +64 −5: não paga nas páginas rotuladas, e a linha é pouco material. É a mesma ideia da
+  tabela por livro, com uma linha no lugar do livro.
+- **A janela** («Detectar e Preencher»). A cadeia dela tem k-NN, rede e EasyOCR, e a troca
+  precisa de uma fonte própria na fila de revisão; o `medir_cadeia.py` precisa aprender a
+  poda antes. Fica como a F117 ficou para a F116.
+- **O caminho com rótulo** continua esperando três páginas do Yusupov Complete e três do
+  Dvoretsky.
+
+### Um achado de passagem
+
+Na janela, o veto de tamanho da F106 compara o maior lado do recorte com a mediana da altura
+dos boxes da página (`proporcao.altura_de_referencia`). **Num sumário de pontilhado os
+pontos são a maioria dos boxes**, a mediana vira a altura de um ponto, e o próprio ponto é
+vetado como grande demais: na p. 8 do Seirawan, 1.429 dos 2.172 boxes saíam `'` com
+`ler_texto(recorte, referencia)`. O caminho do livro não passa `referencia` e não é afetado.
+Registrado aqui, e consertado na F121.
+
+### Onde está
+
+- `core/geometria_da_linha.py` e `core/dados/geometria_das_classes.json`.
+- `core/livro.py` — `candidatas` do `extrair` ao `_texto_da_linha`.
+- `core/editorial_legacy.py` — `OpcoesDeLeitura.candidatas`; `ui/main_window.py` — as duas
+  exportações a passam.
+- `medir_geometria.py` refaz a tabela das páginas rotuladas e grava a de produção;
+  `medir_prosa.py`, `scripts/rodada_do_corpus.py` e `scripts/ab_ocr_livro.py` ganharam
+  `--sem-geometria`, para o A/B.
+
+Cobertura: `tests/test_f112_geometria.py`, 28 testes — o corpo sem o pingo e com a caixa
+aparada, a reta robusta, a linha sem ascendente, a troca dentro do grupo e nunca fora dele,
+o dígito só em palavra e o zero entre algarismos, vírgula e apóstrofo, a confirmação da
+leitura fraca, a exportação da janela ligando a poda, e a tabela gravada medindo o que a
+tipografia diz. Os dublês de `_texto_da_linha` em `test_ocr_fusao_por_palavra.py` e
+`test_f72_tabela_no_epub.py` ganharam o parâmetro, e o `_Aprendizado` de
+`test_processar_editorial.py`, o método — a página nascida digital não chega à poda.
 
 ---
 

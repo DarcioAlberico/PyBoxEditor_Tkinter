@@ -165,6 +165,9 @@ def main() -> int:
                         help="uma linha sobre o que esta rodada estava medindo")
     parser.add_argument("--minimo-por-familia", type=int, default=3)
     parser.add_argument("--dpi", type=int, default=300)
+    parser.add_argument("--sem-geometria", action="store_true",
+                        help="lê sem a caixa pela geometria da linha (F112), "
+                             "que a exportação liga — para o A/B dela")
     args = parser.parse_args()
 
     if not args.manifesto.exists():
@@ -204,7 +207,9 @@ def main() -> int:
         lidas = livro.extrair(str(pdf), classificar, paginas=numeros,
                               ler_pagina=ler, ler_faixa=ler_faixa,
                               fusao="palavra", diagramas="recorte",
-                              idioma_ocr=idioma, dpi=args.dpi)
+                              idioma_ocr=idioma, dpi=args.dpi,
+                              candidatas=(None if args.sem_geometria
+                                          else service.candidatas))
         for pagina, lida in zip(do_pdf, lidas):
             if not pagina["referencia"].exists():
                 medidas.append({**_sem_pdf(pagina),

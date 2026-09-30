@@ -306,7 +306,7 @@ def test_a_celula_passa_pela_fusao_por_palavra(monkeypatch):
         return regiao[0] <= cx <= regiao[2] and regiao[1] <= cy <= regiao[3]
 
     def texto_da_linha(img_, linha, classificar_, conf_minima, coletor=None,
-                       pagina=0, marcador_glifo=None):
+                       pagina=0, marcador_glifo=None, candidatas=None):
         texto = "W:W1n" if na_tabela(linha) else "ABCDEFGH"
         n = len(linha)
         caixas = [min(n - 1, i * n // len(texto)) for i in range(len(texto))]
