@@ -13890,7 +13890,7 @@ Era o reparo que prendia, e a barra parada que não deixava ver.
   que sobra é Python (1,7 s no `Matewith`); se um dia pesar, é um máximo de mínimos numa
   cadeia, e sai por programação dinâmica.
 - **O Tesseract é chamado sem prazo.** Nenhuma página travou nele aqui, mas um executável
-  que não volta prende a tarefa do mesmo jeito.
+  que não volta prende a tarefa do mesmo jeito. *Entrou na F124.*
 - **O `o` lido `()` no sumário do ClearScan** é da leitura, não do reparo.
 
 ### Onde está
@@ -14212,6 +14212,81 @@ passando a poda, o instrumento medindo a ação por omissão, e a janela de verd
 troca e contando no diálogo). Todos os 12 passam por um nome que esta fase criou (`podar=`,
 `poda_da_ancora`, `FONTE`, `DA_ACAO`, `poda=`), e nenhum passa contra o código de antes. Suíte:
 3095 (`-m "not slow"`).
+
+---
+
+## F124 — O Tesseract ganha prazo, e o livro desiste do executável que não volta — CONCLUÍDA
+
+Registrado na F119: *o Tesseract é chamado sem prazo*. Nenhuma página travou nele aqui, mas
+um executável que não volta prende a exportação do mesmo jeito que o reparo de colagem
+prendia — a barra parada, a CPU parada, nada no relatório —, e a F119 mostrou quanto custa
+descobrir de fora o que um processo preso está fazendo.
+
+### Quanto ele leva, medido antes de escolher o prazo
+
+Dezesseis páginas de nove livros, a 300 dpi, pelo `OCRService` de produção:
+
+| chamada | típico | pior |
+|---|---:|---:|
+| página inteira (`--psm 3`, com a segunda passada da trama) | 0,7 – 3,1 s | **19,3 s** (Yusupov p. 47, o painel sobre a trama) |
+| faixa de uma linha (`--psm 7`) | 0,16 – 0,24 s | 0,24 s |
+
+**O prazo é o do processo que não volta, e não o do lento**: dez vezes o pior caso medido,
+para nenhuma página de verdade perder o motor por pressa — `PRAZO_DA_PAGINA_S = 180`,
+`PRAZO_DA_FAIXA_S = 30`, e `PRAZO_DO_CARACTERE_S = 10` para o recorte isolado da janela.
+
+### O que entrou
+
+**Cada chamada ao Tesseract leva o prazo dela** (`image_to_data(timeout=)`, que o pytesseract
+0.3.10 cumpre matando o processo). O estouro sobe como `TesseractSemResposta` — e não como
+`MotorIndisponivel`, porque o executável existe e responde nas outras imagens: é aquela que
+ele não fechou. Um `RuntimeError` que não é de prazo continua subindo como está.
+
+**A página segue com a cadeia própria e diz por quê**, pelo caminho que a falha do motor já
+tinha (`PaginaExtraida.motor_indisponivel`): "página: o Tesseract não respondeu em 180 s". A
+faixa conta o estouro como falha comum — três seguidas a desligam na página.
+
+**E o livro desiste do motor que não volta.** Sem isso, um executável preso custaria a cada
+página o prazo dela e o de três faixas — quatro minutos e meio por página, ou 22 horas num
+livro de 300. `livro.extrair` embrulha os dois leitores num disjuntor
+(`_disjuntor_do_motor`): depois de `PAGINAS_SEM_RESPOSTA_ATE_DESISTIR` (2) páginas seguidas
+sem resposta, os dois levantam `MotorIndisponivel` sem chamar o motor, e o resto do livro sai
+com a cadeia própria no tempo dela. Uma página que responde zera a conta: a página de trama
+que o Tesseract não fecha é uma página, e a seguinte ainda o paga. O estado é do livro, e não
+do `OCRService`, que vive entre uma exportação e outra.
+
+### Medido
+
+Com o Tesseract de verdade e o prazo baixado a 0,05 s, as páginas 237–239 do Nunn pelo
+caminho da exportação: a primeira registra o estouro da página e o de três faixas, a segunda
+estoura a página e desliga o motor, e a terceira nem o chama — "desligado para o resto do
+livro". As três saem, 5,8 s contra 14,0 s com o motor, e nenhum processo `tesseract.exe` fica
+para trás. Com os prazos de produção nada muda: o pior caso medido fica a um nono do prazo.
+
+### O que fica registrado, e não entrou
+
+- **A sondagem da caixa de exportação** (`tesseract_disponivel`: `--version` e
+  `--list-langs`) continua sem prazo, e roda na thread da interface. Ela não lê imagem — só
+  trava com o executável quebrado —, e o pytesseract não aceita prazo nessas duas chamadas;
+  resolver é chamá-las por `subprocess` com `timeout`.
+- **A janela não tem disjuntor.** O `PRAZO_DO_CARACTERE_S` limita cada box, e a tarefa se
+  cancela entre um e outro; um executável preso custaria dez segundos por box até o usuário
+  cancelar.
+
+### Onde está
+
+- `core/services/ocr_service.py` — `TesseractSemResposta`, `PRAZO_DA_PAGINA_S`,
+  `PRAZO_DA_FAIXA_S`, `PRAZO_DO_CARACTERE_S`, e o `prazo` em `_erro_do_tesseract`,
+  `_linhas_do_tesseract` e `tesseract_ocr_conf`.
+- `core/livro.py` — `PAGINAS_SEM_RESPOSTA_ATE_DESISTIR`, `_disjuntor_do_motor`, ligado em
+  `extrair`.
+
+Cobertura: `tests/test_f124_prazo_do_tesseract.py` (9 testes — cada chamada pede o prazo do
+seu tamanho, o estouro da página e da faixa sobe com nome e prazo e não como indisponibilidade,
+o caractere isolado também tem prazo, outro `RuntimeError` não vira prazo, a página sem
+resposta sai com a cadeia e registra, duas páginas seguidas desligam o motor para o livro e a
+faixa não é mais pedida, a página que responde zera a conta, e a indisponibilidade não é
+confundida com falta de resposta). Suíte: 3104 (`-m "not slow"`).
 
 ---
 

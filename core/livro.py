@@ -1126,6 +1126,55 @@ def _ler_faixa_registrando(ler_faixa: Callable, falhas: List[str]) -> Callable:
     return ler
 
 
+#: Quantas páginas seguidas o motor pode passar do prazo antes de o livro
+#: desistir dele (F124). Uma é a página que o Tesseract não fecha — a trama que
+#: a análise de layout não resolve —, e a página seguinte ainda paga o motor;
+#: duas seguidas são o executável que não volta, e cada página a mais custaria
+#: o prazo inteiro da página e o de três faixas antes de seguir sem ele.
+PAGINAS_SEM_RESPOSTA_ATE_DESISTIR = 2
+
+
+def _disjuntor_do_motor(ler_pagina: Optional[Callable],
+                        ler_faixa: Optional[Callable]):
+    """`(ler_pagina, ler_faixa)` que desistem do motor **para o resto do livro**
+    depois de `PAGINAS_SEM_RESPOSTA_ATE_DESISTIR` páginas seguidas sem resposta
+    no prazo (`TesseractSemResposta`, F124).
+
+    Desistir é levantar `MotorIndisponivel` sem chamar o motor, e os dois já
+    sabem o que fazer com ela: a página registra e segue com a cadeia própria, e
+    a faixa se desliga na primeira (`_ler_faixa_registrando`). O estado é do
+    livro, e não da página, porque é o livro que pagaria o prazo página a
+    página; e uma página que responde zera a conta.
+    """
+    from core.services.ocr_service import MotorIndisponivel, TesseractSemResposta
+
+    estado = {"seguidas": 0, "motivo": ""}
+
+    def desligado():
+        if estado["motivo"]:
+            raise MotorIndisponivel("Tesseract", estado["motivo"])
+
+    def pagina(img):
+        desligado()
+        try:
+            registros = ler_pagina(img)
+        except TesseractSemResposta as erro:
+            estado["seguidas"] += 1
+            if estado["seguidas"] >= PAGINAS_SEM_RESPOSTA_ATE_DESISTIR:
+                estado["motivo"] = (f"{erro} em {estado['seguidas']} páginas "
+                                    "seguidas; desligado para o resto do livro")
+            raise
+        estado["seguidas"] = 0
+        return registros
+
+    def faixa(img):
+        desligado()
+        return ler_faixa(img)
+
+    return (None if ler_pagina is None else pagina,
+            None if ler_faixa is None else faixa)
+
+
 def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
                        ler_faixa: Callable):
     """Lê a faixa de uma linha só e devolve o registro em coordenadas da página.
@@ -3875,6 +3924,9 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
         raise ValueError(f"modo de camada inválido: {camada!r} "
                          f"(use um de {pdf_nativo.MODOS})")
 
+    # O motor que não volta é desligado para o livro, e não pago página a
+    # página até o fim (F124).
+    ler_pagina, ler_faixa = _disjuntor_do_motor(ler_pagina, ler_faixa)
     doc = fitz.open(input_pdf)
     try:
         carimbo = pdf_nativo.produtor(doc) if camada != "nunca" else ""

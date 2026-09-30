@@ -74,6 +74,34 @@ COMO_INSTALAR_TESSERACT = (
     "core.services.ocr_service.OCRService._configurar_tesseract.")
 
 
+class TesseractSemResposta(RuntimeError):
+    """O Tesseract não devolveu a imagem no prazo, e o processo foi morto (F124).
+
+    **Não é indisponibilidade**: o executável existe e responde nas outras
+    imagens. É a imagem que ele não termina — ou o executável que não volta
+    nunca, e esse o disjuntor de `livro.extrair` desliga para o resto do livro
+    (`livro.PAGINAS_SEM_RESPOSTA_ATE_DESISTIR`). Quem chama decide, como com
+    qualquer falha do motor: a página segue com a cadeia própria e registra."""
+
+    def __init__(self, prazo: float):
+        self.prazo = prazo
+        super().__init__(f"o Tesseract não respondeu em {prazo:g} s")
+
+
+#: Quanto o Tesseract pode levar numa chamada, em segundos (F124). Medido em 16
+#: páginas de nove livros a 300 dpi: a página inteira (`--psm 3`) leva de 0,7 a
+#: 3 s, e 19 s na do Yusupov com o painel sobre a trama, que paga a segunda
+#: passada (`_ocr_de_recuperacao_da_trama`); a faixa de uma linha (`--psm 7`),
+#: de 0,16 a 0,24 s. **O prazo é o do processo que não volta, e não o do lento**:
+#: dez vezes o pior caso medido, para nenhuma página de verdade perder o motor
+#: por pressa. Sem ele, um executável preso prendia a exportação inteira — o
+#: mesmo sintoma do "Exportar travando" da F119, sem nada que o denunciasse.
+PRAZO_DA_PAGINA_S = 180
+PRAZO_DA_FAIXA_S = 30
+#: O caractere isolado (`--psm 10`) é um recorte de dezenas de pixels.
+PRAZO_DO_CARACTERE_S = 10
+
+
 class OCRService:
     """
     Serviço puro para execução de OCR com Tesseract, EasyOCR e Rede Neural.
@@ -109,14 +137,17 @@ class OCRService:
                 return
 
     @staticmethod
-    def _erro_do_tesseract(pytesseract, erro: Exception) -> Exception:
+    def _erro_do_tesseract(pytesseract, erro: Exception,
+                           prazo: Optional[float] = None) -> Exception:
         """Traduz a exceção do pytesseract para o que quem chama entende.
 
         O executável ausente (`TesseractNotFoundError`) e o binário que
         respondeu com erro (`TesseractError` — o caso típico é o pacote de
         idioma que não está instalado) são **indisponibilidade**, e sobem como
-        `MotorIndisponivel`. Qualquer outra coisa sobe como está: não é o
-        papel deste serviço decidir que uma exceção desconhecida é "sem texto".
+        `MotorIndisponivel`. O processo que passou do `prazo` — o pytesseract o
+        mata e levanta um `RuntimeError` cru — sobe como `TesseractSemResposta`
+        (F124). Qualquer outra coisa sobe como está: não é o papel deste serviço
+        decidir que uma exceção desconhecida é "sem texto".
         """
         if isinstance(erro, pytesseract.TesseractNotFoundError):
             return MotorIndisponivel(
@@ -126,6 +157,9 @@ class OCRService:
             return MotorIndisponivel(
                 "Tesseract", f"o executável respondeu com erro: {erro}",
                 COMO_INSTALAR_TESSERACT)
+        if (prazo is not None and type(erro) is RuntimeError
+                and "timeout" in str(erro).lower()):
+            return TesseractSemResposta(prazo)
         return erro
 
     def tesseract_disponivel(self, idioma: str = "en") -> Tuple[bool, str]:
@@ -177,9 +211,11 @@ class OCRService:
 
         try:
             dados = pytesseract.image_to_data(
-                crop, config=config, output_type=pytesseract.Output.DICT)
+                crop, config=config, output_type=pytesseract.Output.DICT,
+                timeout=PRAZO_DO_CARACTERE_S)
         except Exception as erro:  # noqa: BLE001 — traduzida, nunca engolida
-            raise self._erro_do_tesseract(pytesseract, erro) from erro
+            raise self._erro_do_tesseract(
+                pytesseract, erro, PRAZO_DO_CARACTERE_S) from erro
 
         melhor, melhor_conf = "", 0.0
         for texto, conf in zip(dados.get("text", []), dados.get("conf", [])):
@@ -222,18 +258,21 @@ class OCRService:
         if imagem.ndim == 3:
             imagem = self._cinza(imagem)
         imagem = np.ascontiguousarray(imagem, dtype=np.uint8)
+        # A página (`--psm 3`) e a faixa têm prazos de ordens diferentes (F124).
+        prazo = PRAZO_DA_PAGINA_S if psm == 3 else PRAZO_DA_FAIXA_S
         try:
             dados = pytesseract.image_to_data(
                 Image.fromarray(imagem),
                 lang=self._idioma_tesseract(idioma),
                 config=f"--psm {psm} -c preserve_interword_spaces=1",
                 output_type=pytesseract.Output.DICT,
+                timeout=prazo,
             )
         except Exception as erro:  # noqa: BLE001 — traduzida, nunca engolida
             # Devolver `[]` aqui era o que fazia o executável ausente parecer
             # uma página sem texto — e tornava letra morta o `except` que
             # `livro.extrair_pagina` tem justamente para este caso.
-            raise self._erro_do_tesseract(pytesseract, erro) from erro
+            raise self._erro_do_tesseract(pytesseract, erro, prazo) from erro
         return self._agrupar_dados_do_tesseract(dados)
 
     @staticmethod
