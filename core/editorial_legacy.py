@@ -40,8 +40,8 @@ class OpcoesDeLeitura:
     """O que a exportação de livro pergunta ao usuário, num objeto só.
 
     Os padrões são os de `livro.extrair`; `diagramas`, `coordenadas`,
-    `fonte`, `moldura`, `cantos`, `probabilidade` e `camada` têm o
-    significado de lá. `modelo_de_linha` liga o CRNN próprio como leitor de
+    `fonte`, `moldura`, `cantos`, `probabilidade`, `candidatas` e `camada` têm
+    o significado de lá. `modelo_de_linha` liga o CRNN próprio como leitor de
     faixa — e só vale se `linha_trainer.modelo_utilizavel` disser que ele
     passa no portão.
 
@@ -59,6 +59,7 @@ class OpcoesDeLeitura:
     cantos: Optional[str] = None
     lex: Any = None
     probabilidade: Optional[Callable] = None
+    candidatas: Optional[Callable] = None
     coletor: Optional[Callable] = None
     modelo_de_linha: bool = False
     dpi: int = 300
@@ -70,6 +71,7 @@ class OpcoesDeLeitura:
         saida = {"idioma_ocr": self.idioma, "fusao": self.fusao,
                  "diagramas": self.diagramas, "coordenadas": self.coordenadas,
                  "lex": self.lex, "probabilidade": self.probabilidade,
+                 "candidatas": self.candidatas,
                  "coletor": self.coletor, "dpi": self.dpi,
                  "camada": self.camada}
         if self.fonte is not None:

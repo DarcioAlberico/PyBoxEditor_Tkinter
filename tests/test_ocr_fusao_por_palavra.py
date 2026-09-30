@@ -235,7 +235,7 @@ def _texto_da_linha_roteirizado(ancoras):
     fila = list(ancoras)
 
     def falso(img, linha, classificar, conf_minima, coletor=None, pagina=0,
-              marcador_glifo=None):
+              marcador_glifo=None, candidatas=None):
         texto = fila.pop(0)
         n = len(linha)
         caixas = [-1 if c == " " else min(n - 1, i * n // len(texto))
@@ -575,7 +575,8 @@ def test_a_linha_so_de_lances_com_box_derrubado_pede_a_lacuna_ao_motor(monkeypat
     ancoras = ("Amaz1ngly m1ssed", "25.\u2656xc7! B]ack", "28.\u2656xf7+ \u2654e6")
 
     def falso(img, linha, classificar, conf_minima, coletor=None, pagina=0,
-              marcador_glifo=None, marcador_confianca=None):
+              marcador_glifo=None, marcador_confianca=None,
+              candidatas=None):
         texto = ancoras[len(chamadas)]
         chamadas.append(texto)
         n = len(linha)

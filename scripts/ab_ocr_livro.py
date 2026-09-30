@@ -59,8 +59,9 @@ def _leitor_memorizado(leitor):
 
 
 def _extrair(pdf: Path, numeros, classificar, ler, ler_faixa, idioma: str,
-             modo: str):
-    kwargs = {"diagramas": "recorte", "idioma_ocr": idioma}
+             modo: str, candidatas=None):
+    kwargs = {"diagramas": "recorte", "idioma_ocr": idioma,
+              "candidatas": candidatas}
     if modo != "glifo":
         kwargs.update(ler_pagina=ler, ler_faixa=ler_faixa,
                       fusao="palavra" if modo == "palavra" else "linha")
@@ -96,6 +97,9 @@ def main() -> int:
     parser.add_argument("--saida", type=Path, default=Path("preview_ocr/ab"))
     parser.add_argument("--referencia", type=Path,
                         default=Path("preview_ocr/referencia"))
+    parser.add_argument("--sem-geometria", action="store_true",
+                        help="lê sem a caixa pela geometria da linha (F112), "
+                             "que a exportação liga")
     args = parser.parse_args()
 
     if not args.pdf.exists():
@@ -123,7 +127,8 @@ def main() -> int:
     for modo in args.modos:
         inicio = time.time()
         paginas = _extrair(args.pdf, numeros, classificar, ler, ler_faixa,
-                           args.idioma, modo)
+                           args.idioma, modo,
+                           None if args.sem_geometria else service.candidatas)
         tempos[modo] = time.time() - inicio
         textos[modo] = {}
         roteamentos[modo] = {}

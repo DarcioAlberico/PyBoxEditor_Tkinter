@@ -49,8 +49,8 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from core import (diagrama, lado_a_jogar as lado_jogar, lexico, negrito,
-                  notacao, render_diagrama, vertical)
+from core import (diagrama, geometria_da_linha, lado_a_jogar as lado_jogar,
+                  lexico, negrito, notacao, render_diagrama, vertical)
 from core.box_model import BoxEntry
 from core.leitura_de_linha import MARGEM as MARGEM_DA_FAIXA, quebrar_em_linhas
 from core.ocr_result import RegionResult
@@ -1262,6 +1262,55 @@ def _ler_faixa_registrando(ler_faixa: Callable, falhas: List[str]) -> Callable:
     return ler
 
 
+#: Quantas páginas seguidas o motor pode passar do prazo antes de o livro
+#: desistir dele (F124). Uma é a página que o Tesseract não fecha — a trama que
+#: a análise de layout não resolve —, e a página seguinte ainda paga o motor;
+#: duas seguidas são o executável que não volta, e cada página a mais custaria
+#: o prazo inteiro da página e o de três faixas antes de seguir sem ele.
+PAGINAS_SEM_RESPOSTA_ATE_DESISTIR = 2
+
+
+def _disjuntor_do_motor(ler_pagina: Optional[Callable],
+                        ler_faixa: Optional[Callable]):
+    """`(ler_pagina, ler_faixa)` que desistem do motor **para o resto do livro**
+    depois de `PAGINAS_SEM_RESPOSTA_ATE_DESISTIR` páginas seguidas sem resposta
+    no prazo (`TesseractSemResposta`, F124).
+
+    Desistir é levantar `MotorIndisponivel` sem chamar o motor, e os dois já
+    sabem o que fazer com ela: a página registra e segue com a cadeia própria, e
+    a faixa se desliga na primeira (`_ler_faixa_registrando`). O estado é do
+    livro, e não da página, porque é o livro que pagaria o prazo página a
+    página; e uma página que responde zera a conta.
+    """
+    from core.services.ocr_service import MotorIndisponivel, TesseractSemResposta
+
+    estado = {"seguidas": 0, "motivo": ""}
+
+    def desligado():
+        if estado["motivo"]:
+            raise MotorIndisponivel("Tesseract", estado["motivo"])
+
+    def pagina(img):
+        desligado()
+        try:
+            registros = ler_pagina(img)
+        except TesseractSemResposta as erro:
+            estado["seguidas"] += 1
+            if estado["seguidas"] >= PAGINAS_SEM_RESPOSTA_ATE_DESISTIR:
+                estado["motivo"] = (f"{erro} em {estado['seguidas']} páginas "
+                                    "seguidas; desligado para o resto do livro")
+            raise
+        estado["seguidas"] = 0
+        return registros
+
+    def faixa(img):
+        desligado()
+        return ler_faixa(img)
+
+    return (None if ler_pagina is None else pagina,
+            None if ler_faixa is None else faixa)
+
+
 def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
                        ler_faixa: Callable):
     """Lê a faixa de uma linha só e devolve o registro em coordenadas da página.
@@ -2018,7 +2067,8 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
                     coletor: Optional[Callable] = None,
                     pagina: int = 0,
                     marcador_glifo: Optional[Callable] = None,
-                    marcador_confianca: Optional[Callable] = None
+                    marcador_confianca: Optional[Callable] = None,
+                    candidatas: Optional[Callable] = None
                     ) -> Tuple[str, int, List[Optional[float]],
                                List[Optional[float]], List[int]]:
     """
@@ -2080,6 +2130,14 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     índice é dentro de `linha`, e quem quiser o da página converte — é o que o
     `extrair_pagina` faz, porque a régua do box largo é da página inteira.
     O espaço inserido não veio de box nenhum, e leva `-1`.
+
+    **Com `candidatas`, a caixa é decidida pela linha inteira** (F112). A rede
+    lê cada recorte esticado em 32×32 e não tem como separar `s` de `S`; a
+    linha tem. `candidatas(recorte, k)` é o top-k da rede, e
+    `geometria_da_linha.podar` o consulta só para o box cuja leitura não cabe
+    no corpo que a linha votou — por isso a linha é classificada inteira
+    **antes** de ser montada, e o coletor, o marcador e o piso de confiança
+    recebem a leitura já podada. Sem `candidatas`, nada muda.
     """
     # A régua do espaço é do `diagrama` e é uma só (F107) — ver
     # `limiar_de_espaco`. Ela mede o vão contra o **vão típico desta linha**, e
@@ -2088,6 +2146,15 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     limiar = diagrama.limiar_de_espaco(linha)
     largura = float(np.median([b.x2 - b.x1 for b in linha])) if linha else 1.0
     largura = largura or 1.0
+    recortes = [vertical.recorte_de_pe(img, b) for b in linha]
+    leituras = [classificar(recorte) if recorte.size else ("", 0.0)
+                for recorte in recortes]
+    if candidatas is not None:
+        for i, troca in geometria_da_linha.podar(
+                linha, recortes, leituras, candidatas,
+                limiar_de_espaco=limiar,
+                limiar_de_confirmacao=conf_minima).items():
+            leituras[i] = troca
     partes, fracos = [], 0
     pesos: List[Optional[float]] = []
     lacunas: List[Optional[float]] = []
@@ -2097,8 +2164,8 @@ def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
     # lacuna atravessa um buraco e deixa de ser a distância entre dois vizinhos.
     saltou = False
     for i, b in enumerate(linha):
-        recorte = vertical.recorte_de_pe(img, b)
-        char, conf = classificar(recorte) if recorte.size else ("", 0.0)
+        recorte = recortes[i]
+        char, conf = leituras[i]
         # O coletor recebe **tudo** que foi classificado, e ele é que decide o
         # que guardar. Filtrar aqui prendia a coleta ao piso de confiança, e há
         # revisão que quer o contrário: a pasta cheia de acertos com alguns
@@ -3162,7 +3229,8 @@ def _png_do_recorte(img: np.ndarray, rect, dpi: int = 300,
 
 def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
                     conf_minima: float, coletor: Optional[Callable],
-                    numero: int) -> Optional[Paragrafo]:
+                    numero: int, candidatas: Optional[Callable] = None
+                    ) -> Optional[Paragrafo]:
     """
     O cabeçalho do diagrama lido como texto, ou `None` se não deu para ler.
 
@@ -3181,7 +3249,8 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
     partes = []
     for linha in quebrar_em_linhas(d.caixas_da_faixa):
         texto, fracos, _p, _l, _c = _texto_da_linha(img, linha, classificar,
-                                                conf_minima, coletor, numero)
+                                                conf_minima, coletor, numero,
+                                                candidatas=candidatas)
         if fracos or not texto:
             return None
         partes.append(texto)
@@ -3370,7 +3439,8 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
 def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable,
                conf_minima: float, coletor, numero: int, *, rotulo, ordem: int,
                roteador: OCRRouter, registros_ocr, usados_ocr: set,
-               ler_faixa: Optional[Callable], fusao: str, idioma_ocr: str):
+               ler_faixa: Optional[Callable], fusao: str, idioma_ocr: str,
+               candidatas: Optional[Callable] = None):
     """Uma linha lida pela cadeia própria e, quando o roteador manda, pelo motor.
 
     É o corpo do laço de `extrair_pagina`, e saiu dele para a célula da
@@ -3389,7 +3459,8 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
     texto, n, pesos, vaos, caixas = _texto_da_linha(
         img, linha, classificar, conf_minima, coletor, numero,
         lambda posicao, centro_x, glifo: glifos_linha.append(
-            (posicao, centro_x, glifo)))
+            (posicao, centro_x, glifo)),
+        candidatas=candidatas)
     texto, pesos, vaos, caixas = _colar_numero_de_lance(texto, pesos, vaos, caixas)
     texto, pesos, vaos, caixas = _partir_prosa_colada_ao_lance(
         texto, pesos, vaos, caixas)
@@ -3509,7 +3580,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                    moldura=render_diagrama.MOLDURA_PADRAO,
                    cantos: str = render_diagrama.CANTO_PADRAO,
                    lex: Optional["lexico.Lexico"] = None,
-                   probabilidade: Optional[Callable] = None
+                   probabilidade: Optional[Callable] = None,
+                   candidatas: Optional[Callable] = None
                    ) -> PaginaExtraida:
     """
     Uma página do PDF vira parágrafos e figuras, lendo só a imagem.
@@ -3548,6 +3620,12 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     ligar por isso. Quem autoriza a troca é a prova visual, e ela precisa
     perguntar ao modelo quanto ele dá a uma letra num pedaço de papel — que é
     uma pergunta que o `classificar` desta função não responde.
+
+    `candidatas(recorte, k) -> [(char, probabilidade)]` liga a caixa pela
+    geometria da linha (F112, `geometria_da_linha`): o top-k da rede, que a
+    poda consulta quando a leitura não cabe no corpo que a linha votou. Pela
+    mesma razão do `probabilidade`: é outra pergunta ao modelo, e sem ela a
+    cadeia lê como antes.
     """
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
@@ -3629,7 +3707,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             img, sub, classificar, conf_minima, coletor, numero,
             rotulo=rotulo, ordem=len(roteamento), roteador=roteador,
             registros_ocr=registros_ocr, usados_ocr=usados_ocr,
-            ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr)
+            ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr,
+            candidatas=candidatas)
         if origem == "glyph" and dominio != "notation":
             texto = _corrigir_prosa_contextual(texto, idioma_ocr, fuzzy=False)
         roteamento.append({**registro, "texto": texto, "celula": rotulo})
@@ -3660,7 +3739,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             img, linha, classificar, conf_minima, coletor, numero,
             rotulo=f"l{indice_linha}", ordem=indice_linha, roteador=roteador,
             registros_ocr=registros_ocr, usados_ocr=usados_ocr,
-            ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr)
+            ler_faixa=ler_faixa, fusao=fusao, idioma_ocr=idioma_ocr,
+            candidatas=candidatas)
         fracos += n
         if origem == "glyph":
             # A sobra curta do detector que o motor já cobriu inteira não vira
@@ -3735,7 +3815,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         # dentro do recorte — meia dúzia de caixas, e ali não há FEN nenhum
         # para o lado entrar.
         cabecalho = (_faixa_em_texto(img, d, classificar, conf_minima, coletor,
-                                     numero)
+                                     numero, candidatas)
                      if d.faixa is not None else None)
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
@@ -3964,7 +4044,8 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             lex: Optional["lexico.Lexico"] = None,
             probabilidade: Optional[Callable] = None,
             progress_callback=None,
-            camada: str = "nunca") -> List[PaginaExtraida]:
+            camada: str = "nunca",
+            candidatas: Optional[Callable] = None) -> List[PaginaExtraida]:
     """
     Lê o PDF inteiro (ou as páginas pedidas).
 
@@ -3978,6 +4059,10 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
     (`pdf_nativo.ligar_legendas`, `retirar_mobilia`) — e fica fora da do
     cabeçalho de baixo; o corte de coladas e o negrito medem o caractere, que
     ela não tem, e a deixam como está.
+
+    `candidatas` liga a caixa pela geometria da linha (F112) — ver
+    `extrair_pagina`. `None` é o padrão pela razão do `probabilidade`: quem
+    chama sem ela lê como antes, e a exportação a passa.
     """
     import os
     if not os.path.exists(input_pdf):
@@ -3987,6 +4072,9 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
         raise ValueError(f"modo de camada inválido: {camada!r} "
                          f"(use um de {pdf_nativo.MODOS})")
 
+    # O motor que não volta é desligado para o livro, e não pago página a
+    # página até o fim (F124).
+    ler_pagina, ler_faixa = _disjuntor_do_motor(ler_pagina, ler_faixa)
     doc = fitz.open(input_pdf)
     try:
         carimbo = pdf_nativo.produtor(doc) if camada != "nunca" else ""
@@ -4018,7 +4106,8 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         lado_do_diagrama=lado_do_diagrama,
                                         moldura=moldura, cantos=cantos,
                                         lex=lex,
-                                        probabilidade=probabilidade))
+                                        probabilidade=probabilidade,
+                                        candidatas=candidatas))
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         if camada != "nunca":

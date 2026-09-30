@@ -136,11 +136,13 @@ def texto_do_epub(caminho: str) -> str:
     return "\n".join(partes)
 
 
-def paginas_do_pdf(caminho: str, paginas=None, lex=None, idioma=None):
+def paginas_do_pdf(caminho: str, paginas=None, lex=None, idioma=None,
+                   geometria=True):
     """
     As `PaginaExtraida` do caminho de produção, com o modelo de verdade.
 
-    `idioma` liga a máscara de alfabeto (F109 §1), como a exportação liga.
+    `idioma` liga a máscara de alfabeto (F109 §1), como a exportação liga, e
+    `geometria` a caixa pela geometria da linha (F112), como ela também liga.
     """
     from core import livro
     from core.services.learning_service import LearningService
@@ -155,6 +157,7 @@ def paginas_do_pdf(caminho: str, paginas=None, lex=None, idioma=None):
 
     return livro.extrair(caminho, servico.leitor_de_texto(idioma),
                          paginas=paginas, lex=lex,
+                         candidatas=servico.candidatas if geometria else None,
                          progress_callback=progresso)
 
 
@@ -436,6 +439,9 @@ def main(argv=None) -> int:
                     help="relê o PDF sem passar o léxico ao `livro.extrair`")
     ap.add_argument("--idioma", default=None, choices=("en", "pt"),
                     help="liga a máscara de alfabeto da F109 na releitura")
+    ap.add_argument("--sem-geometria", action="store_true",
+                    help="relê o PDF sem a caixa pela geometria da linha "
+                         "(F112), que a exportação liga")
     ap.add_argument("--capitulos", action="store_true",
                     help="liga a detecção de capítulo pela altura (F111), "
                          "que está desligada em produção, para medi-la")
@@ -460,7 +466,8 @@ def main(argv=None) -> int:
         # sairia sem eles, que é a coluna "antes" da tabela.
         extraidas = paginas_do_pdf(args.pdf, paginas,
                                    None if args.sem_lexico else lex,
-                                   args.idioma)
+                                   args.idioma,
+                                   geometria=not args.sem_geometria)
         texto = texto_das_paginas(extraidas)
         print(f"páginas: {len(extraidas)}")
         # O que `retirar_cabecalhos` tirou (F109 §5), para o olho conferir que
