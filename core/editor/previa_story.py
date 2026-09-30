@@ -61,7 +61,8 @@ class Desenho:
 
     def linha_em(self, pagina: int, x: float, y: float) -> int | None:
         """A linha do bloco mais interno sob `(x, y)` da página; senão a do último bloco acima."""
-        dentro = [(r, linha) for linha, p, r in self.posicoes if p == pagina and r[0] <= x <= r[2] and r[1] <= y <= r[3]]
+        dentro = [(r, linha) for linha, p, r in self.posicoes
+                  if p == pagina and r[0] <= x <= r[2] and r[1] <= y <= r[3]]
         if dentro:
             # O mais interno é o de menor área (um <p> dentro de um <div>); no empate, o que
             # vem depois — o filho, que abre depois do pai.

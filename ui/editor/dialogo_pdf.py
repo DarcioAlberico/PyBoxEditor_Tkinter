@@ -112,8 +112,10 @@ class DialogoAbrirPdf(_Dialogo):
         ttk.Combobox(opcoes, textvariable=self.var_idioma, values=ap.IDIOMAS, width=5).pack(side="left", padx=(6, 14))
         ttk.Label(opcoes, text="Um capítulo por:").pack(side="left")
         self.var_dividir = tk.StringVar(top, value=str(self.prefs.get("dividir") or "pagina"))
-        ttk.Radiobutton(opcoes, text="página", value="pagina", variable=self.var_dividir).pack(side="left", padx=(6, 0))
-        ttk.Radiobutton(opcoes, text="título", value="titulo", variable=self.var_dividir).pack(side="left", padx=(4, 14))
+        ttk.Radiobutton(opcoes, text="página", value="pagina",
+                        variable=self.var_dividir).pack(side="left", padx=(6, 0))
+        ttk.Radiobutton(opcoes, text="título", value="titulo",
+                        variable=self.var_dividir).pack(side="left", padx=(4, 14))
         self.var_reparar = tk.BooleanVar(top, value=bool(self.prefs.get("reparar", False)))
         ttk.Checkbutton(opcoes, text="Reparo de colagem (mais lento)", variable=self.var_reparar).pack(side="left")
 
