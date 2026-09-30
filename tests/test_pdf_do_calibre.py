@@ -18,7 +18,10 @@ E dois que apareciam junto: a linha de prosa colada em cima do tabuleiro
 perdia as letras que descem (`j gy` virava o título do diagrama), e a imagem
 com quatro recortes de canto de tabuleiro (p. 21), que não é diagrama, virava
 seis parágrafos de figurinas soltas — agora sai como figura
-(`livro._imagens_do_pdf`), só onde a camada é tipografia.
+(`livro._imagens_do_pdf`), só onde a camada é tipografia. A imagem do PDF que
+o detector da F96 reconhece como tabuleiro vira diagrama (`livro.
+_tabuleiros_das_imagens`) — o terceiro da p. 60, de moldura partida em toda
+divisa, que nenhuma outra pista achava.
 
 Os testes montam os casos com o PyMuPDF e com numpy; os do fim rodam sobre o
 PDF do Khenkin quando ele está na máquina (`KHENKIN_PDF`, ou uma pasta
@@ -395,3 +398,24 @@ def test_khenkin_os_recortes_da_pagina_21_saem_como_uma_figura():
     assert len(figuras) == 1
     antes = pagina.blocos[pagina.blocos.index(figuras[0]) - 1]
     assert isinstance(antes, livro.Paragrafo) and len(antes.texto) > 100
+
+
+def test_a_imagem_do_pdf_que_e_tabuleiro_vira_diagrama():
+    """A p. 60 do Khenkin: a moldura partida em toda divisa não deixa pista no
+    descarte, e é a imagem do PDF que diz onde procurar."""
+    pg, _faixas, caixa = _pagina_com_moldura_partida()
+    tabuleiro = livro._ImagemDoPdf((caixa[0] - 10, caixa[1] - 10, caixa[2] + 10, caixa[3] + 10))
+    texto = livro._ImagemDoPdf((100, 1000, 700, 1150))
+    ficam, achados = livro._tabuleiros_das_imagens(pg, [tabuleiro, texto], 30,
+                                                   lambda *a, **k: ("a", 0.99))
+    assert ficam == [texto]
+    [d] = achados
+    assert all(abs(a - b) <= 6 for a, b in zip(d.tabuleiro, caixa)), d.tabuleiro
+
+
+def test_khenkin_o_terceiro_tabuleiro_da_pagina_60_e_diagrama():
+    with fitz.open(_khenkin()) as doc:
+        pagina = livro.extrair_pagina(doc[59], lambda *a, **k: ("a", 0.99), numero=59)
+    assert pagina.diagramas == 3
+    assert [b.origem for b in pagina.blocos
+            if isinstance(b, livro.Figura)].count("pagina") == 1

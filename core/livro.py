@@ -515,6 +515,47 @@ def _imagens_do_pdf(page: fitz.Page, forma, boxes: Sequence[BoxEntry],
     return saida
 
 
+def _tabuleiros_das_imagens(img: np.ndarray, imagens: Sequence[_ImagemDoPdf],
+                            escala: float, classificar: Callable
+                            ) -> Tuple[List[_ImagemDoPdf], List["Diagrama"]]:
+    """
+    `(as que continuam figura, os tabuleiros achados)`: a imagem do PDF que é
+    tabuleiro vira diagrama, e não figura.
+
+    **O caso é a p. 60 do Khenkin.** A moldura do terceiro diagrama sai partida
+    em **toda** divisa de fila — a imagem reamostrada tem a linha cinza 158 em
+    cada uma —, e sobram dela pedacinhos verticais de 6x156 px. Nada de largura
+    de tabuleiro chega ao descarte, então nem o `localizar` nem a pista da
+    moldura partida (`diagrama._de_moldura_partida`) têm o que ver; e o
+    tabuleiro inteiro saía como figura, sem FEN.
+
+    A pista aqui é a do PDF: a imagem embutida está ali, e só falta perguntar
+    se ela é tabuleiro. Quem responde é o detector da F96 no recorte dela, com a
+    peneira da F95 — como `pdf_nativo._figura_da_imagem` faz com a mesma imagem
+    no caminho da camada. Os quatro recortes de canto da p. 21 não passam na
+    peneira, e continuam figura.
+    """
+    from core import deteccao_de_tabuleiro as det
+
+    minimo = max(1.0, escala) * diagrama.MINIMO_EM_CARACTERES
+    ficam: List[_ImagemDoPdf] = []
+    achados: List[Diagrama] = []
+    for imagem in imagens:
+        x0, y0, x1, y1 = imagem.caixa
+        caixas = [c for c in det.localizar(img[y0:y1, x0:x1],
+                                           piso_do_xadrez=diagrama.PISO_DO_XADREZ)
+                  if diagrama._quadrado_grande(c[2] - c[0], c[3] - c[1], minimo)]
+        if not caixas:
+            ficam.append(imagem)
+            continue
+        c = max(caixas, key=lambda c: (c[2] - c[0]) * (c[3] - c[1]))
+        r = (x0 + c[0], y0 + c[1], x0 + c[2], y0 + c[3])
+        achados.append(Diagrama(exclusao=_com_margem(r, escala * MARGEM_DIAGRAMA, img.shape),
+                                tabuleiro=r,
+                                rotulos=diagrama.ler_rotulos(img, r, escala, classificar)))
+    return ficam, achados
+
+
 @dataclass
 class Diagrama:
     """
@@ -3657,6 +3698,8 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     if imagens:
         boxes = [b for b in boxes
                  if not any(_centro_dentro(b, i.caixa) for i in imagens)]
+        imagens, novos = _tabuleiros_das_imagens(img, imagens, _escala or 1, classificar)
+        tabuleiros = list(tabuleiros) + novos
 
     # **A régua do box largo e a prova visual são da página inteira**, e por
     # isso saem daqui e não de dentro da linha: `_largura_de_referencia` mede a
