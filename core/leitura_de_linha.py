@@ -64,7 +64,8 @@ das linhas destes livros carrega figurina — filtrá-las custa as correções d
 resto de cada uma.
 """
 
-from typing import (Callable, Container, List, Optional, Sequence, Tuple)
+from typing import (Callable, Container, List, Mapping, Optional, Sequence,
+                    Tuple)
 
 import numpy as np
 
@@ -397,6 +398,9 @@ def ler_pagina(
     exigir_confianca_linha: bool = False,
     confianca_linha_minima: Optional[float] = None,
     confianca_ancora_maxima: Optional[float] = None,
+    podar: Optional[Callable[
+        [Sequence[BoxEntry], Sequence[Tuple[str, float, str]]],
+        Mapping[int, Tuple[str, float, str]]]] = None,
 ) -> List[Tuple[BoxEntry, str, float, str]]:
     """
     `(box, char, confiança, fonte)` para cada box de `linhas`, em ordem.
@@ -434,6 +438,15 @@ def ler_pagina(
     linha manda nele sempre. É a hipótese de que a trava, feita para proteger a
     rede, protege também o elo cuja confiança não ordena nada (`easyocr`, F48).
     O padrão `None` é produção; `medir_cadeia.py --sem-trava-para` é quem mede.
+
+    `podar(linha, âncora) -> {índice: (char, confiança, fonte)}` corrige a
+    âncora **da linha inteira**, antes de a linha ser lida (F123): é a poda
+    da geometria da linha (`geometria_da_linha.poda_da_ancora`), que precisa de
+    todos os boxes da linha para votar o corpo dela e por isso não cabe em
+    `ler_caractere`, que vê um box de cada vez. A leitura da linha é alinhada
+    contra a âncora já corrigida, e a trava vale para o que a poda escreveu como
+    vale para o resto. Com `ao_falhar`, um erro dentro dela deixa a linha com a
+    âncora como estava.
     """
     def ler_box(b):
         if ao_falhar is None:
@@ -453,12 +466,24 @@ def ler_pagina(
             ao_falhar(linha[0], e)
             return ("", 0.0)
 
+    def podar_ancora(linha, por_char):
+        if ao_falhar is None:
+            return podar(linha, por_char)
+        try:
+            return podar(linha, por_char)
+        except Exception as e:  # noqa: BLE001 — devolvido a quem chamou
+            ao_falhar(linha[0], e)
+            return {}
+
     saida = []
     for i, linha in enumerate(linhas):
         if cancelado is not None and cancelado():
             break
 
         por_char = [ler_box(b) for b in linha]
+        if podar is not None and linha:
+            for j, troca in podar_ancora(linha, por_char).items():
+                por_char[j] = troca
         chars = [c for c, _cf, _fo in por_char]
         confs = [cf for _c, cf, _fo in por_char]
         fontes = [fo for _c, _cf, fo in por_char]

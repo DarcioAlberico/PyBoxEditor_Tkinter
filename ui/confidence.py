@@ -142,7 +142,14 @@ LIMIAR_DE_MARGEM = 0.50
 #: 73,2%). A decisão estava certa e a justificativa não era: o que a sustenta é a
 #: linha de cima — 0,776 é régua melhor que a da rede, que ninguém propõe marcar
 #: inteira.
-FONTES_SEMPRE_REVISADAS = frozenset({"easyocr"})
+#:
+#: **A troca da geometria da linha entra pelo mesmo critério, e sem tabela**
+#: (F123): a confiança dela é a massa do grupo de mesmo desenho (`s`/`S`,
+#: `o`/`O`/`0`), e a rede não separa os membros de um grupo — é por isso que ele
+#: é grupo. O número diz que o desenho é aquele, e nada sobre qual dos dois é o
+#: certo: régua plana por construção. E o box que ela trocou é justamente um em
+#: que a rede respondeu com confiança e a linha discordou.
+FONTES_SEMPRE_REVISADAS = frozenset({"easyocr", "geometria"})
 
 
 def precisa_revisao(box) -> bool:

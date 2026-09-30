@@ -66,8 +66,18 @@ os livros junta as duas: o `S` fica com desvio 0,15, e o `s` lido `S` cai a
 só cai quando a haste lida fica abaixo da altura votada, que é onde caíram os
 23 `l`→`i` medidos. A minúscula de topo em x é estreita em toda fonte, e o
 `C`, o `O`, o `W` e o `0` a tabela mede estreitos: esses a poda pega nos dois
-sentidos. A tabela por livro, das maiúsculas sem par do próprio livro, é o
-passo seguinte (F112 no ROADMAP).
+sentidos. A tabela por livro, das maiúsculas sem par do próprio livro, era o
+passo seguinte, e a F123 a mediu antes de fazê-la: a altura da caixa alta sai
+certa das leituras do próprio livro, sem rótulo, mas o que ela conserta — o
+`s` lido `S` do Seirawan — cabe em meia dúzia de caracteres em 31.956.
+
+## A janela (F123)
+
+As ações «Detectar e Preencher» leem pela cadeia de `ocr_service` e depois pela
+linha do EasyOCR, e a poda entra entre as duas: `poda_da_ancora` é o gancho
+`podar` de `leitura_de_linha.ler_pagina`, que corrige a âncora da linha inteira
+antes de a linha ser lida. A troca sai com fonte própria (`FONTE`), e a fila de
+revisão a vê.
 """
 
 from __future__ import annotations
@@ -502,3 +512,58 @@ def podar(caixas: Sequence[BoxEntry], recortes: Sequence[np.ndarray],
         trocas[i] = (cabem[0], float(max(conf, massa)))
     return trocas
 
+
+# ----------------------------------------------------------------------
+# A janela (F123)
+# ----------------------------------------------------------------------
+
+#: A fonte do box que a poda trocou na janela. É fonte própria, e não a do elo
+#: que leu, porque quem decidiu foi a **linha**: o corpo votado pelas outras
+#: leituras dela, que pode estar errado onde a linha é estranha (título em
+#: versal, linha de dois glifos com apoio mínimo). É a mesma razão de o
+#: `easyocr_linha` existir, e a mesma consequência: a fila de revisão a vê.
+FONTE = "geometria"
+
+
+def poda_da_ancora(pagina: np.ndarray,
+                   candidatas: Callable[[np.ndarray, int], Sequence[Tuple[str, float]]],
+                   *, fontes: Iterable[str] = ("neural",),
+                   tabela: Optional[Tabela] = None):
+    """
+    O gancho `podar` de `leitura_de_linha.ler_pagina` para a janela (F123).
+
+    A âncora da janela é a cadeia de `ocr_service` — rede, k-NN e EasyOCR —, e
+    `candidatas(recorte, k)` é o top-k da rede. **Só a leitura da rede é
+    trocada** (`fontes`): as candidatas são dela, e trocar a resposta do k-NN
+    pela da rede seria outro elo respondendo, não a geometria podando. As
+    leituras dos outros elos votam o corpo da linha como qualquer outra.
+
+    **Sem confirmação** (`podar(limiar_de_confirmacao=None)`), ao contrário do
+    livro. Lá a leitura fraca que cabe sobe para a massa do grupo porque o piso
+    de confiança a apagaria do texto; aqui ela não some — vai para a fila de
+    revisão, que é onde deve estar, e subir a confiança a esconderia de lá.
+    """
+    from core import diagrama, vertical
+
+    fontes = frozenset(fontes)
+
+    def podar_linha(linha: Sequence[BoxEntry],
+                    ancora: Sequence[Tuple[str, float, str]]
+                    ) -> Dict[int, Tuple[str, float, str]]:
+        recortes = [vertical.recorte_de_pe(pagina, b) for b in linha]
+        leituras = [(char or "", float(conf)) for char, conf, _f in ancora]
+        # A rede só é consultada para o box que ela mesma leu: o k-NN e o
+        # EasyOCR respondem justamente onde ela não soube.
+        da_rede = {id(recortes[i]) for i, (_c, _cf, fonte) in enumerate(ancora)
+                   if fonte in fontes}
+
+        def oferta(recorte, k):
+            return candidatas(recorte, k) if id(recorte) in da_rede else ()
+
+        trocas = podar(linha, recortes, leituras, oferta,
+                       limiar_de_espaco=diagrama.limiar_de_espaco(linha),
+                       tabela=tabela)
+        return {i: (char, conf, FONTE) for i, (char, conf) in trocas.items()
+                if ancora[i][2] in fontes}
+
+    return podar_linha

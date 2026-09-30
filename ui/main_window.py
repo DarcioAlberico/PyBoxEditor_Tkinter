@@ -3166,7 +3166,8 @@ class MainWindow(tk.Frame):
                              exigir_confianca_linha=False,
                              confianca_linha_minima=None,
                              confianca_ancora_maxima=None,
-                             ao_concluir=None, languages=("en",)):
+                             ao_concluir=None, languages=("en",),
+                             poda=None):
         """
         Como `_preencher_boxes`, mas o laço é por **linha** e não por box.
 
@@ -3174,6 +3175,11 @@ class MainWindow(tk.Frame):
         `ler_caractere(box) -> (char, confiança, fonte)`, que é a âncora do
         alinhamento. `conf_maxima_para_trocar` é a trava da F18 — ver
         `leitura_de_linha.ler_pagina`.
+
+        `poda(pagina)` monta o `podar` de `ler_pagina` — a geometria da linha
+        corrigindo a âncora antes de a linha ser lida (F123). É chamada na
+        thread de trabalho, **depois** de `preparar`, porque é ali que o modelo
+        de quem ela pede as candidatas acabou de ser carregado.
 
         Cancelar devolve o parcial por linha: o que já foi lido é aplicado, e o
         resto dos boxes fica **como estava** em vez de ser esvaziado.
@@ -3206,11 +3212,13 @@ class MainWindow(tk.Frame):
         falhas = []
 
         def trabalho(h):
+            ler_caractere = preparar(h, pagina, faixas, margens)
             lidos = leitura_de_linha.ler_pagina(
                 pagina, linhas,
                 ler_faixa=lambda faixa: self.ocr_service.easyocr_linha_conf(
                     faixa, languages=languages),
-                ler_caractere=preparar(h, pagina, faixas, margens),
+                ler_caractere=ler_caractere,
+                podar=None if poda is None else poda(pagina),
                 # **Sem `deslocam`, e a F36 mediu que tem de ser.** A linha com
                 # figurina parece a que mais precisa de filtro e é a que menos:
                 # o `_alinhar` absorve o deslocamento, e filtrar joga fora as
@@ -3375,15 +3383,26 @@ class MainWindow(tk.Frame):
                 return (leitura.char, leitura.confianca, leitura.fonte)
             return ler_caractere
 
+        def poda(pagina):
+            # A caixa pela geometria da linha (F112), que o caminho do livro
+            # já tinha (F123). As candidatas são as da rede, que `preparar`
+            # acabou de carregar; só o que a rede leu é trocado.
+            from core import geometria_da_linha
+            return geometria_da_linha.poda_da_ancora(
+                pagina, self.learning_service.candidatas)
+
         self._preencher_por_linha(
             titulo, preparar,
             lambda fontes: (f"Neural: {fontes.get('neural', 0)}\n"
                             f"Referência: {fontes.get('learner', 0)}\n"
                             f"EasyOCR: {fontes.get('easyocr', 0)}\n"
                             f"Corrigidos pela linha: "
-                            f"{fontes.get('easyocr_linha', 0)}"
+                            f"{fontes.get('easyocr_linha', 0)}\n"
+                            f"Corrigidos pela geometria: "
+                            f"{fontes.get('geometria', 0)}"
                             + self._frase_do_idioma(idioma)),
             conf_maxima_para_trocar=CONF_MAXIMA_PARA_A_LINHA,
+            poda=poda,
         )
 
     # -------------------------------------------------------

@@ -12633,13 +12633,14 @@ a família D (dígito dentro da palavra) de **5,28% para 1,87%**, `(O+0)/o` de 0
   Chess Defence*) e 1,67 (*Attacking Manual*). A tabela de todos junta as seis, o `S` fica
   com desvio 0,15, e o `s` lido `S` cai a 2,8 desvios, abaixo do veto. **A tabela por livro
   é o próximo passo**, e ela não pede rótulo: sai das maiúsculas sem par do próprio livro.
+  *Medida na F123 antes de ser feita: sai certa sem rótulo, e não paga — ver lá.*
 - **A adaptação por linha** — a altura de caixa alta e a de ascendente estimadas das
   maiúsculas e algarismos sem par da própria linha. No mesmo protótipo, +65 −6 contra
   +64 −5: não paga nas páginas rotuladas, e a linha é pouco material. É a mesma ideia da
   tabela por livro, com uma linha no lugar do livro.
 - **A janela** («Detectar e Preencher»). A cadeia dela tem k-NN, rede e EasyOCR, e a troca
   precisa de uma fonte própria na fila de revisão; o `medir_cadeia.py` precisa aprender a
-  poda antes. Fica como a F117 ficou para a F116.
+  poda antes. Fica como a F117 ficou para a F116. *Entrou na F123.*
 - **O caminho com rótulo** continua esperando três páginas do Yusupov Complete e três do
   Dvoretsky.
 
@@ -14065,6 +14066,152 @@ abaixo da base continua na linha. Os outros quatro prendem o que ela não pode m
 comum fica com a mediana até o pixel, a página de rosto não troca o texto pelo título, a
 moldura não abriga a página, e o miúdo fora das linhas não é pontilhado. Suíte: 2.993 e 12
 puladas, com as `slow`.
+
+---
+
+## F123 — A geometria da linha chega à janela, e a tabela por livro foi medida antes de ser feita — CONCLUÍDA
+
+Os dois próximos passos que a F112 deixou registrados. A poda de Baird entrou só no caminho do
+livro, onde a âncora é a rede sozinha; o «Detectar e Preencher (Neural)» lê pela cadeia de
+`ocr_service` — rede, k-NN e EasyOCR — e depois pela linha do EasyOCR, com a trava da F18, e
+continuava pondo na tela o `c0uld` que a exportação já não punha no livro. E a tabela por
+livro, "sem rótulo, das maiúsculas sem par do próprio livro", era a resposta registrada para o
+`s` lido `S` que a tabela única deixa passar.
+
+### A tabela por livro, medida antes: sai certa sem rótulo, e não paga
+
+Nas páginas rotuladas, depois da poda da F112 (tabela de fora do livro), sobram 557 erros em
+31.956 caracteres, e **140 são dentro de um grupo de mesmo desenho** — o teto de qualquer
+geometria. Dos 140, o que uma tabela por livro alcança é o `s` lido `S` (11, e quatro deles
+são o gabarito: `Sergey` e `Samets` rotulados em minúscula) e o `i` lido `l` (12). O resto
+não é dela: o `I`/`l`/`1` a geometria não separa (os topos ficam a 0,1 altura de x), o `P`
+mistura a letra e a figurina do peão, e os doze `0` lidos `o` são todos o gabarito —
+`c0mf0rtable`, `c0luna`, `Glossári0`, os mesmos que a F112 conferiu.
+
+A estimativa sem rótulo funciona. Tirada das leituras do próprio livro — as maiúsculas sem
+par e sem figurina (`ADEFGHLMTY`) e as ascendentes `bdhk` com confiança de 0,9 ou mais, na
+linha que a poda ajusta —, a altura da caixa alta sai 1,36 no Darcy Lima, 1,39 no Seirawan,
+1,42 no Kasparov, 1,45 no Nunn, 1,58 no *Practical Chess Defence* e 1,64 no *Attacking
+Manual*, contra 1,32 / 1,37 / 1,41 / 1,45 / 1,63 / 1,67 que a F112 mediu pela verdade, com
+desvio abaixo do `PISO` em todos.
+
+O que ela conserta não:
+
+| tabela | no texto | consertos | quebras | neutras |
+|---|---:|---:|---:|---:|
+| de fora do livro (a da F112) | 97,94% | 73 | 8 | 10 |
+| por livro, nas classes que a tabela já tem (`SCOWV` e `l`) | 97,95% | 78 | 10 | 11 |
+| por livro, e criando `U`, `X`, `Z` | 97,94% | 81 | 16 | 11 |
+
+**Três caracteres em 31.956**, e todos os `S`→`s` num livro só, o Seirawan (`YaSSer
+SeiraWan`, `DeniSe`, `ASpretas`) — duas das três quebras são o gabarito (`defeSa`, `suaS
+Torres`). Criar as classes que faltam custa seis `u` lidos certo que viram `U` onde a linha
+votou o corpo baixo. E na exportação a prosa vem do Tesseract (F112): o `s` lido `S` chega ao
+livro só na página sem motor. **Não entrou.**
+
+### O que entrou
+
+**Um gancho na leitura da linha.** `leitura_de_linha.ler_pagina(podar=)` recebe
+`(linha, âncora) -> {índice: (char, confiança, fonte)}` e corrige a âncora da linha inteira
+**antes** de a linha do EasyOCR ser lida: a poda precisa de todos os boxes para votar o corpo
+da linha, e o `ler_caractere` vê um de cada vez. O alinhamento corre contra a âncora corrigida,
+e a trava vale para o que a poda escreveu como vale para o resto. Com `ao_falhar`, um erro
+dentro dela deixa a linha como estava.
+
+**`geometria_da_linha.poda_da_ancora(página, candidatas)`** é esse gancho para a janela, com
+duas diferenças do livro, cada uma pela razão da janela:
+
+- **só a leitura da rede é trocada** — as candidatas são dela, e trocar a resposta do k-NN pela
+  da rede seria outro elo lendo, não a geometria podando; a rede nem é consultada para esses
+  boxes. As leituras dos outros elos votam o corpo da linha como qualquer outra;
+- **sem confirmação**: no livro, a leitura fraca que é a única do grupo a caber sobe para a
+  massa do grupo porque o piso de confiança a apagaria do texto; na janela ela não some — vai
+  para a fila de revisão, e subir a confiança a esconderia de lá.
+
+**A troca sai com fonte própria, `geometria`, e entra sempre na fila de revisão**
+(`FONTES_SEMPRE_REVISADAS`), pelo critério da F48–F55, que é a separação e não o acerto: a
+confiança da troca é a massa do grupo, e a rede não separa os membros de um grupo — é por isso
+que ele é grupo. O número diz o desenho, não qual dos dois; régua plana por construção.
+
+**Só a ação neural poda.** O «Híbrido» não carrega a rede para ler, e as candidatas são dela.
+`_preencher_por_linha(poda=)` monta o gancho na thread de trabalho, depois de `preparar`
+carregar o modelo, com as candidatas pela porta do serviço (`learning_service.candidatas`, a
+mesma das duas exportações), e o diálogo de fim ganha a linha "Corrigidos pela geometria".
+
+**O instrumento aprendeu a poda.** `medir_cadeia.py` mede a ação por omissão (F116): o caminho
+neural dele passa a podar como a ação poda (`rodar(podar=DA_ACAO)`, `poda_da_acao`), e
+`--geometria` compara com a cadeia sem a poda, com a tabela de cada obra estimada nas outras
+(`tabelas_de_fora`, que usa **todas** as páginas rotuladas para estimar — oito das doze que o
+instrumento mede são do Kasparov, e a tabela dele sairia só das três do Aagaard). E
+`medir_poda_na_janela.py` mede onde o `medir_cadeia` não alcança — ver abaixo.
+
+### Medido
+
+**Nas páginas rotuladas a poda não tem o que fazer**, e é a mesma razão da F117: o k-NN
+responde nelas consultando a cópia do próprio glifo (F23) e a rede treinou nelas.
+`medir_cadeia.py --neural --geometria --idioma en`, 12 páginas, 11.486 boxes:
+
+| cadeia da janela | acerto | trocas | na fila | erro sem fila |
+|---|---:|---:|---:|---:|
+| sem poda | 97,54% | 0 | 437 | 209 |
+| poda, tabela de fora da obra | 97,54% | 4 | 438 | 208 |
+| poda, tabela gravada (a da ação) | 97,53% | 9 | 442 | 205 |
+
+Com a tabela de fora, as quatro trocas são um conserto e uma quebra na mesma página do
+*Practical Chess Defence* — a vírgula e o apóstrofo, uma para cada lado — e dois `1` lidos
+`i` onde a verdade é `a` e `h`, errados antes e depois. Com a gravada, que viu estas páginas,
+entram mais cinco: quatro `I` lidos `i` onde a verdade é `n` (a haste de um `n` partido) e um
+`w` que vira `W`. **O acerto não se mexe, e a fila sim**: o erro que a rede tinha lido com
+confiança e a geometria recusou passa a ser visto — os que escapam da fila vão de 209 para
+205.
+
+**No livro que a janela não viu, ela conserta.** `medir_poda_na_janela.py` roda a mesma cadeia
+nas quatro páginas do corpus de referência (`benchmarks/ocr_corpus_v1.json`), que nenhuma base
+copia: em 5.468 boxes mudam 49 — **48 trocas da geometria, 47 consertos e uma neutra, nenhuma
+quebra** —, e um box que a linha do EasyOCR realinhou por tabela, errado antes e depois.
+Conferido a olho contra a transcrição; a pista do instrumento dá 47 consertos, 1 quebra (é o
+box realinhado) e 1 sem alinhamento (a neutra).
+
+| página | mudaram | o que eram |
+|---|---:|---|
+| Aagaard p. 30 | 12 | `c0uld`, `w0n` ×2, `t0`, `Morales'`, `Pawn`, `smith`, `posit1on`, `w1t1h`, `s1inp]e`; a neutra dentro de `t!1rcat` e o box realinhado |
+| Yusupov p. 34 | 1 | `Solut1.ons` |
+| Yusupov p. 47 | 33 | a haste do `i` lida `1` com o pingo em box próprio: `Th1.s`, `p1.eces`, `pos1.t1.on`, `D1.agram` |
+| Nunn p. 237 | 3 | `w♖g1`, `w=white` — a célula `W:` da tabela, que o motor não cobre |
+
+São 0,86 ponto de acerto por box nessas páginas, e a rede tinha lido cada um desses com
+confiança acima da trava: a linha do EasyOCR não podia tocá-los. **O custo é a fila**: a troca
+entra sempre, e a fila de revisão das quatro páginas vai de 1.313 marcações para 1.357 — onze
+por página, quase todas já certas. É o preço de a janela não esconder uma decisão que a linha
+tomou pelo usuário, e é pequeno perto da fila que já existe nesses livros (40% dos boxes do
+Yusupov p. 47).
+
+### O que fica registrado, e não entrou
+
+- **O «Híbrido»**. A âncora dele é k-NN e EasyOCR, e as candidatas do k-NN (`candidatas`) têm
+  outra escala — a confiança dele é distância, e a massa de um grupo não quer dizer nada ali.
+- **A tabela por livro** — medida acima.
+- **O pingo do `i` em box próprio** (a família A da F109) continua saindo `.` depois da haste:
+  `Thi.s`. A poda conserta a haste e não junta os dois; é a régua do diacrítico.
+
+### Onde está
+
+- `core/leitura_de_linha.py` — `ler_pagina(podar=)`.
+- `core/geometria_da_linha.py` — `poda_da_ancora` e `FONTE`.
+- `ui/main_window.py` — `_preencher_por_linha(poda=)` e a ação neural.
+- `ui/confidence.py` — `FONTES_SEMPRE_REVISADAS`.
+- `medir_cadeia.py` — `--geometria`, `tabela_geometria`, `tabelas_de_fora`, `poda_da_acao`,
+  `DA_ACAO`, `Pagina.obra`; `medir_poda_na_janela.py` (novo).
+
+Cobertura: `tests/test_f123_poda_na_janela.py` (12 testes — a poda corrige a âncora antes da
+linha e a linha é alinhada contra a âncora corrigida, sem gancho nada muda, o erro do gancho
+com e sem `ao_falhar`, o `0` da rede no corpo de `o` trocado com a fonte própria e só ele
+consultando a rede, a leitura do k-NN e do EasyOCR que fica sem consultar a rede, a leitura
+fraca que não é confirmada na janela, a linha curta, a fila de revisão, só a ação neural
+passando a poda, o instrumento medindo a ação por omissão, e a janela de verdade aplicando a
+troca e contando no diálogo). Todos os 12 passam por um nome que esta fase criou (`podar=`,
+`poda_da_ancora`, `FONTE`, `DA_ACAO`, `poda=`), e nenhum passa contra o código de antes. Suíte:
+3095 (`-m "not slow"`).
 
 ---
 

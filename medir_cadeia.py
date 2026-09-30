@@ -68,6 +68,7 @@ from dataclasses import replace
 import numpy as np
 from PIL import Image
 
+from core import geometria_da_linha as gl
 from core import learner as core_learner
 from core import leitura_de_linha as ldl
 from core import proporcao, vertical
@@ -78,6 +79,7 @@ from core.services.learning_service import LearningService
 from core.services.ocr_service import OCRService
 from ui import confidence as conf_ui
 from medir_paginas import MIN_ROTULADOS, paginas_rotuladas, segmentar
+from medir_tamanho import livro_de
 from ui.main_window import (CONF_MAXIMA_PARA_A_LINHA,
                             CONF_MAXIMA_PARA_A_LINHA_HIBRIDO, FONTES_SEM_TRAVA,
                             LEARNER_THRESHOLD_HIBRIDO,
@@ -347,6 +349,10 @@ class Pagina:
     def __init__(self, caminho_img, caminho_box, arbitro):
         img = Image.open(caminho_img).convert("L")
         self.nome = os.path.basename(caminho_img)
+        # A obra, para a tabela da geometria (F123) medir cada livro com a
+        # tabela estimada nos outros — ver `tabelas_de_fora`.
+        self.obra = livro_de(caminho_box)
+        self.caminho_box = caminho_box
         self.rotulados = carregar_box(caminho_box, img.size[1])
         self.arr = np.array(img)
 
@@ -490,9 +496,33 @@ class Cadeia:
         return saida
 
 
+#: "A poda que a ação faz" — o padrão de `rodar`, para `None` poder significar
+#: "sem poda" quando alguém o passa de propósito. Ver `poda_da_acao`.
+DA_ACAO = object()
+
+
+def poda_da_acao(cadeia, caminho):
+    """
+    O `podar` de `rodar` que espelha a ação: `(página) -> gancho`, ou `None`.
+
+    A ação neural poda a âncora pela geometria da linha desde a F123, com a
+    tabela gravada e as candidatas da rede; o «Híbrido» não carrega a rede e
+    não poda. Sem isto o caminho neural do instrumento mediria a cadeia de
+    antes com o nome da de hoje — o defeito que o padrão de `fontes_sem_trava`
+    já guarda para a trava.
+    """
+    if caminho != "neural" or cadeia.predictor is None:
+        return None
+
+    def topk(recorte, k):
+        return cadeia.predictor.predict_topk(recorte, k=k)
+
+    return lambda p: gl.poda_da_ancora(p.arr, topk)
+
+
 def rodar(cadeia, paginas, caminho, learner_threshold, trava,
           neural_threshold=None, deslocam=None,
-          fontes_sem_trava=FONTES_SEM_TRAVA, idioma=DA_CADEIA):
+          fontes_sem_trava=FONTES_SEM_TRAVA, idioma=DA_CADEIA, podar=DA_ACAO):
     """
     `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
 
@@ -510,7 +540,14 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
     `idioma` liga a máscara de alfabeto (F117). O padrão é o da cadeia, que
     `--idioma` fixa para todas as tabelas; `None` explícito desliga a máscara,
     e é o que `tabela_mascara` usa como ponta de comparação.
+
+    `podar(página) -> gancho` monta o `podar` de `ler_pagina` para cada página
+    (F123) — a poda da geometria da linha. O padrão é o da ação
+    (`poda_da_acao`); `None` explícito é a cadeia sem ela, e é o que
+    `tabela_geometria` usa como ponta de comparação.
     """
+    if podar is DA_ACAO:
+        podar = poda_da_acao(cadeia, caminho)
     saida = []
     for p in paginas:
         lidos = ldl.ler_pagina(
@@ -521,6 +558,7 @@ def rodar(cadeia, paginas, caminho, learner_threshold, trava,
             deslocam=deslocam,
             conf_maxima_para_trocar=trava,
             fontes_sem_trava=fontes_sem_trava,
+            podar=None if podar is None else podar(p),
         )
         for b, char, conf, fonte in lidos:
             verdade = p.verdade.get(id(b))
@@ -2281,6 +2319,107 @@ def tabela_mascara(cadeia, paginas, caminho, learner_threshold, trava, idioma,
             print(f"  (+{len(mudou) - 40})")
 
 
+def tabelas_de_fora(paginas, arbitro=None):
+    """
+    `{obra: tabela}` — a da geometria (F112) estimada **nas outras obras**.
+
+    É a divisão de `medir_geometria.py`, e pela mesma razão: o livro que a
+    janela lê não está nas páginas rotuladas, e a tabela gravada foi estimada
+    nestas mesmas páginas. A verdade de cada box é o rótulo casado, e o glifo é
+    o corpo de tinta do recorte que a cadeia lê.
+
+    **As páginas que estimam são todas as rotuladas**, e não só as medidas:
+    oito das onze que este instrumento mede são do Kasparov, e a tabela dele
+    sairia das três páginas do Aagaard, curta demais para ter as classes. Com
+    o `arbitro`, as outras páginas de `medir_geometria.paginas()` entram só
+    para estimar, segmentadas como as medidas.
+    """
+    todas = list(paginas)
+    if arbitro is not None:
+        from medir_geometria import paginas as todas_as_rotuladas
+
+        medidas = {os.path.normcase(os.path.abspath(p.caminho_box))
+                   for p in paginas}
+        for caminho_img, caminho_box in todas_as_rotuladas():
+            if os.path.normcase(os.path.abspath(caminho_box)) in medidas:
+                continue
+            p = Pagina(caminho_img, caminho_box, arbitro)
+            if len(p.rotulados) >= MIN_ROTULADOS:
+                todas.append(p)
+    amostras = {}
+    for p in todas:
+        for linha in p.linhas:
+            amostras.setdefault(p.obra, []).append(
+                [(gl.medir(vertical.recorte_de_pe(p.arr, b), b), p.verdade[id(b)])
+                 for b in linha if id(b) in p.verdade])
+    return {obra: gl.estimar_tabela([l for outra, ls in amostras.items()
+                                     if outra != obra for l in ls])
+            for obra in {p.obra for p in paginas}}
+
+
+def tabela_geometria(cadeia, paginas, caminho, learner_threshold, trava,
+                     deslocam=None, arbitro=None):
+    """
+    A poda da geometria da linha (F112) na cadeia da janela (F123).
+
+    A F112 a mediu no caminho do livro, onde a âncora é só a rede; aqui a âncora
+    é a cadeia inteira e a linha do EasyOCR vem depois, com a trava. A conta é a
+    da máscara: o que mudou entre a cadeia sem a poda e com ela, no mesmo
+    processo e sobre as mesmas respostas memorizadas. A tabela de cada obra é a
+    estimada nas outras (`tabelas_de_fora`), porque o livro que a janela lê não
+    está nas páginas rotuladas; a gravada, que é a da ação e viu estas páginas,
+    entra na última linha só para comparar.
+    """
+    if caminho != "neural" or cadeia.predictor is None:
+        print("\n--geometria precisa de --neural: as candidatas da troca são "
+              "as da rede, e o híbrido não a carrega.")
+        return
+
+    def topk(recorte, k):
+        return cadeia.predictor.predict_topk(recorte, k=k)
+
+    fora = tabelas_de_fora(paginas, arbitro)
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, podar=None)
+    com = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam,
+                podar=lambda p: gl.poda_da_ancora(p.arr, topk,
+                                                  tabela=fora[p.obra]))
+    gravada = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                    deslocam=deslocam)
+
+    def trocados(r):
+        return sum(1 for reg in r if reg[0] == gl.FONTE)
+
+    def errado(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    def colunas(r):
+        # Na janela o erro que conta é o que **escapa** da fila: o que entra
+        # nela o usuário vê. A troca da geometria entra sempre (F123).
+        fila = [reg for reg in r if conf_ui.precisa_revisao(_BoxFalso(reg))]
+        return [acerto(r), trocados(r), len(fila),
+                sum(1 for reg in r if errado(reg)
+                    and not conf_ui.precisa_revisao(_BoxFalso(reg)))]
+
+    print("\n=== A geometria da linha na janela (F123) ===")
+    tabela_varredura("poda da geometria (F112) na cadeia da janela",
+                     ["acerto", "trocados", "na fila", "erro sem fila"],
+                     [("sem poda", colunas(sem)),
+                      ("tabela de fora", colunas(com)),
+                      ("tabela gravada", colunas(gravada))])
+    tabela_linha(sem, com, quem="A geometria")
+
+    mudou = [(x, y) for x, y in zip(sem, com)
+             if normalizar(x[2]) != normalizar(y[2])]
+    if mudou:
+        print(f"\n{'antes':>8}{'depois':>8}{'verdade':>9}{'fonte':>12}   página")
+        for x, y in mudou[:60]:
+            print(f"{x[2]:>8}{y[2]:>8}{x[3]:>9}{y[0]:>12}   {y[4]}")
+        if len(mudou) > 60:
+            print(f"  (+{len(mudou) - 60})")
+
+
 def tabela_varredura(titulo, colunas, linhas_da_tabela):
     print(f"\n--- {titulo} ---")
     print(f"{'':<14}" + "".join(f"{c:>14}" for c in colunas))
@@ -2354,6 +2493,10 @@ def main():
                          "máscara de alfabeto (F117) em todas as tabelas, como "
                          "as ações da tela a ligam, e acrescenta a tabela da "
                          "máscara contra a cadeia sem ela")
+    ap.add_argument("--geometria", action="store_true",
+                    help="com --neural: a poda da geometria da linha (F112) na "
+                         "cadeia da janela contra a cadeia sem ela (F123), com "
+                         "a tabela de cada obra estimada nas outras")
     args = ap.parse_args()
 
     caminho = "neural" if args.neural else "hibrido"
@@ -2584,6 +2727,10 @@ def main():
     if args.idioma:
         tabela_mascara(cadeia, paginas, caminho, padrao_learner, padrao_trava,
                        args.idioma, deslocam=deslocam)
+
+    if args.geometria:
+        tabela_geometria(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                         deslocam=deslocam, arbitro=arbitro)
 
     if args.pdf is not None:
         if not args.neural:
