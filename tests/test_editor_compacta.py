@@ -28,16 +28,24 @@ def test_a_fileira_junta_as_barras_quando_cabem_e_empilha_quando_nao():
     with Janela() as t:
         j = t.j
         # A largura vai como argumento: no Windows, uma janela escondida só aceita o primeiro `geometry`.
-        j._empilhar_barras(1360)
+        # E ela sai das barras medidas, não de um número: no Linux (DejaVu) as mesmas barras são mais
+        # largas que no Windows (Segoe UI), e 1360 px não comportam as duas lá.
+        j.update_idletasks()
+
+        def justa(do_modo):
+            return j.barra_de_arquivo.winfo_reqwidth() + do_modo.winfo_reqwidth() + 16
+
+        j._empilhar_barras(justa(j.barra_de_formatacao))
         assert j._lado_a_lado is True
         assert _mestre(j.barra_de_arquivo) == str(j.fileira) == _mestre(j.barra_de_formatacao)
         # no código, a barra de código divide a fileira
         j.executar("alternar_modo")
-        j._empilhar_barras(1360)
+        j.update_idletasks()
+        j._empilhar_barras(justa(j.barra_de_codigo))
         assert _mestre(j.barra_de_codigo) == str(j.fileira) and not j.barra_de_formatacao.winfo_manager()
         j.executar("alternar_modo")
-        # estreita: a do modo desce para a sua própria fileira
-        j._empilhar_barras(640)
+        # um pixel a menos: a do modo desce para a sua própria fileira
+        j._empilhar_barras(justa(j.barra_de_formatacao) - 1)
         assert j._lado_a_lado is False and _mestre(j.barra_de_formatacao) == str(j.barras)
         # com o painel Xadrez à vista, a barra de xadrez não repete a paleta (ED-16b); fechado, ela
         # volta, abaixo das duas
