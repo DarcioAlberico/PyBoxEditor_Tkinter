@@ -21,7 +21,8 @@ escreve prosa quase limpa e notação ilegível, e uma régua de dicionário o
 aprovaria —, e sim o que o OCR de fábrica deixa no arquivo: texto invisível por
 cima da imagem, fonte sintetizada pelo ClearScan (`Fd350139`), glifo sem
 Unicode, produtor que é programa de OCR, página girada, texto sobre a imagem da
-página inteira.
+página inteira. E o que o arquivo **não** tem: a figurina composta como imagem
+no meio da frase, que o calibre faz (`_imagens_na_linha`).
 
 **O que sai daqui é o mesmo intermediário do OCR** — `livro.PaginaExtraida`,
 com `Paragrafo` e `Figura` —, e por isso o EPUB e o DOCX (`exportar.py`), o
@@ -44,6 +45,7 @@ import io
 import os
 import re
 import statistics
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -358,6 +360,172 @@ def _fonte_de_xadrez_sem_mapa(nome_da_fonte: str) -> bool:
 
 
 # ----------------------------------------------------------------------
+# O glifo sem Unicode, lido pelo nome
+# ----------------------------------------------------------------------
+
+#: As ligaduras de apresentação (`ﬀ` a `ﬆ`) desfeitas, como `FLAGS_DO_TEXTO`
+#: as desfaz quando a fonte diz o Unicode delas.
+_LIGADURAS = {chr(c): unicodedata.normalize("NFKC", chr(c)) for c in range(0xFB00, 0xFB07)}
+
+
+def texto_do_nome_de_glifo(nome: str) -> Optional[str]:
+    """
+    O texto que o nome do glifo diz, pela convenção de nomes da Adobe (AGL).
+
+    **Existe por causa do PDF do calibre.** O Khenkin de 2012 (`1000 Checkmate
+    Combinations`) compõe a prosa em CharisSIL com as ligaduras da fonte, e o
+    ToUnicode que o calibre escreveu não as mapeia: o MuPDF devolve U+FFFD e a
+    palavra sai `battle�eld`, `c-�le`. O nome está na tabela `post` da fonte
+    embutida — o glifo 633 é `f_i` —, e o nome diz a letra: `f_i` e
+    `f_i.SlantItalic` → `fi`, `f_f_l` → `ffl`, `uni0066` → `f`, `fi` → `fi`
+    (a ligadura de apresentação desfeita).
+
+    `None` quando algum pedaço do nome não diz nada (`glyph00633`, `.notdef`,
+    `f_foo`): meia palavra decodificada é pior que a página ir ao OCR. Também
+    `None` sem o fontTools, que é quem conhece a lista da Adobe.
+    """
+    try:
+        from fontTools.agl import toUnicode
+    except ImportError:
+        return None
+    base = str(nome or "").split(".")[0]
+    if not base:
+        return None
+    saida = []
+    for pedaco in base.split("_"):
+        texto = toUnicode(pedaco) if pedaco else ""
+        if not texto or any(c == "\ufffd" or 0xE000 <= ord(c) <= 0xF8FF for c in texto):
+            return None
+        saida.append("".join(_LIGADURAS.get(c, c) for c in texto))
+    return "".join(saida)
+
+
+#: `(arquivo, páginas, xref)` → os nomes dos glifos da fonte embutida, ou `None`.
+_nomes_de_glifo: Dict[Tuple[str, int, int], Optional[List[str]]] = {}
+
+
+def _nomes_da_fonte(doc: fitz.Document, xref: int) -> Optional[List[str]]:
+    """A ordem dos glifos da fonte embutida — o gid vira nome. Só TrueType/OpenType
+    (o que o fontTools abre); a CFF nua e a fonte sem nomes (`post` 3) dão `None`
+    ou `glyphNNNNN`, que `texto_do_nome_de_glifo` recusa."""
+    chave = (str(doc.name or ""), len(doc), int(xref))
+    if chave[0] and chave in _nomes_de_glifo:
+        return _nomes_de_glifo[chave]
+    nomes: Optional[List[str]] = None
+    try:
+        from fontTools.ttLib import TTFont
+
+        dados = doc.extract_font(xref)[3]
+        if dados:
+            nomes = list(TTFont(io.BytesIO(dados), lazy=True).getGlyphOrder())
+    # O fontTools levanta de tudo numa fonte que não entende (struct.error,
+    # KeyError, TTLibError...); qualquer um deles quer dizer "sem nome", e a
+    # página vai ao OCR pela régua.
+    except Exception:  # noqa: BLE001
+        nomes = None
+    if chave[0]:
+        if len(_nomes_de_glifo) > 256:
+            _nomes_de_glifo.clear()
+        _nomes_de_glifo[chave] = nomes
+    return nomes
+
+
+class _PeloNome:
+    """O texto de cada `(fonte, gid)` sem Unicode de uma página, pelo nome do glifo."""
+
+    def __init__(self, page: fitz.Page):
+        self.page = page
+        self.lidos: Dict[Tuple[str, int], Optional[str]] = {}
+        self._xrefs: Optional[Dict[str, List[int]]] = None
+
+    def __call__(self, fonte: str, gid: int) -> Optional[str]:
+        chave = (fonte, int(gid))
+        if chave not in self.lidos:
+            self.lidos[chave] = self._ler(*chave)
+        return self.lidos[chave]
+
+    def _ler(self, fonte: str, gid: int) -> Optional[str]:
+        if self._xrefs is None:
+            self._xrefs = collections.defaultdict(list)
+            for item in self.page.get_fonts():
+                self._xrefs[_SUBCONJUNTO.sub("", str(item[3] or ""))].append(int(item[0]))
+        # Duas fontes embutidas com o mesmo nome: não há como saber de qual é o gid.
+        xrefs = self._xrefs.get(_SUBCONJUNTO.sub("", fonte), [])
+        if len(xrefs) != 1 or gid < 0:
+            return None
+        nomes = _nomes_da_fonte(self.page.parent, xrefs[0])
+        if not nomes or gid >= len(nomes):
+            return None
+        return texto_do_nome_de_glifo(nomes[gid])
+
+
+def _pela_origem(page: fitz.Page) -> Dict[Tuple[float, float], str]:
+    """O texto de cada glifo sem Unicode que o nome resolve, pela origem dele.
+
+    O `rawdict` que `_glifos` lê não traz o gid; o `get_texttrace` traz, e os
+    dois dão a mesma origem ao mesmo glifo."""
+    pelo_nome = _PeloNome(page)
+    saida: Dict[Tuple[float, float], str] = {}
+    for traco in page.get_texttrace():
+        fonte = str(traco.get("font") or "")
+        for item in traco.get("chars") or ():
+            if item[0] != 0xFFFD:
+                continue
+            texto = pelo_nome(fonte, item[1])
+            if texto:
+                saida[(round(float(item[2][0]), 1), round(float(item[2][1]), 1))] = texto
+    return saida
+
+
+# ----------------------------------------------------------------------
+# A figurina que é imagem
+# ----------------------------------------------------------------------
+
+#: Altura, em corpos da letra da página, de uma imagem que é figurina na linha.
+#:
+#: O calibre compõe a figurina do Khenkin como **imagem** no meio da frase —
+#: 15x18 ou 19x19 px, 13,5 a 14,25 pt de altura na linha de corpo 12 (1,1 a 1,2
+#: corpos). A camada de texto não tem nada ali: `1 … ♘xd4!` sai `1 … xd4!`.
+FIGURINA_EM_IMAGEM = (0.5, 2.0)
+
+#: Largura máxima dessa imagem, em corpos — a figurina é mais ou menos quadrada.
+LARGURA_DA_FIGURINA = 2.5
+
+#: Imagens na linha a partir das quais a página vai ao OCR. Uma basta: é um
+#: lance sem peça. Medido: 367 das 458 páginas do Khenkin têm alguma; nenhuma
+#: das 816 do Dvoretsky, que compõe a figurina em fonte.
+IMAGENS_NA_LINHA = 1
+
+
+def _imagens_na_linha(page: fitz.Page, letras: Sequence[Tuple[Tuple[float, ...], float]]
+                      ) -> int:
+    """Quantas imagens do tamanho da letra estão na linha de texto, encostadas
+    numa letra (a menos de um corpo, na mesma faixa de altura)."""
+    if not letras:
+        return 0
+    corpo = statistics.median(tamanho for _caixa, tamanho in letras)
+    if corpo <= 0:
+        return 0
+    baixa, alta = FIGURINA_EM_IMAGEM
+    candidatas = []
+    for info in page.get_image_info():
+        caixa = fitz.Rect(info.get("bbox") or (0, 0, 0, 0))
+        if (baixa * corpo <= caixa.height <= alta * corpo
+                and caixa.width <= LARGURA_DA_FIGURINA * corpo):
+            candidatas.append(caixa)
+    achadas = 0
+    for caixa in candidatas:
+        for (x0, y0, x1, y1), _tamanho in letras:
+            sobre = min(caixa.y1, y1) - max(caixa.y0, y0)
+            if sobre < 0.5 * min(caixa.height, y1 - y0):
+                continue
+            if max(x0 - caixa.x1, caixa.x0 - x1) <= corpo:
+                achadas += 1
+                break
+    return achadas
+
+
+# ----------------------------------------------------------------------
 # A régua: esta camada merece ser lida?
 # ----------------------------------------------------------------------
 
@@ -399,9 +567,12 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     Dvoretsky, nenhum dos dois.
     """
     numero = page.number if numero is None else numero
-    total = invisiveis = de_ocr = sem_unicode = girados = 0
+    total = invisiveis = de_ocr = sem_unicode = girados = perdidos = 0
     por_fonte: "collections.Counter[str]" = collections.Counter()
     sem_mapa: "collections.Counter[str]" = collections.Counter()
+    pelo_nome = _PeloNome(page)
+    #: A caixa e o corpo de cada letra visível, para achar a figurina em imagem.
+    letras: List[Tuple[Tuple[float, ...], float]] = []
     for traco in page.get_texttrace():
         nome = str(traco.get("font") or "")
         caracteres = traco.get("chars") or ()
@@ -420,8 +591,17 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         if abs(float(direcao[1])) > 0.1:
             girados += uteis
         if not _de_xadrez(nome):
-            sem_unicode += sum(1 for item in caracteres
-                               if item[0] == 0xFFFD or 0xE000 <= item[0] <= 0xF8FF)
+            # O U+FFFD que o nome do glifo resolve (a ligadura do calibre) não
+            # é letra perdida: `_glifos` o lê pelo nome.
+            sem_nome = sum(1 for item in caracteres
+                           if item[0] == 0xFFFD and not pelo_nome(nome, item[1]))
+            perdidos += sem_nome
+            sem_unicode += sem_nome + sum(1 for item in caracteres
+                                          if 0xE000 <= item[0] <= 0xF8FF)
+        tamanho = float(traco.get("size") or 0.0)
+        if tamanho >= TAMANHO_MINIMO and traco.get("type") != 3:
+            letras.extend((tuple(item[3]), tamanho) for item in caracteres
+                          if item[0] not in _ESPACOS)
     fontes = tuple(nome for nome, _n in por_fonte.most_common())
 
     def recusa(motivo: str) -> Veredito:
@@ -440,6 +620,16 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     if sem_unicode > LIMITE_DE_OCR * total:
         return recusa(f"glifos sem Unicode ({sem_unicode} de {total}): a fonte "
                       "não diz que letra desenha")
+    # O limite acima é para a fonte inteira sem Unicode. Abaixo dele, o U+FFFD
+    # que o nome do glifo não resolve é letra que some da palavra — as três
+    # ligaduras da p. 20 do Khenkin eram 0,4% da página e passavam.
+    if perdidos:
+        return recusa(f"glifos sem Unicode nem nome que se leia ({perdidos} de "
+                      f"{total}): a letra sumiria da palavra")
+    na_linha = _imagens_na_linha(page, letras)
+    if na_linha >= IMAGENS_NA_LINHA:
+        return recusa(f"figurina em imagem ({na_linha} imagens do tamanho da letra "
+                      "dentro da linha): a camada de texto não as tem")
     desconhecida = next((nome for nome, n in sem_mapa.most_common()
                          if n >= GLIFOS_DE_FONTE_SEM_MAPA), None)
     if desconhecida:
@@ -525,6 +715,9 @@ def _e_negrito(nome: str, flags: int) -> bool:
 def _glifos(page: fitz.Page) -> List[_Glifo]:
     """Todo glifo horizontal e de corpo legível da página, na ordem do MuPDF."""
     saida: List[_Glifo] = []
+    #: O glifo sem Unicode que o nome resolve (`_pela_origem`), montado na
+    #: primeira vez que aparece um — quase toda página não tem nenhum.
+    pelo_nome: Optional[Dict[Tuple[float, float], str]] = None
     bruto = page.get_text("rawdict", flags=FLAGS_DO_TEXTO)
     for b, bloco in enumerate(bruto.get("blocks", ())):
         if bloco.get("type", 0) != 0:
@@ -548,6 +741,13 @@ def _glifos(page: fitz.Page) -> List[_Glifo]:
                         c = _sem_simbolo(c)
                     x0, y0, x1, y1 = (float(v) for v in ch["bbox"])
                     origem = ch.get("origin") or (x0, y1)
+                    if c == "\ufffd" and not xadrez:
+                        if pelo_nome is None:
+                            pelo_nome = _pela_origem(page)
+                        # `fi` inteiro no lugar do glifo: `_montar` escreve
+                        # caractere a caractere o que `_caractere` devolve.
+                        c = pelo_nome.get((round(float(origem[0]), 1),
+                                           round(float(origem[1]), 1)), c)
                     saida.append(_Glifo(c, x0, y0, x1, y1, float(origem[1]),
                                         tamanho, fonte, negrito, (b, k)))
     return saida

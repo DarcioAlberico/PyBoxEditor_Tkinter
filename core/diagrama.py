@@ -495,7 +495,66 @@ def localizar(boxes: Sequence[BoxEntry],
             continue
         saida.append((b.x1, b.y1, b.x2, b.y2))
     saida.extend(_aninhados(imagem, binaria, minimo, saida))
+    saida.extend(_de_moldura_partida(imagem, descartados, minimo, escala, saida))
     return ordem_de_leitura(saida)
+
+
+#: Menor espessura, em alturas de caractere, do pedaço de moldura partida. O
+#: filete e o travessão também caem no descarte por largura, e têm a espessura
+#: de um traço.
+ESPESSURA_DO_PEDACO = 2.0
+
+
+def _de_moldura_partida(imagem, descartados: Sequence[BoxEntry], minimo: float,
+                        escala: float, achados: Sequence[Tuple[int, int, int, int]]
+                        ) -> List[Tuple[int, int, int, int]]:
+    """
+    O tabuleiro cuja moldura a binarização partiu em faixas.
+
+    **O caso é o do Khenkin do calibre** (`1000 Checkmate Combinations`, pp. 20
+    e 21): o diagrama é uma imagem de 214 px reamostrada, e a moldura dela tem,
+    nas divisas de algumas filas, uma linha de pixel cinza 158 no lugar do preto.
+    A binária abre a moldura ali, e o que chega ao descarte não é o tabuleiro de
+    667x667 px, e sim as faixas dele — 667x251, 667x141, 667x91 — que têm a
+    largura do tabuleiro e não são quadradas. Nenhuma das duas passadas acha
+    nada, e as casas viravam parágrafo (`Wh ♘Wh ♘ ♖⩲♗Wh⨼`).
+
+    **A pista é a faixa, e quem acha o tabuleiro é `deteccao_de_tabuleiro`** (F96),
+    que não depende de contorno fechado da moldura: o `adaptiveThreshold` dele e
+    o fechamento morfológico da segunda passada fecham a linha cinza. A porta é
+    estreita como a da F96 — ele só roda quando há faixa, e só vale o tabuleiro
+    dele que passa na forma, na peneira da F95 (`PISO_DO_XADREZ`) e **contém uma
+    das faixas**: o tabuleiro que o detector achasse em outro lugar da página
+    não é o que partiu, e o `localizar` já respondeu por ele.
+    """
+    if imagem is None:
+        return []
+    espessura = max(1.0, escala) * ESPESSURA_DO_PEDACO
+    faixas = [(b.x1, b.y1, b.x2, b.y2) for b in descartados
+              if max(b.width, b.height) >= minimo
+              and min(b.width, b.height) >= espessura
+              and not _quadrado_grande(b.width, b.height, minimo)
+              and not any(_sobrepoe((b.x1, b.y1, b.x2, b.y2), a) > 0 for a in achados)]
+    if not faixas:
+        return []
+
+    from core import deteccao_de_tabuleiro as det
+
+    def contem(caixa, faixa) -> bool:
+        lx = max(0, min(caixa[2], faixa[2]) - max(caixa[0], faixa[0]))
+        ly = max(0, min(caixa[3], faixa[3]) - max(caixa[1], faixa[1]))
+        return lx * ly >= 0.9 * (faixa[2] - faixa[0]) * (faixa[3] - faixa[1])
+
+    novos: List[Tuple[int, int, int, int]] = []
+    for caixa in det.localizar(imagem, piso_do_xadrez=PISO_DO_XADREZ):
+        if not _quadrado_grande(caixa[2] - caixa[0], caixa[3] - caixa[1], minimo):
+            continue
+        if any(_sobrepoe(caixa, outra) > SOBREPOSICAO_DE_REPETIDO
+               for outra in list(achados) + novos):
+            continue
+        if any(contem(caixa, faixa) for faixa in faixas):
+            novos.append(caixa)
+    return novos
 
 
 # ----------------------------------------------------------------------

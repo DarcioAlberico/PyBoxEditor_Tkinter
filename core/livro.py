@@ -527,6 +527,46 @@ def _faixa_acima(d: "Diagrama", caixas: Sequence[BoxEntry], escala: float
             min(d.tabuleiro[1], max(b.y2 for b in acima) + folga))
 
 
+def _devolver_a_linha_de_prosa(comidas: List[List[BoxEntry]], pela_faixa: set,
+                               texto: List[BoxEntry], escala: float,
+                               minima: float) -> None:
+    """
+    A letra que a faixa recolheu pelo pé volta ao texto quando a linha dela
+    continua fora da faixa.
+
+    `_na_faixa` mede pelo pé para o cabeçalho `Diagram 1-5` do Yusupov entrar
+    inteiro — ali o pé de **toda** letra da linha cai na margem. No Khenkin do
+    calibre a linha de cima é prosa, a meia altura de caractere do tabuleiro, e
+    só as letras que descem passam do topo da margem: o `j` de `Nedeljkovic` e
+    o `g` e o `y` de `Szilagyi` viravam o título `j gy` do diagrama, e a prosa
+    ficava sem elas. A régua é a vizinhança: letra recolhida pelo pé que encosta
+    (a menos de uma altura de caractere, na mesma faixa de altura) numa letra
+    que ficou no texto é da linha do texto. Repete até parar, porque o `g` só
+    encosta no `i` de fora pelo `y`.
+    """
+    fora = [b for b in texto if (b.x2 - b.x1) * (b.y2 - b.y1) >= minima]
+
+    def encosta(a: BoxEntry, b: BoxEntry) -> bool:
+        sobre = min(a.y2, b.y2) - max(a.y1, b.y1)
+        if sobre < 0.5 * min(a.y2 - a.y1, b.y2 - b.y1):
+            return False
+        return max(b.x1 - a.x2, a.x1 - b.x2) <= escala
+
+    mudou = True
+    while mudou:
+        mudou = False
+        for caixas in comidas:
+            voltam = [b for b in caixas if id(b) in pela_faixa
+                      and any(encosta(b, t) for t in fora)]
+            if not voltam:
+                continue
+            ids = {id(b) for b in voltam}
+            caixas[:] = [b for b in caixas if id(b) not in ids]
+            texto.extend(voltam)
+            fora.extend(voltam)
+            mudou = True
+
+
 def caixas_e_diagramas(img: np.ndarray, classificar: Callable
                        ) -> Tuple[List[BoxEntry], List["Diagrama"], int, int,
                                   List[Tuple[int, int]]]:
@@ -578,6 +618,7 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     # O que a margem come é justamente o que a F60 foi buscar: os rótulos das
     # casas, que não fazem falta, e o cabeçalho do exercício, que faz.
     comidas: List[List[BoxEntry]] = [[] for _ in diagramas]
+    pela_faixa: set = set()
     boxes = []
     for b in todas:
         if (b.x2 - b.x1) * (b.y2 - b.y1) < minima:
@@ -594,10 +635,14 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
             # define "esta letra é do cabeçalho deste diagrama".
             dentro = [i for i, d in enumerate(diagramas)
                       if _na_faixa(b, d)]
+            if dentro:
+                pela_faixa.add(id(b))
         if dentro:
             comidas[dentro[0]].append(b)
             continue
         boxes.append(b)
+
+    _devolver_a_linha_de_prosa(comidas, pela_faixa, boxes, escala, minima)
 
     for d, caixas in zip(diagramas, comidas):
         d.faixa = _faixa_acima(d, caixas, escala)
