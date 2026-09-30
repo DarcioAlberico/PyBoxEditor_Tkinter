@@ -259,6 +259,18 @@ def desenhar(texto: str, arquivo: str = "", folhas: Iterable[tuple[str, str]] = 
     arquivo_fitz = fitz.Archive()
     for nome, dados in montador.dados.items():
         arquivo_fitz.add(dados, nome)
+    # A CSS de um livro importado traz o que o MuPDF não entende (`var()`, `:root`…); ele pula
+    # a regra e imprime no stderr a cada tecla. A prévia não precisa desse eco.
+    exibia = fitz.TOOLS.mupdf_display_errors()
+    fitz.TOOLS.mupdf_display_errors(False)
+    try:
+        return _desenhar(fitz, html, ids, css, arquivo_fitz, largura_pt, corpo_pt, montador)
+    finally:
+        fitz.TOOLS.mupdf_display_errors(exibia)
+
+
+def _desenhar(fitz: Any, html: str, ids: dict[str, int], css: str, arquivo_fitz: Any, largura_pt: float,
+              corpo_pt: float, montador: Montador) -> Desenho:
     story = fitz.Story(html=html, user_css=css, em=float(corpo_pt), archive=arquivo_fitz)
     largura_pt = max(120.0, float(largura_pt))
     mediabox = fitz.Rect(0, 0, largura_pt, ALTURA_DA_FATIA_PT)

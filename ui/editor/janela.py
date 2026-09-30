@@ -1093,6 +1093,8 @@ class JanelaDoEditor(tk.Toplevel):
             return self._criar_codigo(frame, aba, texto, "xhtml", self._folhas_de(cap))
 
         aba = self.abas.abrir(arquivo, "capitulo", modo, criar)
+        if aba.modo == "texto" and hasattr(self, "operacoes"):
+            self.operacoes.avisar_ilhas(cap)       # ED-15: a saída de um capítulo cheio de ilhas
         self.atualizar()
         return aba
 

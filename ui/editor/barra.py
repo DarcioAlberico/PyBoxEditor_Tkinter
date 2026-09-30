@@ -95,8 +95,12 @@ BOTOES_DE_ARQUIVO = (
     ("desfazer", "Desfazer", "Desfazer (Ctrl+Z)"),
     ("refazer", "Refazer", "Refazer (Ctrl+Y)"),
     ("-", "", ""),
-    ("alternar_modo", "Texto/Código", "Alternar modo texto e código (F11)"),
+    ("modo_texto", "Texto", "Modo texto: o livro como se lê (F11 alterna)"),
+    ("modo_codigo", "Código", "Modo código: só o XHTML (F11 alterna)"),
+    ("modo_dividido", "Dividido", "Código com a prévia ao lado (Ctrl+F11; F12 liga/desliga a prévia)"),
 )
+#: Os botões da vista da aba: um só fica marcado, o da vista atual (ED-15).
+VISTAS = {"modo_texto": "texto", "modo_codigo": "codigo", "modo_dividido": "dividido"}
 BOTOES_DE_FORMATACAO = (
     ("negrito", "N", "Negrito (Ctrl+B)"),
     ("italico", "I", "Itálico (Ctrl+I)"),
@@ -138,6 +142,7 @@ class Barra(ttk.Frame):
         self.botoes: dict[str, ttk.Button] = {}
         self.aneis: dict[str, AnelDeFoco] = {}
         self.estilo_combo: ttk.Combobox | None = None
+        self.vista: tk.StringVar | None = None
         for comando, texto, dica in botoes:
             if comando == "-":
                 ttk.Separator(self, orient="vertical").pack(side="left", fill="y", padx=4, pady=2)
@@ -145,8 +150,15 @@ class Barra(ttk.Frame):
             self.adicionar(comando, texto, dica)
 
     def adicionar(self, comando: str, texto: str, dica: str = "") -> ttk.Button:
-        anel = AnelDeFoco(self, lambda pai, c=comando, t=texto: ttk.Button(
-            pai, text=t, command=lambda: self.janela.executar(c), width=max(3, len(t) + 2)))
+        if comando in VISTAS:
+            if self.vista is None:
+                self.vista = tk.StringVar(self, value="")
+            anel = AnelDeFoco(self, lambda pai, c=comando, t=texto: ttk.Radiobutton(
+                pai, text=t, command=lambda: self._escolher_vista(c), variable=self.vista, value=VISTAS[c],
+                style="Toolbutton", width=max(3, len(t) + 2)))
+        else:
+            anel = AnelDeFoco(self, lambda pai, c=comando, t=texto: ttk.Button(
+                pai, text=t, command=lambda: self.janela.executar(c), width=max(3, len(t) + 2)))
         anel.pack(side="left", padx=1, pady=2)
         botao = anel.widget
         Dica(botao, dica)
@@ -159,6 +171,22 @@ class Barra(ttk.Frame):
         for comando, botao in self.botoes.items():
             existe = comando in comandos and modo in modos_do_comando.get(comando, ("texto", "codigo"))
             botao.state(["!disabled"] if existe else ["disabled"])
+        self.marcar_vista()
+
+    def marcar_vista(self) -> None:
+        """O botão da vista da aba ativa fica marcado (a janela diz qual por `vista_atual()`)."""
+        if self.vista is None:
+            return
+        operacoes = getattr(self.janela, "operacoes", None)
+        atual = operacoes.vista_atual() if operacoes is not None else ""
+        self.vista.set(atual)
+
+    def _escolher_vista(self, comando: str) -> None:
+        # O `Radiobutton` já marcou; se a troca não aconteceu (XHTML mal-formado, sem aba), volta à real.
+        try:
+            self.janela.executar(comando)
+        finally:
+            self.marcar_vista()
 
     def primeiro(self) -> ttk.Button | None:
         for botao in self.botoes.values():
@@ -176,5 +204,5 @@ class BarraDeXadrez(Barra):
         self.aviso.pack(side="left", padx=6, pady=2)
 
 
-__all__ = ["AnelDeFoco", "Dica", "Barra", "BarraDeXadrez", "BOTOES_DE_ARQUIVO", "BOTOES_DE_FORMATACAO",
+__all__ = ["AnelDeFoco", "Dica", "Barra", "BarraDeXadrez", "BOTOES_DE_ARQUIVO", "BOTOES_DE_FORMATACAO", "VISTAS",
            "BOTOES_DE_CODIGO"]

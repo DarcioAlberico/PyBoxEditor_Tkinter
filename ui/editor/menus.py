@@ -186,6 +186,7 @@ EDITAR = (
 EXIBIR = (
     _i("Modo texto", "modo_texto"),
     _i("Modo código", "modo_codigo"),
+    _i("Modo dividido (código + prévia)", "modo_dividido", "ED-15"),
     _i("Alternar modo", "alternar_modo"),
     _i("Prévia", "previa", "ED-08", CODIGO),
     SEP,
@@ -374,6 +375,7 @@ FERRAMENTAS = (
     SEP,
     _i("Apagar recursos não usados…", "apagar_recursos", "ED-08"),
     _i("Apagar classes CSS não usadas…", "apagar_classes", "ED-08"),
+    _i("Limpar marcação importada…", "limpar_importado", "ED-15"),
     _i("Clipes…", "clipes", "ED-02"),
 )
 

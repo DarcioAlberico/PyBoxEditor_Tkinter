@@ -2203,6 +2203,48 @@ para quando o usuário commitar o trabalho dele nela.
 
 ---
 
+## ED-15 — As vistas Texto · Código · Dividido e a limpeza da marcação importada
+
+**Origem:** `docs/ANALISE_JANELA_EDITOR.md` §4.2. O EPUB que passou pelo Calibre e pelo
+*immersive-translate* abria no modo texto como uma coluna de ilhas (`data-imt-*`, `span` de
+tradutor, `div` de embrulho, `style` fora do dialeto), e o modo código e a prévia não se
+descobriam.
+
+**Entrega:**
+- `core/editor/limpar_importado.py` (sem Tk, só `xhtml.analisar`): `limpar(texto, folhas,
+  ids_usados)` → `(texto, Relatorio)`. `data-*` e classes de ferramenta saem; **`calibreN`
+  vira estilo do dialeto** pela regra da folha (negrito/itálico/sublinhado/riscado/versalete/
+  sobrescrito/alinhamento; o resto é contado como descartado); `style` direto filtrado;
+  `span`/`font`/`div` de embrulho desembrulhados; bloco só com uma `<img>` vira `<figure>`;
+  âncora sem uso sai e a usada que abre o bloco vira o `id` dele; o `<style>` do tradutor no
+  `<head>` sai. **Nunca apaga texto.** Sem nada de ferramenta, devolve o texto byte a byte.
+- `operacoes.limpar_importado(escopo, confirmar)` (Ferramentas → Limpar marcação importada…):
+  capítulo atual ou livro inteiro, relatório na pergunta, ponto de verificação antes,
+  capítulos relidos e abas redesenhadas; `avisar_ilhas` avisa uma vez por capítulo aberto em
+  texto com ≥ 30% do texto em ilhas.
+- Vistas: `modo_texto` / `modo_codigo` / `modo_dividido` (`operacoes.vista`, `vista_atual`); na
+  barra de arquivo, três `Radiobutton` *Toolbutton* no lugar do "Texto/Código", marcados pela
+  vista real (inclusive quando o `F12` liga a prévia, ou quando o XHTML mal-formado não deixa
+  sair do código); Exibir → Modo dividido; `Ctrl+F11`.
+- `previa_story`: os avisos de CSS do MuPDF não vão mais ao stderr durante o desenho.
+
+**AC:**
+- AC-ED15-1 A marcação importada vira dialeto sem perder um caractere de texto; ilhas 0 no
+  exemplo; idempotente; o XHTML já no dialeto não muda.
+- AC-ED15-2 Na janela, limpar o capítulo zera as ilhas, redesenha a aba, marca o projeto sujo;
+  cancelar não mexe; nada a limpar informa.
+- AC-ED15-3 As três vistas e o botão marcado acompanham a vista real.
+- AC-ED15-4 Medição em livros reais (`prova_limpeza.py` da sessão): Henkin 1.308 → 1 ilha,
+  *1000 Combinações* (a tradução) 9.070 → 1, *Modernized Vienna* 578 → 0, Kasparov 0 → 0 e
+  **nenhum capítulo alterado**; perda de texto 0 em todos. Os 10.956 que ficam nos
+  "PDFImport" são figurinas desenhadas como `<img>` no meio do lance — sem texto a pôr no lugar.
+
+**Divergências:** a aba **não** abre sozinha em Dividido quando há muitas ilhas (a análise
+propunha): mudar a vista sem pedir surpreende; o aviso aponta a limpeza e o Modo dividido.
+As regras `.calibre*` ficam na folha — "Apagar classes CSS não usadas…" as tira.
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | Commit(s) | O que divergiu da spec |
@@ -2225,4 +2267,5 @@ para quando o usuário commitar o trabalho dele nela.
 | ED-11 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | `page_break` no meio da página vira `QuebraDePagina`; `Figura` sem posição leva o aviso em `alt`/`title`; suspeita = códigos em `data-suspeito`, frases e leituras vindas do documento; a tabela ignora o preenchimento retangular; o `Diagrama` só gera evento quando a colocação ou a orientação muda; um EPUB exportado vira o caminho do projeto; o EPUB salvo religa o JSON ao reabrir; `page_break`/`header`/`footer` não geram `reject`; a fila com "Exportar" desabilitado pelo `aviso_da_exportacao`; `cv2` entra no editor só ao salvar um livro com ponte |
 | ED-12 | **implementada** | 2026-09-21 | (ver "Registro" da fase) | um `Story` para o livro inteiro com ids prefixados por capítulo; cabeçalho/rodapé por `insert_text` (Helvetica, Latin-1); notas no fim do capítulo; PGN pelo `chess.pgn` com um exportador por partida, título sem lances não é partida, ambíguo vira comentário; índice `p.indice` refeito no lugar, alvo com `id_persistente`, `role` pelo HTML; opções de DOCX/PDF das preferências (sem caixa); "Imprimir…" = PDF temporário aberto; decisão da medição: **convive** |
 | ED-13 | **implementada** | 2026-09-22 | (ver "Registro" da fase) | o `CF_HTML` só inline vira um parágrafo; as preferências aplicam na hora só o que é de tela (tema/tabulação nas abas novas); os botões `ttk` dos painéis Estilos e Busca ganharam `AnelDeFoco`; o `F` do tabuleiro sincroniza a orientação da caixa; o gate usa `pip wheel` porque `build/` estala o `python -m build`; a medição do AC-005 corre na raiz da sessão |
-| ED-14 | **implementada** | 2026-09-30 | — (sem commit) | prévia pelo `fitz.Story` em vez do `TextoRico` (DEC-05 substituída na prévia); divisória `tk.PanedWindow` com o editor irmão (`lift`); ids `__l<linha>` só na cópia; `Montador` reaproveita `pdf_io._Montador` para fontes e PNG de diagrama |
+| ED-14 | **commitada** | 2026-09-30 | 7256363 | prévia pelo `fitz.Story` em vez do `TextoRico` (DEC-05 substituída na prévia); divisória `tk.PanedWindow` com o editor irmão (`lift`); ids `__l<linha>` só na cópia; `Montador` reaproveita `pdf_io._Montador` para fontes e PNG de diagrama |
+| ED-15 | **implementada** | 2026-09-30 | (ver "Registro" da fase) | não abre sozinha em Dividido (só avisa); `p.diagrama` do Calibre não é o diagrama do editor; imagem sozinha vira `figure`; âncora usada vira `id` do bloco; `<style>` do tradutor sai do `<head>` |

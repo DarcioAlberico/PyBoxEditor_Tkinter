@@ -45,6 +45,12 @@ def _lancar_padrao(caminho: str, programa: str = "") -> None:
         subprocess.Popen(["xdg-open", caminho])
 
 
+#: Um capítulo aberto em texto com ao menos esta fração do texto dentro de ilhas ganha o aviso da limpeza
+#: (e ao menos `MINIMO_DE_ILHA` caracteres: uma âncora solta não conta).
+LIMIAR_DE_ILHAS = 0.3
+MINIMO_DE_ILHA = 40
+
+
 class OperacoesDoLivro:
     def __init__(self, janela: Any):
         self.j = janela
@@ -66,7 +72,11 @@ class OperacoesDoLivro:
             "ordenar_por_nome": j.ordenar_por_nome, "abrir_com": j.abrir_com, "metadados": j.metadados,
             "folhas_de_estilo": j.folhas_de_estilo, "validar_epub": j.validar_epub,
             "apagar_recursos": j.apagar_recursos, "apagar_classes": j.apagar_classes, "previa": j.previa,
+            # A vista da aba (ED-15): Texto · Código · Dividido (código com a prévia ao lado).
+            "modo_texto": lambda: j.vista("texto"), "modo_codigo": lambda: j.vista("codigo"),
+            "modo_dividido": lambda: j.vista("dividido"), "limpar_importado": j.limpar_importado,
         }
+        self._avisados: set[str] = set()
         for nome in RELATORIOS:
             self.comandos[f"relatorio_{nome}"] = (lambda n=nome: j.relatorio(n))
 
@@ -821,6 +831,7 @@ class OperacoesDoLivro:
                     divisao.destroy()
                 editor.pack(fill="both", expand=True)
             j.status("Prévia fechada.")
+            j.atualizar()
             return None
         if atual is not None:
             atual.atualizar(editor.texto_todo(), aba.arquivo)
@@ -848,6 +859,7 @@ class OperacoesDoLivro:
         editor.texto.bind("<<CursorMoveu>>", lambda e: self._previa_cursor(aba), add="+")
         previa.atualizar(editor.texto_todo(), aba.arquivo)
         j.status("Prévia aberta (F12 fecha).")
+        j.atualizar()
         return previa
 
     def _por_divisao(self, divisao: Any) -> None:
@@ -876,6 +888,162 @@ class OperacoesDoLivro:
             return
         if largura > 1:
             self.j._gravar_preferencia("previa_fracao", round(min(0.8, max(0.2, x / largura)), 3))
+
+    # -- a vista da aba (ED-15) -------------------------------------------------------
+
+    def vista_atual(self) -> str:
+        """`"texto"`, `"codigo"` ou `"dividido"` (código com a prévia); `""` sem aba."""
+        aba = self.j.aba_ativa()
+        if aba is None:
+            return ""
+        if aba.modo != "codigo":
+            return "texto"
+        return "dividido" if aba.dados.get("previa") is not None else "codigo"
+
+    def vista(self, nome: str) -> str:
+        """Põe a aba ativa na vista `nome`; devolve a vista em que ela ficou (o XHTML mal-formado não sai do código)."""
+        j = self.j
+        aba = j.aba_ativa()
+        if aba is None:
+            raise ValueError("Nenhuma aba aberta.")
+        if nome == "texto":
+            j.alternar_modo(para="texto")
+        elif nome == "codigo":
+            if aba.modo != "codigo":
+                j.alternar_modo(para="codigo")
+            if aba.dados.get("previa") is not None:
+                self.previa(ligar=False)
+        elif nome == "dividido":
+            if aba.tipo != "capitulo":
+                raise ValueError(f"{aba.nome}: a prévia é de capítulo")
+            if aba.modo != "codigo":
+                j.alternar_modo(para="codigo")
+            if aba.modo == "codigo" and aba.dados.get("previa") is None:
+                self.previa(ligar=True)
+        else:
+            raise ValueError(f"vista desconhecida: {nome!r}")
+        j.atualizar()
+        return self.vista_atual()
+
+    def avisar_ilhas(self, cap: Any) -> int:
+        """
+        Ao abrir em texto um capítulo cheio de ilhas (marcação de fora do dialeto — Calibre,
+        tradutor automático), diz uma vez por sessão onde está a saída: a limpeza e a vista
+        dividida. Devolve quantas ilhas contou.
+        """
+        import re
+
+        from core.editor import modelo
+
+        def sem_tags(x: str) -> int:
+            return len(re.sub(r"<[^>]+>", "", x).strip())
+
+        ilhas = em_ilha = fora = 0
+        for b in modelo.blocos_do_capitulo(cap):
+            if isinstance(b, modelo.IlhaBruta):
+                ilhas += 1
+                em_ilha += sem_tags(b.xhtml)
+                continue
+            for t in getattr(b, "trechos", None) or ():
+                if t.ilha:
+                    ilhas += 1
+                    em_ilha += sem_tags(t.ilha)
+                else:
+                    fora += len(t.texto.strip())
+        if cap.arquivo in self._avisados or em_ilha < MINIMO_DE_ILHA or em_ilha < LIMIAR_DE_ILHAS * (em_ilha + fora):
+            return ilhas
+        self._avisados.add(cap.arquivo)
+        self.j.log.warning("%s tem %d ilhas (marcação de fora do dialeto). Ferramentas → Limpar marcação "
+                           "importada… reescreve no dialeto; Exibir → Modo dividido mostra o código e o resultado.",
+                           cap.arquivo, ilhas)
+        self.j.status(f"{cap.arquivo}: {ilhas} ilhas — Ferramentas → Limpar marcação importada…")
+        return ilhas
+
+    # -- limpar a marcação importada (ED-15) --------------------------------------------
+
+    def limpar_importado(self, escopo: str | None = None, confirmar: bool = True) -> Any:
+        """
+        Ferramentas → Limpar marcação importada…: o XHTML do capítulo (ou do livro) reescrito no
+        dialeto (`core/editor/limpar_importado.py`), com o relatório antes de aplicar e um ponto
+        de verificação criado antes. Devolve o `Relatorio` somado, ou `None` se cancelado.
+        """
+        from core.editor import limpar_importado as li
+        from core.editor import xhtml
+        from ui.editor.janela import _copiar_capitulo
+
+        j = self.j
+        projeto = j._exigir_projeto()
+        livro = projeto.livro
+        j._validar_abas_de_codigo()
+        j._sincronizar_tudo()
+        if escopo is None:
+            aba = j.aba_ativa()
+            opcoes = ["Livro inteiro"]
+            if aba is not None and livro.capitulo(aba.arquivo) is not None:
+                opcoes.insert(0, f"Capítulo atual ({aba.nome})")
+            indice = j.caixas.escolher("Limpar marcação importada", "Onde:", opcoes, "Continuar")
+            if indice is None:
+                return None
+            escopo = "livro" if opcoes[indice] == "Livro inteiro" else "capitulo"
+        if escopo == "capitulo":
+            aba = j.aba_ativa()
+            cap = livro.capitulo(aba.arquivo) if aba is not None else None
+            if cap is None:
+                raise ValueError("abra um capítulo (ou escolha o livro inteiro)")
+            alvos = [cap]
+        elif escopo == "livro":
+            alvos = list(livro.capitulos)
+        else:
+            raise ValueError(f"escopo desconhecido: {escopo!r}")
+        pasta = epub.pasta_de_imagens(livro)
+        textos = {c.arquivo: (c.texto_cru if c.texto_cru is not None else xhtml.escrever(c, pasta_de_imagens=pasta))
+                  for c in livro.capitulos}
+        outros = [j._texto_do_recurso(r) for h, r in livro.recursos.items()
+                  if h not in textos and (r.tipo_mime or "").endswith(("xhtml+xml", "html", "x-dtbncx+xml"))]
+        usados = li.ids_usados(list(textos.values()) + outros)
+        total = li.Relatorio()
+        propostas: dict[str, str] = {}
+        for cap in alvos:
+            texto = textos[cap.arquivo]
+            folhas = [t for _h, t in j._folhas_de(cap)]
+            try:
+                novo, rel = li.limpar(texto, folhas, usados)
+            except xhtml.ErroDeXhtml as erro:
+                total.avisos.append(f"{cap.arquivo}: não limpo — {erro}")
+                continue
+            if novo == texto:
+                continue
+            rel.ilhas_antes = li.contar_ilhas(texto, cap.arquivo)
+            rel.ilhas_depois = li.contar_ilhas(novo, cap.arquivo)
+            total.somar(rel)
+            propostas[cap.arquivo] = novo
+        if not propostas:
+            j.status("Nada a limpar: a marcação já é a do dialeto.")
+            j.caixas.informar("Nenhum capítulo tem marcação importada para limpar.\n\n" + "\n".join(total.avisos),
+                              "Limpar marcação importada")
+            return total
+        if confirmar:
+            resumo = "\n".join(total.linhas()[:14])
+            if not j.caixas.pergunta(f"Reescrever {len(propostas)} capítulo(s) no dialeto do editor?\n\n{resumo}\n\n"
+                                     "Antes, um ponto de verificação é criado (Arquivo → Ponto de verificação → "
+                                     "Restaurar desfaz).", cancelar=False):
+                return None
+        try:
+            j.checkpoint_criar("antes de limpar a marcação importada")
+        except Exception as erro:      # noqa: BLE001 — sem ponto (livro nunca salvo), segue avisando
+            total.avisos.append(f"sem ponto de verificação: {erro}")
+        for arquivo, novo in propostas.items():
+            cap = livro.capitulo(arquivo)
+            lido = xhtml.ler(novo, arquivo)
+            _copiar_capitulo(lido, cap)
+            cap.texto_cru = novo if cap.texto_cru is not None else None
+        self._avisados.difference_update(propostas)
+        self._depois(*propostas, sumario=False)
+        for linha in total.linhas():
+            j.log.info("Limpeza: %s", linha)
+        j.status(f"Marcação limpa em {len(propostas)} capítulo(s): ilhas {total.ilhas_antes} → {total.ilhas_depois}. "
+                 "As regras .calibre* da folha podem sair em Ferramentas → Apagar classes CSS não usadas…")
+        return total
 
     def _previa_mudou(self, aba: Any) -> None:
         previa = aba.dados.get("previa")

@@ -157,6 +157,7 @@ TABELA: tuple[Atalho, ...] = (
     _a("Ctrl+0", "<Control-Key>", "zoom_zero", AMBOS, "zoom 100%", "janela", keycode=_digito("0")),
     _a("F11", "<F11>", "alternar_modo", AMBOS, "alternar modo texto/código", "janela"),
     _a("F12", "<F12>", "previa", CODIGO, "prévia", "janela"),
+    _a("Ctrl+F11", "<Control-F11>", "modo_dividido", AMBOS, "modo dividido (código + prévia)", "janela"),
     _a("Ctrl+PageDown", "<Control-Next>", "capitulo_seguinte", AMBOS, "capítulo seguinte", "janela"),
     _a("Ctrl+PageUp", "<Control-Prior>", "capitulo_anterior", AMBOS, "capítulo anterior", "janela"),
     _a("Ctrl+Tab", "<Control-Tab>", "foco_seguinte", AMBOS, "sair do editor (nativo do Text)", tipo="nativo"),
