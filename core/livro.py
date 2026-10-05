@@ -923,6 +923,14 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
                       if _na_faixa(b, d)]
             if dentro:
                 pela_faixa.add(id(b))
+        elif b.y2 <= diagramas[dentro[0]].tabuleiro[1]:
+            # Acima da borda o retângulo de exclusão também é faixa (PD-11):
+            # a letra presa nele volta pela mesma vizinhança. Sem isto a
+            # corrente de `_devolver_a_linha_de_prosa` quebrava na margem
+            # esquerda do tabuleiro — `criação.` dentro dela, `A essência deste
+            # método` pelo pé, e o fim da linha de prosa virava título
+            # (Darcy Lima, p. 144).
+            pela_faixa.add(id(b))
         if dentro:
             comidas[dentro[0]].append(b)
             continue
