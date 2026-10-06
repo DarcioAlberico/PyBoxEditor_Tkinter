@@ -242,6 +242,29 @@ def encaixar(r: np.ndarray) -> np.ndarray:
     return tela
 
 
+def fracao_esticada_da_base(raiz="training_data") -> dict:
+    """Por caractere, a fração das amostras de `training_data` gravadas já
+    esticadas em 32x32 (PD-16). Lê só o cabeçalho do PNG."""
+    import struct
+    from core.learner import folder_to_char
+    total, esticadas = Counter(), Counter()
+    for pasta in os.listdir(raiz):
+        cheia = os.path.join(raiz, pasta)
+        if pasta.startswith("_") or not os.path.isdir(cheia):
+            continue
+        try:
+            c = folder_to_char(pasta)
+        except Exception:                                   # noqa: BLE001
+            continue
+        for f in os.listdir(cheia):
+            if f.endswith(".png"):
+                with open(os.path.join(cheia, f), "rb") as fh:
+                    cab = fh.read(24)
+                total[c] += 1
+                esticadas[c] += struct.unpack(">II", cab[16:24]) == (LADO, LADO)
+    return {c: esticadas[c] / total[c] for c in total}
+
+
 class Rede(nn.Module):
     """
     A `SimpleCNN` do projeto, com uma porta para os escalares de tamanho.
@@ -317,6 +340,11 @@ def main(argv=None) -> int:
     _console_em_utf8()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--epocas", type=int, default=20)
+    ap.add_argument("--misto", action="store_true",
+                    help="treina com a fração esticada da base real e lê "
+                         "encaixado (PD-16)")
+    ap.add_argument("--so-imagem", action="store_true",
+                    help="também mede o encaixado sem os escalares (PD-16)")
     ap.add_argument("--cru", action="store_true",
                     help="também mede os escalares concatenados sem camada "
                          "própria — a injeção ingênua")
@@ -344,6 +372,24 @@ def main(argv=None) -> int:
                encaixar, 2, 32)]
     if args.cru:
         bracos.append(("32x32 esticado + tamanho, cru", "cru", esticar, 2, 0))
+    if args.misto:
+        # PD-16: a base de produção não pode ser toda encaixada — 56% dela foi
+        # gravada já esticada, sem o tamanho. Este braço treina como o
+        # retreino treinaria (cada amostra esticada com a probabilidade que a
+        # classe dela tem na base) e testa como a leitura leria: encaixado.
+        fracao = fracao_esticada_da_base()
+        sorteio = np.random.default_rng(20261005)
+        esticada = [sorteio.random() < fracao.get(c, 1.0) for c in rotulos]
+
+        def misto(i, treino):
+            return (esticar if (treino and esticada[i]) else encaixar)(recortes[i])
+        misto.por_indice = True
+        bracos.append(("32x32 misto no treino, encaixado na leitura", "misto",
+                       misto, 0, 0))
+    if args.so_imagem:
+        # PD-16: o +2,8 do "resto" saiu do braço encaixado **com** tamanho; o
+        # retreino de produção muda só a imagem, e é este o braço que o decide.
+        bracos.append(("32x32 encaixado, sem tamanho", "encx-só", encaixar, 0, 0))
 
     acumulado = {nome: {"tudo": [], "familia": [], "resto": [],
                         "consertou": 0, "quebrou": 0}
@@ -371,8 +417,11 @@ def main(argv=None) -> int:
         print(f"fora: {de_fora[:44]:<44} treino {len(tr):>6} / teste "
               f"{len(te):>5}, família {int(familia.sum()):>5}", flush=True)
 
-        def tensores(indices, preparo):
-            imgs = np.stack([preparo(recortes[i]) for i in indices])
+        def tensores(indices, preparo, treino=False):
+            if getattr(preparo, "por_indice", False):
+                imgs = np.stack([preparo(i, treino) for i in indices])
+            else:
+                imgs = np.stack([preparo(recortes[i]) for i in indices])
             Xi = (torch.from_numpy(imgs).float().div_(255.0)
                   .unsqueeze(1).to(device))
             Xe = torch.tensor([tamanhos[i] for i in indices],
@@ -383,7 +432,7 @@ def main(argv=None) -> int:
 
         base = None
         for nome, _curto, preparo, escalares, porta in bracos:
-            Xi_tr, Xe_tr, y_tr = tensores(tr, preparo)
+            Xi_tr, Xe_tr, y_tr = tensores(tr, preparo, treino=True)
             Xi_te, Xe_te, y_te = tensores(te, preparo)
             verdade = y_te.cpu().numpy()
 

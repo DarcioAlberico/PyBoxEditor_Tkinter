@@ -1149,9 +1149,259 @@ class BoxService:
             conta += desta
         return conta
 
+    #: Folga vertical, em passos medianos entre bandas, que separa dois blocos
+    #: da página (PD-04). O passo é de topo a topo, e a folga é do pé de uma
+    #: banda ao topo da seguinte: entre duas linhas do mesmo parágrafo ela é
+    #: o entrelinha, cerca de 0,4 passo; acima de um título de seção ou do
+    #: quadro «Scoring» ela passa de um passo inteiro.
+    FOLGA_ENTRE_BLOCOS = 0.8
+
+    #: Largura mínima da tinta de cada coluna achada pelos blocos, em frações
+    #: da largura do texto (PD-04). A coluna de prosa ocupa quase meia página
+    #: — 0,45 a 0,48 no Nunn e no Yusupov —, e a coluna de uma tabela de
+    #: lances, não: no Rubinstein a partida é impressa em duas colunas
+    #: (brancas | pretas) de ~0,2 cada entre dois parágrafos de largura
+    #: inteira, e lida como duas colunas de texto ela saía com os lances das
+    #: brancas todos antes dos das pretas. Sem esta trava foram 166 páginas
+    #: do Rubinstein e 11 do Darcy Lima e do Seirawan, que são de coluna
+    #: única.
+    COLUNA_DE_TEXTO = 0.35
+    #: E as colunas de texto **encostam nas margens**: a primeira começa a
+    #: menos disto (em frações da largura) da margem esquerda do texto, e a
+    #: última acaba a menos disto da direita. A tabela de lances do Rubinstein
+    #: começa recuada, e com várias tabelas na página a tinta somada passava
+    #: da largura mínima.
+    COLUNA_NA_MARGEM = 0.08
+    #: E a calha fica perto do meio do texto: a mais de isto do centro ela é
+    #: o vão que o diagrama deixou no texto que o contorna (Darcy Lima, p.
+    #: 182: 0,36). No Nunn e no Yusupov ela fica entre 0,46 e 0,53.
+    CALHA_FORA_DO_MEIO = 0.08
+
+    #: Duas faixas em que a estreita tem tinta de menos disto da larga, e
+    #: cujas linhas casam fileira a fileira com as da outra, são uma tabela
+    #: sem moldura e não duas colunas (PD-05): o glossário de símbolos do
+    #: Darcy Lima (0,20) e do Attacking Manual (0,27), o quadro de torneios e
+    #: a tabela de lances do Rubinstein (0,33–0,34), os títulos de lance
+    #: pendurados do Seirawan (0,15). Lidas como colunas, saíam todos os
+    #: símbolos e depois todas as descrições. A coluna de texto mais desigual
+    #: do corpus — as soluções do Yusupov — fica acima de 0,5; de 0,40 a 0,45
+    #: estão as grades de diagramas com legenda, onde nenhuma das leituras
+    #: serve, e elas ficam como estavam. O corte é a ponta de baixo desse vão.
+    TABELA_RAZAO = 0.40
+    #: Fração das linhas da faixa estreita com uma caixa da outra na mesma
+    #: altura: 0,65 a 0,98 nas tabelas medidas.
+    TABELA_PAR = 0.5
+    #: Abaixo disto a faixa estreita não prova nada (título solto, rodapé).
+    TABELA_LINHAS = 5
+
+    @staticmethod
+    def _e_tabela(boxes: List[BoxEntry], faixas: List[Tuple[int, int]]) -> bool:
+        """As duas faixas são as duas casas de uma tabela. Ver `TABELA_RAZAO`."""
+        if len(faixas) != 2:
+            return False
+        meio = (faixas[0][1] + faixas[1][0]) / 2
+        lados = ([b for b in boxes if (b.x1 + b.x2) / 2 < meio],
+                 [b for b in boxes if (b.x1 + b.x2) / 2 >= meio])
+        if not all(lados):
+            return False
+        tintas = [max(b.x2 for b in lado) - min(b.x1 for b in lado) for lado in lados]
+        estreita = 0 if tintas[0] <= tintas[1] else 1
+        if tintas[estreita] >= tintas[1 - estreita] * BoxService.TABELA_RAZAO:
+            return False
+        linhas = BoxService._linhas(lados[estreita])
+        if len(linhas) < BoxService.TABELA_LINHAS:
+            return False
+        outra = lados[1 - estreita]
+        com_par = sum(1 for linha in linhas
+                      if any(o.y1 < max(b.y2 for b in linha)
+                             and o.y2 > min(b.y1 for b in linha) for o in outra))
+        return com_par >= len(linhas) * BoxService.TABELA_PAR
+
+    #: Fileiras mínimas do bloco que serve de semente da calha. Na página 355
+    #: do Rubinstein um parágrafo de cinco linhas tinha um espaço entre
+    #: palavras alinhado por acaso, de 31 px, e as quatro tabelas de lances
+    #: da página — de vão largo no meio — o confirmavam. O menor bloco de
+    #: duas colunas que precisou servir de semente tem sete (Yusupov, p. 151).
+    FILEIRAS_DA_SEMENTE = 6
+
+    @staticmethod
+    def _blocos(linhas: List[List[BoxEntry]]) -> List[List[List[BoxEntry]]]:
+        """As bandas, de cima para baixo, cortadas onde a folga vertical passa
+        de `FOLGA_ENTRE_BLOCOS` passos medianos."""
+        if not linhas:
+            return []
+        bandas = sorted(linhas, key=lambda banda: min(b.y1 for b in banda))
+        topos = [min(b.y1 for b in banda) for banda in bandas]
+        passos = sorted(b - a for a, b in zip(topos, topos[1:]) if b > a)
+        passo = passos[len(passos) // 2] if passos else 0
+        blocos = [[bandas[0]]]
+        pe = max(b.y2 for b in bandas[0])
+        for banda, topo in zip(bandas[1:], topos[1:]):
+            if passo and topo - pe > passo * BoxService.FOLGA_ENTRE_BLOCOS:
+                blocos.append([])
+            blocos[-1].append(banda)
+            pe = max(pe, max(b.y2 for b in banda))
+        return blocos
+
+    @staticmethod
+    def _vaos(livre: np.ndarray, minimo: int) -> List[Tuple[int, int]]:
+        """Os vãos de `livre` com pelo menos `minimo` px, fechados dos dois
+        lados por algo ocupado: o vão que encosta na margem não é calha."""
+        cortes, inicio = [], None
+        for i, vago in enumerate(livre):
+            if vago:
+                if inicio is None:
+                    inicio = i
+            else:
+                if inicio is not None and inicio > 0 and i - inicio >= minimo:
+                    cortes.append((inicio, i))
+                inicio = None
+        return cortes
+
+    @staticmethod
+    def _calha_por_blocos(linhas: List[List[BoxEntry]], x_min: int,
+                          largura: int, minimo: int
+                          ) -> Tuple[List[Tuple[int, int]], List[List[BoxEntry]]]:
+        """
+        (cortes, bandas transversais): a calha das colunas que um bloco de
+        largura inteira interrompe, e as bandas dos blocos que a atravessam
+        (PD-04).
+
+        **Várias linhas atravessando a calha a apagam, mesmo sendo de um
+        bloco só.** A F70 tolera uma, e a mobília (d1c0b22) tira da conta o
+        título centrado e o número da página. Sobravam os blocos de largura
+        inteira que não são mobília: no Nunn, o título de seção com o sumário
+        dele no meio da página (pp. 128, 202, 210: duas colunas em cima, cinco
+        linhas de lado a lado, duas colunas embaixo); no Yusupov, o quadro
+        «Scoring» e o parágrafo em itálico no fim de todo capítulo, embaixo
+        das duas colunas das soluções. A página saía intercalada.
+
+        A calha sai do **maior** bloco, e cada um dos outros, do maior para o
+        menor, entra se ainda deixar um vão de `minimo` px no lugar dela; o
+        que não deixa é bloco transversal e fica fora da conta. A conta é sem
+        tolerância nenhuma, porque o bloco já separou quem atravessa. Só vale
+        quando as linhas que respeitam a calha são pelo menos
+        `LINHAS_PARA_TOLERAR` e mais que as que a atravessam: a página de
+        coluna única não passa, porque o bloco de prosa justificada não deixa
+        vão no meio, e um vão de três linhas não soma doze.
+
+        **Transversal é só o bloco que esta conta rejeitou.** A primeira versão
+        chamava de transversal, na ordem de leitura, todo bloco menor com uma
+        caixa dentro da calha, e mexia em páginas que a régua da F70 já lia
+        certo: no Nunn, as três primeiras linhas das duas colunas, apartadas do
+        resto por um diagrama, saíam como uma linha de lado a lado.
+        """
+        blocos = sorted(BoxService._blocos(linhas), key=len, reverse=True)
+        if len(blocos) < 2:
+            return [], []
+
+        def livre_de(bloco):
+            return BoxService._linhas_por_x(bloco, x_min, largura) == 0
+
+        livres = [livre_de(bloco) for bloco in blocos]
+        por_vao = []
+        # Todo bloco serve de semente, do maior para o menor: na página 151
+        # do Yusupov o maior é o de baixo, o quadro «Scoring», que não tem
+        # calha. E cada vão da semente é julgado sozinho: o vão ao lado da
+        # orelha do capítulo, na margem, nenhum bloco atravessa — e ele não
+        # pode servir de prova de que o quadro respeita a calha do meio.
+        for semente, (inicial, livre_inicial) in enumerate(zip(blocos, livres)):
+            if len(inicial) < BoxService.FILEIRAS_DA_SEMENTE:
+                break
+            for inicio, fim in BoxService._vaos(livre_inicial, minimo):
+                livre = np.zeros_like(livre_inicial)
+                livre[inicio:fim] = True
+                dentro, fora, aceitos = len(inicial), [], [inicial]
+                for k, (bloco, desse) in enumerate(zip(blocos, livres)):
+                    if k == semente:
+                        continue
+                    junto = livre & desse
+                    if BoxService._vaos(junto, minimo):
+                        livre, dentro = junto, dentro + len(bloco)
+                        aceitos.append(bloco)
+                    else:
+                        fora.extend(bloco)
+                vaos = BoxService._vaos(livre, minimo)
+                if (BoxService.LINHAS_PARA_TOLERAR <= dentro
+                        and 0 < len(fora) < dentro
+                        and BoxService._colunas_de_texto(aceitos, vaos, x_min,
+                                                         largura)):
+                    por_vao.append((dentro, semente, vaos, fora))
+        # Fica a calha que mais linhas respeitam, da primeira semente que a
+        # deu. Na página 128 do Nunn a coluna da direita do bloco de baixo é
+        # um diagrama e duas linhas, e um espaço entre palavras alinhado nelas
+        # é vão de 16 px que o bloco de cima atravessa; a calha de verdade o
+        # bloco de cima respeita.
+        if not por_vao:
+            return [], []
+        melhor = max(dentro for dentro, *_ in por_vao)
+        primeira = min(semente for dentro, semente, *_ in por_vao
+                       if dentro == melhor)
+        cortes, transversais, vistas = [], [], set()
+        for dentro, semente, vaos, fora in por_vao:
+            if dentro != melhor or semente != primeira:
+                continue
+            cortes.extend(vaos)
+            for banda in fora:
+                if id(banda) not in vistas:
+                    vistas.add(id(banda))
+                    transversais.append(banda)
+        return sorted(cortes), transversais
+
+    @staticmethod
+    def _colunas_de_texto(blocos: List[List[List[BoxEntry]]],
+                          vaos: List[Tuple[int, int]], x_min: int,
+                          largura: int) -> bool:
+        """As colunas entre os `vaos` são de texto, e não de tabela: cada uma
+        com tinta de `COLUNA_DE_TEXTO` da largura, a primeira e a última
+        encostadas nas margens (`COLUNA_NA_MARGEM`), um terço das fileiras
+        começando na margem, e a calha única perto do meio
+        (`CALHA_FORA_DO_MEIO`)."""
+        if len(vaos) == 1:
+            meio = sum(vaos[0]) / 2 / max(1, largura)
+            if abs(meio - 0.5) > BoxService.CALHA_FORA_DO_MEIO:
+                return False
+        cortes = [0] + [v for vao in vaos for v in vao] + [largura + 1]
+        # O bloco de uma linha não conta para a margem: o número da página no
+        # canto, embaixo da última tabela de lances do Rubinstein (p. 24),
+        # alcançava a margem que a tabela não alcança.
+        caixas = [b for bloco in blocos if len(bloco) > 1
+                  for banda in bloco for b in banda]
+        margem = largura * BoxService.COLUNA_NA_MARGEM
+        extensoes = []
+        for inicio, fim in zip(cortes[::2], cortes[1::2]):
+            desta = [b for b in caixas
+                     if inicio <= (b.x1 + b.x2) / 2 - x_min <= fim]
+            if not desta:
+                return False
+            extensoes.append((min(b.x1 for b in desta) - x_min,
+                              max(b.x2 for b in desta) - x_min))
+            if extensoes[-1][1] - extensoes[-1][0] < largura * BoxService.COLUNA_DE_TEXTO:
+                return False
+        if extensoes[0][0] > margem or extensoes[-1][1] < largura - margem:
+            return False
+        # E a margem é também de fileira: um terço delas começa na margem
+        # esquerda. Na página 203 do Rubinstein a semente eram os rótulos do
+        # tabuleiro (nove fileiras a 0,22 da margem) e um parágrafo de três
+        # linhas, com um espaço entre palavras alinhado com eles, completava as
+        # margens; ali são 2 de 17 fileiras. A coluna de texto que mais recua
+        # — as soluções do Yusupov, com título centrado e lance recuado — tem
+        # 12 de 26.
+        bandas = [banda for bloco in blocos if len(bloco) > 1 for banda in bloco]
+        na_margem = sum(1 for banda in bandas
+                        if min(b.x1 for b in banda) - x_min <= margem)
+        return 3 * na_margem >= len(bandas)
+
     @staticmethod
     def detectar_colunas(boxes: List[BoxEntry],
                          calha_minima: int = None) -> List[Tuple[int, int]]:
+        """As faixas de coluna; ver `_colunas_e_transversais`."""
+        return BoxService._colunas_e_transversais(boxes, calha_minima)[0]
+
+    @staticmethod
+    def _colunas_e_transversais(boxes: List[BoxEntry], calha_minima: int = None
+                                ) -> Tuple[List[Tuple[int, int]],
+                                           List[List[BoxEntry]]]:
         """
         Faixas horizontais de coluna, em ordem de leitura.
 
@@ -1181,7 +1431,7 @@ class BoxService:
         texto dentro; a estreita se funde à vizinha — nenhum box se perde.
         """
         if not boxes:
-            return []
+            return [], []
 
         # **A tabela não entra na projeção.** As caixas de dentro de uma
         # moldura (F71) são lidas célula a célula, por `livro._tabela_da_pagina`;
@@ -1197,7 +1447,7 @@ class BoxService:
         x_max = max(b.x2 for b in boxes)
         largura = x_max - x_min
         if largura <= 1:
-            return [(x_min, x_max)]
+            return [(x_min, x_max)], []
 
         linhas = BoxService._linhas(boxes)
         tolerado = (BoxService.LINHAS_NA_CALHA
@@ -1253,20 +1503,44 @@ class BoxService:
             calha_adaptada = max(int(mediana * 0.55),
                                  int(largura * 0.006), 4)
             if calha_adaptada < calha_minima:
-                inicio = None
-                for i, vago in enumerate(livre):
-                    if vago:
-                        if inicio is None:
-                            inicio = i
-                    else:
-                        if (inicio is not None and inicio > 0
-                                and i - inicio >= calha_adaptada):
-                            cortes.append((inicio, i))
-                        inicio = None
+                adaptados = BoxService._vaos(livre, calha_adaptada)
+                # **A calha estreita só vale entre colunas de texto** (PD-05).
+                # Com 0,55 caractere, um espaço entre palavras de 16 px alinhado
+                # no texto justificado do Seirawan passava, e a página de coluna
+                # única saía com uma "coluna" de 10% da largura — o começo de
+                # cada linha lido antes de todo o resto. Medido: 19 páginas do
+                # Seirawan e 31 do Rubinstein. A calha de 13 px do Yusupov
+                # separa duas colunas de quase meia página cada.
+                if adaptados and all(
+                        fim - ini >= largura * BoxService.COLUNA_DE_TEXTO
+                        for ini, fim in BoxService._faixas_dos_cortes(
+                            adaptados, x_min, x_max, largura)):
+                    cortes.extend(adaptados)
 
-        if not cortes:
-            return [(x_min, x_max)]
+        faixas = (BoxService._faixas_dos_cortes(cortes, x_min, x_max, largura)
+                  if cortes else [(x_min, x_max)])
+        transversais: List[List[BoxEntry]] = []
+        if (len(faixas) == 1 and calha_automatica
+                and len(contadas) >= BoxService.LINHAS_PARA_TOLERAR):
+            # Uma coluna só pode ser um bloco de largura inteira apagando a
+            # calha (PD-04). Depois das faixas, e não dos cortes: o vão ao lado
+            # da orelha do capítulo, na margem, é corte e se funde, e a página
+            # saía de uma coluna com cortes na mão.
+            por_blocos, de_lado = BoxService._calha_por_blocos(
+                contadas, x_min, largura, calha_minima)
+            if por_blocos:
+                faixas = BoxService._faixas_dos_cortes(por_blocos, x_min, x_max,
+                                                       largura)
+                if len(faixas) > 1:
+                    transversais = de_lado
+        if calha_automatica and BoxService._e_tabela(boxes, faixas):
+            return [(x_min, x_max)], []
+        return faixas, transversais
 
+    @staticmethod
+    def _faixas_dos_cortes(cortes: List[Tuple[int, int]], x_min: int, x_max: int,
+                           largura: int) -> List[Tuple[int, int]]:
+        """As faixas de coluna entre os cortes (relativos a `x_min`)."""
         # **O vão que é metade da calha não é calha.** Onde a coluna tem duas
         # linhas — a da direita da página 236 do Nunn, que é um diagrama e
         # duas linhas —, um espaço entre palavras alinhado nas duas passa pela
@@ -1437,7 +1711,7 @@ class BoxService:
         if pilhas:
             return BoxService._ordenar_com_pilhas(boxes, pilhas)
 
-        colunas = BoxService.detectar_colunas(boxes)
+        colunas, de_lado = BoxService._colunas_e_transversais(boxes)
         if len(colunas) <= 1:
             return BoxService._agrupar_em_linhas(boxes)
 
@@ -1490,6 +1764,15 @@ class BoxService:
                                               isolada=id(banda) in isoladas)):
                 elementos.append(sorted(banda, key=lambda b: b.x1))
                 ids_transversais.update(id(b) for b in banda)
+
+        # O bloco de largura inteira entre as colunas ou embaixo delas (PD-04)
+        # — o sumário da seção no Nunn, o quadro «Scoring» no Yusupov — sai
+        # linha a linha no lugar dele, e não repartido pelas colunas.
+        for banda in de_lado:
+            if any(id(b) in ids_transversais for b in banda):
+                continue
+            elementos.append(sorted(banda, key=lambda b: b.x1))
+            ids_transversais.update(id(b) for b in banda)
 
         elementos.sort(key=lambda e: min(b.y1 for b in e))
         restantes = [b for b in boxes if id(b) not in ids_transversais]
