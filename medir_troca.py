@@ -64,6 +64,18 @@ def _padrao():
     return saida
 
 
+def podadas(cortes):
+    """A troca que a F9 não pôde medir sem frequência: a parte de idioma sem as
+    palavras mais raras que `zipf`, e os nomes inteiros (nome próprio é raro por
+    natureza). `glans` sai e `plans` fica."""
+    from wordfreq import zipf_frequency
+    idioma = lexico._ler(lexico.CAMINHO_PADRAO)
+    nomes = lexico._ler(lexico.CAMINHO_NOMES)
+    zipf = {w: zipf_frequency(w, "en") for w in idioma}
+    return {f"poda zipf<{c:g}": {w for w in idioma if zipf[w] >= c} | nomes
+            for c in cortes}
+
+
 def medir(listas, exemplos=18):
     svc = LearningService()
     if not svc.load_predictor():
@@ -152,12 +164,16 @@ def main():
     ap.add_argument("--lista", nargs="*", default=None,
                     help="listas a comparar; sem isto, as de assets/lexico")
     ap.add_argument("--exemplos", type=int, default=18)
+    ap.add_argument("--poda", type=float, nargs="*", default=None,
+                    help="cortes de zipf para podar a parte de idioma (F9.2)")
     args = ap.parse_args()
 
     if args.lista:
         listas = {os.path.basename(c): lexico._ler(c) for c in args.lista}
     else:
         listas = _padrao()
+    if args.poda:
+        listas.update(podadas(args.poda))
     if not listas:
         print(f"nenhuma lista — rode `python importar_lexico.py` primeiro")
         return 1
