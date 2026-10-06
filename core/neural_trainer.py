@@ -366,7 +366,7 @@ class NeuralTrainer:
     def train(self, epochs=20, callback=None, should_stop=None,
               calibrar=True,
               balanceamento="sqrt", paciencia=5, semente=SEMENTE_PADRAO,
-              relatorio=True):
+              relatorio=True, base_inteira=False):
         """
         should_stop: callable sem argumentos consultado a cada época. Se devolver
         True, o treino para e o melhor modelo até ali fica salvo. Necessário para
@@ -384,6 +384,14 @@ class NeuralTrainer:
 
         semente: fixa o split. Dois treinos da mesma base são comparáveis; se
         variasse, cada relatório mediria um conjunto diferente.
+
+        base_inteira: treina em 100% das amostras por exatamente `epochs`
+        epochs e grava a última (F1.3, PD-16). O treino com validação acha a
+        melhor epoch mas deixa 20% da base fora dos pesos; este a reaproveita.
+        Sem validação não há como escolher epoch nem parar cedo — o número vem
+        do relatório do treino com validação —, e não sai relatório: os
+        números de validação mediriam amostras que o modelo viu. A comparação
+        com o modelo anterior é por fora, nas páginas rotuladas e no corpus.
         """
         dataset = CharDataset(self.data_dir, augment=True)
         if len(dataset) == 0:
@@ -396,9 +404,12 @@ class NeuralTrainer:
 
         divisao = dividir_estratificado(rotulos, num_classes, semente=semente)
         idx_treino = divisao.treino
+        if base_inteira:
+            idx_treino = np.arange(len(rotulos))
+            relatorio = False
         rotulos_treino = rotulos[idx_treino]
         contagens_treino = contar_por_classe(rotulos_treino, num_classes)
-        tem_validacao = len(divisao.validacao) > 0
+        tem_validacao = len(divisao.validacao) > 0 and not base_inteira
 
         # A augmentation fica no subconjunto de treino; a validação é avaliada
         # direto sobre os originais, por `avaliacao.avaliar`. Medir sobre imagem
@@ -435,15 +446,17 @@ class NeuralTrainer:
             maior, menor = int(n.max()), int(n[n > 0].min())
             callback(f"Treinando: {len(dataset)} amostras, {num_classes} classes "
                      f"(augmentation sob demanda, balanceamento={balanceamento})")
-            callback(f"Divisão: {divisao}")
-            if divisao.sem_validacao:
+            callback(f"Divisão: {divisao}" if not base_inteira else
+                     f"Base inteira: {len(idx_treino)} amostras no treino, "
+                     f"{epochs} epochs fixas, grava a última")
+            if divisao.sem_validacao and not base_inteira:
                 # Dizer isto alto é metade do ponto da F1.3: uma acurácia de
                 # validação que ignora um terço das classes em silêncio é o
                 # mesmo defeito que esta fase veio corrigir.
                 callback(f"{len(divisao.sem_validacao)} classes pequenas demais "
                          "para dividir vão inteiras para o treino — os números "
                          "de validação não dizem nada sobre elas")
-            if not tem_validacao:
+            if not tem_validacao and not base_inteira:
                 callback("AVISO: base pequena demais para separar validação. O "
                          "melhor modelo volta a ser escolhido pela perda de "
                          "treino, que é o critério ruim que a F1.3 substituiu.")
@@ -551,7 +564,15 @@ class NeuralTrainer:
             # O checkpoint é pela perda de VALIDAÇÃO. Pela perda de treino, o
             # "melhor modelo" era o do momento de maior overfitting — quanto
             # mais o modelo decorava, melhor parecia.
-            if criterio_atual < melhor_perda:
+            if base_inteira:
+                # A epoch foi escolhida antes, pelo treino com validação; a
+                # perda de treino aqui não escolhe nada. Grava a cada epoch
+                # para que um cancelamento deixe a última completa.
+                melhor_epoch = epoch + 1
+                melhor_estado = {k: v.detach().cpu().clone()
+                                 for k, v in model.state_dict().items()}
+                gravar_modelo(melhor_estado)
+            elif criterio_atual < melhor_perda:
                 melhor_perda = criterio_atual
                 melhor_epoch = epoch + 1
                 melhor_estado = {k: v.detach().cpu().clone()
