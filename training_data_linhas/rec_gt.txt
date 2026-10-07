@@ -1,0 +1,1301 @@
+images/pagina_0006_linha_00001.png	23   0-0   ♗f7
+images/pagina_0006_linha_00002.png	If 23...♗xa2, then 24 ♗h6!.
+images/pagina_0006_linha_00003.png	24   ♘f5!
+images/pagina_0006_linha_00004.png	White sacrifices the a-pawn to
+images/pagina_0006_linha_00005.png	gain   an attack.   Another   con-
+images/pagina_0006_linha_00006.png	tinuation could be 24 a3 c5 25 bc
+images/pagina_0006_linha_00007.png	♗xc5 26 ♗b4.
+images/pagina_0006_linha_00008.png	24 ...   ♘xf5
+images/pagina_0006_linha_00009.png	25   gf   ♕e8!
+images/pagina_0006_linha_00010.png	26   ♘g3   ♖xa2
+images/pagina_0006_linha_00011.png	27   ♖xa2 ♗xa2
+images/pagina_0006_linha_00012.png	28   ♔h2   ♗f7
+images/pagina_0006_linha_00013.png	29   ♖g1   ♔h8
+images/pagina_0006_linha_00014.png	30   ♕g4   ♖g8
+images/pagina_0006_linha_00015.png	31   f4!   c5
+images/pagina_0006_linha_00016.png	For the sacrificed pawn Black
+images/pagina_0006_linha_00017.png	has   created   for himself   a very
+images/pagina_0006_linha_00018.png	dangerous   passed   pawn,   which
+images/pagina_0006_linha_00019.png	finds support from the f7-bishops,
+images/pagina_0006_linha_00020.png	although a white c5-pawn could
+images/pagina_0006_linha_00021.png	also become dangerous.
+images/pagina_0006_linha_00022.png	32   fe   fe!
+images/pagina_0006_linha_00023.png	Very circumspect!  Instead af-
+images/pagina_0006_linha_00024.png	ter   32.♕xe5? 33   ♗f4   ♕e8
+images/pagina_0006_linha_00025.png	(33...♕e7 34 e5!) 34 bc ♗xc5 35
+images/pagina_0006_linha_00026.png	♖e1 White would have gained a
+images/pagina_0006_linha_00027.png	very dangerous attack.
+images/pagina_0006_linha_00028.png	33  ♗g5!
+images/pagina_0006_linha_00029.png	After 33 bc? Black should
+images/pagina_0006_linha_00030.png	continue 33.♗xc5 34 ♖b1 b4!
+images/pagina_0006_linha_00031.png	35 ♗xb4 ♕b5 36 ♗xc5 ♕xb1
+images/pagina_0006_linha_00032.png	37 ♗d6 ♖c8, etc.
+images/pagina_0006_linha_00033.png	33 ... ♗d8!
+images/pagina_0006_linha_00034.png	34   bc   b4 (D)
+images/pagina_0006_linha_00035.png	35   c6?
+images/pagina_0006_linha_00036.png	Until this point, Chigorin has
+images/pagina_0006_linha_00037.png	made good use of his chances,
+images/pagina_0006_linha_00038.png	but here he overlooks something:
+images/pagina_0006_linha_00039.png	By playing 35 ♖c1! he could
+images/pagina_0006_linha_00040.png	probably have saved the game,
+images/pagina_0006_linha_00041.png	for example, 35...b3 36 c6!  (the
+images/pagina_0006_linha_00042.png	pawn starts to become danger-
+images/pagina_0006_linha_00043.png	Introduction 7
+images/pagina_0006_linha_00044.png	ous; 36...♗a5 would have been
+images/pagina_0006_linha_00045.png	too adventurous because of 37
+images/pagina_0006_linha_00046.png	f6) 36.b2 37 ♖b1 ♕xc6   38
+images/pagina_0006_linha_00047.png	♖xb2 ♕c3 39 ♖b8! (this is the
+images/pagina_0006_linha_00048.png	saving move; if 39 ♖d2??, then
+images/pagina_0006_linha_00049.png	there comes 39...♗xg5 40 ♕xg5
+images/pagina_0006_linha_00050.png	h6) 39...♗xg5 40 ♖xg8+ ♗xg8
+images/pagina_0006_linha_00051.png	41 ♕xg5 ♕c2+ 42 ♔g1!, and
+images/pagina_0006_linha_00053.png	Black  must   make   do   with   a
+images/pagina_0006_linha_00054.png	draw, as he cannot take the d3-
+images/pagina_0006_linha_00055.png	pawn because of ...f5.
+images/pagina_0006_linha_00056.png	35 ...   ♕xc6
+images/pagina_0006_linha_00057.png	36   ♗xd8   ♖xd8
+images/pagina_0006_linha_00058.png	37   ♕g5
+images/pagina_0006_linha_00059.png	With the aim of occupying the
+images/pagina_0006_linha_00060.png	c-file.
+images/pagina_0006_linha_00061.png	37 ...   ♕f6
+images/pagina_0006_linha_00062.png	38   ♕c1   ♕e7
+images/pagina_0006_linha_00063.png	Preventing ♕c7.
+images/pagina_0006_linha_00064.png	39   f6   gf
+images/pagina_0006_linha_00065.png	40   Qf5   ♕f8
+images/pagina_0006_linha_00066.png	41   ♕c7   ♖c8!
+images/pagina_0006_linha_00067.png	This move and the following
+images/pagina_0006_linha_00068.png	bishop   manoeuvre   have   been
+images/pagina_0006_linha_00069.png	calculated beautifull
+images/pagina_0006_linha_00071.png	42   ♕b6   ♗g6
+images/pagina_0006_linha_00072.png	43 ♘h4 ♗e8!
+images/pagina_0006_linha_00073.png	44   ♘f5   ♗d7!
+images/pagina_0006_linha_00074.png	45   ♘h4?
+images/pagina_0019_linha_00001.png	18 Grandmaster Preparation – Calculation
+images/pagina_0019_linha_00002.png	White has won the exchange, but Black has
+images/pagina_0019_linha_00003.png	a lot of compensation. At least it appeared that
+images/pagina_0019_linha_00004.png	way until he was faced with:
+images/pagina_0019_linha_00005.png	29.b5! ♗c8 30.♗e8!
+images/pagina_0019_linha_00006.png	This little move forces a much desired
+images/pagina_0019_linha_00007.png	simplification This is not a difficult tactic,
+images/pagina_0019_linha_00008.png	but it is very effective. Without it the chances
+images/pagina_0019_linha_00009.png	would have been more or less even.
+images/pagina_0019_linha_00010.png	30...♖xe8 31.♖xc8 ♖xc8 32.♖xc8
+images/pagina_0019_linha_00011.png	The activity is gone and White won on move
+images/pagina_0019_linha_00012.png	46.
+images/pagina_0019_linha_00013.png	Surprising moves can appear at any point in
+images/pagina_0019_linha_00014.png	a game. They give Us extra options to choose
+images/pagina_0019_linha_00015.png	from. But how do we learn to find them?
+images/pagina_0019_linha_00016.png	There are only two aspects to it: The first is to
+images/pagina_0019_linha_00017.png	be conscious of our need to do it and the other
+images/pagina_0019_linha_00018.png	is practice.
+images/pagina_0019_linha_00019.png	The only additional hint I would give is to
+images/pagina_0019_linha_00020.png	understand that this is a very difficult part of
+images/pagina_0019_linha_00021.png	chess and that you should never be too hard
+images/pagina_0019_linha_00022.png	on yourself. Even the strongest players in the
+images/pagina_0019_linha_00023.png	world miss strong candidates again and again.
+images/pagina_0019_linha_00024.png	Shakhriyar Mamedyarov – Francisco Vallejo Pons
+images/pagina_0019_linha_00025.png	Beijing (rapid) 2011
+images/pagina_0019_linha_00026.png	8
+images/pagina_0019_linha_00027.png	7
+images/pagina_0019_linha_00028.png	6
+images/pagina_0019_linha_00029.png	5
+images/pagina_0019_linha_00030.png	4
+images/pagina_0019_linha_00031.png	3
+images/pagina_0019_linha_00032.png	2
+images/pagina_0019_linha_00034.png	a b c d e f g h
+images/pagina_0019_linha_00035.png	In the game Black played 35.♕g4? and after
+images/pagina_0019_linha_00036.png	36.♖b7± the position was deeply unpleasant
+images/pagina_0019_linha_00037.png	for him. Eventually he lost on move 54.
+images/pagina_0019_linha_00038.png	The obvious move was of course to take the
+images/pagina_0019_linha_00039.png	rook, but this is easy to reject because the
+images/pagina_0019_linha_00040.png	queen is lost. At least this is how I think Vallejo
+images/pagina_0019_linha_00041.png	was thinking during the game (and probably
+images/pagina_0019_linha_00042.png	his opponent as well). In reality it is not so
+images/pagina_0019_linha_00043.png	simple.
+images/pagina_0019_linha_00044.png	35..♔xf7 36.♗g5†
+images/pagina_0019_linha_00045.png	36.♗g3† ♕f6! would not be better. It is not
+images/pagina_0019_linha_00046.png	clear at all that White has the advantage.
+images/pagina_0019_linha_00047.png	8
+images/pagina_0019_linha_00048.png	7
+images/pagina_0019_linha_00049.png	6
+images/pagina_0019_linha_00050.png	5
+images/pagina_0019_linha_00051.png	4
+images/pagina_0019_linha_00052.png	3
+images/pagina_0019_linha_00053.png	2
+images/pagina_0019_linha_00055.png	a b c d e f g h
+images/pagina_0019_linha_00056.png	36...♕f2†! 37.♖xf2† ♘xf2 38.♗xh6 ♘h3†!
+images/pagina_0019_linha_00057.png	39.gxh3 ♖xh6
+images/pagina_0019_linha_00058.png	White cannot win this endgame.
+images/pagina_0019_linha_00059.png	This is not a difficult tactic to see – once you are
+images/pagina_0019_linha_00060.png	looking. It is the looking part that went wrong
+images/pagina_0019_linha_00061.png	for Vallejo, who at times has produced some of
+images/pagina_0019_linha_00062.png	the most amazing tactics you can imagine.
+images/pagina_0019_linha_00063.png	And it is the looking it is all about. In the
+images/pagina_0019_linha_00064.png	example given at the start of the chapter, Black
+images/pagina_0019_linha_00065.png	has an obvious candidate in taking the rook
+images/pagina_0019_linha_00066.png	But we should not reduce ourselves to mindless
+images/pagina_0019_linha_00067.png	zombies and just take the rook because it is
+images/pagina_0019_linha_00068.png	there. Maybe this one time our bishop is more
+images/pagina_0019_linha_00069.png	valuable?
+images/pagina_0020_linha_00001.png	Chapter 1 – Candidate Moves 19
+images/pagina_0020_linha_00002.png	Pogos Nakhapetiane – Sergei Zhigalko
+images/pagina_0020_linha_00003.png	Olginka 2011
+images/pagina_0020_linha_00004.png	8
+images/pagina_0020_linha_00005.png	7
+images/pagina_0020_linha_00006.png	6
+images/pagina_0020_linha_00007.png	5
+images/pagina_0020_linha_00008.png	4
+images/pagina_0020_linha_00009.png	3
+images/pagina_0020_linha_00010.png	2
+images/pagina_0020_linha_00012.png	a b c d e f g h
+images/pagina_0020_linha_00013.png	Zhigalko has impressed me for a long time:
+images/pagina_0020_linha_00014.png	He is on the unofficial watch list in the office at
+images/pagina_0020_linha_00015.png	Quality Chess, but this time he disappointed.
+images/pagina_0020_linha_00017.png	draw the game on move 42, but still this was a
+images/pagina_0020_linha_00018.png	rather feeble effort.
+images/pagina_0020_linha_00019.png	27...♕a4!!
+images/pagina_0020_linha_00020.png	This was the right move. White does not
+images/pagina_0020_linha_00021.png	have a good defence against the knight check
+images/pagina_0020_linha_00022.png	on b3 and will have to give up his queen
+images/pagina_0020_linha_00023.png	in a moment There are details and variations
+images/pagina_0020_linha_00024.png	and maybe White is not entirely lost if he
+images/pagina_0020_linha_00025.png	defends energerically with his knight and rook
+images/pagina_0020_linha_00026.png	for the queen.
+images/pagina_0020_linha_00027.png	But honestly, no one cares. Black wins the
+images/pagina_0020_linha_00028.png	queen and then we worry about what to do
+images/pagina_0020_linha_00029.png	with it afterwards. Zhigalko missed this one- '
+images/pagina_0020_linha_00030.png	mover and even had a few problems to solve
+images/pagina_0020_linha_00031.png	afterwards...
+images/pagina_0020_linha_00032.png	So why did he overlook this possibility?
+images/pagina_0020_linha_00033.png	Probably he assumed there was nothing else.
+images/pagina_0020_linha_00034.png	He did not look Or to be a bit more technical.
+images/pagina_0020_linha_00035.png	he did not take the time to look. And taking
+images/pagina_0020_linha_00036.png	the time to look is what it is all about. Slow
+images/pagina_0020_linha_00037.png	down your calculation of long lines and make
+images/pagina_0020_linha_00038.png	sure it is not all horse manure by making sure
+images/pagina_0020_linha_00039.png	you are calculating the right moves in the first
+images/pagina_0020_linha_00040.png	place.
+images/pagina_0020_linha_00041.png	Working on your ability to spot extra
+images/pagina_0020_linha_00042.png	opportunities is really important and the
+images/pagina_0020_linha_00043.png	cornerstone of calculation.
+images/pagina_0020_linha_00044.png	The following section is the largest of all
+images/pagina_0020_linha_00045.png	the exercise sections for a reason. I hope that
+images/pagina_0020_linha_00046.png	reason is that you are going to improve your
+images/pagina_0020_linha_00047.png	tactics dramatically by acquiring the habit
+images/pagina_0020_linha_00048.png	of looking for extra options at all important
+images/pagina_0020_linha_00049.png	moments.
+images/pagina_0005_linha_00001.png	Key to svmbols used
+images/pagina_0005_linha_00003.png	⩲ White is slightly better
+images/pagina_0005_linha_00004.png	⩱ Black is slightly better
+images/pagina_0005_linha_00005.png	± White is better
+images/pagina_0005_linha_00006.png	∓ Black is better
+images/pagina_0005_linha_00007.png	+- White has a decisive advantage
+images/pagina_0005_linha_00008.png	-+ Black has & decisive advantage
+images/pagina_0005_linha_00009.png	= equality
+images/pagina_0005_linha_00010.png	⯹ with compensation
+images/pagina_0005_linha_00011.png	⇄ with counterplay
+images/pagina_0005_linha_00012.png	∞ unclear
+images/pagina_0005_linha_00013.png	? a weak move
+images/pagina_0005_linha_00014.png	?? a blunder
+images/pagina_0005_linha_00015.png	! a good move
+images/pagina_0005_linha_00016.png	!! an excellent move
+images/pagina_0005_linha_00017.png	!? a move worth considering
+images/pagina_0005_linha_00018.png	?! a move of doubtful value
+images/pagina_0005_linha_00019.png	# mate
+images/pagina_0005_linha_00020.png	△ White to move
+images/pagina_0005_linha_00021.png	▼ Black to move
+images/pagina_0005_linha_00022.png	The goal of the exercise is to stay in the game or force a draw
+images/pagina_0023_linha_00001.png	22 Grandmaster Preparation – Calculation
+images/pagina_0023_linha_00002.png	1. Golod – Gerzhoy, Philadelphia 2011
+images/pagina_0023_linha_00003.png	18...♕f3! White resigned. 0–1
+images/pagina_0023_linha_00004.png	2. Romanko – Shulakova, Moscow 2012
+images/pagina_0023_linha_00005.png	Black missed a direct win, after getting the first move right: 34...♗xa4 35.bxa4 ♗a7! It is
+images/pagina_0023_linha_00006.png	imporrant to chrow in this move: In the game Black played 35...♘b4? and eventually only drew
+images/pagina_0023_linha_00007.png	after 65 moves White did not reply in the most accurate way here, as simply 36.♖d1! would
+images/pagina_0023_linha_00008.png	have solved all of her worries at once and maybe even made Blacks practical experience a bit
+images/pagina_0023_linha_00009.png	croublesome: 36.♖fc2 ♘b4 This works now. Most likely Black overlooked the idea of ...♖xc5 and
+images/pagina_0023_linha_00010.png	...♘d3. 37.♗xa7 This is forced, but after 37...♘xc2 Black will win the game with perfect play:
+images/pagina_0023_linha_00011.png	3. A. Hunt – Galdunts, Gold Coast 2000
+images/pagina_0023_linha_00012.png	Sorry, I could not resist this one. 47...♖xh4†! Or queen takes first: 48.gxh4 ♕xh4† 49.♔xh4
+images/pagina_0023_linha_00013.png	♖h2#
+images/pagina_0023_linha_00014.png	4. Navara – Ivanchuk, Wijk aan Zee 2012
+images/pagina_0023_linha_00015.png	Black is doing quite well, but how to make the most ofit? 33.♕e4! Thats how: White does not
+images/pagina_0023_linha_00016.png	have time for 34.bxc5 because of 34...♖b1†. 34.♖xa6 34.♔h2 cxb4 35.♖xa6 does not work as a
+images/pagina_0023_linha_00017.png	concept: After 35...♖xa6 36.♖xa6 b3 37.♖b6 ♕c2 Black just wins. 34...♖xa6 35.♖xa6 c4!? This
+images/pagina_0023_linha_00018.png	is good enough, but there is no reason to decline the pawn: 35...cxb4 36.♖b6 ♕b1† 37.♔h2 b3
+images/pagina_0023_linha_00019.png	and Black wins. 36.♖c6 c3 37.♖c8† ♔g7 38.♖c7† ♔f6 39.♔h2 ♕d4 40.f4 Hoping- 40...g5
+images/pagina_0023_linha_00020.png	41.fxg5† ♔e5 0–1
+images/pagina_0023_linha_00021.png	5. Nebolsina – N. Kosintseva, Moscow 2010
+images/pagina_0023_linha_00022.png	White was no doubc hoping that ♖h3 would do the job. Or at least ♘h5xf6. But she was met with
+images/pagina_0023_linha_00023.png	a cold shower... 22...♕c4! Threatening ...♕xd4†. 23.♖e1 After 23.♖d1 Black wins an important
+images/pagina_0023_linha_00024.png	tempo with 23.♕c2!, so that after 24.♖df1 she has time to play 24...exf4-+. 23...♕xd4† 24.♔h1
+images/pagina_0023_linha_00025.png	♕d2 With the point 25.♖h3 ♕xf4!. 25.♘e2 ♖g4! 26.♕f2 ♖xe4 0–1
+images/pagina_0023_linha_00026.png	6. Fressinet – Brunner, Mulhouse 2011
+images/pagina_0023_linha_00027.png	White obviously has a fine position, but how is he to exploit it? 16.♖fd1 looks natural, but
+images/pagina_0023_linha_00028.png	something more direct exists. 16.♗g6!! The bishop is mysteriously immune and Black is just lost:
+images/pagina_0023_linha_00029.png	16...0–0 17.♗xh7† ♔h8 18.dxc5 There are other good moves, but who is counting 18...♘xc5
+images/pagina_0023_linha_00030.png	19.♘xc5 ♖xc5 19...♗xc5 20.♖c4! would also quickly spell T.H.E. E.N.D. 20.♖xc5 ♗xc5
+images/pagina_0023_linha_00031.png	21.♗g6† ♔g8 22.♗xf7†! The final trick. 22.♖xf7 23.♕h8+! 1–0
+images/pagina_0023_linha_00032.png	7 . Areshchenko – Shoker, Ningbo 2011
+images/pagina_0023_linha_00033.png	23.♖c8! Making use of Whites inability to defend the c2-square: 23...♘a3† 24.♔xb2 ♖c8
+images/pagina_0023_linha_00034.png	also looks strong, but then White can defend c2 with either 25.♖c1 o 25.♖1d2, in both cases
+images/pagina_0023_linha_00035.png	with mucual chances. Against the latter; Black has to force a draw with: 25...♘b5 26.exf6 ♕a3†
+images/pagina_0023_linha_00036.png	27.♔a1 ♘c3 28.♕e3† ♔f8 29.♕f6† ♔e8= 24.exf6 24.♖xc4 ♕xc4 25.♘fd4 could be tried,
+images/pagina_0023_linha_00037.png	but after 25...dxe5 26.♕g7 exd4 27.♘xd4 ♔e7 28.♖e1† ♔d7 29.♕xf6 ♖he8 Black wins all the
+images/pagina_0023_linha_00038.png	same. 24...♘a3† 25.♔xb2 ♖xc2† 26.♔a1 ♘c4! The point: White sorely wanted to have time to
+images/pagina_0023_linha_00039.png	return t0 the scene of action with 27.♕e3†. 27.♖e4† ♔d8 28.♘c1 ♕a3 0–1
+images/pagina_0121_linha_00001.png	120 Chapter 1 — Endgame Elements
+images/pagina_0121_linha_00002.png	Jacob Aagaard — Tamir Nabaty
+images/pagina_0121_linha_00003.png	Internet 2021
+images/pagina_0121_linha_00004.png	8
+images/pagina_0121_linha_00005.png	7
+images/pagina_0121_linha_00006.png	6
+images/pagina_0121_linha_00007.png	5
+images/pagina_0121_linha_00008.png	4
+images/pagina_0121_linha_00009.png	3
+images/pagina_0121_linha_00010.png	2
+images/pagina_0121_linha_00012.png	a b c d e f g h
+images/pagina_0121_linha_00013.png	This game was played in the 2nd Online
+images/pagina_0121_linha_00014.png	Olympiad, where Scotland got totalled by the
+images/pagina_0121_linha_00015.png	Israelis. Athough I lost my game, I was happy
+images/pagina_0121_linha_00016.png	with the quality of play and quick to forgive
+images/pagina_0121_linha_00017.png	myself for making strange decisions in time
+images/pagina_0121_linha_00018.png	trouble... I recommend you show yourself the
+images/pagina_0121_linha_00019.png	same level of realism and compassion.
+images/pagina_0121_linha_00020.png	30.♕xe6✝?
+images/pagina_0121_linha_00021.png	30.c5 ♔f6 makes no difference. Except that
+images/pagina_0121_linha_00022.png	the king can make it faster to take the a4-pawn.
+images/pagina_0121_linha_00023.png	30...♔xe6 3 1.♔g4 ♔d6
+images/pagina_0121_linha_00024.png	Black is arriving in good time.
+images/pagina_0121_linha_00025.png	32.♔f5 ♔c5 33.♔g6 ♔xc4 34.♔xg7 ♔xc3
+images/pagina_0121_linha_00026.png	35.g4 c5 36.♔xf66 c4 37.g5 ♔b4 38.g6 c3
+images/pagina_0121_linha_00027.png	39.g7 c2 40.g8=♕ c1=♕✝ 41.♕g5?!
+images/pagina_0121_linha_00028.png	The ending is lost anyway, but it is a curious
+images/pagina_0121_linha_00029.png	hallucination all the same. I simply missed that
+images/pagina_0121_linha_00030.png	the c-pawn could advance. Rapid chess played
+images/pagina_0121_linha_00031.png	in 2D is rather alien to the chess I have taught
+images/pagina_0121_linha_00032.png	myself to play
+images/pagina_0121_linha_00033.png	41...♕xg5✝ 42.♔xg5 c5 43.♔f4 c4 44.♔e3
+images/pagina_0121_linha_00034.png	c3 45.h4 ♔b3 46.h5 c2
+images/pagina_0121_linha_00035.png	0—1
+images/pagina_0121_linha_00036.png	The best advice I know of i n chess is to "always
+images/pagina_0121_linha_00037.png	have two serious options on every move." But
+images/pagina_0121_linha_00038.png	as is well-known, advice is something you give
+images/pagina_0121_linha_00039.png	other people... However, had I followed it, I
+images/pagina_0121_linha_00040.png	would have had a chance to save the game.
+images/pagina_0121_linha_00041.png	30.♔h4!!
+images/pagina_0121_linha_00042.png	8
+images/pagina_0121_linha_00043.png	7
+images/pagina_0121_linha_00044.png	6
+images/pagina_0121_linha_00045.png	5
+images/pagina_0121_linha_00046.png	4
+images/pagina_0121_linha_00047.png	3
+images/pagina_0121_linha_00048.png	2
+images/pagina_0121_linha_00049.png	1
+images/pagina_0121_linha_00050.png	a b c d e f g h
+images/pagina_0121_linha_00051.png	Black has no advantage to speak of in the
+images/pagina_0121_linha_00052.png	queen ending, so should probably try:
+images/pagina_0121_linha_00053.png	30...g5✝ 31.♔h3 h5
+images/pagina_0121_linha_00054.png	3 1...♔f6 is less critical. After 32.♕xe6✝
+images/pagina_0121_linha_00055.png	♔xe6 33.♔g4, Black has to play 33...♔f6! not
+images/pagina_0121_linha_00056.png	to lose.
+images/pagina_0121_linha_00057.png	32.♕xe6✝ ♔xe6
+images/pagina_0121_linha_00058.png	8
+images/pagina_0121_linha_00059.png	7
+images/pagina_0121_linha_00060.png	6
+images/pagina_0121_linha_00061.png	5
+images/pagina_0121_linha_00062.png	4
+images/pagina_0121_linha_00063.png	3
+images/pagina_0121_linha_00064.png	2
+images/pagina_0121_linha_00065.png	1
+images/pagina_0121_linha_00066.png	a b c d e f g h
+images/pagina_0122_linha_00001.png	26. Domination 121
+images/pagina_0122_linha_00002.png	It appears that Black has won a few tempos.
+images/pagina_0122_linha_00003.png	But all he has achieved is to bring his pawns
+images/pagina_0122_linha_00004.png	closer to the white king.
+images/pagina_0122_linha_00005.png	33.♔g2
+images/pagina_0122_linha_00006.png	Instead 33.g4 h4 34.♔g2 ♔d6 is a more
+images/pagina_0122_linha_00007.png	forcing move order.
+images/pagina_0122_linha_00008.png	33...♔d6 34.g4! h4 35.♔f3 ♔c5 36.♔e4
+images/pagina_0122_linha_00009.png	♔xc4 37.♔f5 c5 38.♔xg5 ♔xc3 39.♔xfh4
+images/pagina_0122_linha_00010.png	♔b4 40.g5 c4 41.g6 c3 42.g7 c2 43.g8=♕
+images/pagina_0122_linha_00011.png	c1=♕ 44.♕g4✝ ♔b3
+images/pagina_0122_linha_00012.png	8
+images/pagina_0122_linha_00013.png	7
+images/pagina_0122_linha_00014.png	6
+images/pagina_0122_linha_00015.png	5
+images/pagina_0122_linha_00016.png	4
+images/pagina_0122_linha_00017.png	3
+images/pagina_0122_linha_00018.png	2
+images/pagina_0122_linha_00019.png	1
+images/pagina_0122_linha_00020.png	a b c d e f g h
+images/pagina_0122_linha_00021.png	This is not an endgame study, but in study
+images/pagina_0122_linha_00022.png	fashion, White has only one path to the draw
+images/pagina_0122_linha_00023.png	and it is truly narrow.
+images/pagina_0122_linha_00024.png	45.♕f3✝! ♔xa4 46.♕e4✝ ♔b3 47.♕b7✝!
+images/pagina_0122_linha_00025.png	♔a3 48.♕f3✝
+images/pagina_0122_linha_00026.png	With perpetual check.
+images/pagina_0122_linha_00027.png	26. Domination
+images/pagina_0122_linha_00028.png	We shall talk plenty about various aspects
+images/pagina_0122_linha_00029.png	of domination in general later, starting on
+images/pagina_0122_linha_00030.png	page 348. But I wanted to introduce this key
+images/pagina_0122_linha_00031.png	element of good technique at an early stage,
+images/pagina_0122_linha_00032.png	to plant the seed. Please pay attention to how
+images/pagina_0122_linha_00033.png	often it is th roughout th is book that accurate
+images/pagina_0122_linha_00034.png	play includes limiting the opportunities of the
+images/pagina_0122_linha_00035.png	opponent. We cannot always increase our own
+images/pagina_0122_linha_00036.png	possibilities. In those situations, we can secure
+images/pagina_0122_linha_00037.png	the advantage by limiting the possibilities of
+images/pagina_0122_linha_00038.png	the opponent.
+images/pagina_0122_linha_00039.png	Pawn endings have a finite property to them.
+images/pagina_0122_linha_00040.png	They can be calculated all the way to a clear
+images/pagina_0122_linha_00041.png	conclusion in most cases. This does not mean
+images/pagina_0122_linha_00042.png	that the process is not highly intuitive, and we
+images/pagina_0122_linha_00043.png	do not need to understand a lot of themes to
+images/pagina_0122_linha_00044.png	navigate them better. I always recom mend the
+images/pagina_0122_linha_00045.png	book Secrets of Pawn Ending by Karsten Müller
+images/pagina_0122_linha_00046.png	and Frank Lamprecht, to anyone who wants
+images/pagina_0122_linha_00047.png	to hear about it. I think it was nominated for
+images/pagina_0122_linha_00048.png	book of the year at the Chesscafe.com Book of
+images/pagina_0122_linha_00049.png	the Year awards at the same time as one of my
+images/pagina_0122_linha_00050.png	books was nomi nated. I voted fo r them. Sadly
+images/pagina_0122_linha_00051.png	none of us won. Their next book, Fundzmental
+images/pagina_0122_linha_00052.png	Chess Ending, is one of the all-time great
+images/pagina_0122_linha_00053.png	chess books. Magnus Carlsen was famously
+images/pagina_0122_linha_00054.png	photographed with an entirely demolished
+images/pagina_0122_linha_00055.png	copy of it, read more times than the cover,
+images/pagina_0122_linha_00056.png	pages and spine were designed for.
+images/pagina_0450_linha_00001.png	Exercises to Chapter 3
+images/pagina_0450_linha_00002.png	★ ☆ ☆ ☆ ☆ Easy. Based on a simple idea
+images/pagina_0450_linha_00003.png	★ ★ ☆ ☆ ☆ Friendly. Can be solved by most
+images/pagina_0450_linha_00004.png	★ ★ ★ ☆ ☆ Mid-range. You need to think, but not too much
+images/pagina_0450_linha_00005.png	★ ★ ★ ★ ☆ Challenging. You will need to concentrate for these ones
+images/pagina_0450_linha_00006.png	★ ★ ★ ★ ★ Brain crusher. After solving, see a neurologist...
+images/pagina_0450_linha_00007.png	★★★☆☆ ★★★☆☆ ★☆☆☆☆
+images/pagina_0450_linha_00017.png	Solution on page 455 Solution on page 460 Solution on page 468
+images/pagina_0450_linha_00018.png	★★☆☆☆ ★☆☆☆☆ ★★★★☆
+images/pagina_0450_linha_00019.png	8
+images/pagina_0450_linha_00021.png	7
+images/pagina_0450_linha_00023.png	6
+images/pagina_0450_linha_00025.png	5
+images/pagina_0450_linha_00027.png	4
+images/pagina_0450_linha_00029.png	3
+images/pagina_0450_linha_00031.png	2
+images/pagina_0450_linha_00033.png	1
+images/pagina_0450_linha_00036.png	Solution on page 457 Solution on page 462 Solution on page 484
+images/pagina_0600_linha_00001.png	12. A few games in conclusion 599
+images/pagina_0600_linha_00002.png	18...♗d7!
+images/pagina_0600_linha_00003.png	With accurate play Black wins material.
+images/pagina_0600_linha_00004.png	19.♗xc3
+images/pagina_0600_linha_00005.png	It seems that Whi te had better chances of
+images/pagina_0600_linha_00006.png	holding after 19.d6!? ♕xd6 20.♗xc3 ♖fc8
+images/pagina_0600_linha_00007.png	21.e5! ♗xe5 22.♗xa8 ♗xc3 23.♕xc3 ♖xc3
+images/pagina_0600_linha_00008.png	24.♖xc3 ♗e6 25.♗f3, when the endgame is
+images/pagina_0600_linha_00009.png	very unpleasant, but still offers White a lot of
+images/pagina_0600_linha_00010.png	chances to resist. In the game White quickiy
+images/pagina_0600_linha_00011.png	lost all possibilities of active counterplay
+images/pagina_0600_linha_00012.png	19...♖fc8 20.♗xg7 ♕xc2 21.♖xc2 ♖xc2
+images/pagina_0600_linha_00013.png	22.♗d4 a5 23.h3 ♖b8 24.a3 f6?!
+images/pagina_0600_linha_00014.png	I don,t like this move at all. It inspires not
+images/pagina_0600_linha_00015.png	just one, but two, pawn exchanges.
+images/pagina_0600_linha_00016.png	24...♖c4! 25.♗e3 e5!? would be a strong way
+images/pagina_0600_linha_00017.png	to achieve the structure Artemiev presumably
+images/pagina_0600_linha_00018.png	wanted.
+images/pagina_0600_linha_00019.png	8
+images/pagina_0600_linha_00020.png	7
+images/pagina_0600_linha_00021.png	6
+images/pagina_0600_linha_00022.png	5
+images/pagina_0600_linha_00023.png	4
+images/pagina_0600_linha_00024.png	3
+images/pagina_0600_linha_00025.png	2
+images/pagina_0600_linha_00026.png	1
+images/pagina_0600_linha_00027.png	a b c d e f g h
+images/pagina_0600_linha_00028.png	25.e5!
+images/pagina_0600_linha_00029.png	White is seeking to exchange h is pawns
+images/pagina_0600_linha_00030.png	befo re they beco me weaknesses.
+images/pagina_0600_linha_00031.png	25...♖c4
+images/pagina_0600_linha_00032.png	To me it would make more sense to exchange
+images/pagina_0600_linha_00033.png	the rooks.
+images/pagina_0600_linha_00034.png	After 25...♖bc8!? 26.exf6 ♖c1✝ 27.♖xc1 ♖xc1✝
+images/pagina_0600_linha_00035.png	28.♔h2 exf6 29.♗xf6 ♔f7 I would be very
+images/pagina_0600_linha_00036.png	optimistic with Black. White has rwo pawns
+images/pagina_0600_linha_00037.png	for the exchange, but his position has lost its
+images/pagina_0600_linha_00038.png	dynamic po tential and the a3- and d5-pawns
+images/pagina_0600_linha_00039.png	will be difficult to defend.
+images/pagina_0600_linha_00040.png	26.♖d1 ♗a4
+images/pagina_0600_linha_00041.png	26...♖bc8 no longer works on account of
+images/pagina_0600_linha_00042.png	27.♔h2! ♖c 1 28.♖d3, and White keeps the
+images/pagina_0600_linha_00043.png	rook o n the board and decent drawing chances.
+images/pagina_0600_linha_00044.png	27.♖d2 ♖c2
+images/pagina_0600_linha_00045.png	8
+images/pagina_0600_linha_00046.png	7
+images/pagina_0600_linha_00047.png	6
+images/pagina_0600_linha_00048.png	5
+images/pagina_0600_linha_00049.png	4
+images/pagina_0600_linha_00050.png	3
+images/pagina_0600_linha_00051.png	2
+images/pagina_0600_linha_00052.png	1
+images/pagina_0600_linha_00053.png	a b c d e f g h
+images/pagina_0600_linha_00054.png	28.♖xc2!?
+images/pagina_0600_linha_00055.png	Vidit's course of action has the benefit of
+images/pagina_0600_linha_00056.png	being difficult to play for Black and easy to play
+images/pagina_0600_linha_00057.png	for White. Objectively it is perhaps not best.
+images/pagina_0600_linha_00058.png	But when yo u have a concrete and reasonable
+images/pagina_0600_linha_00059.png	idea, as this is, it makes a lot of sense to go for
+images/pagina_0600_linha_00060.png	it.
+images/pagina_0600_linha_00061.png	I have analysed 28.♖d3!?, which also has a bad
+images/pagina_0600_linha_00062.png	smell to i t, but where a clear refutation is not
+images/pagina_0600_linha_00063.png	immediately obvious.
+images/pagina_0600_linha_00064.png	28...♗xc2 29.exf6 exf6
+images/pagina_0601_linha_00001.png	600 Chapter 4 — Rook vs Bishop
+images/pagina_0601_linha_00004.png	6
+images/pagina_0601_linha_00005.png	5
+images/pagina_0601_linha_00006.png	4
+images/pagina_0601_linha_00007.png	3
+images/pagina_0601_linha_00008.png	2
+images/pagina_0601_linha_00009.png	1
+images/pagina_0601_linha_00010.png	a b c d e f g h
+images/pagina_0601_linha_00011.png	30.d6!
+images/pagina_0601_linha_00012.png	This is a good practical chance.
+images/pagina_0601_linha_00013.png	It is not imme
+images/pagina_0601_linha_00014.png	diately clear why White should
+images/pagina_0601_linha_00015.png	not play 30.♗xf6 ♔f7 3 1.♗e5, where I still
+images/pagina_0601_linha_00016.png	believe in Black, but where it is not obvious
+images/pagina_0601_linha_00017.png	how the advantage shall be turned into
+images/pagina_0601_linha_00018.png	something concrete.
+images/pagina_0601_linha_00019.png	But as we shall see, Vidit's idea leads to an
+images/pagina_0601_linha_00020.png	endgame that is quite difficult to convert for
+images/pagina_0601_linha_00021.png	Black.
+images/pagina_0601_linha_00022.png	30...♔g7 31.d7 ♗a4 32.♗g4 ♗xd7 33.♗xd7
+images/pagina_0601_linha_00023.png	♖d8
+images/pagina_0601_linha_00024.png	8
+images/pagina_0601_linha_00025.png	7
+images/pagina_0601_linha_00026.png	6
+images/pagina_0601_linha_00027.png	5
+images/pagina_0601_linha_00028.png	4
+images/pagina_0601_linha_00029.png	3
+images/pagina_0601_linha_00030.png	2
+images/pagina_0601_linha_00031.png	1
+images/pagina_0601_linha_00032.png	a b c d e f g h
+images/pagina_0601_linha_00033.png	34.♗b6!
+images/pagina_0601_linha_00034.png	This was of course the intention.
+images/pagina_0601_linha_00035.png	34.♗xf6✝? ♔xf6 3 5.♗b5 would lose very
+images/pagina_0601_linha_00036.png	quickly. Wh ite cannot keep the bishop on
+images/pagina_0601_linha_00037.png	the diago nal, so Black will give a check on the
+images/pagina_0601_linha_00038.png	first rank and pick up the a-pawn with ...♖a1.
+images/pagina_0601_linha_00039.png	The tactical j ustification for this goes like th is:
+images/pagina_0601_linha_00040.png	35...♖b8 36.a4 ♖xb5 37.axb5 ♔e5 and Black
+images/pagina_0601_linha_00041.png	wins.
+images/pagina_0601_linha_00042.png	34...♖xd7 35.♗xa5 ♖d1✝ 36.♔h2 ♖d3
+images/pagina_0601_linha_00043.png	37.♗b4 ♔f7 38.♗c5 ♖d5 39.♗b4 ♔e6
+images/pagina_0601_linha_00044.png	40.g3 f5
+images/pagina_0601_linha_00045.png	8
+images/pagina_0601_linha_00046.png	7
+images/pagina_0601_linha_00047.png	6
+images/pagina_0601_linha_00048.png	5
+images/pagina_0601_linha_00049.png	4
+images/pagina_0601_linha_00050.png	3
+images/pagina_0601_linha_00051.png	2
+images/pagina_0601_linha_00052.png	1
+images/pagina_0601_linha_00053.png	a b c d e f g h
+images/pagina_0601_linha_00054.png	Looking at what follows, this is a move that
+images/pagina_0601_linha_00055.png	I dislike in the rear-view mirror. For Black to
+images/pagina_0601_linha_00056.png	give up the support on the dark squares so
+images/pagina_0601_linha_00057.png	quickly feels wrong. But at the same time, it
+images/pagina_0601_linha_00058.png	is very difficult to both manoeuvre the king to
+images/pagina_0601_linha_00059.png	e2 and keep the pawn on f6, without allowing
+images/pagina_0601_linha_00060.png	White to push the pawn to a5, when the bishop
+images/pagina_0601_linha_00061.png	will be well-anchored on b6, fro m where it is
+images/pagina_0601_linha_00062.png	possible to defend f2. With this in mind, it
+images/pagina_0601_linha_00063.png	is not at all clear to me that Black should be
+images/pagina_0601_linha_00064.png	winning this endgame at all, although my first
+images/pagina_0601_linha_00065.png	impression was similar to Mihail Marin, who
+images/pagina_0601_linha_00066.png	annotated this game for ChessBase. He wrote:
+images/pagina_0601_linha_00067.png	''Black's position is simply won. The a-pawn
+images/pagina_0601_linha_00068.png	does not really count and with the actual
+images/pagina_0601_linha_00069.png	pawn set-up White would have needed the
+images/pagina_0601_linha_00070.png	light-squared bishop to retain saving chances."
+images/pagina_0602_linha_00001.png	12. A few games in conclusion 601
+images/pagina_0602_linha_00002.png	As we shall see, things are indeed a lot more
+images/pagina_0602_linha_00003.png	complicated than first glances will reveal.
+images/pagina_0602_linha_00004.png	This is probably the place where I should
+images/pagina_0602_linha_00005.png	remind you that with all our electronic tools,
+images/pagina_0602_linha_00006.png	we can reach more or less complete certainty
+images/pagina_0602_linha_00007.png	on positions with nine pieces on the board.
+images/pagina_0602_linha_00008.png	Move 41. We have reached the generic
+images/pagina_0602_linha_00009.png	endgame, which is our main interest. At first
+images/pagina_0602_linha_00010.png	glance I was convinced that it was completely
+images/pagina_0602_linha_00011.png	winning for Black. The white bishop will not
+images/pagina_0602_linha_00012.png	be able to defend f2 and a3 at the same time,
+images/pagina_0602_linha_00013.png	my thinking went, which means that White
+images/pagina_0602_linha_00014.png	eventually will have to give up the a-pawn,
+images/pagina_0602_linha_00015.png	which should inevitably lead to Rapport — Wei
+images/pagina_0602_linha_00016.png	Yi above on page 563.
+images/pagina_0602_linha_00017.png	But once again straightforward arguments
+images/pagina_0602_linha_00018.png	are too simplistic for chess. Move a pawn
+images/pagina_0602_linha_00019.png	one square and everything changes. In this
+images/pagina_0602_linha_00020.png	cose specifically the black g-pawn. We will see
+images/pagina_0602_linha_00021.png	below on many occasions that if the pawn had
+images/pagina_0602_linha_00022.png	still been on g7, the white bishop would not be
+images/pagina_0602_linha_00023.png	able to dominate the dark squares as well as it
+images/pagina_0602_linha_00024.png	can in the lines below many of which hold by
+images/pagina_0602_linha_00025.png	just a whisker.
+images/pagina_0602_linha_00026.png	41.♔g2?
+images/pagina_0602_linha_00027.png	This is already a serious mistake, although
+images/pagina_0602_linha_00028.png	I doubt the players ever noticed. White had
+images/pagina_0602_linha_00029.png	a fantastic way to make the draw, something
+images/pagina_0602_linha_00030.png	I doubt many players would be able to even
+images/pagina_0602_linha_00031.png	sense. It could perhaps be possible to anticipate
+images/pagina_0602_linha_00032.png	Black's options. And maybe Vidit did, but
+images/pagina_0602_linha_00033.png	without realising that he would be able to do
+images/pagina_0602_linha_00034.png	anything about them.
+images/pagina_0602_linha_00035.png	Very deep schematic thi nking would have
+images/pagina_0602_linha_00036.png	revealed that White can set up a fortress of
+images/pagina_0602_linha_00037.png	undeniable beauty. In order to get there, he has
+images/pagina_0602_linha_00038.png	to sacrifice the a-pawn.
+images/pagina_0602_linha_00039.png	41.a4!!
+images/pagina_0602_linha_00040.png	This move would be seen as the move of a
+images/pagina_0602_linha_00041.png	patzer. Or a genius/computer-cheat.
+images/pagina_0602_linha_00042.png	41...g5!?
+images/pagina_0602_linha_00043.png	Trying to be clever.
+images/pagina_0602_linha_00044.png	The key idea is that 41...♖d4 42.♗c5! ♖xa4
+images/pagina_0602_linha_00045.png	43.♗e3 seems to draw, as is covered below
+images/pagina_0602_linha_00046.png	on move 43.
+images/pagina_0602_linha_00047.png	42.a5 ♖d4 43.♗c5 ♖a4
+images/pagina_0602_linha_00048.png	8
+images/pagina_0602_linha_00049.png	7
+images/pagina_0602_linha_00050.png	6
+images/pagina_0602_linha_00051.png	5
+images/pagina_0602_linha_00052.png	4
+images/pagina_0602_linha_00053.png	3
+images/pagina_0602_linha_00054.png	2
+images/pagina_0602_linha_00055.png	1
+images/pagina_0602_linha_00056.png	a b c d e f g h
+images/pagina_0602_linha_00057.png	44.g4!!
+images/pagina_0602_linha_00058.png	The second strike.
+images/pagina_0602_linha_00059.png	44.♗b6 ♔d5 45.♗d8 h6 46.h4 gxh4
+images/pagina_0602_linha_00060.png	47.♗xh4 ♖xa5 wins for Black. With the king
+images/pagina_0602_linha_00061.png	on e4 and the rook on g6, White will not be
+images/pagina_0602_linha_00062.png	able to prevent both ...f4-f3 and ...h4xg3. As
+images/pagina_0602_linha_00063.png	the first of these ideas is clearly devastating,
+images/pagina_0602_linha_00064.png	White will have to accep t that... h4xg3 is
+images/pagina_0602_linha_00065.png	coming. If he takes with the bishop then,
+images/pagina_0602_linha_00066.png	Black will have... f4. And if he takes with the
+images/pagina_0602_linha_00067.png	pawn, Black will quickly play ...♖a2+, with
+images/pagina_0602_linha_00068.png	a method similar to Liang — Maghsoodloo,
+images/pagina_0602_linha_00069.png	where the black king comes to g4 and when
+images/pagina_0602_linha_00070.png	the white king is pushed to the first rank.
+images/pagina_0602_linha_00071.png	The only try would be if White gets the king
+images/pagina_0602_linha_00072.png	to h3, when Black will get the king to f3 and
+images/pagina_0602_linha_00073.png	quickiy get the rook around to the g-file,
+images/pagina_0602_linha_00074.png	winning tempos on the white bishop. The
+images/pagina_0602_linha_00075.png	key subtlety is that in a position like this:
+images/pagina_0602_linha_00076.png	♔h4, ♗f4, ♙g3 vs ♔f3, ♖b5, ♙f5, Black to
+images/pagina_0602_linha_00077.png	play wins with 1...♖b4! 2.♔g5 ♖xf4 3.gf4
+images/pagina_0602_linha_00078.png	♔e4.
+images/pagina_0603_linha_00001.png	602 Chapter 4 — Rook vs Bishop
+images/pagina_0603_linha_00002.png	44...fxg4
+images/pagina_0603_linha_00003.png	After 44...f4 45.♗b6 ♔e5 46.h4! White is
+images/pagina_0603_linha_00004.png	able to get rid of his bad pawn and draw
+images/pagina_0603_linha_00005.png	effortlessly 46...gxh4 47.♔h3 and 46...♔e4
+images/pagina_0603_linha_00006.png	47.♔g2 gxh4 48.♔h3 ♔f3 49.♔xh4 ♖a1
+images/pagina_0603_linha_00007.png	50.♔g5, both hold easily
+images/pagina_0603_linha_00008.png	45.hxg4 ♖xa5
+images/pagina_0603_linha_00009.png	45...♖xg4 46.a6 and White holds.
+images/pagina_0603_linha_00010.png	46.♗e3
+images/pagina_0603_linha_00011.png	8
+images/pagina_0603_linha_00012.png	7
+images/pagina_0603_linha_00013.png	6
+images/pagina_0603_linha_00014.png	5
+images/pagina_0603_linha_00015.png	4
+images/pagina_0603_linha_00016.png	3
+images/pagina_0603_linha_00017.png	2
+images/pagina_0603_linha_00018.png	1
+images/pagina_0603_linha_00019.png	a b c d e f g h
+images/pagina_0603_linha_00020.png	The next few moves are more or less forced.
+images/pagina_0603_linha_00021.png	46...♖e5 47.♔g3 ♔d5 48.♔f3 ♔c4 49.♔e2
+images/pagina_0603_linha_00022.png	White cannot let the black king come to d3
+images/pagina_0603_linha_00023.png	before he is ready for it.
+images/pagina_0603_linha_00024.png	49...h6 50.f3 ♔c3 5 1.♔f2 ♔d3 52.♗b6
+images/pagina_0603_linha_00025.png	8
+images/pagina_0603_linha_00026.png	7
+images/pagina_0603_linha_00027.png	6
+images/pagina_0603_linha_00028.png	5
+images/pagina_0603_linha_00029.png	4
+images/pagina_0603_linha_00030.png	3
+images/pagina_0603_linha_00031.png	2
+images/pagina_0603_linha_00032.png	1
+images/pagina_0603_linha_00033.png	a b c d e f g h
+images/pagina_0603_linha_00034.png	This is the key position. The black king will
+images/pagina_0603_linha_00035.png	not be able to force its way into e3 or e2.
+images/pagina_0603_linha_00036.png	We now see that the generic fortress Papp
+images/pagina_0603_linha_00037.png	— Somogyi is merely one representation of
+images/pagina_0603_linha_00038.png	a fortress idea. Here too, the white king is
+images/pagina_0603_linha_00039.png	covering the e2-square from either f1 or f2,
+images/pagina_0603_linha_00040.png	while the bishop is covering the e3-square
+images/pagina_0603_linha_00041.png	from a long-enough diagonal. There is no
+images/pagina_0603_linha_00042.png	way for Black to penetrate the position. The
+images/pagina_0603_linha_00043.png	only idea I have managed to come up with
+images/pagina_0603_linha_00044.png	is the following:
+images/pagina_0603_linha_00045.png	52...♖e7 53.♗c5 ♖f7 54.♗b6 h5!?
+images/pagina_0603_linha_00046.png	But White can draw with a bit of accuracy.
+images/pagina_0603_linha_00047.png	55.gxh5 g4 56.♔g3! gxf3 57.♔f2! ♔e4 58.♗e3
+images/pagina_0603_linha_00048.png	♖c7 59.♗b6 ♖c2✝ 60.♔f1 ♖h2
+images/pagina_0603_linha_00049.png	8
+images/pagina_0603_linha_00050.png	7
+images/pagina_0603_linha_00051.png	6
+images/pagina_0603_linha_00052.png	5
+images/pagina_0603_linha_00053.png	4
+images/pagina_0603_linha_00054.png	3
+images/pagina_0603_linha_00055.png	2
+images/pagina_0603_linha_00056.png	1
+images/pagina_0603_linha_00057.png	a b c d e f g h
+images/pagina_0603_linha_00058.png	And we have arrived at ano ther generic
+images/pagina_0603_linha_00059.png	fortress I have to confess I did not kiow. The
+images/pagina_0603_linha_00060.png	extra exchange and pawn does not help Black.
+images/pagina_0603_linha_00061.png	There are only three positions where rook and
+images/pagina_0603_linha_00062.png	pawn does not win against a bishop. This is
+images/pagina_0603_linha_00063.png	if the bishop is from the other flank (pawns
+images/pagina_0603_linha_00064.png	on kingside, bishop starting position on the
+images/pagina_0603_linha_00065.png	queenside, in this example the dark-squared
+images/pagina_0603_linha_00066.png	bishop) and the pawn has been advanced too
+images/pagina_0603_linha_00067.png	far
+images/pagina_0603_linha_00068.png	So, in this situation it is only if the pawn is
+images/pagina_0603_linha_00069.png	on f3, h4 or h3 that Black does not win. (I am
+images/pagina_0603_linha_00070.png	assuming we are discussing positions without
+images/pagina_0603_linha_00071.png	immediate forcing variations. Clearly there are
+images/pagina_0603_linha_00072.png	situations where the defending side can make
+images/pagina_0603_linha_00073.png	a draw by winning the pawn).
+images/pagina_0604_linha_00001.png	12. A few games in conclusion 603
+images/pagina_0604_linha_00002.png	8
+images/pagina_0604_linha_00003.png	7
+images/pagina_0604_linha_00004.png	6
+images/pagina_0604_linha_00005.png	5
+images/pagina_0604_linha_00006.png	4
+images/pagina_0604_linha_00007.png	3
+images/pagina_0604_linha_00008.png	2
+images/pagina_0604_linha_00009.png	1
+images/pagina_0604_linha_00010.png	a b c d e f g h
+images/pagina_0604_linha_00011.png	41...♖d3?
+images/pagina_0604_linha_00012.png	This is normal human play but also missing
+images/pagina_0604_linha_00013.png	a big chance. Because it is move 41, we shall
+images/pagina_0604_linha_00014.png	not forgive Artemiev.
+images/pagina_0604_linha_00015.png	Stockfish gives the following as completely
+images/pagina_0604_linha_00016.png	winning. 41...f4! 42.♔f3 (42.gxf4 ♔f5
+images/pagina_0604_linha_00017.png	43.♔g3 ♖d4 is an important point. White
+images/pagina_0604_linha_00018.png	cannot defend the f-pawn.) 42...fxg3 43.fxg3
+images/pagina_0604_linha_00019.png	♖d3✝ and White has the wrong bishop for a
+images/pagina_0604_linha_00020.png	fortress on the kingside and will eventually lose
+images/pagina_0604_linha_00021.png	the pawn on g3 or on a3.
+images/pagina_0604_linha_00022.png	But personally I would not rely on tactics in
+images/pagina_0604_linha_00023.png	an endgame like this, but on getting the pieces
+images/pagina_0604_linha_00024.png	to the right squares.
+images/pagina_0604_linha_00025.png	41...♔e5 would allow 42.a4, which is
+images/pagina_0604_linha_00026.png	probably why Artemiev rejected it. But after:
+images/pagina_0604_linha_00027.png	42...f4 43.a5 fxg3
+images/pagina_0604_linha_00028.png	8
+images/pagina_0604_linha_00029.png	7
+images/pagina_0604_linha_00030.png	6
+images/pagina_0604_linha_00031.png	5
+images/pagina_0604_linha_00032.png	4
+images/pagina_0604_linha_00033.png	3
+images/pagina_0604_linha_00034.png	2
+images/pagina_0604_linha_00035.png	1
+images/pagina_0604_linha_00036.png	a b c d e f g h
+images/pagina_0604_linha_00037.png	White has a very unappealing choice
+images/pagina_0604_linha_00038.png	between 44.a6 and 44.fxg3 ♖b5 45.♗c3✝ ♔e4,
+images/pagina_0604_linha_00039.png	the latter looking entirely hopeless.
+images/pagina_0604_linha_00040.png	Play continues like this:
+images/pagina_0604_linha_00041.png	44.a6 ♖d7 45.♗c5
+images/pagina_0604_linha_00042.png	White,s only chance is that the a-pawn will
+images/pagina_0604_linha_00043.png	distract Black.
+images/pagina_0604_linha_00044.png	45...gxf2 46.a7 ♖d1 47.♗xf2 ♖a1 48.♔f3 ♔f5
+images/pagina_0604_linha_00045.png	This could look like a possible fortress, as
+images/pagina_0604_linha_00046.png	White can easily hold on to the pawn on
+images/pagina_0604_linha_00047.png	a7. But actually Black wins slowly. The
+images/pagina_0604_linha_00048.png	following variation is clean cut — and long.
+images/pagina_0604_linha_00049.png	49.♗c5 ♖a4 50.♔e3 h5 5 1.♔f3 ♔e5!
+images/pagina_0604_linha_00050.png	8
+images/pagina_0604_linha_00051.png	7
+images/pagina_0604_linha_00052.png	6
+images/pagina_0604_linha_00053.png	5
+images/pagina_0604_linha_00054.png	4
+images/pagina_0604_linha_00055.png	3
+images/pagina_0604_linha_00056.png	2
+images/pagina_0604_linha_00057.png	1
+images/pagina_0604_linha_00058.png	a b c d e f g h
+images/pagina_0604_linha_00059.png	The winning method is fi rst to free up the
+images/pagina_0604_linha_00060.png	rook to attack the h-pawn and force it to
+images/pagina_0604_linha_00061.png	go to h4. Once this has happened, Black is
+images/pagina_0604_linha_00062.png	able to penetrate with the king via g4-h3,
+images/pagina_0604_linha_00063.png	when White will have limited defensive
+images/pagina_0604_linha_00064.png	possibilities.
+images/pagina_0604_linha_00065.png	52.♔e3
+images/pagina_0604_linha_00066.png	White can also attempt passive defence,
+images/pagina_0604_linha_00067.png	but the winning method is very intuitive.
+images/pagina_0604_linha_00068.png	52.♗f2 ♖a3✝ 53.♗e3 ♔f5 54.♔g2 ♔e4
+images/pagina_0604_linha_00069.png	Black has taken control of the 4th rank.
+images/pagina_0604_linha_00070.png	55.♗c5 ♖a4 56.♗f2 (56.♔g3 h4✝! is a nice
+images/pagina_0604_linha_00071.png	little trick.) 56...g5 57.♔g3 White has no
+images/pagina_0604_linha_00072.png	choice but waiting now (57.h4 g4! followed
+images/pagina_0604_linha_00073.png	by bringing the king back to b7 and ...♖xa7.)
+images/pagina_0604_linha_00074.png	57...♖a3✝ 58.♔g2
+images/pagina_0605_linha_00001.png	604 Chapter 4 – Rook vs Bishop
+images/pagina_0605_linha_00002.png	8
+images/pagina_0605_linha_00003.png	7
+images/pagina_0605_linha_00004.png	6
+images/pagina_0605_linha_00005.png	5
+images/pagina_0605_linha_00006.png	4
+images/pagina_0605_linha_00007.png	3
+images/pagina_0605_linha_00008.png	2
+images/pagina_0605_linha_00009.png	1
+images/pagina_0605_linha_00010.png	a b c d e f g h
+images/pagina_0605_linha_00011.png	58...h4! This position is different from the
+images/pagina_0605_linha_00012.png	fortresses we have seen in that White only
+images/pagina_0605_linha_00013.png	has o ne square from which to defend the
+images/pagina_0605_linha_00014.png	f3-square with the king. And as we have
+images/pagina_0605_linha_00015.png	learned. from countless examples, White
+images/pagina_0605_linha_00016.png	needs two squares, as Black can always push
+images/pagina_0605_linha_00017.png	the king away from one of them; but usually
+images/pagina_0605_linha_00018.png	only one. 59.♗b6 ♖a2✝ 60.♔g1 ♔f3 Black
+images/pagina_0605_linha_00019.png	wins slowly
+images/pagina_0605_linha_00020.png	52...♔d5 53.♗b6 ♔c6 54.♗d4 ♔b7
+images/pagina_0605_linha_00021.png	8
+images/pagina_0605_linha_00022.png	7
+images/pagina_0605_linha_00023.png	6
+images/pagina_0605_linha_00024.png	5
+images/pagina_0605_linha_00025.png	4
+images/pagina_0605_linha_00026.png	3
+images/pagina_0605_linha_00027.png	2
+images/pagina_0605_linha_00028.png	1
+images/pagina_0605_linha_00029.png	a b c d e f g h
+images/pagina_0605_linha_00030.png	55.h4
+images/pagina_0605_linha_00031.png	Otherwise White will lose one of his pawns
+images/pagina_0605_linha_00032.png	55...♖a2 56.♔f3 ♖c2 57.♗f2 ♖c4 58.♔e3 ♖g4.
+images/pagina_0605_linha_00033.png	59.♔f3 ♖b4 60.♔g2 ♖a4 61.♔f3 ♔c6 62.♔e2
+images/pagina_0605_linha_00034.png	♖a2✝ 63.♔f3 ♔d5 64.♗g1 ♔e5 65.♗h2✝
+images/pagina_0605_linha_00035.png	♔f5 66.♗g1 ♖a3✝ 67.♗e3 ♔e5 68.♔g2 ♔e4
+images/pagina_0605_linha_00036.png	69.♗c5 ♖a2✝ 70.♔g3 ♖a4 71.♗g1 ♖a3✝
+images/pagina_0605_linha_00037.png	72.♔g2 ♔f4 73.♗c5 ♖a2✝ 74.♔h3 ♖a1
+images/pagina_0605_linha_00038.png	75.♗g1 ♔f3 76.♔h2 ♔g4 77.♗f2 ♖a3 78.♔g2
+images/pagina_0605_linha_00039.png	♖a2 79.♔g1 ♔h3 80.♔f1 ♔h2!
+images/pagina_0605_linha_00040.png	8
+images/pagina_0605_linha_00041.png	7
+images/pagina_0605_linha_00042.png	6
+images/pagina_0605_linha_00043.png	5
+images/pagina_0605_linha_00044.png	4
+images/pagina_0605_linha_00045.png	3
+images/pagina_0605_linha_00046.png	2
+images/pagina_0605_linha_00047.png	1
+images/pagina_0605_linha_00048.png	a b c d e f g h
+images/pagina_0605_linha_00049.png	White is heading towards lethal zugzwang.
+images/pagina_0605_linha_00050.png	Black will get the king to g3.
+images/pagina_0605_linha_00051.png	81.♔e1 ♔g2 82.♗e3 ♔g3 83.♗f2✝ ♔g4
+images/pagina_0605_linha_00052.png	84.♔f1
+images/pagina_0605_linha_00053.png	84.♔d1 ♔f3 85.♗d4 ♔g3 also wins.
+images/pagina_0605_linha_00054.png	84...♔f3 85.♗d4 ♔g3
+images/pagina_0605_linha_00055.png	Black wins. White no longer has 86.♗f2✝ on
+images/pagina_0605_linha_00056.png	account of 86...♖xf2✝ — with check.
+images/pagina_0605_linha_00057.png	42.♗f8?
+images/pagina_0605_linha_00058.png	42.a4! is once again the way to play
+images/pagina_0605_linha_00059.png	42...♔d5?
+images/pagina_0605_linha_00060.png	Black misses his chance to go back too.
+images/pagina_0605_linha_00061.png	8
+images/pagina_0605_linha_00062.png	7
+images/pagina_0605_linha_00063.png	6
+images/pagina_0605_linha_00064.png	5
+images/pagina_0605_linha_00065.png	4
+images/pagina_0605_linha_00066.png	3
+images/pagina_0605_linha_00067.png	2
+images/pagina_0605_linha_00068.png	1
+images/pagina_0605_linha_00069.png	a b c d e f g h
+images/pagina_0605_linha_00070.png	43.♗e7?
+images/pagina_0605_linha_00071.png	White had a different chance here:
+images/pagina_0605_linha_00072.png	43.♗h6!
+images/pagina_0605_linha_00073.png	This could be with the idea 43...♖xa3 44.f3!?
+images/pagina_0605_linha_00074.png	and the black king will not be able to make
+images/pagina_0606_linha_00001.png	12.A few games in conclusion 605
+images/pagina_0606_linha_00002.png	it to e2. This would make it very difficult, if
+images/pagina_0606_linha_00003.png	not impossible, for Black to win the game.
+images/pagina_0606_linha_00004.png	Black can prevent this idea with:
+images/pagina_0606_linha_00005.png	43...♔e4 44.a4 ♖a3 45.a5 ♔d3
+images/pagina_0606_linha_00006.png	8
+images/pagina_0606_linha_00007.png	7
+images/pagina_0606_linha_00008.png	6
+images/pagina_0606_linha_00009.png	5
+images/pagina_0606_linha_00010.png	4
+images/pagina_0606_linha_00011.png	3
+images/pagina_0606_linha_00012.png	2
+images/pagina_0606_linha_00013.png	1
+images/pagina_0606_linha_00014.png	a b c d e f g h
+images/pagina_0606_linha_00015.png	46.♔f3!
+images/pagina_0606_linha_00016.png	Forced. White cannot allow ...♔e2.
+images/pagina_0606_linha_00017.png	46...♖xa5 47.♗g5
+images/pagina_0606_linha_00018.png	It feels obvious that Black should be winning.
+images/pagina_0606_linha_00019.png	But it is difficult to see a clear path forward.
+images/pagina_0606_linha_00020.png	47...♖e5
+images/pagina_0606_linha_00021.png	The rook goes to e4, p reventing White from
+images/pagina_0606_linha_00022.png	having any ♔f4-g5 counterplay ideas that
+images/pagina_0606_linha_00023.png	can occur at times.
+images/pagina_0606_linha_00024.png	48.♗f4 ♖e4 49.♗h6 ♔c2
+images/pagina_0606_linha_00025.png	Black is threatening... ♔d1 -e1 -f1, which
+images/pagina_0606_linha_00026.png	would win. But White can prevent this.
+images/pagina_0606_linha_00027.png	50.♔g2! ♔d1 51.f3! ♖e2✝ 52.♔f1 ♖h2 53.h4
+images/pagina_0606_linha_00028.png	8
+images/pagina_0606_linha_00029.png	7
+images/pagina_0606_linha_00030.png	6
+images/pagina_0606_linha_00031.png	5
+images/pagina_0606_linha_00032.png	4
+images/pagina_0606_linha_00033.png	3
+images/pagina_0606_linha_00034.png	2
+images/pagina_0606_linha_00035.png	1
+images/pagina_0606_linha_00036.png	a b c d e f g h
+images/pagina_0606_linha_00037.png	As far as I can see, this is a fortress. There is
+images/pagina_0606_linha_00038.png	no zugzwang, as the bishop can always find a
+images/pagina_0606_linha_00039.png	place to go to. The key point is that the king has
+images/pagina_0606_linha_00040.png	both f1 and f2 available, making it impossible
+images/pagina_0606_linha_00041.png	for the black king to get to e2, which is the
+images/pagina_0606_linha_00042.png	winning plan.
+images/pagina_0606_linha_00043.png	A similar position occurred in Tomashevsky
+images/pagina_0606_linha_00044.png	— Bacrot, Reykjavik 2015, with the rwo
+images/pagina_0606_linha_00045.png	exceptions that the black pawn was on h5 and
+images/pagina_0606_linha_00046.png	the colours were reversed. A draw was soon
+images/pagina_0606_linha_00047.png	agreed. I cannot see having the pawn back on
+images/pagina_0606_linha_00048.png	h7 will help Black much.
+images/pagina_0606_linha_00049.png	43...♔e6?
+images/pagina_0606_linha_00050.png	43...f4! was strong once again.
+images/pagina_0606_linha_00051.png	44.♗f8?
+images/pagina_0606_linha_00052.png	44.♗g5!
+images/pagina_0606_linha_00053.png	44...g5!?
+images/pagina_0606_linha_00054.png	If played as below this is good.
+images/pagina_0606_linha_00055.png	44...f4! was still there though...
+images/pagina_0606_linha_00056.png	45.♗c5
+images/pagina_0606_linha_00057.png	8
+images/pagina_0606_linha_00058.png	7
+images/pagina_0606_linha_00059.png	6
+images/pagina_0606_linha_00060.png	5
+images/pagina_0606_linha_00061.png	4
+images/pagina_0606_linha_00062.png	3
+images/pagina_0606_linha_00063.png	2
+images/pagina_0606_linha_00064.png	1
+images/pagina_0606_linha_00065.png	a b c d e f g h
+images/pagina_0606_linha_00066.png	45...♖c3??
+images/pagina_0606_linha_00067.png	I am not certain on the origin ofthis mistake,
+images/pagina_0606_linha_00068.png	but I presume it is a question of erroneous
+images/pagina_0606_linha_00069.png	use of brute fo rce, aka trying to calculate the
+images/pagina_0606_linha_00070.png	opponent into submission. Wake up! He is
+images/pagina_0606_linha_00071.png	already in a chokehold! Don't make it about
+images/pagina_0606_linha_00072.png	details, when the big picture has you winning
+images/pagina_0606_linha_00073.png	by a mile.
+images/pagina_0607_linha_00001.png	606 Chapter 4 — Rook vs Bishop
+images/pagina_0607_linha_00003.png	This was the natural move to play
+images/pagina_0607_linha_00004.png	46.g4!?
+images/pagina_0607_linha_00005.png	White has to avoid the exchange of pawns
+images/pagina_0607_linha_00006.png	and make it possible to create counterplay
+images/pagina_0607_linha_00007.png	against the g5-pawn. After 46.gxf6 gxf4
+images/pagina_0607_linha_00008.png	47.a4 ♔d5 48.♗b6 ♔e4 49.a5 Black wins
+images/pagina_0607_linha_00009.png	in many ways. Dominati ng the bishop is the
+images/pagina_0607_linha_00010.png	main theme in all of them. 49...♖b3 50.♗c7
+images/pagina_0607_linha_00011.png	♖c3 51.♗b6 ♖c6 52.♗d8 ♖g6✝ 53.♔h1
+images/pagina_0607_linha_00012.png	♔f3 54.♗b6 ♖e6 55.♔h2 ♖c6 56.♗a7 ♖c1
+images/pagina_0607_linha_00013.png	57.♗b6 ♖a1 58.♗c7 h5 59.♗b6 h4 60.♗c7
+images/pagina_0607_linha_00014.png	♖a4 61.♗b6 ♔e2 62.♔g2 f3✝ 63.♔g1
+images/pagina_0607_linha_00015.png	8
+images/pagina_0607_linha_00016.png	7
+images/pagina_0607_linha_00017.png	6
+images/pagina_0607_linha_00018.png	5
+images/pagina_0607_linha_00019.png	4
+images/pagina_0607_linha_00020.png	3
+images/pagina_0607_linha_00021.png	2
+images/pagina_0607_linha_00022.png	1
+images/pagina_0607_linha_00023.png	a b c d e f g h
+images/pagina_0607_linha_00024.png	The end is nigh. 63...♖a2 A tempo-losing
+images/pagina_0607_linha_00025.png	move. We should be used to those by now.
+images/pagina_0607_linha_00026.png	64.♔h1 ♔f1 65.♔h2 ♖a4 Another random
+images/pagina_0607_linha_00027.png	move. 66.♔h1 ♖a1 67.♔h2 ♔e2 And finally
+images/pagina_0607_linha_00028.png	we have the zugzwang positio n we have been
+images/pagina_0607_linha_00029.png	heading for.
+images/pagina_0607_linha_00030.png	46...♖d5
+images/pagina_0607_linha_00031.png	Harassing the bishop and making it hard for
+images/pagina_0607_linha_00032.png	it to provide counterplay against the black
+images/pagina_0607_linha_00033.png	pawns.
+images/pagina_0607_linha_00034.png	8
+images/pagina_0607_linha_00035.png	7
+images/pagina_0607_linha_00036.png	6
+images/pagina_0607_linha_00037.png	5
+images/pagina_0607_linha_00038.png	4
+images/pagina_0607_linha_00039.png	3
+images/pagina_0607_linha_00040.png	2
+images/pagina_0607_linha_00041.png	1
+images/pagina_0607_linha_00042.png	a b c d e f g h
+images/pagina_0607_linha_00043.png	47.♗b6
+images/pagina_0607_linha_00044.png	47.♗f8 offers less resistance. 47...♔e5
+images/pagina_0607_linha_00045.png	48.♔f3 ♖d3✝ 49.♔g2 ♔e4 50.♗e7 h6
+images/pagina_0607_linha_00046.png	51.♗f8 f3✝ 52.♔h2 ♖d2 53.♗c5 ♔d3 and
+images/pagina_0607_linha_00047.png	Black wins.
+images/pagina_0607_linha_00048.png	47...♔e5
+images/pagina_0607_linha_00049.png	Alowing White to bring the pawn to a5 is a
+images/pagina_0607_linha_00050.png	luxury Black can afford.
+images/pagina_0607_linha_00051.png	48.a4 ♔e4 49.a5 ♖b5 50.♗d8 h6 5 1.a6
+images/pagina_0607_linha_00052.png	51.♗c7 ♖b2!
+images/pagina_0607_linha_00053.png	51...♖b8 52.♗c7 ♖a8 53.h4 ♖xa6 54.hxg5
+images/pagina_0607_linha_00054.png	hxg5
+images/pagina_0607_linha_00055.png	8
+images/pagina_0607_linha_00056.png	7
+images/pagina_0607_linha_00057.png	6
+images/pagina_0607_linha_00058.png	5
+images/pagina_0607_linha_00059.png	4
+images/pagina_0607_linha_00060.png	3
+images/pagina_0607_linha_00061.png	2
+images/pagina_0607_linha_00062.png	1
+images/pagina_0607_linha_00063.png	a b c d e f g h
+images/pagina_0607_linha_00064.png	This position is dead lost for White. White
+images/pagina_0607_linha_00065.png	could hold some positions where the pawn is
+images/pagina_0607_linha_00066.png	back on f6. But with the pawn on f4, White
+images/pagina_0607_linha_00067.png	has no chance.
+images/pagina_0607_linha_00068.png	55.♗d8 ♖h6 56.♗xg5 ♖g6 57.f3✝ ♔e3 58.♗d8
+images/pagina_0607_linha_00069.png	♖d6 59.♗a5 ♖c6
+images/pagina_0607_linha_00070.png	Black wins.
+images/pagina_0607_linha_00071.png	46.♗e3!
+images/pagina_0607_linha_00072.png	White has definitely won the battle for the
+images/pagina_0607_linha_00073.png	dark squares. A few accurate moves and the
+images/pagina_0607_linha_00074.png	draw is in hand.
+images/pagina_0607_linha_00075.png	46...h6
+images/pagina_0607_linha_00076.png	46...g4 47.hxg4 fxg4 is definitely a fortress.
+images/pagina_0607_linha_00077.png	There are too many squares for the white
+images/pagina_0607_linha_00078.png	bishop to occupy in the diagonal from f2-a7
+images/pagina_0607_linha_00079.png	in order to dominate it and put White into
+images/pagina_0607_linha_00080.png	zugzwang.
+images/pagina_0608_linha_00001.png	12. A few games in conclusion 607
+images/pagina_0608_linha_00002.png	8
+images/pagina_0608_linha_00003.png	7
+images/pagina_0608_linha_00004.png	6
+images/pagina_0608_linha_00005.png	5
+images/pagina_0608_linha_00006.png	4
+images/pagina_0608_linha_00007.png	3
+images/pagina_0608_linha_00008.png	2
+images/pagina_0608_linha_00009.png	1
+images/pagina_0608_linha_00010.png	a b c d e f g h
+images/pagina_0608_linha_00011.png	47.h4! gxh4 48.♗xh6
+images/pagina_0608_linha_00012.png	Wry concrete play, leading to a nice draw.
+images/pagina_0608_linha_00013.png	White could also have drawn with a fortress:
+images/pagina_0608_linha_00014.png	48.gxh4!? h5 49.♗g5 ♖xa3
+images/pagina_0608_linha_00015.png	8
+images/pagina_0608_linha_00016.png	7
+images/pagina_0608_linha_00017.png	6
+images/pagina_0608_linha_00018.png	5
+images/pagina_0608_linha_00019.png	4
+images/pagina_0608_linha_00020.png	3
+images/pagina_0608_linha_00021.png	2
+images/pagina_0608_linha_00022.png	1
+images/pagina_0608_linha_00023.png	a b c d e f g h
+images/pagina_0608_linha_00024.png	50.f3!
+images/pagina_0608_linha_00025.png	The key move that establishes the fortress.
+images/pagina_0608_linha_00026.png	Something as innocent-looking as 50.♗h6?
+images/pagina_0608_linha_00027.png	allows Black to come in with the king
+images/pagina_0608_linha_00028.png	quickiy: 50...♖a4 51.♗g5 ♔e5 52.f3 ♔d4!
+images/pagina_0608_linha_00029.png	53.♔f2 ♔d3 Black wins. Next comes ...f4
+images/pagina_0608_linha_00030.png	and ...♖a2✝. And if 54.♔g3 ♔e2 55.♗h6
+images/pagina_0608_linha_00031.png	Black wins by returning to a position we
+images/pagina_0608_linha_00032.png	have already mastered. 55... f4✝ Preventing
+images/pagina_0608_linha_00033.png	White's defensive idea of ♔f4-g5.5 6.♗xf4
+images/pagina_0608_linha_00034.png	♖a3 Black wins, as the white king is trapped
+images/pagina_0608_linha_00035.png	in the corner. See Szwed — Yoo above.
+images/pagina_0608_linha_00036.png	50...♖a4
+images/pagina_0608_linha_00037.png	50...♔e5 51.♔g3 ♖a4 52.♗h6!
+images/pagina_0608_linha_00038.png	8
+images/pagina_0608_linha_00039.png	7
+images/pagina_0608_linha_00040.png	6
+images/pagina_0608_linha_00041.png	5
+images/pagina_0608_linha_00042.png	4
+images/pagina_0608_linha_00043.png	3
+images/pagina_0608_linha_00044.png	2
+images/pagina_0608_linha_00045.png	1
+images/pagina_0608_linha_00046.png	a b c d e f g h
+images/pagina_0608_linha_00047.png	White makes a draw. If Black puts the pawn
+images/pagina_0608_linha_00048.png	on f4, White will continue to attack it with
+images/pagina_0608_linha_00049.png	the bishop, limiting Black,s options.
+images/pagina_0608_linha_00050.png	5 1.♔g3 ♖c4 52.♔g2 ♔d5 53.♔g3 ♔c5
+images/pagina_0608_linha_00051.png	54.♗e7✝ ♔b5 55.♗f6 ♔a4 56.♗g5 ♔b3
+images/pagina_0608_linha_00052.png	57.♔f2 ♔c3
+images/pagina_0608_linha_00053.png	8
+images/pagina_0608_linha_00054.png	7
+images/pagina_0608_linha_00055.png	6
+images/pagina_0608_linha_00056.png	5
+images/pagina_0608_linha_00057.png	4
+images/pagina_0608_linha_00058.png	3
+images/pagina_0608_linha_00059.png	2
+images/pagina_0608_linha_00060.png	1
+images/pagina_0608_linha_00061.png	a b c d e f g h
+images/pagina_0608_linha_00062.png	58.♔e2!
+images/pagina_0608_linha_00063.png	White prevents the black king from coming
+images/pagina_0608_linha_00064.png	to d3. White holds.
+images/pagina_0608_linha_00065.png	48...hxg3
+images/pagina_0609_linha_00001.png	608 Chapter 4 — Rook vs Bishop
+images/pagina_0609_linha_00002.png	8
+images/pagina_0609_linha_00003.png	7
+images/pagina_0609_linha_00004.png	6
+images/pagina_0609_linha_00005.png	5
+images/pagina_0609_linha_00006.png	4
+images/pagina_0609_linha_00007.png	3
+images/pagina_0609_linha_00008.png	2
+images/pagina_0609_linha_00009.png	1
+images/pagina_0609_linha_00010.png	a b c d e f g h
+images/pagina_0609_linha_00011.png	49.f3!
+images/pagina_0609_linha_00012.png	The conclusion of the game is beautiful in
+images/pagina_0609_linha_00013.png	its simplicity
+images/pagina_0609_linha_00014.png	49.fxg3? ♖xa3 would win easily for Black.
+images/pagina_0609_linha_00015.png	49...♖xa3 50.♔xg3 ♖a4 5 1.♗g5 ♔e5
+images/pagina_0609_linha_00016.png	52.♗h6 ♖c4 53.♗g7✝ ♔d5 54.♗h6.♔c6
+images/pagina_0609_linha_00017.png	55.♗g5 ♔b5 56.♗h6 ♔b4 57.♗g5 ♔c3
+images/pagina_0609_linha_00018.png	58.♗h6 ♔d3 59.♗g5 ♔e2 60.♗h6 ♖c3
+images/pagina_0609_linha_00019.png	8
+images/pagina_0609_linha_00020.png	7
+images/pagina_0609_linha_00021.png	6
+images/pagina_0609_linha_00022.png	5
+images/pagina_0609_linha_00023.png	4
+images/pagina_0609_linha_00024.png	3
+images/pagina_0609_linha_00025.png	2
+images/pagina_0609_linha_00026.png	1
+images/pagina_0609_linha_00027.png	a b c d e f g h
+images/pagina_0609_linha_00028.png	61.♔f4! ♖xf3✝ 62.♔e5 ♖h3 63.♗g5!
+images/pagina_0609_linha_00029.png	Anticipating Black's next move.
+images/pagina_0609_linha_00030.png	63...♖h5 64.♔xf5
+images/pagina_0609_linha_00031.png	½—½
+images/pagina_0610_linha_00001.png	12. A few games in conclusion 609
+images/pagina_0610_linha_00002.png	Lazlo Szabo — Mikhail Botvinnik
+images/pagina_0610_linha_00003.png	Budapest 1952
+images/pagina_0610_linha_00004.png	1.d4 e6 2.c4 f5 3.g3 ♘f6 4.♗g2 ♗e7 5.♘f3
+images/pagina_0610_linha_00005.png	d5 6.0–0 0–0 7.b3 c6 8.♗a3 ♘bd7 9.♕c1
+images/pagina_0610_linha_00006.png	♘e4 10.♘bd2 ♗xa3 11.♕xa3 b6 12.♖ac1
+images/pagina_0610_linha_00007.png	♗b7 13.♖fd1 ♕f6 14.cxd5 ead5 15.♘e1
+images/pagina_0610_linha_00008.png	a5 16.♘df3 f4 17.♘d3 fxg3 18.hxg3 ♖ae8
+images/pagina_0610_linha_00009.png	19.♖c2 ♕h6 20.♕c1 ♕d6 21.♗h3 ♖f6
+images/pagina_0610_linha_00010.png	22.♔g2 c5 23.♗xd7 ♕xd7 24.♘fe5 ♕d6
+images/pagina_0610_linha_00011.png	25.f4 cxd4 26.♖c7 ♘c5 27.♖xc5 bxc5
+images/pagina_0610_linha_00012.png	28.♕xc5 ♕xc5 29.♘xc5 ♗a8 30.♖xd4 ♖c8
+images/pagina_0610_linha_00013.png	31.♘cd3 ♖c2 32.♖a4 ♖xe2✝ 33.♔f3 ♖c2
+images/pagina_0610_linha_00014.png	34.♖xa5 ♖f8 35.♔e3 d4✝ 36.♔xd4
+images/pagina_0610_linha_00015.png	8
+images/pagina_0610_linha_00016.png	7
+images/pagina_0610_linha_00017.png	6
+images/pagina_0610_linha_00018.png	5
+images/pagina_0610_linha_00019.png	4
+images/pagina_0610_linha_00020.png	3
+images/pagina_0610_linha_00021.png	2
+images/pagina_0610_linha_00022.png	1
+images/pagina_0610_linha_00023.png	a b c d e f g h
+images/pagina_0610_linha_00024.png	Everything has gone according to plan for
+images/pagina_0610_linha_00025.png	the World Champion up to this point. He
+images/pagina_0610_linha_00026.png	has slowly outplayed his opponent. But for
+images/pagina_0610_linha_00027.png	the next few moves, he commits one horrible
+images/pagina_0610_linha_00028.png	mistake after the other, changing a winning
+images/pagina_0610_linha_00029.png	position to an almost lost position.
+images/pagina_0610_linha_00030.png	36...♖d8✝?
+images/pagina_0610_linha_00031.png	The winning continuation was 36...h5!,
+images/pagina_0610_linha_00032.png	when White has a number of tries, but also
+images/pagina_0610_linha_00033.png	where BIack is most likely winning with best
+images/pagina_0610_linha_00034.png	play by both sides. The idea behi nd the move
+images/pagina_0610_linha_00035.png	is to fix the g3-pawn as a weakness. 37.♘c4
+images/pagina_0610_linha_00036.png	Trying to bring the rook to g5 to defend g3.
+images/pagina_0610_linha_00037.png	(Or 37.♘c5 ♖d8✝! 38.♔e3 ♖g2 and wins.)
+images/pagina_0610_linha_00038.png	37...♗f3 38.♔e3 ♗d1 39.♘de5 ♖g2 40.♖d5
+images/pagina_0610_linha_00039.png	♗g4 Black wins.
+images/pagina_0610_linha_00040.png	37.♔e3 ♖g2
+images/pagina_0610_linha_00041.png	37...h5 no longer works. White has 38.f5!
+images/pagina_0610_linha_00042.png	with counterplay and ♔f4 ideas.
+images/pagina_0610_linha_00043.png	38.g4 ♖c2
+images/pagina_0610_linha_00044.png	The Patriarch is completely losing the thread.
+images/pagina_0610_linha_00045.png	39.b4 ♗d5 40.a4 ♗h1?
+images/pagina_0610_linha_00046.png	What is this all about?
+images/pagina_0610_linha_00047.png	41.♖a7 ♖a2
+images/pagina_0610_linha_00048.png	8
+images/pagina_0610_linha_00049.png	7
+images/pagina_0610_linha_00050.png	6
+images/pagina_0610_linha_00051.png	5
+images/pagina_0610_linha_00052.png	4
+images/pagina_0610_linha_00053.png	3
+images/pagina_0610_linha_00054.png	2
+images/pagina_0610_linha_00055.png	1
+images/pagina_0610_linha_00056.png	a b c d e f g h
+images/pagina_0610_linha_00057.png	I would expect the adjournment to have
+images/pagina_0610_linha_00058.png	happened somewhere around here. With
+images/pagina_0610_linha_00059.png	42.a5, White would have real winning
+images/pagina_0610_linha_00060.png	chances, although the position is probably still
+images/pagina_0610_linha_00061.png	on the edge of the defensible. But with the
+images/pagina_0610_linha_00062.png	adjournment came the chance for Borvinnik
+images/pagina_0610_linha_00063.png	to apply his iron will to the analysis, in which
+images/pagina_0610_linha_00064.png	he found the way to hold the game.
+images/pagina_0610_linha_00065.png	42.b5?! ♖a3 43.a5 g5!
+images/pagina_0610_linha_00066.png	A nice counterpunch.
+images/pagina_0610_linha_00067.png	44.f5
+images/pagina_0610_linha_00068.png	44.fxg5 ♖d5 would immediately free Black
+images/pagina_0610_linha_00069.png	of all his problems.
+images/pagina_0610_linha_00070.png	44...♖d5! 45.♖e7 ♖xb5 46.f6
+images/pagina_0010_linha_00001.png	You don't have to read everything!
+images/pagina_0010_linha_00002.png	Looking at a nine hundred page book may be a daunting experience. On the one hand, it is a
+images/pagina_0010_linha_00003.png	lot of information, but on the other, it is a big challenge as well. At our online academy, www.
+images/pagina_0010_linha_00004.png	killerchesstraining.com, we have daily classes, leading to 40-50 hours of chess training available
+images/pagina_0010_linha_00005.png	each month. If you are a teenager with a deep passion for chess, this may be the greatest thing
+images/pagina_0010_linha_00006.png	ever. But if you are a working professional, you may feel you are missing out, because there is no
+images/pagina_0010_linha_00007.png	way you can ever watch even half the classes. Most find their own rhythm quite fast, but some do
+images/pagina_0010_linha_00008.png	struggle with the idea of zoning in on the few things that are of especial interest to them and not
+images/pagina_0010_linha_00009.png	feeling that they are losing out. We always wanted the academy to be a way to pool our resources
+images/pagina_0010_linha_00010.png	so that our students can get the training they need, always, at an affordable price, thus making it
+images/pagina_0010_linha_00011.png	available to everyone.
+images/pagina_0010_linha_00012.png	This book follows the same principle. Rather than looking to maximise income, it seeks to convey
+images/pagina_0010_linha_00013.png	as much information as possible. In the process of writing it, I decided to give up on the idea of
+images/pagina_0010_linha_00014.png	what a chess book usually looks like and allowed it to be i ts own thing. I am trusti ng readers to
+images/pagina_0010_linha_00015.png	understand that this book is many things, and you do not have to read all of it, simply stick to
+images/pagina_0010_linha_00016.png	the sections that pique your interest.
+images/pagina_0010_linha_00017.png	The book contains only six chapters, all of which could have been published as individual volumes.
+images/pagina_0010_linha_00018.png	It is a book about technical play in the endgame, in all its facets, with two notable exceptions.
+images/pagina_0010_linha_00019.png	TI1is is not a book about rook endings, although a few examples of rook endings are included,
+images/pagina_0010_linha_00020.png	and it is not a book about endgame theory, although a few examples do discuss this topic as well.
+images/pagina_0010_linha_00021.png	me original idea of the book was to include only examples where people misplayed their good
+images/pagina_0010_linha_00022.png	positions, but as I got deeper into the writing of the book, this constraint became obviously
+images/pagina_0010_linha_00023.png	artihcial. The book still contains the idea that the endgame is difficult, and these are the ways we
+images/pagina_0010_linha_00024.png	mess up, but it is only one dimension.
+images/pagina_0010_linha_00025.png	me themes and examples in this book are meant to be multidimensional. To some readers, a lot
+images/pagina_0010_linha_00026.png	of the themes and ideas will be new, while others will be reacquainting themselves with existing
+images/pagina_0010_linha_00027.png	knowledge. Learning something new is always a good thing. But so is the reminder of existing
+images/pagina_0010_linha_00028.png	knowledge, particularly through new examples. Those readers who are following top tournaments
+images/pagina_0010_linha_00029.png	religiously may recognise a few examples, especially from the last chapter. But the explanations
+images/pagina_0010_linha_00030.png	and thematic investigation should still make them fresh and revealing. I don't use famous games
+images/pagina_0010_linha_00031.png	to explain chess ideas. When I see a book full of examples I already know, because they have been
+images/pagina_0010_linha_00032.png	in many books already I mentally turn off I do not want this experience for you.
+images/pagina_0011_linha_00001.png	10 Jacob Aagaard — A Matter of Endgame Technique
+images/pagina_0011_linha_00002.png	The examples are as important as the themes
+images/pagina_0011_linha_00003.png	Learning anything involves a lot of repetition and looking at it from different angles. Most will
+images/pagina_0011_linha_00004.png	know the principle of two weaknesses. But seeing a new example explaining it will only expand
+images/pagina_0011_linha_00005.png	your understanding of the theme. In chess nothing is absolute. We have a lot or ideas and concepts
+images/pagina_0011_linha_00006.png	that can help our decision making during the game. Evaluating the strategic reach of them better
+images/pagina_0011_linha_00007.png	is an important part of improvement. No verbal explanation can fully cover the themes, they only
+images/pagina_0011_linha_00008.png	make sense in context. For this reason, this book contains a lot of examples. Hopefully some of
+images/pagina_0011_linha_00009.png	them will help you bridge the abyss between understanding a concept and seeing how it works
+images/pagina_0011_linha_00010.png	on the board.
+images/pagina_0011_linha_00011.png	How to deal with the deep analysis in this book
+images/pagina_0011_linha_00012.png	It is common for readers of chess books to prefer verbal explanations over lots ofvariations. Often
+images/pagina_0011_linha_00013.png	analysis is disregarded with the contemptuous description of ''computer analysis''. Not always
+images/pagina_0011_linha_00014.png	without Justification. It is easy to press the space bar and fill the white spaces on the page.
+images/pagina_0011_linha_00015.png	This is not what has happened in this book. The variations are meant to be an illustration of
+images/pagina_0011_linha_00016.png	possible play or to explain the tactical or technical nuances or the games. I find that it is easy to
+images/pagina_0011_linha_00017.png	make a statement and get the approval of the reader. Usually, those who read a book are willing
+images/pagina_0011_linha_00018.png	to believe that you know what you are talking about and will accept the evaluations as valid. But
+images/pagina_0011_linha_00019.png	I am not looking for approval. I am wishing for you to improve your game.
+images/pagina_0011_linha_00020.png	me variations and analysis in this book are thus illustrations and explanations and going
+images/pagina_0011_linha_00021.png	through them will be a part of the educational process. The thematic explanation can be easy to
+images/pagina_0011_linha_00022.png	follow conceptually but without seeing what it means in practice, I doubt it will have any positive
+images/pagina_0011_linha_00023.png	influence on your game. There are a few times where the variations will be quite extensive and
+images/pagina_0011_linha_00024.png	if you want, you can skip them. The more experienced you are, the less this should be the case.
+images/pagina_0011_linha_00025.png	If you are a less experienced player and some variations seem overpowering, you should skip
+images/pagina_0011_linha_00026.png	whatever you feel you need to skip. As with o ur academy it is never the intention that everyone
+images/pagina_0011_linha_00027.png	should understand everything, but that everyone will learn something.
+images/pagina_0011_linha_00028.png	If you can, I recommend that you go through the variations in your head. This is good for
+images/pagina_0011_linha_00029.png	your training in visualisation in general and where chess should be played. If you need to play
+images/pagina_0011_linha_00030.png	through the games on a board, I recommend that you still try to go through the variations in
+images/pagina_0011_linha_00031.png	your head. Many strong players would never think of using a board when going through a book;
+images/pagina_0011_linha_00032.png	others would not consider reading a book without it. Personally I am somewhere in-berween,
+images/pagina_0011_linha_00033.png	depending on the book and my mood.
+images/pagina_0011_linha_00034.png	Why the games are trancated
+images/pagina_0011_linha_00035.png	A fellow author once explained to me his love of unannotated moves, as they reduced the need
+images/pagina_0011_linha_00036.png	for him to work. mis is probably one of the reasons I dislike them so much?
+images/pagina_0011_linha_00037.png	Bent Larsen said: "Save me from unannotated games!", So, if you are one of the few readers
+images/pagina_0012_linha_00001.png	You don't have to read everything! 11
+images/pagina_0012_linha_00002.png	me answer is: the parts of the games that are relevant for the topic of the book are included.
+images/pagina_0012_linha_00003.png	If you want unannotated games, you can hnd them everwhere. If the first 30 moves were
+images/pagina_0012_linha_00004.png	included, too many would believe that they had to play through these moves and would be
+images/pagina_0012_linha_00005.png	wasting time they should spend improving their endgame technique.
+images/pagina_0012_linha_00006.png	The organisation of the book
+images/pagina_0012_linha_00007.png	The six chapters are organised like this:
+images/pagina_0012_linha_00008.png	1. Endgame Elements
+images/pagina_0012_linha_00009.png	mere are many small themes in the endgame. In this chapter we shall deal with a lot of them.
+images/pagina_0012_linha_00010.png	Over the six months of writing this book, these are the main topics I could think of To a strong
+images/pagina_0012_linha_00011.png	player, most of them will be familiar, which is where the freshness of the examples is important.
+images/pagina_0012_linha_00012.png	To a less experienced player, there will be a lot of new information.
+images/pagina_0012_linha_00013.png	2. Lack of Technique
+images/pagina_0012_linha_00014.png	In this chapter we shall look at common ways for things to go wrong. The core of the chapter
+images/pagina_0012_linha_00015.png	is the big section on allowing counterplay, but on top of this, some topics are repeated from
+images/pagina_0012_linha_00016.png	Chapter 1 and some topics are considered from both angles, such as hanging on to material and
+images/pagina_0012_linha_00017.png	overestimating dynamics.
+images/pagina_0012_linha_00018.png	3. Fortresses
+images/pagina_0012_linha_00019.png	A topic unique to endgames and difficult to understand for a lot of the players I have worked
+images/pagina_0012_linha_00020.png	with. It requires a special type of thinking, as rarely are the games decided on a move by move
+images/pagina_0012_linha_00021.png	basis, but rather on schematic thinking and a special sensibility for fortresses.
+images/pagina_0012_linha_00022.png	4. Rook vs Bishop
+images/pagina_0012_linha_00023.png	In this chapter we shall go deeper in to an endgame that most or the time ends with fortresses.
+images/pagina_0012_linha_00024.png	This chapter dehnitely goes tro m the simple to the advanced, with details that will stretch the
+images/pagina_0012_linha_00025.png	imagination or any grandmaster. The cornerstone game, Aronian — Dubov, is close to impossible
+images/pagina_0012_linha_00026.png	to understand fully. I have done my best to do so, and explain what I have understood, but
+images/pagina_0012_linha_00027.png	certainly not every aspect of this six-piece ending has been uncovered.
+images/pagina_0012_linha_00028.png	5. Exchanges
+images/pagina_0012_linha_00029.png	When and what to exchange is a difficult topic in chess and no less so in the endgame. In this
+images/pagina_0012_linha_00030.png	chapter we shall debate this topic in depth, and why the strategic concept I was taught when I
+images/pagina_0012_linha_00031.png	was younger is debateable. In going deep into this topic, I hope I can rescue you trom some of
+images/pagina_0012_linha_00032.png	the disasters that befell my friends.
+images/pagina_0012_linha_00033.png	6. Illustrative Games
+images/pagina_0012_linha_00034.png	The final chapter includes a few recent games and two lesser-known games that feature big
+images/pagina_0012_linha_00035.png	endgame battles. The concep t is to show the endgame in its natural habitat and go deep. I enjoy
+images/pagina_0012_linha_00036.png	both small clear examples with one-dimensional explanations, and deep analysis of complicated
+images/pagina_0012_linha_00037.png	games that tries to address all the elements we encounter on the battlefield.
+images/pagina_0009_linha_00001.png	CHAPTER
+images/pagina_0009_linha_00002.png	Contents
+images/pagina_0009_linha_00003.png	✓ Discovered attacks
+images/pagina_0009_linha_00004.png	✓ Desperado pieces
+images/pagina_0009_linha_00005.png	✓ Desperado strategy
+images/pagina_0009_linha_00006.png	✓ Attacking in a lost position
+images/pagina_0009_linha_00007.png	Diagram 1-1 Δ
+images/pagina_0009_linha_00008.png	8
+images/pagina_0009_linha_00009.png	7
+images/pagina_0009_linha_00010.png	6
+images/pagina_0009_linha_00011.png	5
+images/pagina_0009_linha_00012.png	4
+images/pagina_0009_linha_00013.png	3
+images/pagina_0009_linha_00014.png	2
+images/pagina_0009_linha_00017.png	Diagram 1-2 ▾
+images/pagina_0009_linha_00018.png	8
+images/pagina_0009_linha_00019.png	7
+images/pagina_0009_linha_00020.png	6
+images/pagina_0009_linha_00021.png	5
+images/pagina_0009_linha_00022.png	4
+images/pagina_0009_linha_00023.png	3
+images/pagina_0009_linha_00024.png	2
+images/pagina_0009_linha_00026.png	a b c d e f g h
+images/pagina_0009_linha_00027.png	1
+images/pagina_0009_linha_00028.png	Desperadoes
+images/pagina_0009_linha_00029.png	Any piece which, perhaps only for a very short space
+images/pagina_0009_linha_00030.png	of time, has the free rein to do anything is called a
+images/pagina_0009_linha_00031.png	desperado piece:
+images/pagina_0009_linha_00032.png	One of the most commonplace cases of the
+images/pagina_0009_linha_00033.png	desperado piece is the discovered attack, when the
+images/pagina_0009_linha_00034.png	desperado piece can go to squares which it could
+images/pagina_0009_linha_00035.png	not normally occupy without being captured.
+images/pagina_0009_linha_00036.png	A desperado combination of this sort often leads to a
+images/pagina_0009_linha_00037.png	gain of material.
+images/pagina_0009_linha_00038.png	Diagram 1-1
+images/pagina_0009_linha_00039.png	I.Von Popiel _ G Marco
+images/pagina_0009_linha_00040.png	Monte Carlo 1902
+images/pagina_0009_linha_00041.png	32.♕d3
+images/pagina_0009_linha_00042.png	White pins the d4-bishop, sets up a battery with his
+images/pagina_0009_linha_00043.png	queen and bishop; and prepares the very dangerous
+images/pagina_0009_linha_00044.png	discovered attack e4-e5. Black tries to prevent this
+images/pagina_0009_linha_00045.png	move.
+images/pagina_0009_linha_00046.png	32...e5 33.fxe5 Bxf1†
+images/pagina_0009_linha_00048.png	34.♖xf1 ♕e7?
+images/pagina_0009_linha_00050.png	35.♘f5!?
+images/pagina_0009_linha_00051.png	35.e6! ♕xe6 36.♖f8† ♔h7 37.e5† g6 38.♖f6+-
+images/pagina_0009_linha_00052.png	would be the simple solution. But White preferred to
+images/pagina_0009_linha_00053.png	win the pinned piece.
+images/pagina_0009_linha_00054.png	35...♕xe5 36.♖d1?
+images/pagina_0009_linha_00055.png	Diagram 1-2
+images/pagina_0009_linha_00056.png	We have already seen this position in Chapter 7 of
+images/pagina_0009_linha_00057.png	Build Up Your Chess 1. Black thought at this point
+images/pagina_0009_linha_00058.png	that he had simply lost his d4-bishop and resigned!
+images/pagina_0009_linha_00059.png	1–0
+images/pagina_0009_linha_00060.png	This bishop is a classic desperado piece! Black could
+images/pagina_0009_linha_00061.png	move it to the unexpected square gl and win lot of
+images/pagina_0009_linha_00062.png	material with it: 36...♗g1!!-+
+images/pagina_0009_linha_00063.png	Instead of 36.♖d1? White should play 36.♘h4!+-.
+images/pagina_0009_linha_00064.png	There is no good defence against the strong threats of
+images/pagina_0009_linha_00065.png	37.♘g6† and 37.♘f3.
+images/pagina_0009_linha_00066.png	8
