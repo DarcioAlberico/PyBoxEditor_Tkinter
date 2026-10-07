@@ -1,11 +1,24 @@
 from pathlib import Path
 
+import pytest
+
 from core.ocr_corpus import carregar_manifesto, executar_corpus
 from core.ocr_holdout import selecionar_holdout
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks" / "corpus_v2.json"
+
+#: Os PDFs-fonte do corpus ficam fora do git — são livros com direito autoral, pela
+#: mesma razão de `/PDF/` (ver `.gitignore`). O manifesto, as referências, as predições
+#: e as quatro imagens de página estão no git, mas `require_files=True` e a rodada de
+#: verdade pedem os PDFs: num clone novo e na CI estes dois testes pulam, como os que
+#: dependem do `custom_model.pth`.
+FONTES = [ROOT / "benchmarks" / "corpus_v2" / "source" / nome
+          for nome in ("aagaard.pdf", "nunn.pdf", "yusupov.pdf")]
+pytestmark = pytest.mark.skipif(
+    not all(fonte.is_file() for fonte in FONTES),
+    reason="os PDFs-fonte de benchmarks/corpus_v2/source/ ficam fora do git")
 
 
 def test_corpus_real_v2_tem_hash_arquivos_e_holdout_isolado():

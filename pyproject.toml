@@ -20,11 +20,6 @@ core = ["dados/*.pth", "dados/*.json"]
 "assets.fonts" = ["*.ttf", "*.txt"]
 "assets.lexico" = ["*.gz"]
 
-[tool.setuptools.data-files]
-"share/PyBoxEditor" = ["custom_model.pth", "model_meta.json",
-                        "text_line_model.pth", "text_line_model.json",
-                        "ocr_language_model.json"]
-
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 
