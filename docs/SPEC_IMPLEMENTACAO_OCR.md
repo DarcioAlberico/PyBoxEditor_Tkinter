@@ -426,7 +426,9 @@ append-only. A Fase 6 usa a mesma ordem do documento para HTML semântico,
 EPUB3, DOCX e PDF pesquisável, com modos `faithful`, `clean` e `hybrid`.
 
 O pipeline e `scripts/processar_editorial.py` aceitam `json`, `html`, `txt`,
-`epub`, `docx` e `pdf`; a janela principal expõe a revisão editorial e atalhos
+`epub`, `docx` e `pdf` — o script, desde 2026-09-23, com o leitor de produção e o
+EPUB e o DOCX pelo `exportar.py`, como a janela (`docs/ROADMAP_IMPLEMENTACAO_OCR.md`);
+a janela principal expõe a revisão editorial e atalhos
 `A`, `E`, `R`, `D` e `U`. Os testes de contrato ficam em
 `tests/test_editorial_review_phase5.py` e `tests/test_editorial_export_phase6.py`.
 

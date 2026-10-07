@@ -513,6 +513,11 @@ de proteção: nenhuma melhoria de prosa pode quebrar esse resultado.
 
 `comparar_modos` recebe casos imutáveis (`ABCase`) e dois callbacks. Ambos recebem exatamente a mesma entrada; erro de callback interrompe o benchmark para impedir comparação com populações diferentes. O relatório (`ABReport`) expõe resultados agregados, delta CER/WER, indicação de melhoria e JSON.
 
+*Os dois contratos abaixo — `HybridOCRPipeline` e `ContextDecoder` — saíram com os
+módulos em 2026-09-23 (`docs/REVISAO_MODOS_OCR.md` §4.11); a produção cumpre as
+duas regras em `livro._fundir_por_palavra` e no corretor de prosa do `livro.py`
+(§19). Ficam aqui como registro do que foi especificado.*
+
 `HybridOCRPipeline.read_line` primeiro calcula a âncora de glifos. Para regiões de prosa, tenta a faixa completa e conserva espaços; para `notation` e `symbol`, a saída é exclusivamente a âncora de glifos. Exceções ou recortes inválidos no caminho de linha geram warning e não apagam a leitura de glifos.
 
 `ContextDecoder` só altera palavra desconhecida quando existe candidata no vocabulário dentro da distância máxima e com ganho mínimo configurável. A leitura anterior fica em `original_text`, e cada troca fica em `context_corrections`, permitindo auditoria e desfazer.

@@ -5,6 +5,14 @@ partir da máscara de tinta, agrupa linhas em blocos, identifica colunas e
 produz uma ordem de leitura determinística. A classificação semântica é
 conservadora: quando a geometria não permite decidir, a região fica como
 ``body`` ou ``unknown`` em vez de inventar uma tabela ou diagrama.
+
+É **biblioteca de inspeção**, e não o layout de produção: o livro é
+segmentado por `core/livro.py` (`caixas_e_diagramas`, as colunas, a tabela, a
+trama, o negativo). Aqui só chega o `EditorialPipeline.inspect` de uma página
+sem camada de texto, e a fachada sem leitor. E não sem motivo:
+`detectar_colunas` une os intervalos das linhas, de modo que uma linha que
+cruza a calha — o título, a legenda larga — apaga a coluna da página inteira
+(`docs/REVISAO_MODOS_OCR.md` §3.1).
 """
 
 from __future__ import annotations

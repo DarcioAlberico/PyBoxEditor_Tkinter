@@ -470,6 +470,12 @@ As três fases foram implementadas na camada de domínio e estão cobertas por t
 - OCR-12: `core/ocr_hybrid.py` usa OCR de linha para prosa e preserva o reconhecedor por glifo para notação/símbolos. Falha do engine de linha cai explicitamente para a âncora de glifos e deixa aviso rastreável.
 - OCR-13: `core/ocr_context.py` aplica decodificação contextual conservadora por palavra, somente para candidatos próximos do vocabulário, preservando o texto original e as correções no metadata.
 
+**Os dois módulos foram apagados em 2026-09-23** (poda, `docs/REVISAO_MODOS_OCR.md`
+§4.11): a produção nunca os chamou. A regra da OCR-12 — lance com a âncora, prosa
+com o motor — vive em `livro._fundir_por_palavra`, que decide por palavra porque a
+linha destes livros é mista (seção seguinte); a da OCR-13, no corretor de prosa do
+`livro.py`. O `core/ocr_routing.py` e o `core/ocr_ab.py` da OCR-11 continuam em uso.
+
 O passo seguinte era ligar o roteamento ao fluxo de extração de livro e
 executar o A/B real das páginas 30–31 com referência revisada. Está feito, e a
 seção abaixo registra o que a página exigiu de diferente do plano.
@@ -570,13 +576,14 @@ O que sobra no modo `palavra`, token a token (25 de 295):
 
 ### O que ficou de fora, e por quê
 
-- `HybridOCRPipeline.read_line` continua sendo o contrato da camada de
+- `HybridOCRPipeline.read_line` continuava sendo o contrato da camada de
   domínio, com o leitor de linha por faixa. O fluxo de livro não passou a
   chamá-lo: ele lê a faixa de cada linha, e o Tesseract por faixa custa uma
   chamada de processo por linha (F114: 138 ms/linha contra uma chamada por
-  página). A regra que os dois compartilham — lance com a âncora, prosa com o
-  motor, divergência registrada — está nos dois; o que a produção tem a mais
-  é a fusão por palavra com as caixas do Tesseract.
+  página). A regra que os dois compartilhavam — lance com a âncora, prosa com o
+  motor, divergência registrada — estava nos dois; o que a produção tem a mais
+  é a fusão por palavra com as caixas do Tesseract. *O `core/ocr_hybrid.py` foi
+  apagado em 2026-09-23 (`docs/REVISAO_MODOS_OCR.md` §4.11).*
 - O cabeçalho que o Tesseract não leu na primeira passada é um problema do
   `--psm 3`, e não do roteamento; fica para a OCR-15 (layout especial), junto
   com a segunda passada sobre a trama, que nesta página só produziu lixo.
