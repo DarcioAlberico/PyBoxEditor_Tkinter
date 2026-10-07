@@ -86,13 +86,13 @@ def carregar_proveniencia_dataset(caminho: str | Path) -> dict[str, object]:
     """Valida e identifica o manifesto JSON usado como origem do treino."""
     alvo = Path(caminho).resolve()
     if not alvo.is_file():
-        raise FileNotFoundError(f"proveniÃªncia do dataset ausente: {alvo}")
+        raise FileNotFoundError(f"proveniência do dataset ausente: {alvo}")
     try:
         dados = json.loads(alvo.read_text(encoding="utf-8"))
     except (OSError, ValueError) as erro:
-        raise ValueError(f"proveniÃªncia do dataset invÃ¡lida: {erro}") from erro
+        raise ValueError(f"proveniência do dataset inválida: {erro}") from erro
     if not isinstance(dados, Mapping):
-        raise ValueError("proveniÃªncia do dataset deve ser um objeto JSON")
+        raise ValueError("proveniência do dataset deve ser um objeto JSON")
     metadata = dados.get("metadata")
     if not isinstance(metadata, Mapping):
         metadata = {}
@@ -101,7 +101,7 @@ def carregar_proveniencia_dataset(caminho: str | Path) -> dict[str, object]:
     verified = isinstance(review, Mapping) and review.get("verified") is True
     if source == "ocr14" and not verified:
         raise ValueError(
-            "dataset OCR-14 sem proveniÃªncia de revisÃ£o verificada")
+            "dataset OCR-14 sem proveniência de revisão verificada")
     digest = hashlib.sha256(alvo.read_bytes()).hexdigest()
     return {
         "verified": verified,
@@ -301,7 +301,7 @@ def treinar_pacote(*, pasta: str | Path | None = None,
         diagnostico_holdout = validar_dataset(holdout)
         if any(diagnostico_holdout.get(chave) for chave in
                ("vazias", "ilegiveis", "ausentes", "malformadas")):
-            raise ValueError("dataset de holdout invÃ¡lido")
+            raise ValueError("dataset de holdout inválido")
     datasets_para_validar = {"treino": pasta}
     if validacao is not None:
         datasets_para_validar["validacao"] = validacao
@@ -490,13 +490,13 @@ def treinar_pacote(*, pasta: str | Path | None = None,
     production_eligible, production_gate_reason = modelo_utilizavel(meta, destino)
     if production_eligible and holdout is None:
         production_eligible = False
-        production_gate_reason = "holdout real nÃ£o informado; pacote nÃ£o pode ser promovido"
+        production_gate_reason = "holdout real não informado; pacote não pode ser promovido"
     elif (production_eligible and holdout_resultado is not None
           and holdout_resultado["cer"] > CER_MAXIMO_EM_PRODUCAO):
         production_eligible = False
         production_gate_reason = (
             f"holdout real com CER {holdout_resultado['cer']:.0%} "
-            f"(limite para produÃ§Ã£o: {CER_MAXIMO_EM_PRODUCAO:.0%})")
+            f"(limite para produção: {CER_MAXIMO_EM_PRODUCAO:.0%})")
     if (production_eligible and holdout_comparacao is not None
             and not holdout_comparacao.improved):
         production_eligible = False

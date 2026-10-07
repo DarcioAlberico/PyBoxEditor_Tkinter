@@ -603,7 +603,7 @@ def test_pacote_exige_vinculo_fisico_das_linhas(tmp_path, monkeypatch):
 
     monkeypatch.setattr("core.linha_trainer.treinar", falso_treinar)
     monkeypatch.setattr("core.linha_trainer.modelo_utilizavel",
-                        lambda *args: (False, "sem promoÃ§Ã£o"))
+                        lambda *args: (False, "sem promoção"))
     monkeypatch.setattr("core.linha_trainer.avaliar", lambda *args: {
         "cer": 0.04, "wer": 0.08, "exatas": 1, "linhas": 1,
     })

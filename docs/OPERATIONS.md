@@ -170,9 +170,9 @@ python scripts/rodada_do_corpus.py --manifesto benchmarks/corpus_v2.json \
 O resultado é arquivado mesmo quando reprova. `--exigir-cobertura` deve ser
 usado apenas quando o corpus já tiver o número mínimo de páginas por família.
 
-Uma pÃ¡gina cujo `reference` termina em `.json` pode trazer, alÃ©m de `text`,
-`notation`, `diagrams` e `regions`. A rodada de produÃ§Ã£o projeta a saÃ­da do
-`livro.extrair` para esses mesmos domÃ­nios e aplica os gates semÃ¢nticos no mesmo
+Uma página cujo `reference` termina em `.json` pode trazer, além de `text`,
+`notation`, `diagrams` e `regions`. A rodada de produção projeta a saída do
+`livro.extrair` para esses mesmos domínios e aplica os gates semânticos no mesmo
 artefato:
 
 ```text
@@ -361,11 +361,11 @@ python scripts/empacotar_modelo.py text_line_model.pth \
   python scripts/smoke_release.py dist/pyboxeditor-0.1.0-py3-none-any.whl
 ```
 
-Na caixa principal de exportaÃ§Ã£o, a opÃ§Ã£o **Combinar engines independentes**
+Na caixa principal de exportação, a opção **Combinar engines independentes**
 ativa o mesmo consenso conservador do script: Tesseract, EasyOCR e PaddleOCR
-sÃ£o consultados nas faixas de fallback; apenas duas fontes concordantes
-substituem a leitura da cadeia prÃ³pria. Conflitos e engines indisponÃ­veis ficam
-registrados na evidÃªncia e entram na fila de revisÃ£o.
+são consultados nas faixas de fallback; apenas duas fontes concordantes
+substituem a leitura da cadeia própria. Conflitos e engines indisponíveis ficam
+registrados na evidência e entram na fila de revisão.
 
 Quando `--meta` referencia `dataset_provenance_path`, `calibration_report`,
 `split_manifest`, `line_binding` ou `holdout_provenance`, o empacotador copia

@@ -37,7 +37,7 @@ _RE_ID_NO_XHTML = re.compile(r'\bid\s*=\s*"([^"]*)"')
 _RE_HREF_NO_XHTML = re.compile(r'\b(?:href|src|xlink:href|poster)\s*=\s*"([^"]*)"')
 _RE_CLASSE_NO_SELETOR = re.compile(r"\.(-?[_a-zA-Z][\w-]*)")
 _RE_URL_CSS = re.compile(r"""url\(\s*(['"]?)([^)'"]+)\1\s*\)""")
-#: `Ã©`, `Ã§`, `Â `…: UTF-8 lido como Latin-1 (o `Ã` ou `Â` seguido de um byte de continuação).
+#: `Ã©`, `Ã§`, `Â `… (mojibake intencional): UTF-8 lido como Latin-1, o `Ã` ou `Â` seguido de um byte de continuação.
 _RE_MOJIBAKE = re.compile("[" + chr(0xC3) + chr(0xC2) + "][" + chr(0x80) + "-" + chr(0xBF) + "]")
 MIME_CSS = "text/css"
 TIPOS_DE_FONTE = ("font/", "application/vnd.ms-opentype", "application/font-woff", "application/x-font-ttf",
@@ -451,7 +451,7 @@ def _texto_visivel(cap: Capitulo) -> str:
 def caracteres(livro: Livro, cobre: Callable[[str], bool] | None = None) -> list[Linha]:
     """
     Os caracteres fora do comum (não ASCII, não espaço) com a contagem e os arquivos:
-    mojibake (`Ã©`, `Ã§`…) é erro; um caractere que nenhuma fonte embutida desenha
+    mojibake (`Ã©`, `Ã§`… — exemplos de mojibake intencional) é erro; um caractere que nenhuma fonte embutida desenha
     (`cobre(c)` é falso) é aviso — `♕` sem fonte (AC-ED08-5).
     """
     contagem: Counter = Counter()

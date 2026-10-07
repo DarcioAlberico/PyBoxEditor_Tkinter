@@ -60,7 +60,7 @@ def _validar_proveniencia_ocr14(relatorio: Any, caminho_revisado: Path, *,
     """Confere os artefatos que deram origem a uma revisão OCR-14."""
     if not isinstance(relatorio, Mapping):
         if exigir:
-            raise ValueError("relatÃ³rio OCR-14 sem proveniÃªncia verificÃ¡vel")
+            raise ValueError("relatório OCR-14 sem proveniência verificável")
         return {"verified": False, "reason": "metadata absent"}
 
     pares = (
@@ -73,7 +73,7 @@ def _validar_proveniencia_ocr14(relatorio: Any, caminho_revisado: Path, *,
                  or relatorio.get(sha) is not None]
     if not presentes:
         if exigir:
-            raise ValueError("relatÃ³rio OCR-14 sem proveniÃªncia verificÃ¡vel")
+            raise ValueError("relatório OCR-14 sem proveniência verificável")
         return {"verified": False, "reason": "metadata absent"}
 
     resultado: dict[str, Any] = {"verified": True}
@@ -81,7 +81,7 @@ def _validar_proveniencia_ocr14(relatorio: Any, caminho_revisado: Path, *,
         valor_caminho = relatorio.get(campo_caminho)
         esperado = str(relatorio.get(campo_sha, "")).lower()
         if not valor_caminho or len(esperado) != 64:
-            raise ValueError(f"proveniÃªncia OCR-14 incompleta: {campo_caminho}")
+            raise ValueError(f"proveniência OCR-14 incompleta: {campo_caminho}")
         informado = Path(str(valor_caminho))
         candidatos = ([informado.resolve()] if informado.is_absolute() else [
             (Path.cwd() / informado).resolve(),
@@ -90,7 +90,7 @@ def _validar_proveniencia_ocr14(relatorio: Any, caminho_revisado: Path, *,
         arquivo = next((item for item in candidatos if item.is_file()), None)
         if arquivo is None:
             raise FileNotFoundError(
-                f"arquivo de proveniÃªncia OCR-14 ausente: {valor_caminho}")
+                f"arquivo de proveniência OCR-14 ausente: {valor_caminho}")
         atual = sha256_file(arquivo)
         if atual != esperado:
             raise ValueError(
@@ -125,7 +125,7 @@ def construir_parser() -> argparse.ArgumentParser:
 
     split = subparsers.add_parser("split", help="separa treino, validação, teste e holdout")
     ocr14.add_argument("--exigir-proveniencia", action="store_true",
-                       help="exige e confere os hashes da quarentena e dos rÃ³tulos")
+                       help="exige e confere os hashes da quarentena e dos rótulos")
 
     split.add_argument("dataset", type=Path)
     split.add_argument("-o", "--output", type=Path, required=True)

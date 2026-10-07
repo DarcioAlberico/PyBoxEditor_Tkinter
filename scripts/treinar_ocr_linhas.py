@@ -36,7 +36,7 @@ def main():
     parser.add_argument("--dataset-proveniencia", default=None,
                         help="manifesto JSON que prova a origem do dataset")
     parser.add_argument("--exigir-proveniencia-dataset", action="store_true",
-                        help="bloqueia o treino sem proveniÃªncia verificada")
+                        help="bloqueia o treino sem proveniência verificada")
     parser.add_argument("--split-manifest", default=None,
                         help="manifesto Fase 7 que registra a separacao por fonte")
     parser.add_argument("--exigir-split", action="store_true",
@@ -70,8 +70,8 @@ def main():
               f"WER={resultado['wer']:.2%}, "
               f"linhas exatas={resultado['exatas']}/{resultado['linhas']}")
         elegivel, motivo_portao = modelo_utilizavel(args.meta, args.destino)
-        print(f"PortÃ£o de produÃ§Ã£o: {'aprovado' if elegivel else 'reprovado'}"
-              + (f" â€” {motivo_portao}" if motivo_portao else ""))
+        print(f"Portão de produção: {'aprovado' if elegivel else 'reprovado'}"
+              + (f" — {motivo_portao}" if motivo_portao else ""))
         for item in resultado["piores"][:5]:
             print(f"  {item['imagem']}: {item['previsto']!r} "
                   f"(esperado {item['esperado']!r}, CER={item['cer']:.2%})")

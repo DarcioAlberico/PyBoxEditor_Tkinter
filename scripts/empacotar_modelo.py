@@ -74,21 +74,21 @@ def _validar_proveniencia_dataset(meta: Path) -> str | None:
     try:
         dados = json.loads(meta.read_text(encoding="utf-8"))
     except (OSError, ValueError) as erro:
-        return f"metadata do modelo invÃ¡lido: {erro}"
+        return f"metadata do modelo inválido: {erro}"
     if dados.get("dataset_provenance_verified") is not True:
-        return "dataset sem proveniÃªncia verificada"
+        return "dataset sem proveniência verificada"
     caminho = str(dados.get("dataset_provenance_path", ""))
     esperado = str(dados.get("dataset_provenance_sha256", "")).lower()
     if not caminho or len(esperado) != 64:
-        return "metadata sem caminho ou SHA-256 da proveniÃªncia do dataset"
+        return "metadata sem caminho ou SHA-256 da proveniência do dataset"
     arquivo = Path(caminho)
     if not arquivo.is_absolute():
         arquivo = (meta.parent / arquivo).resolve()
     if not arquivo.is_file():
-        return f"proveniÃªncia do dataset ausente: {arquivo}"
+        return f"proveniência do dataset ausente: {arquivo}"
     atual = _sha256(arquivo)
     if atual != esperado:
-        return "SHA-256 da proveniÃªncia do dataset nÃ£o corresponde"
+        return "SHA-256 da proveniência do dataset não corresponde"
     return None
 
 
@@ -96,14 +96,14 @@ def _validar_rodada_corpus(caminho: Path, *, exigir_gate: bool) -> dict[str, obj
     try:
         dados = json.loads(caminho.read_text(encoding="utf-8"))
     except (OSError, ValueError) as erro:
-        raise ValueError(f"rodada OCR invÃ¡lida: {erro}") from erro
+        raise ValueError(f"rodada OCR inválida: {erro}") from erro
     if not isinstance(dados, dict):
         raise ValueError("rodada OCR deve ser um objeto JSON")
     gate = dados.get("quality_gate")
     if exigir_gate and (not isinstance(gate, dict) or gate.get("enabled") is not True):
         raise ValueError("rodada OCR sem gate de qualidade habilitado")
     if exigir_gate and not isinstance(dados.get("semanticas"), dict):
-        raise ValueError("rodada OCR sem mÃ©tricas semÃ¢nticas")
+        raise ValueError("rodada OCR sem métricas semânticas")
     if exigir_gate and gate.get("passed") is not True:
         falhas = "; ".join(str(item) for item in gate.get("failures", ()))
         raise ValueError("gate da rodada OCR reprovado" + (f": {falhas}" if falhas else ""))
@@ -118,11 +118,11 @@ def _validar_gate_editorial(caminho: Path, *, exigir_gate: bool) -> dict[str, ob
     try:
         dados = json.loads(caminho.read_text(encoding="utf-8"))
     except (OSError, ValueError) as erro:
-        raise ValueError(f"gate editorial invÃ¡lido: {erro}") from erro
+        raise ValueError(f"gate editorial inválido: {erro}") from erro
     if not isinstance(dados, dict):
         raise ValueError("gate editorial deve ser um objeto JSON")
     if exigir_gate and dados.get("schema") != "pyboxeditor.editorial-quality/v1":
-        raise ValueError("schema do gate editorial invÃ¡lido")
+        raise ValueError("schema do gate editorial inválido")
     if exigir_gate and dados.get("valid") is not True:
         erros = "; ".join(str(item) for item in dados.get("errors", ()))
         raise ValueError("gate editorial reprovado" + (f": {erros}" if erros else ""))

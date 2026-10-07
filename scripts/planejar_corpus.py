@@ -1,10 +1,10 @@
-"""Planeja pÃ¡ginas para ampliar o corpus sem promover palpites a ground truth.
+"""Planeja páginas para ampliar o corpus sem promover palpites a ground truth.
 
     python scripts/planejar_corpus.py --rodada benchmarks/rodadas/ultima.json \
         --candidatos benchmarks/candidatos_layout.json -o benchmarks/plano.json
 
-O arquivo de candidatos Ã© produzido por uma inspeÃ§Ã£o preliminar de layout e
-pode conter apenas famÃ­lias previstas. A referÃªncia humana e a inclusÃ£o no
+O arquivo de candidatos é produzido por uma inspeção preliminar de layout e
+pode conter apenas famílias previstas. A referência humana e a inclusão no
 manifesto oficial continuam sendo passos separados.
 """
 

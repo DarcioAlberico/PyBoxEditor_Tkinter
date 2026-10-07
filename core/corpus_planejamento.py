@@ -1,8 +1,8 @@
-"""Planejamento seguro de pÃ¡ginas para ampliar o corpus OCR.
+"""Planejamento seguro de páginas para ampliar o corpus OCR.
 
-O mÃ³dulo trabalha antes da transcriÃ§Ã£o humana. Ele combina a cobertura jÃ¡
-medida com candidatos preliminares de layout e devolve uma seleÃ§Ã£o determinÃ­stica
-para revisÃ£o. Candidato nunca vira referÃªncia ou holdout automaticamente.
+O módulo trabalha antes da transcrição humana. Ele combina a cobertura já
+medida com candidatos preliminares de layout e devolve uma seleção determinística
+para revisão. Candidato nunca vira referência ou holdout automaticamente.
 """
 
 from __future__ import annotations

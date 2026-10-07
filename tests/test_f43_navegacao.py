@@ -1,4 +1,4 @@
-﻿"""
+"""
 Testes da F4.3 e F4.6 — navegação sem sobressalto e guard de atalho.
 
 **F4.3.** `select_box` chamava `zoom_to_box` em *toda* seleção, com margem 10,0 e

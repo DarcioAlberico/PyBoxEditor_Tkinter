@@ -40,7 +40,7 @@ def _livro():
     livro.capitulos[0].folhas = ["Styles/estilo.css"]
     cap2 = livro.capitulos[1]
     cap2.blocos.append(_p("Ver ", Trecho(texto="Figura 9", ref="figura", link="cap1.xhtml#fig-nada"),
-                          " e ", Trecho(texto="fora", link="lua.xhtml#x"), " e a rainha ♕ e pÃ¡gina."))
+                          " e ", Trecho(texto="fora", link="lua.xhtml#x"), " e a rainha ♕ e pÃ¡gina."))  # mojibake intencional
     cap2.blocos.append(m.Diagrama(fen=FEN, estado="revisar", aviso="OCR duvidoso", lado="w",
                                   legenda=[Trecho(texto="Posição")]))
     cap2.notas.append(m.Nota(id="orfa", blocos=[_p("nota sem referência")]))

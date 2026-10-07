@@ -5106,11 +5106,11 @@ class MainWindow(tk.Frame):
                 motivo_portao = str(
                     getattr(sucesso, "production_gate_reason", "") or "")
                 uso = (
-                    "O modelo passou pelo holdout e poderÃ¡ ser usado na produÃ§Ã£o."
+                    "O modelo passou pelo holdout e poderá ser usado na produção."
                     if elegivel else
-                    "O modelo ficou fora da produÃ§Ã£o e nÃ£o serÃ¡ usado automaticamente.\n"
-                    f"Motivo do portÃ£o: {motivo_portao or 'holdout nÃ£o aprovado'}.\n"
-                    "Ele ainda pode ser aplicado manualmente para inspeÃ§Ã£o."
+                    "O modelo ficou fora da produção e não será usado automaticamente.\n"
+                    f"Motivo do portão: {motivo_portao or 'holdout não aprovado'}.\n"
+                    "Ele ainda pode ser aplicado manualmente para inspeção."
                 )
                 if not elegivel:
                     motivo_portao = motivo_portao or "holdout nao aprovado"
@@ -5119,7 +5119,7 @@ class MainWindow(tk.Frame):
                            "Pode ser aplicado manualmente para inspecao.")
                     messagebox.showinfo(
                         "Treino OCR completo",
-                        f"Treinamento concluÃ­do.\nPesos: {modelo}\n"
+                        f"Treinamento concluído.\nPesos: {modelo}\n"
                         f"Metadados: {meta}\n\n{uso}")
                     return
                 messagebox.showinfo(

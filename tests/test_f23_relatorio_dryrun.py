@@ -1,4 +1,4 @@
-﻿"""
+"""
 Testes da F2.3 — relatório e dry-run da substituição de glifos (SPEC §4.4).
 
 `substitute_chess_glyphs` reescreve o PDF: apaga o texto original com um

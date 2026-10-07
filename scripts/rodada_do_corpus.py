@@ -407,7 +407,7 @@ def _limite_semantico(valor: str) -> float:
 
 
 def configurar_saida_terminal(stream=None):
-    """MantÃ©m relatÃ³rios Unicode imprimÃ­veis em consoles Windows legados."""
+    """Mantém relatórios Unicode imprimíveis em consoles Windows legados."""
     stream = stream or sys.stdout
     reconfigure = getattr(stream, "reconfigure", None)
     if callable(reconfigure):

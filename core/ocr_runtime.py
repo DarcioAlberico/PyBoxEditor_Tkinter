@@ -176,9 +176,9 @@ class OCRCache:
               max_bytes: int | None = None, now: float | None = None) -> dict[str, int]:
         """Remove entradas JSON antigas e/ou excedentes, sem tocar em temporários."""
         if max_age_seconds is not None and max_age_seconds < 0:
-            raise ValueError("max_age_seconds nÃ£o pode ser negativo")
+            raise ValueError("max_age_seconds não pode ser negativo")
         if max_bytes is not None and max_bytes < 0:
-            raise ValueError("max_bytes nÃ£o pode ser negativo")
+            raise ValueError("max_bytes não pode ser negativo")
         with self._lock:
             if self.pasta is None:
                 return {"removed": 0, "remaining": 0,

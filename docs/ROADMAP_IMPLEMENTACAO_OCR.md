@@ -157,15 +157,15 @@ confiantes (item 5) e transcrever páginas das famílias de layout que o corpus
 ainda não mede (item 6). A interface (item 9) e os testes de aceitação (item
 10) saíram em 2026-09-23 (§4.12 e §4.13).
 
-## IntegraÃ§Ã£o do ensemble no caminho principal
+## Integração do ensemble no caminho principal
 
 O consenso de engines da Fase 3 agora pode ser ativado na caixa principal de
-exportaÃ§Ã£o. Livro e Documento Editorial recebem a mesma `OpcoesDeLeitura` e
+exportação. Livro e Documento Editorial recebem a mesma `OpcoesDeLeitura` e
 consultam Tesseract, EasyOCR e PaddleOCR nas faixas de fallback; duas fontes
-concordantes sÃ£o o mÃ­nimo para substituir a cadeia prÃ³pria. Conflitos e
-indisponibilidade ficam na evidÃªncia e na fila de revisÃ£o. O padrÃ£o continua
-desligado para preservar o caminho medido atÃ© uma rodada do corpus comprovar
-ganho de precisÃ£o.
+concordantes são o mínimo para substituir a cadeia própria. Conflitos e
+indisponibilidade ficam na evidência e na fila de revisão. O padrão continua
+desligado para preservar o caminho medido até uma rodada do corpus comprovar
+ganho de precisão.
 
 ## Metas de produto
 

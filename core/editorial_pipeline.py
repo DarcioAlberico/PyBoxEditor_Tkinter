@@ -935,13 +935,13 @@ class EditorialPipeline:
 
     def _export_legacy(self, document: EditorialDocument, caminho: Path,
                        formato: str) -> ExportReport | None:
-        """Escreve EPUB/DOCX de produÃ§Ã£o pela fachada, preservando o legado.
+        """Escreve EPUB/DOCX de produção pela fachada, preservando o legado.
 
-        O leitor de produÃ§Ã£o ainda carrega medidas tipogrÃ¡ficas e artefatos de
-        diagrama que o escritor histÃ³rico sabe preservar. A decisÃ£o continua
-        sendo a do IR: antes de escrever, as revisÃµes do documento voltam para
-        cÃ³pias das pÃ¡ginas legadas. Um documento genÃ©rico ou reaberto sem as
-        pÃ¡ginas do leitor cai no exportador editorial comum.
+        O leitor de produção ainda carrega medidas tipográficas e artefatos de
+        diagrama que o escritor histórico sabe preservar. A decisão continua
+        sendo a do IR: antes de escrever, as revisões do documento voltam para
+        cópias das páginas legadas. Um documento genérico ou reaberto sem as
+        páginas do leitor cai no exportador editorial comum.
         """
         if self.legacy_extractor is None:
             return None

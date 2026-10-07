@@ -103,10 +103,10 @@ MOTIVOS = {
 #: Ficam fora da frase da fila — o revisor quer saber o que conferir, não a
 #: genealogia do bloco.
 MOTIVOS.update({
-    "ensemble_conflict": "as engines do ensemble nÃ£o concordaram; a linha precisa de conferÃªncia humana",
+    "ensemble_conflict": "as engines do ensemble não concordaram; a linha precisa de conferência humana",
     "ensemble_engine_unavailable": (
-        "a(s) engine(s) {motores} do ensemble nÃ£o responderam; "
-        "a leitura precisa de conferÃªncia"),
+        "a(s) engine(s) {motores} do ensemble não responderam; "
+        "a leitura precisa de conferência"),
 })
 
 PROCEDENCIA = frozenset({"legacy_adapter", "page_result_region", "page_result_text"})
@@ -314,7 +314,7 @@ def _conflito_de_lance(texto: str, linha_ocr: str) -> Motivo | None:
 
 
 def _motivos_do_ensemble(registro: Mapping[str, Any]) -> list[Motivo]:
-    """Traduz a evidÃªncia do consenso em motivos da fila editorial."""
+    """Traduz a evidência do consenso em motivos da fila editorial."""
     ensemble = registro.get("ensemble")
     if not isinstance(ensemble, Mapping):
         return []

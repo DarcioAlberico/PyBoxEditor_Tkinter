@@ -773,7 +773,7 @@ class Phase3Processor:
 
     @staticmethod
     def _raster_specs(evidence: Any) -> list[dict[str, Any]]:
-        """Segmenta um scan em regiÃµes/linhas antes de consultar os engines."""
+        """Segmenta um scan em regiões/linhas antes de consultar os engines."""
         if evidence.raster is None:
             return []
         try:
@@ -785,10 +785,10 @@ class Phase3Processor:
             raster = np.asarray(evidence.raster)
             if raster.size == 0:
                 return []
-            # A evidÃªncia sintÃ©tica/testada pode jÃ¡ ser uma mÃ¡scara. Para um
+            # A evidência sintética/testada pode já ser uma máscara. Para um
             # scan normal, a variante adaptativa transforma fundo claro em
-            # mÃ¡scara de tinta; a escala permanece a da origem para as caixas
-            # continuarem vÃ¡lidas no recorte original.
+            # máscara de tinta; a escala permanece a da origem para as caixas
+            # continuarem válidas no recorte original.
             escala = float((raster > 0).mean())
             if raster.ndim == 2 and 0.0005 <= escala <= 0.35:
                 binaria = raster

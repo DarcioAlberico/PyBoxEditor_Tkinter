@@ -78,13 +78,17 @@ cada um com um ou dois arquivos editados e esquecidos.
 
 ### P1. O mojibake voltou, e o fim de linha está sem contrato
 
-Dez módulos e dois documentos têm `pÃ¡gina` de novo: `core/corpus_planejamento.py`,
+Dez módulos e dois documentos voltaram a trazer acentos em dupla codificação — o `á`
+gravado como `Ã` seguido de `¡`: `core/corpus_planejamento.py`,
 `core/editor/relatorios.py`, `core/editorial_pipeline.py`,
 `core/editorial_suspeitas.py`, `core/ocr_phase3.py`, `core/ocr_phase7.py`,
 `core/ocr_runtime.py`, `core/ocr_training.py`, `scripts/empacotar_modelo.py`,
 `scripts/planejar_corpus.py`, `docs/OPERATIONS.md` e
 `docs/ROADMAP_IMPLEMENTACAO_OCR.md`. A causa segue a mesma: a outra ferramenta
-grava em cp1252.
+grava em cp1252. Recontados no item 2 com o crivo completo de
+`scripts/conferir_codificacao.py`, eram dezenove arquivos — entre os que o grep da
+análise não cobriu, `ui/main_window.py`, `scripts/preparar_fase7.py`,
+`scripts/treinar_ocr_linhas.py`, `scripts/rodada_do_corpus.py` e dois testes.
 
 Oito arquivos misturam CRLF e LF, `core.autocrlf` está ligado e não há
 `.gitattributes`: cada `git diff` emite cem avisos e a próxima gravação vai trocar

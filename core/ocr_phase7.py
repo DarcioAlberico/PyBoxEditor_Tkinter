@@ -503,11 +503,11 @@ def split_corrections(dataset: CorrectionDataset, *, validation_fraction: float 
         proveniencia = dataset.metadata.get("review_provenance")
         if not isinstance(proveniencia, Mapping) or proveniencia.get("verified") is not True:
             raise ValueError(
-                "dataset OCR-14 sem proveniÃªncia verificada nÃ£o pode entrar no split")
+                "dataset OCR-14 sem proveniência verificada não pode entrar no split")
         if any(not record.metadata.get("arquivo_sha256")
                for record in dataset.records):
             raise ValueError(
-                "dataset OCR-14 sem hash dos recortes nÃ£o pode entrar no split")
+                "dataset OCR-14 sem hash dos recortes não pode entrar no split")
     return split_corpus(dataset.corpus_items(), validation_fraction=validation_fraction,
                         test_fraction=test_fraction, seed=seed)
 
