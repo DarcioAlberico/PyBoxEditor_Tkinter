@@ -1,0 +1,29 @@
+# O fim de linha e o tipo de cada arquivo, declarados aqui para não depender do
+# `core.autocrlf` de cada máquina (item 2 da análise de 2026-10-06).
+#
+# Texto entra no git com LF e sai com LF em qualquer sistema. O Python, o pytest e os
+# editores que o projeto usa leem LF no Windows sem reclamar, e assim o arquivo que uma
+# ferramenta grava com CRLF e outra com LF deixa de virar misto na árvore — eram dez
+# assim. Os blobs já eram LF (o `autocrlf` convertia na entrada); o que muda é a saída,
+# e a regra passa a valer também para quem clona sem `autocrlf`.
+* text=auto eol=lf
+
+# O que nunca é texto: o git não normaliza nem tenta mostrar diff. Um tipo binário novo
+# entra aqui e em `scripts/conferir_codificacao.EXTENSOES_BINARIAS`.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.otf binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.pth binary
+*.npz binary
+*.gz binary
+*.7z binary
+*.zip binary
+*.epub binary
+*.docx binary
