@@ -24,7 +24,7 @@ Unicode, produtor que é programa de OCR, página girada, texto sobre a imagem d
 página inteira. E o que o arquivo **não** tem: a figurina composta como imagem
 no meio da frase, que o calibre faz (`_imagens_na_linha`).
 
-**O que sai daqui é o mesmo intermediário do OCR** — `livro.PaginaExtraida`,
+**O que sai daqui é o mesmo intermediário do OCR** — `PaginaExtraida`,
 com `Paragrafo` e `Figura` —, e por isso o EPUB e o DOCX (`exportar.py`), o
 documento editorial e o editor não mudam uma linha. O diagrama sai `render`,
 desenhado do FEN como o que o porteiro da F58 aprova; o texto sai com as
@@ -54,6 +54,7 @@ from PIL import Image
 
 from core import lado_a_jogar as lado_jogar
 from core import lexico, livro, render_diagrama
+from core.pagina import Figura, PaginaExtraida, Paragrafo, SALTO_DE_PARAGRAFO
 from core.box_model import BoxEntry
 
 
@@ -1230,8 +1231,8 @@ def _colunas(linhas: Sequence[_Linha], escala: float) -> List[Tuple[int, int]]:
 RECUO_DE_PARAGRAFO = 0.35
 
 #: O salto que abre parágrafo, em passos de linha além do passo — o mesmo
-#: número do OCR (`livro.SALTO_DE_PARAGRAFO`), porque é a mesma pergunta.
-SALTO_DE_PARAGRAFO = livro.SALTO_DE_PARAGRAFO
+#: número do OCR (`SALTO_DE_PARAGRAFO`), porque é a mesma pergunta.
+SALTO_DE_PARAGRAFO = SALTO_DE_PARAGRAFO
 
 #: Quanto o corpo de uma linha precisa passar o do texto para ela ser título
 #: de capítulo. O Dvoretsky compõe o texto a 14,6 pt e os títulos a 18,9 (1,29).
@@ -1509,7 +1510,7 @@ def _capitulo(grupo: Sequence[_Linha], m: _Metricas) -> bool:
 
 
 def _paragrafos(linhas: Sequence[_Linha], m: _Metricas, escala: float, lex
-                ) -> List["livro.Paragrafo"]:
+                ) -> List["Paragrafo"]:
     """
     Linhas → parágrafos, e o título de cada nível.
 
@@ -1553,7 +1554,7 @@ def _paragrafos(linhas: Sequence[_Linha], m: _Metricas, escala: float, lex
         antes = fundidos[indice - 1][-1] if indice else None
         depois = fundidos[indice + 1][0] if indice + 1 < len(fundidos) else None
         titulo = capitulo or _secao(grupo, antes, depois, m)
-        saida.append(livro.Paragrafo(
+        saida.append(Paragrafo(
             texto, titulo=titulo, nivel=1 if capitulo else 2,
             # Título não leva marca: o `<h1>`/`<h2>` já desenha negrito, e o
             # OCR também não marca título (`negrito.marcar`).
@@ -1858,7 +1859,7 @@ class _Opcoes:
 
 def _desenhada(fen: str, *, orientacao: str, lado: Optional[str], coordenadas: bool,
                marcas: Sequence[str], o: _Opcoes, caixa: Tuple[int, ...],
-               aviso: Optional[str]) -> "livro.Figura":
+               aviso: Optional[str]) -> "Figura":
     """A figura desenhada do FEN — as mesmas chamadas de `livro._figura_do_diagrama`."""
     png, largura, altura = render_diagrama.desenhar(
         fen, fonte=o.fonte, lado_px=o.lado_do_diagrama, coordenadas=coordenadas,
@@ -1867,7 +1868,7 @@ def _desenhada(fen: str, *, orientacao: str, lado: Optional[str], coordenadas: b
     objeto = render_diagrama.carregar(o.fonte)
     linhas, emolduradas = render_diagrama.linhas_do_diagrama(
         fen, objeto, orientacao, o.moldura, o.cantos, coordenadas)
-    return livro.Figura(
+    return Figura(
         png, largura, altura, fen=fen, origem="render", aviso=aviso,
         linhas=linhas, linhas_emolduradas=emolduradas, fonte=o.fonte,
         coordenadas=coordenadas, orientacao=orientacao,
@@ -1878,7 +1879,7 @@ def _desenhada(fen: str, *, orientacao: str, lado: Optional[str], coordenadas: b
 
 def _figura_do_tabuleiro(page: fitz.Page, tabuleiro: _Tabuleiro, *,
                          orientacao: Optional[str], rotulado: bool,
-                         lado: Optional[str], o: _Opcoes) -> "livro.Figura":
+                         lado: Optional[str], o: _Opcoes) -> "Figura":
     """
     O diagrama decodificado vira figura desenhada — pela mesma função do OCR.
 
@@ -1909,7 +1910,7 @@ def _figura_do_tabuleiro(page: fitz.Page, tabuleiro: _Tabuleiro, *,
     x0, y0, x1, y1 = tabuleiro.caixa
     png, largura, altura = _png_da_regiao(
         page, (x0 - margem, y0 - margem, x1 + margem, y1 + margem), o.dpi_figura)
-    return livro.Figura(png, largura, altura, fen=fen, origem="recorte",
+    return Figura(png, largura, altura, fen=fen, origem="recorte",
                         aviso=aviso if o.diagramas == "render" else None,
                         coordenadas=quer, orientacao=orientacao,
                         casas_de_largura=8.0 * (x1 - x0 + 2 * margem) / (x1 - x0),
@@ -1919,11 +1920,11 @@ def _figura_do_tabuleiro(page: fitz.Page, tabuleiro: _Tabuleiro, *,
 
 
 def _figura_de_pedaco(page: fitz.Page, glifos: Sequence[_Glifo], o: _Opcoes
-                      ) -> "livro.Figura":
+                      ) -> "Figura":
     caixa = (min(g.x0 for g in glifos), min(g.y0 for g in glifos),
              max(g.x1 for g in glifos), max(g.y1 for g in glifos))
     png, largura, altura = _png_da_regiao(page, caixa, o.dpi_figura)
-    return livro.Figura(png, largura, altura, origem="recorte",
+    return Figura(png, largura, altura, origem="recorte",
                         aviso="pedaço de tabuleiro em fonte de diagrama, sem as 64 casas",
                         caixa=o.em_pixels(caixa))
 
@@ -1933,7 +1934,7 @@ def _figura_de_pedaco(page: fitz.Page, glifos: Sequence[_Glifo], o: _Opcoes
 AREA_MINIMA_DE_IMAGEM = 0.005
 
 
-def _figura_da_imagem(page: fitz.Page, caixa: fitz.Rect, o: _Opcoes) -> "livro.Figura":
+def _figura_da_imagem(page: fitz.Page, caixa: fitz.Rect, o: _Opcoes) -> "Figura":
     """
     Uma imagem embutida numa página de camada.
 
@@ -1979,14 +1980,14 @@ def _figura_da_imagem(page: fitz.Page, caixa: fitz.Rect, o: _Opcoes) -> "livro.F
                 aviso = f"não deu para desenhar: {erro}"
         png, largura, altura = _png(page.get_pixmap(
             clip=caixa, dpi=o.dpi_figura, colorspace=fitz.csGRAY, alpha=False))
-        return livro.Figura(png, largura, altura, origem="recorte", aviso=aviso,
+        return Figura(png, largura, altura, origem="recorte", aviso=aviso,
                             casas_de_largura=8.0 * caixa.width / max(
                                 1e-6, na_pagina[2] - na_pagina[0]),
                             caixa=o.em_pixels(na_pagina))
     png, largura, altura = _png(page.get_pixmap(clip=caixa, dpi=o.dpi_figura,
                                                 colorspace=fitz.csRGB, alpha=False),
                                 tons=0)
-    return livro.Figura(png, largura, altura, origem="pagina")
+    return Figura(png, largura, altura, origem="pagina")
 
 
 # ----------------------------------------------------------------------
@@ -2001,7 +2002,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
                    moldura=render_diagrama.MOLDURA_PADRAO,
                    cantos: str = render_diagrama.CANTO_PADRAO
-                   ) -> "livro.PaginaExtraida":
+                   ) -> "PaginaExtraida":
     """
     Uma página do PDF vira parágrafos e figuras, **lendo a camada**.
 
@@ -2112,7 +2113,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     blocos: List[object] = []
     corrente: List[_Linha] = []
     #: As imagens que esperam o parágrafo em curso acabar (ver abaixo).
-    pendentes: List[livro.Figura] = []
+    pendentes: List[Figura] = []
     diagramas = 0
 
     def despejar() -> None:
@@ -2151,7 +2152,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
             cabecalho = " ".join(linha.texto for linha in cabecalhos[i])
             legenda = " ".join(linha.texto for linha in legendas[i])
             if cabecalho:
-                blocos.append(livro.Paragrafo(cabecalho, titulo=True))
+                blocos.append(Paragrafo(cabecalho, titulo=True))
             blocos.append(_figura_do_tabuleiro(
                 page, tabuleiros[i], orientacao=orientacoes[i], rotulado=rotulados[i],
                 lado=_lado(cabecalho, [linha.texto for linha in legendas[i]], o.idioma),
@@ -2159,21 +2160,21 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
             if legenda:
                 # Depois da figura, e sem ser título — é onde ela está impressa
                 # e o que ela é, como a legenda do OCR (`livro.extrair_pagina`).
-                blocos.append(livro.Paragrafo(legenda))
+                blocos.append(Paragrafo(legenda))
         else:
             diagramas += 1
             blocos.append(_figura_de_pedaco(page, pedacos[i], o))
     despejar()
 
-    resultado = livro.PaginaExtraida(
+    resultado = PaginaExtraida(
         numero=numero, blocos=blocos, diagramas=diagramas,
         colunas=max(1, len(colunas)), altura=int(round(page.rect.height * o.escala)),
         largura=int(round(page.rect.width * o.escala)), dpi=int(dpi),
         leitura=LEITURA_CAMADA)
     resultado.caracteres = sum(
-        len(b.texto) for b in blocos if isinstance(b, livro.Paragrafo))
+        len(b.texto) for b in blocos if isinstance(b, Paragrafo))
     resultado.diagramas_desenhados = sum(
-        1 for b in blocos if isinstance(b, livro.Figura) and b.origem == "render")
+        1 for b in blocos if isinstance(b, Figura) and b.origem == "render")
     return resultado
 
 
@@ -2181,7 +2182,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
 # O livro
 # ----------------------------------------------------------------------
 
-def ligar_legendas(paginas: Sequence["livro.PaginaExtraida"], *, idioma: str = "en",
+def ligar_legendas(paginas: Sequence["PaginaExtraida"], *, idioma: str = "en",
                    lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
                    moldura=render_diagrama.MOLDURA_PADRAO,
                    cantos: str = render_diagrama.CANTO_PADRAO) -> int:
@@ -2216,19 +2217,19 @@ def ligar_legendas(paginas: Sequence["livro.PaginaExtraida"], *, idioma: str = "
                 or getattr(seguinte, "leitura", "") != LEITURA_CAMADA
                 or seguinte.numero != atual.numero + 1 or not atual.blocos):
             continue
-        existente: Optional[livro.Paragrafo] = None
+        existente: Optional[Paragrafo] = None
         figura = atual.blocos[-1]
-        if (isinstance(figura, livro.Paragrafo) and figura.topo is None
+        if (isinstance(figura, Paragrafo) and figura.topo is None
                 and not figura.titulo and len(atual.blocos) >= 2):
             existente, figura = figura, atual.blocos[-2]
-        if not (isinstance(figura, livro.Figura) and figura.fen
+        if not (isinstance(figura, Figura) and figura.fen
                 and figura.origem in ("render", "recorte")):
             continue
         ja_numerada = existente is not None and any(
             _NUMERO_DO_DIAGRAMA.match(pedaco) for pedaco in existente.texto.split())
-        levadas: List[livro.Paragrafo] = []
+        levadas: List[Paragrafo] = []
         for bloco in seguinte.blocos:
-            if (not isinstance(bloco, livro.Paragrafo) or bloco.titulo
+            if (not isinstance(bloco, Paragrafo) or bloco.titulo
                     or len(levadas) >= LINHAS_DE_LEGENDA or len(bloco.inicios) > 1):
                 break
             texto = bloco.texto.strip()
@@ -2249,7 +2250,7 @@ def ligar_legendas(paginas: Sequence["livro.PaginaExtraida"], *, idioma: str = "
             atual.caracteres += len(novos) + 1
             textos = existente.texto.split()
         else:
-            atual.blocos.append(livro.Paragrafo(novos))
+            atual.blocos.append(Paragrafo(novos))
             atual.caracteres += len(novos)
         lado = _lado("", textos, idioma)
         if lado and lado != figura.lado_a_jogar:
@@ -2265,7 +2266,7 @@ _FOLIO = re.compile(
     r"(?:ix|iv|v?i{0,3}))[\W_]*$", re.I)
 
 
-def retirar_mobilia(paginas: Sequence["livro.PaginaExtraida"]) -> "collections.Counter[str]":
+def retirar_mobilia(paginas: Sequence["PaginaExtraida"]) -> "collections.Counter[str]":
     """
     O cabeçalho corrente e o número de página das páginas da **camada**.
 
@@ -2304,14 +2305,14 @@ def retirar_mobilia(paginas: Sequence["livro.PaginaExtraida"]) -> "collections.C
     return retirados
 
 
-def _soltos_na_margem(pagina: "livro.PaginaExtraida"
-                      ) -> List[Tuple[str, "livro.Paragrafo"]]:
+def _soltos_na_margem(pagina: "PaginaExtraida"
+                      ) -> List[Tuple[str, "Paragrafo"]]:
     """O parágrafo de uma linha que abre (ou fecha) a página, solto do resto."""
     topos = []
     for bloco in pagina.blocos:
-        if isinstance(bloco, livro.Paragrafo) and bloco.topo is not None:
+        if isinstance(bloco, Paragrafo) and bloco.topo is not None:
             topos.append((bloco.topo, bloco.pe if bloco.pe is not None else bloco.topo, bloco))
-        elif isinstance(bloco, livro.Figura) and bloco.caixa:
+        elif isinstance(bloco, Figura) and bloco.caixa:
             topos.append((bloco.caixa[1], bloco.caixa[3], bloco))
     if len(topos) < 2:
         return []
@@ -2319,7 +2320,7 @@ def _soltos_na_margem(pagina: "livro.PaginaExtraida"
     alto = min(topos, key=lambda t: t[0])
     baixo = max(topos, key=lambda t: t[1])
     for margem, (topo, pe, bloco) in (("alto", alto), ("baixo", baixo)):
-        if not (isinstance(bloco, livro.Paragrafo) and not bloco.titulo
+        if not (isinstance(bloco, Paragrafo) and not bloco.titulo
                 and len(bloco.inicios) == 1
                 and livro._candidato_a_cabecalho(bloco.texto.strip())):
             continue
@@ -2335,7 +2336,7 @@ def _soltos_na_margem(pagina: "livro.PaginaExtraida"
     return saida
 
 
-def _trocar_lado(figura: "livro.Figura", lado: str, lado_do_diagrama: int,
+def _trocar_lado(figura: "Figura", lado: str, lado_do_diagrama: int,
                  moldura, cantos: str) -> None:
     """O lado que a legenda da página seguinte disse, no FEN e no desenho."""
     figura.fen = lado_jogar.com_lado(figura.fen, lado)
@@ -2361,7 +2362,7 @@ class Extracao:
     """O que `extrair` leu, e o que ele deixou para o OCR."""
 
     #: As páginas lidas da camada, na ordem pedida.
-    paginas: List["livro.PaginaExtraida"]
+    paginas: List["PaginaExtraida"]
     #: O veredito de cada página pedida, na mesma ordem.
     vereditos: List[Veredito]
 
@@ -2404,7 +2405,7 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
         raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
     if idioma is None:
         idioma = livro.idioma_do_pdf(caminho) or "en"
-    lidas: List[livro.PaginaExtraida] = []
+    lidas: List[PaginaExtraida] = []
     vereditos: List[Veredito] = []
     with fitz.open(caminho) as doc:
         carimbo = produtor(doc)
@@ -2434,7 +2435,7 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
     return Extracao(lidas, vereditos)
 
 
-def contar_leituras(paginas: Iterable["livro.PaginaExtraida"]) -> Dict[str, int]:
+def contar_leituras(paginas: Iterable["PaginaExtraida"]) -> Dict[str, int]:
     """`{"camada": n, "imagem": m}` — quantas páginas vieram de cada caminho."""
     conta = collections.Counter(getattr(p, "leitura", LEITURA_IMAGEM) or LEITURA_IMAGEM
                                 for p in paginas)
