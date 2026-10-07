@@ -1,7 +1,6 @@
 """Revisão de OCR por linha, com coleta de dados para treino de texto."""
 
 import tkinter as tk
-from pathlib import Path
 from tkinter import messagebox, ttk
 
 import numpy as np
@@ -13,7 +12,8 @@ from core.chess_symbols import (CHESS_ANNOTATION_CHARACTERS,
                                 VANTAGEM_LIGEIRA_PRETAS)
 from core.leitura_de_linha import linhas_da_pagina
 from core import vertical
-from config.paths import caminhos_modelo_linha
+from config.paths import caminhos_modelo_linha, pasta_de_linhas
+from ui import tema
 from core.linha_trainer import modelo_utilizavel
 from ui import fontes
 
@@ -86,7 +86,7 @@ class DialogoRotulagem(tk.Toplevel):
         self.lbl_progresso = tk.Label(topo, text="", font=("Segoe UI", 10, "bold"))
         self.lbl_progresso.grid(row=0, column=0, sticky="w")
         tk.Label(topo, text="Revise a frase inteira; confirme ou corrija.",
-                 fg="gray30").grid(row=0, column=1, sticky="e")
+                 fg=tema.TEXTO_SECUNDARIO).grid(row=0, column=1, sticky="e")
         pagina = tk.Frame(topo)
         pagina.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.btn_pagina_anterior = tk.Button(
@@ -108,11 +108,11 @@ class DialogoRotulagem(tk.Toplevel):
         centro.grid(row=1, column=0, sticky="nsew")
         centro.columnconfigure(0, weight=1)
         centro.rowconfigure(1, weight=1)
-        self.line_preview = tk.Label(centro, bg="#202124", relief="sunken", bd=1)
+        self.line_preview = tk.Label(centro, bg=tema.FUNDO_DO_RECORTE, relief="sunken", bd=1)
         self.line_preview.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        self.lbl_linha = tk.Label(centro, text="", anchor="w", fg="gray30")
+        self.lbl_linha = tk.Label(centro, text="", anchor="w", fg=tema.TEXTO_SECUNDARIO)
         self.lbl_linha.grid(row=0, column=0, sticky="sw", padx=5, pady=(0, 6))
-        self.preview = tk.Label(centro, bg="#202124", relief="sunken", bd=1)
+        self.preview = tk.Label(centro, bg=tema.FUNDO_DO_RECORTE, relief="sunken", bd=1)
         self.preview.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
 
         painel = tk.Frame(centro, width=300)
@@ -137,7 +137,7 @@ class DialogoRotulagem(tk.Toplevel):
                          side="left", padx=4)
         if not modelo_pronto and (self._modelo_path.exists() and self._meta_path.exists()):
             tk.Label(ocr, text=f"Modelo treinado fora do padrão: {motivo_modelo}.",
-                     fg="gray30", wraplength=380, justify="left").pack(fill="x", pady=(4, 0))
+                     fg=tema.TEXTO_SECUNDARIO, wraplength=380, justify="left").pack(fill="x", pady=(4, 0))
         tk.Label(linha_ocr, text="idioma:").pack(side="left")
         self.var_idioma = tk.StringVar(value="en + pt")
         ttk.Combobox(linha_ocr, textvariable=self.var_idioma,
@@ -153,7 +153,7 @@ class DialogoRotulagem(tk.Toplevel):
         self.texto.bind("<Control-Return>", lambda e: self._confirmar())
         self.lbl_atual = tk.Label(painel, text="", justify="left", anchor="w")
         self.lbl_atual.pack(fill="x", pady=(0, 8))
-        self.lbl_status = tk.Label(painel, text="", fg="#1769aa", wraplength=280,
+        self.lbl_status = tk.Label(painel, text="", fg=tema.TEXTO_ANDAMENTO, wraplength=280,
                                    justify="left")
         self.lbl_status.pack(fill="x", pady=(0, 8))
         tk.Button(painel, text="Aceitar / salvar linha  (Ctrl+Enter)",
@@ -173,41 +173,59 @@ class DialogoRotulagem(tk.Toplevel):
         area.columnconfigure(0, weight=1)
         canvas = tk.Canvas(area, height=176, width=260, highlightthickness=0)
         barra = ttk.Scrollbar(area, orient="vertical", command=canvas.yview)
-        barra_x = ttk.Scrollbar(area, orient="horizontal", command=canvas.xview)
         conteudo = tk.Frame(canvas)
         janela = canvas.create_window((0, 0), window=conteudo, anchor="nw")
-        canvas.configure(xscrollcommand=barra_x.set, yscrollcommand=barra.set)
+        canvas.configure(yscrollcommand=barra.set)
         canvas.grid(row=0, column=0, sticky="ew")
         barra.grid(row=0, column=1, sticky="ns")
-        barra_x.grid(row=1, column=0, sticky="ew")
         conteudo.bind("<Configure>",
                       lambda _evento: canvas.configure(scrollregion=canvas.bbox("all")))
 
         def ajustar_largura(evento):
-            # O frame precisa conservar a largura solicitada pela grade; se
-            # for forçado sempre à largura visível, os botões da direita ficam
-            # fora do scrollregion e parecem desaparecer.
-            largura = max(evento.width, conteudo.winfo_reqwidth())
-            canvas.itemconfigure(janela, width=largura)
+            # A paleta é deliberadamente vertical. Antes eram dez colunas:
+            # num painel de 260 px, os botões da direita ficavam numa faixa
+            # horizontal pouco evidente e vários símbolos pareciam ausentes.
+            # Forçar a janela à largura visível mantém todas as colunas na
+            # área clicável; apenas as linhas passam a rolar.
+            canvas.itemconfigure(janela, width=max(1, evento.width))
             canvas.configure(scrollregion=canvas.bbox("all"))
 
         canvas.bind("<Configure>", ajustar_largura)
-        canvas.bind("<MouseWheel>",
-                    lambda evento: canvas.yview_scroll(-int(evento.delta / 120), "units"))
-        canvas.bind("<Shift-MouseWheel>",
-                    lambda evento: canvas.xview_scroll(-int(evento.delta / 120), "units"))
+        def rolar(evento):
+            if getattr(evento, "num", None) == 4:
+                passos = -1
+            elif getattr(evento, "num", None) == 5:
+                passos = 1
+            else:
+                passos = -int(evento.delta / 120) or (-1 if evento.delta > 0 else 1)
+            canvas.yview_scroll(passos, "units")
+            return "break"
+
+        canvas.bind("<MouseWheel>", rolar)
+        canvas.bind("<Button-4>", rolar)
+        canvas.bind("<Button-5>", rolar)
         base_fonte = ("Segoe UI Symbol", 10, "normal")
+        colunas = 5
+        for coluna in range(colunas):
+            conteudo.columnconfigure(coluna, weight=1)
         for pos, simbolo in enumerate(_simbolos_da_paleta()):
-            tk.Button(conteudo, text=simbolo,
-                      width=max(2, min(5, len(simbolo) + 1)),
-                      font=fontes.fonte_do_rotulo(simbolo, base_fonte),
-                      command=lambda s=simbolo: self._inserir(s)).grid(
-                          row=pos // 10, column=pos % 10, padx=1, pady=1, sticky="ew")
+            botao = tk.Button(conteudo, text=simbolo,
+                              width=max(2, min(4, len(simbolo) + 1)),
+                              font=fontes.fonte_do_rotulo(simbolo, base_fonte),
+                              command=lambda s=simbolo: self._inserir(s))
+            botao.grid(row=pos // colunas, column=pos % colunas,
+                       padx=1, pady=1, sticky="ew")
+            # O ponteiro normalmente fica sobre o botão, não sobre o fundo do
+            # canvas. Repetir a binding nos botões torna a roda útil em toda a
+            # paleta, inclusive no X11 (Button-4/5).
+            botao.bind("<MouseWheel>", rolar)
+            botao.bind("<Button-4>", rolar)
+            botao.bind("<Button-5>", rolar)
 
         rodape = tk.Frame(self, padx=12, pady=8)
         rodape.grid(row=2, column=0, sticky="ew")
         tk.Label(rodape, text="Confirmações viram dataset de treino de linhas.",
-                 fg="gray35").pack(side="left")
+                 fg=tema.TEXTO_SECUNDARIO).pack(side="left")
         tk.Button(rodape, text="Salvar dataset", command=self._salvar_dataset).pack(
             side="right", padx=4)
         tk.Button(rodape, text="Fechar", command=self._fechar).pack(side="right")
@@ -263,9 +281,9 @@ class DialogoRotulagem(tk.Toplevel):
         self.lbl_atual.config(text=f"{len(linha)} glifo(s) | confiança: "
                                 f"{self._ocr.get((self._pos, 'conf'), '—')}")
         if self._pos in self._confirmadas:
-            self.lbl_status.config(text="Linha já confirmada nesta sessão.", fg="#267326")
+            self.lbl_status.config(text="Linha já confirmada nesta sessão.", fg=tema.TEXTO_OK)
         elif self._pos in self._descartadas:
-            self.lbl_status.config(text="Linha descartada nesta sessão.", fg="#9b2226")
+            self.lbl_status.config(text="Linha descartada nesta sessão.", fg=tema.TEXTO_ERRO)
         self.texto.focus_set()
 
     def _total_paginas(self):
@@ -295,7 +313,7 @@ class DialogoRotulagem(tk.Toplevel):
             return
         self._geracao_rodando = True
         self.btn_ocr.config(state="disabled")
-        self.lbl_status.config(text="Gerando boxes automaticamente...", fg="#1769aa")
+        self.lbl_status.config(text="Gerando boxes automaticamente...", fg=tema.TEXTO_ANDAMENTO)
         imagem = self.app.image.copy()
 
         def trabalho(h):
@@ -324,7 +342,7 @@ class DialogoRotulagem(tk.Toplevel):
             self.btn_ocr.config(state="normal")
             self.lbl_status.config(
                 text="Não foi possível gerar os boxes desta página.",
-                fg="#9b2226")
+                fg=tema.TEXTO_ERRO)
             self._atualizar_navegacao()
             return False
 
@@ -353,13 +371,13 @@ class DialogoRotulagem(tk.Toplevel):
         try:
             destino = int(self.entry_pagina.get()) - 1
         except ValueError:
-            self.lbl_status.config(text="Informe um número de página válido.", fg="#9b2226")
+            self.lbl_status.config(text="Informe um número de página válido.", fg=tema.TEXTO_ERRO)
             return
         if 0 <= destino < self._total_paginas():
             if destino != self.app.current_pdf_page:
                 self._trocar_pagina(destino - self.app.current_pdf_page)
         else:
-            self.lbl_status.config(text="Página fora do intervalo do documento.", fg="#9b2226")
+            self.lbl_status.config(text="Página fora do intervalo do documento.", fg=tema.TEXTO_ERRO)
 
     def _resolver_pendente(self):
         if (not self._linhas or self._pos in self._confirmadas
@@ -405,7 +423,7 @@ class DialogoRotulagem(tk.Toplevel):
     def _pagina_com_erro(self):
         self._pagina_rodando = False
         self.lbl_status.config(text="Não foi possível carregar esta página.",
-                               fg="#9b2226")
+                               fg=tema.TEXTO_ERRO)
         self._atualizar_navegacao()
 
     def _pre_ocr(self):
@@ -565,7 +583,9 @@ class DialogoRotulagem(tk.Toplevel):
         if not indices:
             self.lbl_status.config(text="Nenhuma linha confirmada nova para salvar.")
             return
-        pasta = Path("training_data_linhas")
+        # A base que o treino lê (`config.paths`), e não a do cwd — aberto por
+        # atalho, o app gravava as linhas numa pasta que o treino não via.
+        pasta = pasta_de_linhas()
         imagens = pasta / "images"
         imagens.mkdir(parents=True, exist_ok=True)
         from core.linha_review import adicionar_ou_corrigir
@@ -575,7 +595,7 @@ class DialogoRotulagem(tk.Toplevel):
             texto = self._ocr.get(pos, "").replace("\n", " ").strip()
             adicionar_ou_corrigir(pasta, f"images/{nome}", texto)
         self._salvas.update(indices)
-        self.lbl_status.config(text=f"{len(indices)} linha(s) salva(s) em training_data_linhas/.")
+        self.lbl_status.config(text=f"{len(indices)} linha(s) salva(s) em {pasta}.")
 
     def _fechar(self):
         pendentes = self._confirmadas - self._salvas

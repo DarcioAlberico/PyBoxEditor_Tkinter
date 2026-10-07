@@ -5,13 +5,17 @@ import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk
 
+from config.paths import pasta_de_linhas
+from ui import tema
 from core.linha_review import corrigir, descartar, ler_manifesto
+from ui.paleta_de_simbolos import criar_paleta_de_simbolos
 
 
 class DialogoRevisaoLinhas(tk.Toplevel):
-    def __init__(self, parent, pasta="training_data_linhas"):
+    def __init__(self, parent, pasta=None):
         super().__init__(parent.parent)
-        self.app, self.pasta = parent, Path(pasta)
+        self.app = parent
+        self.pasta = pasta_de_linhas() if pasta is None else Path(pasta)
         self.amostras, self.pos = ler_manifesto(self.pasta), 0
         self.imagem_tk = None
         self.title("Revisão do dataset de linhas")
@@ -30,10 +34,16 @@ class DialogoRevisaoLinhas(tk.Toplevel):
         corpo.grid(row=1, column=0, sticky="nsew", padx=10)
         corpo.columnconfigure(0, weight=1)
         corpo.rowconfigure(0, weight=1)
-        self.preview = tk.Label(corpo, bg="#202124")
+        self.preview = tk.Label(corpo, bg=tema.FUNDO_DO_RECORTE)
         self.preview.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        self.texto = tk.Text(corpo, height=8, width=32, wrap="word")
-        self.texto.grid(row=0, column=1, sticky="nsew")
+        painel = tk.Frame(corpo)
+        painel.grid(row=0, column=1, sticky="nsew")
+        painel.rowconfigure(0, weight=1)
+        painel.columnconfigure(0, weight=1)
+        self.texto = tk.Text(painel, height=8, width=32, wrap="word")
+        self.texto.grid(row=0, column=0, sticky="nsew")
+        criar_paleta_de_simbolos(painel, self._inserir, altura=150).grid(
+            row=1, column=0, sticky="ew", pady=(8, 0))
         botoes = tk.Frame(self, pady=8)
         botoes.grid(row=2, column=0, sticky="ew", padx=10)
         tk.Button(botoes, text="Anterior", command=self._anterior).pack(side="left")
@@ -42,6 +52,10 @@ class DialogoRevisaoLinhas(tk.Toplevel):
         tk.Button(botoes, text="Próxima", command=self._proxima).pack(side="left", padx=8)
         tk.Button(botoes, text="Fechar", command=self.destroy).pack(side="right")
         self.texto.bind("<Control-Return>", lambda _event: self._salvar())
+
+    def _inserir(self, simbolo):
+        self.texto.insert("insert", simbolo)
+        self.texto.focus_set()
 
     def _mostrar(self):
         if not self.amostras:
