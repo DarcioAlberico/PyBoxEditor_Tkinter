@@ -268,4 +268,53 @@ O commit 11 faz os dois testes pularem sem os PDFs e troca a seção estática p
 o wheel constrói (209 arquivos, só o `model_meta.json` em `share/PyBoxEditor`, os três
 recursos que a CI exige presentes) e o teste lento da instalação passa em 12 s; na árvore
 o wheel leva os cinco modelos e os 14 testes ligados passam. O resultado da CI do push
-fica no run do `master` no GitHub.
+fica no run do `master` no GitHub: verde nas três versões de Python (run 37551557492).
+
+## Fechamento dos itens 2 e 3 (2026-10-06, à noite)
+
+**Item 2, a codificação.** O crivo completo (`scripts/conferir_codificacao.py`) recontou o
+mojibake: dezesseis arquivos, não doze — o grep da análise não cobria `ui/main_window.py`
+(as mensagens do portão do treino), `scripts/preparar_fase7.py`, `treinar_ocr_linhas.py`,
+`rodada_do_corpus.py` e dois testes. Tudo era dupla codificação reversível: nenhuma
+sequência passou pelos cinco bytes que o cp1252 não tem, e `texto.encode("cp1252")
+.decode("utf-8")` devolveu o original trecho a trecho. Saíram também o BOM de dois testes
+e o CP850 do `fonts/LEEME__D.TXT`, que passou a UTF-8. Três ocorrências eram legítimas — o
+relatório do editor detecta mojibake no texto de um livro e o explica com exemplos — e
+ganharam o marcador `mojibake intencional` na linha, que o verificador respeita.
+`tests/test_codificacao.py` roda sobre todo arquivo de texto rastreado (646) e falha com
+byte fora de UTF-8, BOM ou mojibake; os testes unitários provam que cada defeito é pego e
+que acentos, travessão, `≤`, `⩲` e `♘` passam intactos (`27b32c2`).
+
+O fim de linha ganhou contrato: `.gitattributes` com `* text=auto eol=lf` e os binários
+declarados (`f2d2933`). Os blobs já eram LF — `git ls-files --eol` não acha nenhum
+`i/crlf` nem `i/mixed` —, então o commit não gera ruído no `git blame`; os 161 arquivos de
+texto com CRLF ou mistos na árvore foram reescritos em LF no disco, e os cem avisos de
+"LF will be replaced by CRLF" sumiram.
+
+**Item 3, a porta de entrada.** `README.md` (os três fluxos, instalar, testar, o que está
+medido, onde está o quê, os documentos), `CLAUDE.md` (as regras de quem trabalha aqui,
+antes só na memória de uma sessão) e `docs/ARCHITECTURE.md` refeito (camadas, caminho de
+produção, biblioteca de inspeção, o percurso de uma exportação, fronteiras, dívidas), em
+`f8f3dc1`. O crivo pegou, em seguida, os exemplos literais nos docstrings do próprio
+verificador e do teste, que ficaram rastreados e passaram a ser lidos; viraram descrição
+(`79e66d2`).
+
+**A suíte depois dos dois itens**, na árvore: 3516 verdes e três vermelhos, todos
+consequência do próprio trabalho. Um era o crivo acusando os seus exemplos literais. Os
+outros dois eram `tests/test_corpus_v2_real.py`: "hash do corpus não corresponde aos
+arquivos declarados". `CorpusManifest.digest` é um SHA-256 dos bytes de cada arquivo
+declarado, e o hash de 26/09 foi calculado na árvore Windows com as quatro predições em
+CRLF; ao reescrevê-las em LF, a identidade do corpus mudou — e com ela a validade das
+rodadas gravadas em `benchmarks/rodadas/`, o baseline com que `rodada_do_corpus.py
+--comparar-com` se recusa a comparar outro corpus. Re-congelar o manifesto desfaria as
+rodadas; o protocolo de benchmark é imutável por definição. Os artefatos passam a ser
+guardados byte a byte (`benchmarks/** -text`), e as quatro predições voltam aos bytes
+exatos que o hash conhece, no Windows e na CI — o que torna a medição reproduzível fora do
+Windows, onde antes as predições saíam em LF (`3f24462`). Depois disso, os 69 testes do
+corpus, do holdout, do benchmark, do pacote e da codificação passam.
+
+Lição para o item 2 em geral: um hash sobre bytes de arquivo de texto é também um hash
+sobre o fim de linha; o que está congelado por hash não se normaliza.
+
+Sem push: os itens 2 e 3 ficam em `27b32c2..3f24462` no `master` local, para a CI rodar
+quando o usuário quiser.
