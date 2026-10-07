@@ -66,6 +66,22 @@ estrutura sem o epubcheck e a caixa diz isso. O Tesseract e o modelo neural do O
 são necessários para o editor (DEC-07 da `docs/SPEC_EDITOR.md`): `appy.py --editor
 --diagnostico-modulos` lista o que foi carregado.
 
+## Executável desktop (Windows)
+
+Para gerar o bundle reproduzível do aplicativo, instale o extra de empacotamento
+e execute a partir da raiz do projeto:
+
+```text
+python -m pip install -e ".[desktop]"
+python scripts/verificar_empacotamento.py
+python -m PyInstaller --noconfirm --clean pyboxeditor.spec
+```
+
+O resultado fica em `dist/PyBoxEditor/`. O bundle inclui fontes, léxico,
+figuras do tabuleiro e os modelos pequenos de diagrama. O Tesseract continua
+externo; `custom_model.pth` e outros pesos treinados devem ser distribuídos
+separadamente por `scripts/empacotar_modelo.py`.
+
 ## PaddleOCR (opcional)
 
 O reconhecimento por PaddleOCR usa o módulo `TextRecognition` e não substitui

@@ -51,6 +51,8 @@ python -m compileall -q appy.py core ui config scripts
 python -m ruff check core ui appy.py config scripts
 python -m pytest -q -p no:cacheprovider -o addopts="" -m "not slow"
 python -m pytest -q -p no:cacheprovider -o addopts="" -m slow
+python scripts/validar_documento_editorial.py documento-editorial.json \
+  --exigir-resolvido -o documento-quality.json
 python -m pip wheel . --no-deps --no-build-isolation -w dist
 python scripts/smoke_release.py dist/pyboxeditor-0.1.0-py3-none-any.whl --editor
 ```
@@ -66,26 +68,6 @@ medição do editor, AC-005 e os de desempenho da ED-03/ED-04) ficam fora do gat
 padrão e rodam à parte; `--editor` abre o editor de livros em subprocesso sobre um
 livro sintético e exige que ele feche com código 0 sem carregar o OCR.
 
-## Editor de livro
-
-O editor (`appy.py --editor [arquivo] [--fechar-apos N] [--diagnostico-modulos]`, ou
-python scripts/validar_documento_editorial.py documento-editorial.json \
-  --exigir-resolvido -o documento-quality.json
-Arquivo → Editor de livro… na janela principal) é a janela de edição em modo texto e
-modo código sobre o mesmo livro, com a especificação em `docs/SPEC_EDITOR.md` e o
-histórico das fases em `docs/ROADMAP_EDITOR.md`. O que ele lê e escreve: EPUB 3 (o
-formato nativo), HTML/XHTML, TXT, DOCX (escrever sempre; ler sem `python-docx`), PDF
-paginado (PyMuPDF), PGN e o JSON do documento editorial do OCR (a ponte da ED-11: salvar
-grava os eventos no diário da revisão).
-
-Dependências: Pillow, PyMuPDF e `chess` vêm em `requirements.txt`; `python-docx` só
-para **escrever** DOCX (`pip install -e ".[docx]"`); `epubcheck` + Java para a validação
-(`pip install -e ".[epub-validacao]"` — sem eles, a estrutura é conferida sem o
-epubcheck e a caixa diz isso). As fontes de diagrama e de símbolos estão em `fonts/` e
-`assets/fonts/`; a preferência de tela fica em `Settings.get("editor")`.
-
-### Máquina de referência e orçamentos (AC-005, §13.1)
-
 O gate do documento confere o IR completo, a ordem de paginas e blocos, a
 proveniencia, FENs, tabelas e sequencias que precisam carregar no
 `python-chess`. `--exigir-resolvido` tambem bloqueia decisoes `unresolved`,
@@ -100,6 +82,24 @@ qualquer arquivo:
 python scripts/processar_editorial.py livro.pdf -o saida.json \
   --validar-qualidade --exigir-resolvido
 ```
+
+## Editor de livro
+
+O editor (`appy.py --editor [arquivo] [--fechar-apos N] [--diagnostico-modulos]`, ou
+Arquivo → Editor de livro… na janela principal) é a janela de edição em modo texto e
+modo código sobre o mesmo livro, com a especificação em `docs/SPEC_EDITOR.md` e o
+histórico das fases em `docs/ROADMAP_EDITOR.md`. O que ele lê e escreve: EPUB 3 (o
+formato nativo), HTML/XHTML, TXT, DOCX (escrever sempre; ler sem `python-docx`), PDF
+paginado (PyMuPDF), PGN e o JSON do documento editorial do OCR (a ponte da ED-11: salvar
+grava os eventos no diário da revisão).
+
+Dependências: Pillow, PyMuPDF e `chess` vêm em `requirements.txt`; `python-docx` só
+para **escrever** DOCX (`pip install -e ".[docx]"`); `epubcheck` + Java para a validação
+(`pip install -e ".[epub-validacao]"` — sem eles, a estrutura é conferida sem o
+epubcheck e a caixa diz isso). As fontes de diagrama e de símbolos estão em `fonts/` e
+`assets/fonts/`; a preferência de tela fica em `Settings.get("editor")`.
+
+### Máquina de referência e orçamentos (AC-005, §13.1)
 
 Máquina de referência: AMD Ryzen 5 3600 (6 núcleos), 16 GB, Windows 10 22H2, Python
 3.13.2 (`.venv`), tema Tk `vista`. A medição roda com
@@ -128,26 +128,23 @@ entra no registro da fase (ED-13b) antes de qualquer release.
 Roteiros manuais: `docs/roteiros/editor_teclado.md` (tudo pelo teclado, AC-006) e
 `docs/roteiros/editor_docx.md` (o DOCX no Word e no LibreOffice).
 
-## Fase 8: release e benchmark protocolado
+## Bundle desktop
 
-Para empacotar pesos com manifesto e checksum:
+O bundle Windows é construído pelo spec versionado, preservando a topologia dos
+recursos que o código acessa por caminho relativo:
 
 ```text
-python scripts/empacotar_modelo.py text_line_model.pth \
-  --meta text_line_model.json \
-  --manifesto-pesos text_line_model.manifest.json \
-  -o dist/line-crnn.zip --model-id line-crnn \
-  --pipeline-version editorial-pipeline/v4 --exigir-portao \
-  --exigir-proveniencia-dataset \
-  --rodada-corpus benchmarks/rodadas/ultima.json --exigir-gate-corpus \
-  --gate-editorial benchmarks/quality/ultima.json --exigir-gate-editorial
-  python scripts/smoke_release.py dist/pyboxeditor-0.1.0-py3-none-any.whl
+python -m pip install -e ".[desktop]"
+python scripts/verificar_empacotamento.py
+python -m PyInstaller --noconfirm --clean pyboxeditor.spec
 ```
 
-Comparações com engines externos devem usar o mesmo manifesto de corpus, idioma,
-DPI, pré-processamento e política de revisão. ABBYY e Acrobat são adapters
-opcionais: ausência do executável deve ser registrada como indisponibilidade,
-nunca como resultado vazio favorável ao nosso OCR.
+O diretório `dist/PyBoxEditor/` é a unidade distribuível. O Tesseract não é
+embutido e precisa estar instalado no sistema; os pesos grandes continuam com
+manifesto e checksum no pacote de modelo.
+
+## Fase 8: release e benchmark protocolado
+
 ### Expansao segura do corpus
 
 Antes de promover uma alteração do leitor, execute também o gate absoluto do
@@ -347,6 +344,9 @@ Os metadados do treino tambem guardam o SHA-256 do `.pth`, o fingerprint dos
 pixels e rotulos do dataset e a lista deterministica da validacao. O portao
 recusa um JSON mais antigo que o peso ou cujo hash nao corresponda; portanto,
 copiar um `.pth` sem seu `.json` correspondente nunca promove silenciosamente
+um modelo. `--avaliar` mede o arquivo atual, mas essa medicao nao reescreve a
+proveniencia nem substitui um holdout revisado.
+
 Para empacotar pesos com manifesto e checksum:
 
 ```text
@@ -379,6 +379,3 @@ Comparações com engines externos devem usar o mesmo manifesto de corpus, idiom
 DPI, pré-processamento e política de revisão. ABBYY e Acrobat são adapters
 opcionais: ausência do executável deve ser registrada como indisponibilidade,
 nunca como resultado vazio favorável ao nosso OCR.
-um modelo. `--avaliar` mede o arquivo atual, mas essa medicao nao reescreve a
-proveniencia nem substitui um holdout revisado.
-

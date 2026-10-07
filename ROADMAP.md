@@ -14524,6 +14524,23 @@ confundida com falta de resposta). Suíte: 3104 (`-m "not slow"`).
 
 ---
 
+## F125 — O aplicativo ganha um bundle desktop reproduzível — CONCLUÍDA
+
+O único item de implementação que permanecia explicitamente fora do roadmap era
+o empacotamento independente. A entrega usa `pyboxeditor.spec` em modo **onedir**:
+preserva `assets/`, `core/dados/`, `fonts/` e `pieces/` na topologia que o código
+já usa, mas não incorpora `custom_model.pth`, pesos treinados grandes ou o
+executável do Tesseract. Esses recursos continuam sendo distribuídos pelos seus
+contratos próprios.
+
+O extra `[desktop]` instala o PyInstaller; `scripts/verificar_empacotamento.py`
+confere a árvore antes do build. O build real de 2026-09-25 terminou em
+`dist/PyBoxEditor/`, e o executável iniciou o modo editor com fechamento
+automático e código 0. A cobertura estrutural fica em
+`tests/test_empacotamento.py`.
+
+---
+
 ## Fora de escopo (registrado para depois)
 
 - ~~Extração de FEN dos diagramas~~ — **promovida para F7.1** (feita)
@@ -14533,4 +14550,3 @@ confundida com falta de resposta). Suíte: 3104 (`-m "not slow"`).
 - ~~Substituição do k-NN linear de `CharacterLearner` por índice FAISS/KD-tree~~ —
   **promovida para F7.2**, e o índice não foi preciso: dedup mais busca vetorizada
   deram 112x sem aproximar nada
-- Empacotamento com PyInstaller
