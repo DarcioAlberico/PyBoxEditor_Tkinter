@@ -67,13 +67,13 @@ def caracteres_da_pagina(imagem, classificar, *, conf_minima: float,
 
 
 def _gravar_recortes(erros, imagem, boxes_por_linha, destino: Path,
-                     prefixo: str) -> int:
+                     prefixo: str) -> list[dict]:
     from PIL import Image
 
     from core import vertical
     from core.learner import char_to_folder
 
-    gravados = 0
+    gravados = []
     for erro in erros:
         if erro.especie != "troca" or not erro.confiante:
             continue
@@ -86,8 +86,9 @@ def _gravar_recortes(erros, imagem, boxes_por_linha, destino: Path,
         pasta = destino / char_to_folder(erro.esperado)
         pasta.mkdir(parents=True, exist_ok=True)
         nome = f"{prefixo}_l{erro.linha:03d}b{erro.indice_do_box:03d}.png"
-        Image.fromarray(recorte).save(pasta / nome)
-        gravados += 1
+        arquivo = pasta / nome
+        Image.fromarray(recorte).save(arquivo)
+        gravados.append(ocr14.entrada_de_quarentena(erro, str(arquivo)))
     return gravados
 
 
@@ -159,10 +160,11 @@ def main() -> int:
                 print(f"    {vezes:3d}×  leu {lido!r:8s} onde é {esperado!r}")
             if args.recortes:
                 por_linha = dict(enumerate(quebrar_em_linhas(boxes)))
-                gravados = _gravar_recortes(
+                recortes = _gravar_recortes(
                     resumo.erros, imagem, por_linha, args.recortes,
                     f"{args.pdf.stem[:24]}_p{numero:03d}")
-                print(f"  {gravados} recorte(s) em quarentena em {args.recortes}")
+                relatorio["paginas"][str(numero)]["recortes"] = recortes
+                print(f"  {len(recortes)} recorte(s) em quarentena em {args.recortes}")
     finally:
         documento.close()
 

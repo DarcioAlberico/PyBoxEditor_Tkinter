@@ -105,6 +105,56 @@ def test_o_resumo_serializa_o_que_o_relatorio_publica():
     assert dados["confusoes"] == [{"lido": "±", "esperado": "⩲", "vezes": 1}]
 
 
+def test_o_resumo_publica_cada_erro_com_procedencia_para_a_quarentena():
+    erro = ocr14.minerar(_lidos("x"), "y")[0]
+
+    dados = ocr14.Resumo([erro]).to_dict()
+
+    assert dados["erros_detalhados"] == [erro.to_dict()]
+    assert dados["erros_detalhados"][0]["caixa"] == [0, 0, 9, 20]
+
+
+def test_a_entrada_de_quarentena_liga_o_erro_ao_recorte_sem_promover_rotulo():
+    erro = ocr14.minerar(_lidos("x"), "y")[0]
+
+    entrada = ocr14.entrada_de_quarentena(erro, "notation/esperado/x.png")
+
+    assert entrada["arquivo"] == "notation/esperado/x.png"
+    assert entrada["esperado"] == "y"
+    assert entrada["rotulo_confirmado"] is False
+
+
+def test_a_confirmacao_de_quarentena_exige_rotulo_e_preserva_a_procedencia():
+    erro = ocr14.minerar(_lidos("x"), "y")[0]
+    entrada = ocr14.entrada_de_quarentena(erro, "revisao_ocr14/y/x.png")
+
+    confirmada = ocr14.confirmar_entrada_de_quarentena(
+        entrada, "y", revisor="editor", revisado_em="2026-09-25T20:00:00+00:00")
+
+    assert confirmada["rotulo_confirmado"] is True
+    assert confirmada["rotulo"] == "y"
+    assert confirmada["revisor"] == "editor"
+    assert confirmada["revisado_em"] == "2026-09-25T20:00:00+00:00"
+    assert confirmada["arquivo"] == entrada["arquivo"]
+    assert entrada["rotulo_confirmado"] is False
+
+
+def test_a_confirmacao_de_quarentena_nao_aceita_rotulo_vazio():
+    erro = ocr14.minerar(_lidos("x"), "y")[0]
+    entrada = ocr14.entrada_de_quarentena(erro, "revisao_ocr14/y/x.png")
+
+    with pytest.raises(ValueError, match="rótulo"):
+        ocr14.confirmar_entrada_de_quarentena(entrada, " ")
+
+
+def test_a_confirmacao_de_quarentena_exige_um_unico_glifo():
+    entrada = ocr14.entrada_de_quarentena(
+        ocr14.minerar(_lidos("x"), "y")[0], "revisao_ocr14/y/recorte.png")
+
+    with pytest.raises(ValueError, match="um único glifo"):
+        ocr14.confirmar_entrada_de_quarentena(entrada, "xy")
+
+
 def test_a_linha_inteira_perdida_nao_estala_o_garimpo():
     """Página cuja cadeia não leu nada continua sendo mensurável."""
     erros = ocr14.minerar([], "25.♖xc7! Amazingly")

@@ -1,0 +1,315 @@
+{
+ "data": "2026-09-26T09:12:23+00:00",
+ "rotulo": "ensemble opt-in",
+ "manifesto": "benchmarks\\corpus_v2.json",
+ "corpus": {
+  "schema": "pyboxeditor.ocr-corpus/v1",
+  "version": "2",
+  "corpus_sha256": "6d187d987f044fed684e731fdeec6c21f2293809fb630275da69837b64395724",
+  "page_index_base": 1,
+  "documents": [
+   "aagaard-calculation",
+   "nunn-rook-endings",
+   "yusupov-evolution-1"
+  ]
+ },
+ "engine": "livro.extrair+ensemble",
+ "config": {
+  "dpi": 300,
+  "fusao": "palavra",
+  "diagramas": "recorte",
+  "geometria": true,
+  "ensemble": true
+ },
+ "tempo_s": 91.1,
+ "paginas": [
+  {
+   "id": "aagaard-calculation-p030",
+   "documento": "aagaard-calculation",
+   "page_index": 30,
+   "dificuldade": "mixed_layout",
+   "familias": [
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "principal": "diagramas",
+   "metricas": {
+    "prose": {
+     "tokens": 207,
+     "erros": 9,
+     "caracteres": 981,
+     "erros_de_caractere": 34,
+     "wer": 0.043478260869565216,
+     "cer": 0.034658511722731905
+    },
+    "notation": {
+     "tokens": 88,
+     "erros": 10,
+     "caracteres": 478,
+     "erros_de_caractere": 18,
+     "wer": 0.11363636363636363,
+     "cer": 0.03765690376569038
+    },
+    "total": {
+     "tokens": 295,
+     "erros": 19,
+     "caracteres": 1459,
+     "erros_de_caractere": 52,
+     "wer": 0.06440677966101695,
+     "cer": 0.03564084989718986
+    }
+   },
+   "semantica": {}
+  },
+  {
+   "id": "nunn-rook-endings-p237",
+   "documento": "nunn-rook-endings",
+   "page_index": 237,
+   "dificuldade": "table",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "notacao",
+    "prosa",
+    "tabela"
+   ],
+   "principal": "tabela",
+   "metricas": {
+    "prose": {
+     "tokens": 165,
+     "erros": 3,
+     "caracteres": 552,
+     "erros_de_caractere": 3,
+     "wer": 0.01818181818181818,
+     "cer": 0.005434782608695652
+    },
+    "notation": {
+     "tokens": 73,
+     "erros": 5,
+     "caracteres": 413,
+     "erros_de_caractere": 14,
+     "wer": 0.0684931506849315,
+     "cer": 0.03389830508474576
+    },
+    "total": {
+     "tokens": 238,
+     "erros": 8,
+     "caracteres": 965,
+     "erros_de_caractere": 17,
+     "wer": 0.03361344537815126,
+     "cer": 0.017616580310880828
+    }
+   },
+   "semantica": {}
+  },
+  {
+   "id": "yusupov-evolution-1-p034",
+   "documento": "yusupov-evolution-1",
+   "page_index": 34,
+   "dificuldade": "two_columns",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "negativo",
+    "notacao",
+    "prosa"
+   ],
+   "principal": "negativo",
+   "metricas": {
+    "prose": {
+     "tokens": 128,
+     "erros": 1,
+     "caracteres": 610,
+     "erros_de_caractere": 1,
+     "wer": 0.0078125,
+     "cer": 0.001639344262295082
+    },
+    "notation": {
+     "tokens": 118,
+     "erros": 5,
+     "caracteres": 658,
+     "erros_de_caractere": 6,
+     "wer": 0.0423728813559322,
+     "cer": 0.00911854103343465
+    },
+    "total": {
+     "tokens": 246,
+     "erros": 6,
+     "caracteres": 1268,
+     "erros_de_caractere": 7,
+     "wer": 0.024390243902439025,
+     "cer": 0.005520504731861199
+    }
+   },
+   "semantica": {}
+  },
+  {
+   "id": "yusupov-evolution-1-p047",
+   "documento": "yusupov-evolution-1",
+   "page_index": 47,
+   "dificuldade": "halftone_panel",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "prosa",
+    "trama"
+   ],
+   "principal": "trama",
+   "metricas": {
+    "prose": {
+     "tokens": 265,
+     "erros": 21,
+     "caracteres": 1269,
+     "erros_de_caractere": 82,
+     "wer": 0.07924528301886792,
+     "cer": 0.06461780929866036
+    },
+    "notation": {
+     "tokens": 43,
+     "erros": 0,
+     "caracteres": 209,
+     "erros_de_caractere": 0,
+     "wer": 0.0,
+     "cer": 0.0
+    },
+    "total": {
+     "tokens": 308,
+     "erros": 21,
+     "caracteres": 1478,
+     "erros_de_caractere": 82,
+     "wer": 0.06818181818181818,
+     "cer": 0.05548037889039242
+    }
+   },
+   "semantica": {}
+  }
+ ],
+ "totais": {
+  "prose": {
+   "caracteres": 3412.0,
+   "erros_de_caractere": 120.0,
+   "tokens": 765.0,
+   "erros": 34.0,
+   "cer": 0.035169988276670575,
+   "wer": 0.044444444444444446
+  },
+  "notation": {
+   "caracteres": 1758.0,
+   "erros_de_caractere": 38.0,
+   "tokens": 322.0,
+   "erros": 20.0,
+   "cer": 0.02161547212741752,
+   "wer": 0.062111801242236024
+  },
+  "total": {
+   "caracteres": 5170.0,
+   "erros_de_caractere": 158.0,
+   "tokens": 1087.0,
+   "erros": 54.0,
+   "cer": 0.03056092843326886,
+   "wer": 0.04967801287948482
+  }
+ },
+ "semanticas": {},
+ "cobertura": {
+  "paginas": 4,
+  "cobertura": {
+   "imagem": 0,
+   "tabela": 1,
+   "trama": 1,
+   "negativo": 1,
+   "duas_colunas": 3,
+   "diagramas": 4,
+   "notacao": 3,
+   "prosa": 4
+  },
+  "faltando": [
+   "imagem",
+   "tabela",
+   "trama",
+   "negativo"
+  ],
+  "por_livro": {
+   "aagaard-calculation": {
+    "imagem": 0,
+    "tabela": 0,
+    "trama": 0,
+    "negativo": 0,
+    "duas_colunas": 0,
+    "diagramas": 1,
+    "notacao": 1,
+    "prosa": 1
+   },
+   "nunn-rook-endings": {
+    "imagem": 0,
+    "tabela": 1,
+    "trama": 0,
+    "negativo": 0,
+    "duas_colunas": 1,
+    "diagramas": 1,
+    "notacao": 1,
+    "prosa": 1
+   },
+   "yusupov-evolution-1": {
+    "imagem": 0,
+    "tabela": 0,
+    "trama": 1,
+    "negativo": 1,
+    "duas_colunas": 2,
+    "diagramas": 2,
+    "notacao": 1,
+    "prosa": 2
+   }
+  },
+  "faltando_por_livro": {
+   "aagaard-calculation": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "nunn-rook-endings": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "yusupov-evolution-1": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ]
+  },
+  "minimo_por_familia": 3
+ },
+ "quality_gate": {
+  "enabled": false,
+  "passed": true,
+  "limits": {
+   "max_cer_total": null,
+   "max_cer_prosa": null,
+   "max_cer_notacao": null,
+   "min_fen_exato": null,
+   "min_fen_legal": null,
+   "min_notacao_exata": null,
+   "min_notacao_legal": null,
+   "exigir_ordem_layout": false
+  },
+  "require_coverage": false,
+  "failures": []
+ }
+}

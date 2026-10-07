@@ -1,0 +1,33 @@
+Realizing a material advantage in a pawn ending
+
+⯹♖♖⩱⩲==
+
+== == == ==== = ========= = ========== === === = = = ===== ========== = == = ===================⯹⩲♖⯹⩲♖♖♖⩲⯹♖♖♖ ⩱
+
+⯹ : that has occurred in order to break through towards the opposing pawns and gain a decisive advantage in ⇄ material.” — Averbakh 8.bxa5 bxa5 9.c5+ ♔c6 10.a4 h4 If Black tries 10...g4, then 11.g3! prevents the
+
+Diagram 4-2 △
+
+creation of a passed pawn.
+
+Diagram 4-2 11.f3! Black is now denied the chance to continue ... 4. 11...♔c7 12.♔d5 ♔d7 13.c6+ ♔c7 14.♔c5 ♔c8 15.♔b6 ♔b8 16.♔xa5 White wins another pawn on the queenside. Black naturally has no chance against two passed pawns.
+
+If the pawns are not totally fixed, the stronger side can make use of another winning plan: playing for zugzwang and thus putting the opposing king in a ‘semi-stalemate’ situation.
+
+Diagram 4–3 △
+
+Diagram 4-3
+
+1.b6! The plan with deflection does not win here, be- cause the black king can reach the saving f8-square in time: 1.♔d5 ♔b6 2.♔e5? (White can return with 2.♔c4 and still win as in the main line) 2...♔xb5 3♔f5♔c64♔ 5♔d75♔h4♔76♔5♔f8 . .♔.xe.g= 1...♔b8 2.♔c6 c8 3.b7+ ♔b8 4.♔b6 This is the ‘semi-stalemate’ method. Black now has to surrender his g-pawn. 4...g4 5.hxg4 h3 6.♔c6+—
+
+“However, an extra pawn does not automatically
+
+Diagram 4-4 △
+
+guarantee victory in a pawn ending. Specific factors in the position can not only considerably complicate the stronger side’s task, they can also deprive it of all chances of success.” - Averbakh
+
+Diagram 4-4
+
+PRomanvsky
+
+1 960 1.e5 1.♔c5?? ♔e5—+

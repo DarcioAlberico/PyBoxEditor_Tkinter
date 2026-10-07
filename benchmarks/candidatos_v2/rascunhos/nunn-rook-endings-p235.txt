@@ -1,0 +1,37 @@
+234 SECRETS OF ROOK ENDINGS
+
+1...♖g8 or play 1...♖c8 with a draw as in diagram 394.
+
+It is worth mentioning one deep- tive position. If we move Black’s rook to c8 in diagram 396 then Black to play can draw, but he must not play the obvious 1...♔f6? when 2 ♔b3! wins as in diagram 394. Instead 1...♔f4 draws, as does 1...♖h8 leading to dia- gram 396.
+
+Even a one-file cut-off can win, but it requires a very favourable initial po- position. We take a practical example.
+
+397 /
+
+Kruszynski — Wiemer
+
+West Germany, 1984
+
+(397): White’s rook is miserably placed and at some stage he will have to bring it back to the first rank. ECE erroneously considers this position to be a draw with White to play. The analysis runs:
+
+1) 1 ♔e3 (the game continuation) ♔b5 2 ♖b7+ ♔c4! 3 ♖b1 (although the rook has been activated, Black can exploit the unfortunate White king po- position) ♖d3+! (3...c5? 4 ♖c1+! draws)
+
+4♔e2c5!5♖c1+♖c3!6♖h1♔b37 ♔d2 ♖c2+! 8 ♔d1 c4 9 ♖h8 ♖g2 win- ning as in diagram 356.
+
+2) 1 ♖a7 (ECE’s recommendation) and now:
+
+2a) 1...♔c4? 2 ♖a4+! (not 2 ♖a1? ♖e8+! 3 ♔f3 c5 and wins) ♔b3 (or 2...♔b5 3♖a1!)3♖a5! ♔b4 4♖a1! c5 5 ♖b1+! ♔a4 6 ♖c1! (6 ♖a1+? ♔b3! wins) ♔b5 7 ♖b1+! ♔c6 8 ♖c1 draws.
+
+2b) 1...♖d1! (preventing the rook occupying the important first rank; White’s king is too far up the board to drive the rook away from d1 in time) 2 ♔e3 (2 ♖a2 ♔b4! 3 ♖b2+ ♔c3! fol- lowed by ...c5) ♔c4 3 ♔e2 ♖d5 4 ♖a1 c5 5 ♖c1+ ♔b3 6 ♖b1+ ♔c2 7 ♖b5 ♖d2+, followed by ...c4 winning.
+
+The following position is interest- ing.
+
+398 +/
+
+Original
+
+—
+
+(398): White to play can only win by transferring the move to Black. He continues 1 ♔c7! and now:
+
+1) 1...♔e6 (1...♔f6 2 ♖e3 is the same because Black has nothing better

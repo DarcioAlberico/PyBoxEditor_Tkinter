@@ -1,0 +1,119 @@
+{
+  "schema": "pyboxeditor.ocr-corpus-candidates/v1",
+  "source": {
+    "pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+    "documento": "nunn-rook-endings",
+    "idioma": "en",
+    "dpi": 300,
+    "page_index_base": 1,
+    "pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93"
+  },
+  "candidatos": [
+    {
+      "id": "nunn-rook-endings-p234",
+      "documento": "nunn-rook-endings",
+      "page_index": 234,
+      "familias": [
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ],
+      "principal": "duas_colunas",
+      "status": "unreviewed",
+      "declared_families": [],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 2,
+        "diagramas": 2,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 54,
+          "dominios": {
+            "mixed": 28,
+            "notation": 7,
+            "prose": 18,
+            "unknown": 1
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+      "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+      "artifacts": {
+        "draft": "rascunhos/nunn-rook-endings-p234.txt",
+        "routing": "roteamento/nunn-rook-endings-p234.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    },
+    {
+      "id": "nunn-rook-endings-p235",
+      "documento": "nunn-rook-endings",
+      "page_index": 235,
+      "familias": [
+        "duas_colunas",
+        "diagramas",
+        "prosa"
+      ],
+      "principal": "duas_colunas",
+      "status": "unreviewed",
+      "declared_families": [],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 2,
+        "diagramas": 2,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 55,
+          "dominios": {
+            "mixed": 22,
+            "notation": 4,
+            "prose": 27,
+            "unknown": 2
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+      "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+      "artifacts": {
+        "draft": "rascunhos/nunn-rook-endings-p235.txt",
+        "routing": "roteamento/nunn-rook-endings-p235.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    },
+    {
+      "id": "nunn-rook-endings-p236",
+      "documento": "nunn-rook-endings",
+      "page_index": 236,
+      "familias": [
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ],
+      "principal": "duas_colunas",
+      "status": "unreviewed",
+      "declared_families": [],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 2,
+        "diagramas": 1,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 66,
+          "dominios": {
+            "mixed": 27,
+            "notation": 6,
+            "prose": 33
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+      "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+      "artifacts": {
+        "draft": "rascunhos/nunn-rook-endings-p236.txt",
+        "routing": "roteamento/nunn-rook-endings-p236.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    }
+  ]
+}

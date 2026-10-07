@@ -1,0 +1,282 @@
+{
+  "schema": "pyboxeditor.ocr-corpus-plan/v1",
+  "rodada": "benchmarks\\rodadas\\corpus_v2_dpi300\\2026-09-26-0119.json",
+  "candidatos": [
+    "benchmarks\\candidatos_v2\\aagaard_p31.json",
+    "benchmarks\\candidatos_v2\\aagaard_p32_p33.json",
+    "benchmarks\\candidatos_v2\\nunn_p234_p236.json",
+    "benchmarks\\candidatos_v2\\yusupov_p35_p38.json"
+  ],
+  "plan": {
+    "minimo_por_familia": 3,
+    "necessidades_iniciais": {
+      "aagaard-calculation": [
+        "imagem",
+        "tabela",
+        "trama",
+        "negativo",
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ],
+      "nunn-rook-endings": [
+        "imagem",
+        "tabela",
+        "trama",
+        "negativo",
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ],
+      "yusupov-evolution-1": [
+        "imagem",
+        "tabela",
+        "trama",
+        "negativo",
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ]
+    },
+    "selecionados": [
+      {
+        "id": "nunn-rook-endings-p234",
+        "documento": "nunn-rook-endings",
+        "page_index": 234,
+        "familias": [
+          "diagramas",
+          "duas_colunas",
+          "notacao",
+          "prosa"
+        ],
+        "principal": "duas_colunas",
+        "status": "unreviewed",
+        "declared_families": [],
+        "signals": {
+          "pagina_de_imagem": false,
+          "colunas": 2,
+          "diagramas": 2,
+          "leitura": "imagem",
+          "roteamento": {
+            "linhas": 54,
+            "dominios": {
+              "mixed": 28,
+              "notation": 7,
+              "prose": 18,
+              "unknown": 1
+            }
+          }
+        },
+        "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+        "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+        "artifacts": {
+          "draft": "rascunhos/nunn-rook-endings-p234.txt",
+          "routing": "roteamento/nunn-rook-endings-p234.json",
+          "draft_source": "livro.extrair/fusao=palavra"
+        },
+        "motivo": "cobertura_por_livro_e_familia"
+      },
+      {
+        "id": "nunn-rook-endings-p236",
+        "documento": "nunn-rook-endings",
+        "page_index": 236,
+        "familias": [
+          "diagramas",
+          "duas_colunas",
+          "notacao",
+          "prosa"
+        ],
+        "principal": "duas_colunas",
+        "status": "unreviewed",
+        "declared_families": [],
+        "signals": {
+          "pagina_de_imagem": false,
+          "colunas": 2,
+          "diagramas": 1,
+          "leitura": "imagem",
+          "roteamento": {
+            "linhas": 66,
+            "dominios": {
+              "mixed": 27,
+              "notation": 6,
+              "prose": 33
+            }
+          }
+        },
+        "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+        "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+        "artifacts": {
+          "draft": "rascunhos/nunn-rook-endings-p236.txt",
+          "routing": "roteamento/nunn-rook-endings-p236.json",
+          "draft_source": "livro.extrair/fusao=palavra"
+        },
+        "motivo": "cobertura_por_livro_e_familia"
+      },
+      {
+        "id": "yusupov-evolution-1-p035",
+        "documento": "yusupov-evolution-1",
+        "page_index": 35,
+        "familias": [
+          "duas_colunas",
+          "negativo",
+          "notacao",
+          "prosa"
+        ],
+        "principal": "negativo",
+        "status": "unreviewed",
+        "declared_families": [
+          "negativo"
+        ],
+        "signals": {
+          "pagina_de_imagem": false,
+          "colunas": 2,
+          "diagramas": 0,
+          "leitura": "imagem",
+          "roteamento": {
+            "linhas": 82,
+            "dominios": {
+              "mixed": 16,
+              "notation": 27,
+              "prose": 36,
+              "unknown": 3
+            }
+          }
+        },
+        "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+        "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+        "artifacts": {
+          "draft": "rascunhos/yusupov-evolution-1-p035.txt",
+          "routing": "roteamento/yusupov-evolution-1-p035.json",
+          "draft_source": "livro.extrair/fusao=palavra"
+        },
+        "motivo": "cobertura_por_livro_e_familia"
+      },
+      {
+        "id": "aagaard-calculation-p032",
+        "documento": "aagaard-calculation",
+        "page_index": 32,
+        "familias": [
+          "diagramas",
+          "prosa"
+        ],
+        "principal": "diagramas",
+        "status": "unreviewed",
+        "declared_families": [],
+        "signals": {
+          "pagina_de_imagem": false,
+          "colunas": 1,
+          "diagramas": 3,
+          "leitura": "imagem",
+          "roteamento": {
+            "linhas": 2,
+            "dominios": {
+              "unknown": 2
+            }
+          }
+        },
+        "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+        "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53",
+        "artifacts": {
+          "draft": "rascunhos/aagaard-calculation-p032.txt",
+          "routing": "roteamento/aagaard-calculation-p032.json",
+          "draft_source": "livro.extrair/fusao=palavra"
+        },
+        "motivo": "cobertura_por_livro_e_familia"
+      },
+      {
+        "id": "aagaard-calculation-p033",
+        "documento": "aagaard-calculation",
+        "page_index": 33,
+        "familias": [
+          "diagramas",
+          "prosa"
+        ],
+        "principal": "diagramas",
+        "status": "unreviewed",
+        "declared_families": [],
+        "signals": {
+          "pagina_de_imagem": false,
+          "colunas": 1,
+          "diagramas": 3,
+          "leitura": "imagem",
+          "roteamento": {
+            "linhas": 0,
+            "dominios": {}
+          }
+        },
+        "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+        "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53",
+        "artifacts": {
+          "draft": "rascunhos/aagaard-calculation-p033.txt",
+          "routing": "roteamento/aagaard-calculation-p033.json",
+          "draft_source": "livro.extrair/fusao=palavra"
+        },
+        "motivo": "cobertura_por_livro_e_familia"
+      },
+      {
+        "id": "yusupov-evolution-1-p037",
+        "documento": "yusupov-evolution-1",
+        "page_index": 37,
+        "familias": [
+          "diagramas",
+          "duas_colunas",
+          "negativo",
+          "prosa"
+        ],
+        "principal": "negativo",
+        "status": "unreviewed",
+        "declared_families": [
+          "negativo"
+        ],
+        "signals": {
+          "pagina_de_imagem": false,
+          "colunas": 2,
+          "diagramas": 1,
+          "leitura": "imagem",
+          "roteamento": {
+            "linhas": 94,
+            "dominios": {
+              "mixed": 5,
+              "notation": 17,
+              "prose": 38,
+              "unknown": 34
+            }
+          }
+        },
+        "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+        "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+        "artifacts": {
+          "draft": "rascunhos/yusupov-evolution-1-p037.txt",
+          "routing": "roteamento/yusupov-evolution-1-p037.json",
+          "draft_source": "livro.extrair/fusao=palavra"
+        },
+        "motivo": "cobertura_por_livro_e_familia"
+      }
+    ],
+    "faltando": {
+      "aagaard-calculation": [
+        "imagem",
+        "tabela",
+        "trama",
+        "negativo",
+        "duas_colunas",
+        "notacao"
+      ],
+      "nunn-rook-endings": [
+        "imagem",
+        "tabela",
+        "trama",
+        "negativo"
+      ],
+      "yusupov-evolution-1": [
+        "imagem",
+        "tabela",
+        "trama",
+        "notacao"
+      ]
+    }
+  }
+}

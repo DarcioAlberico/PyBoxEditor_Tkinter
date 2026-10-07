@@ -1,0 +1,64 @@
+{
+  "schema": "pyboxeditor.ocr-holdout/v1",
+  "manifest": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2.json",
+  "corpus_sha256": "6d187d987f044fed684e731fdeec6c21f2293809fb630275da69837b64395724",
+  "documents": [
+    "aagaard-calculation",
+    "nunn-rook-endings",
+    "yusupov-evolution-1"
+  ],
+  "pages": [
+    {
+      "document_id": "aagaard-calculation",
+      "page_id": "aagaard-calculation-p030",
+      "page_index": 30,
+      "image": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\images\\aagaard_calculation_p030.png",
+      "reference": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\references\\aagaard_calculation_p030.txt",
+      "language": "en",
+      "domains": [
+        "body",
+        "notation",
+        "diagram"
+      ]
+    },
+    {
+      "document_id": "nunn-rook-endings",
+      "page_id": "nunn-rook-endings-p237",
+      "page_index": 237,
+      "image": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\images\\nunn_rook_endings_p237.png",
+      "reference": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\references\\nunn_rook_endings_p237.txt",
+      "language": "en",
+      "domains": [
+        "body",
+        "notation",
+        "table"
+      ]
+    },
+    {
+      "document_id": "yusupov-evolution-1",
+      "page_id": "yusupov-evolution-1-p034",
+      "page_index": 34,
+      "image": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\images\\yusupov_evolution_1_p034.png",
+      "reference": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\references\\yusupov_evolution_1_p034.txt",
+      "language": "en",
+      "domains": [
+        "body",
+        "notation",
+        "diagram"
+      ]
+    },
+    {
+      "document_id": "yusupov-evolution-1",
+      "page_id": "yusupov-evolution-1-p047",
+      "page_index": 47,
+      "image": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\images\\yusupov_evolution_1_p047.png",
+      "reference": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\references\\yusupov_evolution_1_p047.txt",
+      "language": "en",
+      "domains": [
+        "body",
+        "notation",
+        "diagram"
+      ]
+    }
+  ]
+}

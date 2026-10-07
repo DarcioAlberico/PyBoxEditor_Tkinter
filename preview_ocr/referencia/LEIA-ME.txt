@@ -68,7 +68,8 @@ Para acrescentar uma página, são três passos, e o do meio é o único demorad
    quando terminar, e escreva aqui embaixo o que a página tem de especial e a
    que dpi você a leu — as quatro de 2026-09-15 estão assim.
 
-3. Manifesto. Acrescente a página em `benchmarks/ocr_corpus_v1.json`
+3. Manifesto. Acrescente a página em `benchmarks/corpus_v2.json` (ou na nova
+   versão do manifesto que estiver em uso)
    (`documents[].pages[]`), com `page_index` (base 1, o número do PDF),
    `reference` apontando para o `pNNN.txt` e, em `metadata.difficulty`, o
    rótulo do layout quando ele não se deduz da leitura: `halftone_panel`,

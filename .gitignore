@@ -98,3 +98,11 @@ preview_ocr/*.docx
 preview_ocr/*.epub
 preview_ocr/*/*.docx
 preview_ocr/*/*.epub
+
+# Os PDFs-fonte do corpus de referencia v2 (F-corpus, 2026-09-26): 22 MB de livros
+# com direito autoral, pela mesma razao de /PDF/. O manifesto, as referencias, as
+# predicoes e as quatro imagens de pagina continuam no git.
+benchmarks/corpus_v2/source/
+
+# A base sintetica de linhas e gerada por core/linha_sintetica.py a partir das fontes.
+training_data_linhas_sintetico/

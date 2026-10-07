@@ -1,0 +1,108 @@
+{
+  "schema": "pyboxeditor.ocr-corpus-review/v1",
+  "items": [
+    {
+      "candidate_id": "nunn-rook-endings-p234",
+      "documento": "nunn-rook-endings",
+      "page_index": 234,
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+      "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+      "draft": "rascunhos/nunn-rook-endings-p234.txt",
+      "routing": "roteamento/nunn-rook-endings-p234.json",
+      "familias_sugeridas": [
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ],
+      "principal_sugerida": "duas_colunas",
+      "status": "pending_review"
+    },
+    {
+      "candidate_id": "nunn-rook-endings-p236",
+      "documento": "nunn-rook-endings",
+      "page_index": 236,
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\nunn.pdf",
+      "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93",
+      "draft": "rascunhos/nunn-rook-endings-p236.txt",
+      "routing": "roteamento/nunn-rook-endings-p236.json",
+      "familias_sugeridas": [
+        "duas_colunas",
+        "diagramas",
+        "notacao",
+        "prosa"
+      ],
+      "principal_sugerida": "duas_colunas",
+      "status": "pending_review"
+    },
+    {
+      "candidate_id": "yusupov-evolution-1-p035",
+      "documento": "yusupov-evolution-1",
+      "page_index": 35,
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+      "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+      "draft": "rascunhos/yusupov-evolution-1-p035.txt",
+      "routing": "roteamento/yusupov-evolution-1-p035.json",
+      "familias_sugeridas": [
+        "negativo",
+        "duas_colunas",
+        "notacao",
+        "prosa"
+      ],
+      "principal_sugerida": "negativo",
+      "status": "pending_review"
+    },
+    {
+      "candidate_id": "aagaard-calculation-p032",
+      "documento": "aagaard-calculation",
+      "page_index": 32,
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+      "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53",
+      "draft": "rascunhos/aagaard-calculation-p032.txt",
+      "routing": "roteamento/aagaard-calculation-p032.json",
+      "familias_sugeridas": [
+        "diagramas",
+        "prosa"
+      ],
+      "principal_sugerida": "diagramas",
+      "status": "pending_review"
+    },
+    {
+      "candidate_id": "aagaard-calculation-p033",
+      "documento": "aagaard-calculation",
+      "page_index": 33,
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+      "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53",
+      "draft": "rascunhos/aagaard-calculation-p033.txt",
+      "routing": "roteamento/aagaard-calculation-p033.json",
+      "familias_sugeridas": [
+        "diagramas",
+        "prosa"
+      ],
+      "principal_sugerida": "diagramas",
+      "status": "pending_review"
+    },
+    {
+      "candidate_id": "yusupov-evolution-1-p037",
+      "documento": "yusupov-evolution-1",
+      "page_index": 37,
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+      "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+      "draft": "rascunhos/yusupov-evolution-1-p037.txt",
+      "routing": "roteamento/yusupov-evolution-1-p037.json",
+      "familias_sugeridas": [
+        "negativo",
+        "duas_colunas",
+        "diagramas",
+        "prosa"
+      ],
+      "principal_sugerida": "negativo",
+      "status": "pending_review"
+    }
+  ],
+  "review_policy": {
+    "requires_image_confirmation": true,
+    "promotion_status": "reviewed"
+  },
+  "source_plan": "benchmarks\\candidatos_v2\\plano_2026-09-26.json"
+}

@@ -1,0 +1,21 @@
+♖+c♙ v ♖ 233
+
+396 /
+
+♔b5 ♖b8+! and there is no shelter) ♖c8+! 9 ♔b5 ♖b8+! 10 ♔c5 ♖c8+! 1 1 ♔b4 ♖b8+! 12 ♔c3 ♔e5! 13 ♖h6 ♖b7 and as we remarked above, this position is decided by occupation of the b-file. Here Black is in control, so the result is a draw.
+
+Surprisingly, if Black’s rook is on b8 the situation is rather different. The reason is that White’s king has more trouble coming out, so in some cases White can only win by subtle play.
+
+395 +/
+
+Original
+
+—
+
+(395): The position is harder to win if White is to play. The most obvious ideas lead nowhere, for example 1 c4? ♖e8! draws immediately and 1 ♔d3 ♖d8+ 2 ♔c4? ♔f6! 3 ♖e3 ♔f5! draws as in the previous diagram. There are a number of ways to win, but the sim- plest is 1 ♖e3 ♔f8 (1...♔f6 2 c4! wins because Black cannot play ...♖e8, and 1...♖c8 2 ♔b3 wins as in the previous diagram) 2 ♔d3 ♖d8+ 3 ♔c4 ♖c8+ (3...♔f7 4 ♔b5 as in the last diagram) 4 ♔d5 ♖d8+ 5 ♔c6 ♖c8+ 6 ♔d6 ♔g8
+
+(forced, because 6...♔f7 7 ♖e7+ is line 1 of the previous diagram) 7 ♖h3 (quickest, although with a three-file cut-off White wins in any case) ♔g7 (7...♔f7 8 ♖h7+ and 9 ♖c7) 8 ♖f3 ♔g6 (after 8...♔g8 9 ♔d5 White re- turns to c2, then ♖f4 and c4 wins be- cause Black’s king is too far from g5) 9 ♖e3 and Black cannot avoid rook checks leading to either ♖c5 or ♖c7, winning as in lines 1 and 2 of diagram
+
+Chéron, 1944 = =
+
+(396): If Black’s king is on f5, then White has no winning chances when his king is behind the pawn. We take White to play: 1 ♔b3 (after 1 c4 ♔f4! Black brings his king to the e-file or plays ...♖h3, with a draw in either case) ♖b8+! (1...♔f4? 2 ♖e6! ♖b8+ 3 ♔c4! ♔f5 4 ♖h6 ♔e4 5 ♖h5! fol- lowed by ♖b5 wins) 2 ♔a4 ♖c8 3 ♔b4 (3 ♔b5 ♔f4) ♖b8+! 4 ♔c5 ♖c8+! 5 ♔b6 (5 ♔d6 ♔f4 6 ♖h3 ♔e4) ♔f4 6 ♖h3 ♔e4 7 ♔b7 ♖c4 with an easy draw. Black to play can either wait by

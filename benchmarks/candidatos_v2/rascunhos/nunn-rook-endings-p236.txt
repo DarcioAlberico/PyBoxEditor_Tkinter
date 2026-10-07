@@ -1,0 +1,21 @@
+♖+c♙ v ♖ 235
+
+399 /
+
+than 2...♔f5) 2 ♖e3+! ♔f5 (the tacti- cal point is 2...♔d5 3 c4+!) 3 ♔c6 ♔f4 4 ♖h3! (4 ♖d3? ♔e4! 5 ♖h3 ♖i8 6 c4 ♖c8+! 7 ♔b5 ♖b8+! draws as in dia- gram 394 with Black to play) ♔g4 5 ♖d3! ♔f46 ♔c5 ♔e4 7 ♖d4+! (7 ♖h3? ♖a8! draws) ♔e5 (7...♔e3 8 ♔b4 ♖a8 9 ♖d5 forces c4) 8 ♖d5+! ♔e6 9 c4! ♖a5+ 10 ♔c6! ♖a6+ l l ♔b5 ♖a8 l2 ♖d4 winning after 12...♔e5 13 ♖h4 or 12...♖b8+ l 3 ♔c6.
+
+2) 1...♖a7+ 2 ♔b6! ♖a3 3 ♔c6! ♖b3 (there is nothing else as 3...♔e6 4 ♖e3+ ♔f5 5 ♔c5 is an improved ver- sion of line 1) 4 ♖d7+ ♔e6 5 c4 and with the rook on b3 Black lacks the check on a6 which prevented this line when White was to play.
+
+3.5.3: Black’s king is cut off along a file and Whiteis king is cut off along a rank
+
+This is the most complicated section in the current chapter. White only has chances to win if Black’s king is cut off on the h-file, and then the result de- pends on the exact position of the pieces, particularly the location of Black’s king. The possible positions may be divided into three main classes. In the first class Black’s king is on h6, h7 or h8. In the second class the king stands on h4 or h5 and in the third class it stands on h3. Within a class the exact position of Black’s king is rela- actively unimportant, i.e. if White is winning in a position with Black’s king on h7 then he will also win if Black’s king is moved to h6 or h8. Taking the class positions first, the
+
+table on the following page describes the results.
+
+There are number of mysteries in this table. First of all we look at a fun- damental position which influences all the subsequent analysis.
+
+Chéron, 1967 = =
+
+(399): Chéron did not discover this important drawing position in his 1944 analysis and so some of his conclu- sions were incorrect. By 1967 he had discovered diagram 399, but he did not fully incorporate the new discov- ery into his earlier analysis, so some inaccuracies remain. White to play may try:
+
+W1) 1 ♖d8 ♔g4! (after 1...♔g5? 2 ♖d2! ♖a7 3 ♖f2! White really does win; the difference becomes clear be- low) 2 ♖d2 ♖a8 (2...♖a1+? 3 ♔b2! ♖a8 4 c4 wins) 3 ♖f2 ♔g3! (Black must disturb the rook) 4 ♖b2 (if White moves his rook along the file then Black returns to a2) ♔f4 (time for the king to return; 4...♔f3? loses to 5 ♔c2! ♔e4 6 ♖b5! and White controls

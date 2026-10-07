@@ -1,0 +1,77 @@
+Solutions
+
+Ex. 3-1
+J.Bolbochan – L.Pachman
+Moscow Olympiad 1956
+
+1.♕xf7+! ♔xf7 2.♗xe6#
+(1 point)
+
+Ex. 3-2
+S.Urusov – Kalinovsky
+St Petersburg 1880
+
+1.♕g5+!! fxg5
+1...♔f7 2.♕g7+ ♔e8 3.♕e7#
+2.♘h6+! ♔h8 3.♗b2+ ♖f6 4.♗xf6#
+(1 point)
+
+Ex. 3-3
+Em.Lasker – W.Steinitz
+St Petersburg 1895
+
+1.♕xf4!!
+White can play his moves in a different order. You also get 1 point for: 1.♘f6! ♕e7 2.♕xf4 ♕xf6 3.♕h4+-
+1...exf4 2.♘f6!
+(1 point)
+2...♘e6
+The black queen cannot flee: 2...♕b5? 3.♘f7#
+(another 1 point for this variation)
+If 2...h6 then 3.♘xd7 hxg5 4.♘f6+-.
+3.♘xd7+-
+
+Ex. 3-4
+Variation from the game
+S.Tarrasch – S.Tartakower
+Berlin 1920
+
+1.♕xc4!!
+(1 point)
+1...♕xc4 2.♗f5+ ♖d7
+2...♕e6 is more resilient: 3.♖xe6 fxe6 4.♗xe6+ ♖d7 5.♘e5 ♘xe5 6.♗xe5 ♔d8 7.♗xd7 ♔xd7 8.♗xd4+-
+
+3.♖e8+ ♘d8 4.♘e5
+(another 1 point)
+4.♖xf8 is just as good: 4...♖xf8 5.♗xd7+ ♔xd7 6.♘e5++-
+4...♕b5
+4...♕c7 5.♗xd7+ ♔b8 6.♖xd8+ ♕xd8 7.♘c6+ ♔a8 8.♘xd8+-
+5.♖c1+ ♗c5 6.♘xd7+- ♖xe8 7.♘b6#
+
+Ex. 3-5
+K.Emmrich – B.Moritz
+Germany 1922
+
+In the game, Black went on to lose after missing the forced mate:
+1...♕xh2+!! 2.♔xh2 ♘g4+ 3.♔g1 ♘h3+ 4.♔f1 ♘h2#
+(1 point)
+
+Ex. 3-6
+M.Tal – Miller
+Los Angeles 1988
+
+1.h4!!
+(2 points)
+Of course not 1.♕xe5?? ♖f1#.
+1...♕g3
+If 1...♕xe2 then 2.♘xc7#.
+2.♖d1!
+(another 1 point)
+Threatening both ♖xd5 and ♖d3.
+2...♖f2
+2...c6 is met by 3.♖d3 ♕b8 4.♖f3!+-.
+3.♕xf2!!
+(another 1 point)
+3.♘xc7+ also wins: 3...♕xc7 4.♕b5+ ♕c6 5.♖xd5 ♖f6! 6.♗xf6 gxf6 7.♕d3 ♘b4 8.♖d8+ ♔e7 9.♕xh7+!! ♔xd8 10.e7+ ♔e8 11.♕g7+-
+3...♗xf2
+3...♕xf2 4.♘xc7+ ♔f8 5.e7++-
+4.♖xd5+-

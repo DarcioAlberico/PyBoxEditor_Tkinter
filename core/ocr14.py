@@ -38,9 +38,11 @@ from __future__ import annotations
 import collections
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 from core.ocr_ab import _TIPOGRAFIA, _dominio_do_token, alinhar_tokens, normalizar_tipografia
+from core.ocr_rotulo import validar_rotulo
 
 #: Acima desta confiança, a leitura errada é **afirmação** — o assunto da
 #: OCR-14. Abaixo, o erro já é alcançável pela fila de suspeitas e pela coleta
@@ -101,6 +103,36 @@ class ErroConfiante:
                 "caixa": list(self.caixa) if self.caixa else None,
                 "indice_do_box": self.indice_do_box, "linha": self.linha,
                 "pagina": self.pagina}
+
+
+def entrada_de_quarentena(erro: ErroConfiante, arquivo: str) -> dict[str, Any]:
+    """Registra um recorte suspeito sem convertê-lo em rótulo confirmado."""
+    return {**erro.to_dict(), "arquivo": str(arquivo), "rotulo_confirmado": False}
+
+
+def confirmar_entrada_de_quarentena(entrada: Mapping[str, Any], rotulo: str, *,
+                                    revisor: str = "reviewer",
+                                    revisado_em: str | None = None) -> dict[str, Any]:
+    """Marca um recorte como revisado, sem alterar o artefato original.
+
+    O rótulo precisa ser informado pelo revisor. ``esperado`` é apenas o
+    palpite obtido do alinhamento OCR-14 e nunca é promovido implicitamente.
+    """
+    if not isinstance(entrada, Mapping):
+        raise ValueError("entrada de quarentena inválida")
+    arquivo = str(entrada.get("arquivo", "")).strip()
+    label = validar_rotulo(rotulo)
+    if not arquivo:
+        raise ValueError("entrada de quarentena sem arquivo")
+    momento = revisado_em or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return {
+        **dict(entrada),
+        "arquivo": arquivo,
+        "rotulo": label,
+        "rotulo_confirmado": True,
+        "revisor": str(revisor).strip() or "reviewer",
+        "revisado_em": str(momento),
+    }
 
 
 def dobrar_caractere(caractere: str) -> str:
@@ -252,6 +284,7 @@ class Resumo:
     def to_dict(self) -> dict[str, Any]:
         return {
             "erros": len(self.erros), "confiantes": len(self.confiantes),
+            "erros_detalhados": [erro.to_dict() for erro in self.erros],
             "por_dominio": dict(self.por_dominio()),
             "por_especie": dict(self.por_especie()),
             "confusoes": [{"lido": lido, "esperado": esperado, "vezes": vezes}

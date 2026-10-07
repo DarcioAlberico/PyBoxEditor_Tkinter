@@ -20,9 +20,11 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from core.editorial_model import EditorialDocument
+from core.ocr_rotulo import validar_rotulo
 
 
 CORRECTION_SCHEMA = "pyboxeditor.ocr-corrections/v1"
+SPLIT_SCHEMA = "pyboxeditor.ocr-split/v1"
 WEIGHT_SCHEMA = "pyboxeditor.ocr-weights/v1"
 
 
@@ -135,6 +137,106 @@ class CorrectionDataset:
                           "source_refs": [ref.to_dict() for ref in refs]},
             ))
         return cls(name, records, metadata={"document_id": document.document_id})
+
+    @classmethod
+    def from_ocr14(cls, entries: Iterable[Mapping[str, Any]], *,
+                   name: str = "ocr14-reviewed", editor: str = "reviewer",
+                   base_dir: str | Path | None = None,
+                   exigir_arquivos: bool = False,
+                   exigir_registros: bool = False) -> "CorrectionDataset":
+        """Converte recortes OCR-14 confirmados em dataset versionado.
+
+        A entrada produzida pelo garimpo é uma hipótese, mesmo quando o
+        classificador estava confiante. Portanto ``esperado`` nunca é usado
+        automaticamente como rótulo: cada item precisa trazer
+        ``rotulo_confirmado is True`` e um ``rotulo`` preenchido pelo revisor.
+        A conversão é somente de dados; não move arquivos nem alimenta o
+        classificador diretamente.
+        """
+        records: list[CorrectionRecord] = []
+        seen_files: set[str] = set()
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, Mapping):
+                raise ValueError(f"entrada OCR-14 inválida na posição {index}")
+            if entry.get("rotulo_confirmado") is not True:
+                raise ValueError(
+                    f"entrada OCR-14 {index} exige confirmação humana explícita")
+            arquivo = str(entry.get("arquivo", "")).strip()
+            rotulo = str(entry.get("rotulo", "")).strip()
+            if not arquivo:
+                raise ValueError(f"entrada OCR-14 {index} sem arquivo")
+            if arquivo in seen_files:
+                raise ValueError(f"recorte OCR-14 duplicado: {arquivo}")
+            seen_files.add(arquivo)
+            if not rotulo:
+                raise ValueError(f"entrada OCR-14 {index} sem rótulo confirmado")
+            rotulo = validar_rotulo(rotulo)
+
+            arquivo_resolvido: Path | None = None
+            arquivo_sha256 = ""
+            if exigir_arquivos:
+                caminho = Path(arquivo)
+                if not caminho.is_absolute():
+                    if base_dir is None:
+                        raise ValueError(
+                            "exigir_arquivos requer base_dir para caminhos relativos")
+                    base = Path(base_dir).resolve()
+                    arquivo_resolvido = (base / caminho).resolve()
+                    if base not in arquivo_resolvido.parents:
+                        raise ValueError(f"recorte OCR-14 fora do base_dir: {arquivo}")
+                else:
+                    arquivo_resolvido = caminho.resolve()
+                if not arquivo_resolvido.is_file():
+                    raise FileNotFoundError(f"recorte OCR-14 ausente: {arquivo}")
+                arquivo_sha256 = sha256_file(arquivo_resolvido)
+
+            pagina = int(entry.get("pagina", 0) or 0)
+            linha = int(entry.get("linha", -1) or -1)
+            indice_do_box = int(entry.get("indice_do_box", -1) or -1)
+            caixa = entry.get("caixa")
+            caixa_serializada = list(caixa) if caixa is not None else None
+            document_id = str(entry.get("document_id", "ocr14") or "ocr14")
+            target_key = {
+                "arquivo": arquivo, "pagina": pagina, "linha": linha,
+                "indice_do_box": indice_do_box, "caixa": caixa_serializada,
+                "rotulo": rotulo,
+            }
+            record_id = "ocr14-" + hashlib.sha256(_canonical(target_key)).hexdigest()
+            metadata = {
+                "source": "ocr14",
+                "arquivo": arquivo,
+                "esperado_alinhamento": str(entry.get("esperado", "")),
+                "especie": str(entry.get("especie", "unknown")),
+                "token_esperado": str(entry.get("token_esperado", "")),
+                "token_lido": str(entry.get("token_lido", "")),
+                "caixa": caixa_serializada,
+                "pagina": pagina,
+                "linha": linha,
+                "indice_do_box": indice_do_box,
+                "rotulo_confirmado": True,
+            }
+            if arquivo_sha256:
+                metadata["arquivo_sha256"] = arquivo_sha256
+                metadata["arquivo_resolvido"] = str(arquivo_resolvido)
+            records.append(CorrectionRecord(
+                record_id=record_id,
+                document_id=document_id,
+                page_id=f"{document_id}-p{pagina:04d}",
+                target_id=arquivo,
+                domain=str(entry.get("dominio", "unknown") or "unknown"),
+                kind="glyph",
+                before=entry.get("lido", ""),
+                after=rotulo,
+                source_id=arquivo,
+                editor=str(entry.get("revisor", editor) or editor),
+                created_at=str(entry.get("revisado_em", "") or _now()),
+                confidence=float(entry.get("confianca", 0.0) or 0.0),
+                impact=100.0 if str(entry.get("dominio", "")) == "notation" else 50.0,
+                metadata=metadata,
+            ))
+        if exigir_registros and not records:
+            raise ValueError("relatório OCR-14 não contém recortes confirmados")
+        return cls(name, records, metadata={"source": "ocr14", "reviewed": True})
 
     def append(self, record: CorrectionRecord) -> None:
         if any(item.record_id == record.record_id for item in self.records):
@@ -270,8 +372,9 @@ class CorpusSplit:
         return [*self.train, *self.validation, *self.test, *self.holdout]
 
     def to_dict(self) -> dict[str, Any]:
-        return {name: [asdict(item) for item in getattr(self, name)]
-                for name in ("train", "validation", "test", "holdout", "synthetic")}
+        return {"schema": SPLIT_SCHEMA,
+                **{name: [asdict(item) for item in getattr(self, name)]
+                   for name in ("train", "validation", "test", "holdout", "synthetic")}}
 
     def validate(self) -> None:
         """Levanta `ValueError` no primeiro vazamento. Não devolve avisos:
@@ -280,12 +383,21 @@ class CorpusSplit:
         if any(item.synthetic for item in self.holdout):
             raise ValueError("holdout real não pode conter item sintético")
         seen: dict[tuple[str, str], str] = {}
+        seen_ids: dict[str, str] = {}
         # O holdout entra na checagem: é o conjunto que **nunca** pode
         # compartilhar livro, editor, fonte ou layout com o que treinou, e
         # ficava de fora do laço — `evaluate_holdout` mediria contra um
         # holdout contaminado sem que nada acusasse.
         for split_name in ("train", "validation", "test", "holdout"):
             for item in getattr(self, split_name):
+                if item.synthetic:
+                    raise ValueError(
+                        f"item sintético não pode entrar no split real: {item.id}")
+                item_id = str(item.id)
+                previous_split = seen_ids.get(item_id)
+                if previous_split is not None:
+                    raise ValueError(f"item duplicado entre splits: {item_id}")
+                seen_ids[item_id] = split_name
                 for field_name in ("book_id", "editor_id", "source_id", "layout"):
                     value = str(getattr(item, field_name) or "")
                     if not value:
@@ -295,6 +407,36 @@ class CorpusSplit:
                     if previous is not None and previous != split_name:
                         raise ValueError(f"vazamento de {field_name}: {value}")
                     seen[key] = split_name
+        for item in self.synthetic:
+            item_id = str(item.id)
+            previous_split = seen_ids.get(item_id)
+            if previous_split is not None:
+                raise ValueError(f"item duplicado entre splits: {item_id}")
+            seen_ids[item_id] = "synthetic"
+
+
+def load_split_manifest(path: str | Path) -> CorpusSplit:
+    """Carrega e valida um manifesto de split produzido pela Fase 7."""
+    caminho = Path(path)
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        raise ValueError(f"manifesto de split ilegível: {erro}") from erro
+    if not isinstance(dados, Mapping) or dados.get("schema") != SPLIT_SCHEMA:
+        raise ValueError(f"schema de split incompatível: esperado {SPLIT_SCHEMA}")
+    nomes = ("train", "validation", "test", "holdout", "synthetic")
+    valores: dict[str, list[CorpusItem]] = {}
+    for nome in nomes:
+        itens = dados.get(nome, [])
+        if not isinstance(itens, list):
+            raise ValueError(f"split {nome} deve ser uma lista")
+        try:
+            valores[nome] = [CorpusItem(**dict(item)) for item in itens]
+        except (TypeError, ValueError) as erro:
+            raise ValueError(f"item inválido no split {nome}: {erro}") from erro
+    resultado = CorpusSplit(**valores)
+    resultado.validate()
+    return resultado
 
 
 def _union_groups(items: Sequence[CorpusItem]) -> list[list[CorpusItem]]:
@@ -357,6 +499,15 @@ def split_corpus(records: Sequence[CorpusItem], *, validation_fraction: float = 
 
 def split_corrections(dataset: CorrectionDataset, *, validation_fraction: float = .15,
                       test_fraction: float = .15, seed: int = 42) -> CorpusSplit:
+    if dataset.metadata.get("source") == "ocr14":
+        proveniencia = dataset.metadata.get("review_provenance")
+        if not isinstance(proveniencia, Mapping) or proveniencia.get("verified") is not True:
+            raise ValueError(
+                "dataset OCR-14 sem proveniÃªncia verificada nÃ£o pode entrar no split")
+        if any(not record.metadata.get("arquivo_sha256")
+               for record in dataset.records):
+            raise ValueError(
+                "dataset OCR-14 sem hash dos recortes nÃ£o pode entrar no split")
     return split_corpus(dataset.corpus_items(), validation_fraction=validation_fraction,
                         test_fraction=test_fraction, seed=seed)
 

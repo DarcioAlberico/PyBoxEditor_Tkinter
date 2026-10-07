@@ -1,0 +1,125 @@
+{
+  "schema": "pyboxeditor.ocr-corpus/v1",
+  "name": "chess-books-holdout-v2",
+  "version": "2",
+  "documents": [
+    {
+      "id": "aagaard-calculation",
+      "title": "Grandmaster Preparation — Calculation",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "corpus_v2/source/aagaard.pdf",
+      "split": "holdout",
+      "pages": [
+        {
+          "id": "aagaard-calculation-p030",
+          "page_index": 30,
+          "image": "corpus_v2/images/aagaard_calculation_p030.png",
+          "reference": "corpus_v2/references/aagaard_calculation_p030.txt",
+          "predictions": {
+            "current": "corpus_v2/predictions/aagaard_calculation_p030.txt"
+          },
+          "domains": ["body", "notation", "diagram"],
+          "metadata": {
+            "difficulty": "mixed_layout",
+            "familias": ["diagramas", "notacao", "prosa"],
+            "annotation_status": "reviewed",
+            "materialized_from": "PDF/Aagaard - Grandmaster Preparation - Calculation (2012) (2)"
+          }
+        }
+      ],
+      "metadata": {
+        "materialized_page_source": true,
+        "source_pdf": "corpus_v2/source/aagaard.pdf",
+        "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53"
+      }
+    },
+    {
+      "id": "nunn-rook-endings",
+      "title": "Secrets of Rook Endings",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "corpus_v2/source/nunn.pdf",
+      "split": "holdout",
+      "pages": [
+        {
+          "id": "nunn-rook-endings-p237",
+          "page_index": 237,
+          "image": "corpus_v2/images/nunn_rook_endings_p237.png",
+          "reference": "corpus_v2/references/nunn_rook_endings_p237.txt",
+          "predictions": {
+            "current": "corpus_v2/predictions/nunn_rook_endings_p237.txt"
+          },
+          "domains": ["body", "notation", "table"],
+          "metadata": {
+            "difficulty": "table",
+            "familias": ["tabela", "duas_colunas", "diagramas", "notacao", "prosa"],
+            "annotation_status": "reviewed",
+            "materialized_from": "PDF/Nunn - Secrets of Rook Endings (1999)"
+          }
+        }
+      ],
+      "metadata": {
+        "materialized_page_source": true,
+        "source_pdf": "corpus_v2/source/nunn.pdf",
+        "source_pdf_sha256": "2d5934d1bb54e8f65ce31ecbf95ed1d52567a52cafd268ef62afe71e67ad5a93"
+      }
+    },
+    {
+      "id": "yusupov-evolution-1",
+      "title": "Chess Evolution 1 — The Fundamentals",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "corpus_v2/source/yusupov.pdf",
+      "split": "holdout",
+      "pages": [
+        {
+          "id": "yusupov-evolution-1-p034",
+          "page_index": 34,
+          "image": "corpus_v2/images/yusupov_evolution_1_p034.png",
+          "reference": "corpus_v2/references/yusupov_evolution_1_p034.txt",
+          "predictions": {
+            "current": "corpus_v2/predictions/yusupov_evolution_1_p034.txt"
+          },
+          "domains": ["body", "notation", "diagram"],
+          "metadata": {
+            "difficulty": "two_columns",
+            "familias": ["negativo", "duas_colunas", "diagramas", "notacao", "prosa"],
+            "annotation_status": "reviewed",
+            "materialized_from": "PDF/Artur Yusupov - Chess Evolution 1"
+          }
+        },
+        {
+          "id": "yusupov-evolution-1-p047",
+          "page_index": 47,
+          "image": "corpus_v2/images/yusupov_evolution_1_p047.png",
+          "reference": "corpus_v2/references/yusupov_evolution_1_p047.txt",
+          "predictions": {
+            "current": "corpus_v2/predictions/yusupov_evolution_1_p047.txt"
+          },
+          "domains": ["body", "notation", "diagram"],
+          "metadata": {
+            "difficulty": "halftone_panel",
+            "familias": ["trama", "duas_colunas", "diagramas", "prosa"],
+            "annotation_status": "reviewed",
+            "materialized_from": "PDF/Artur Yusupov - Chess Evolution 1"
+          }
+        }
+      ],
+      "metadata": {
+        "materialized_page_source": true,
+        "source_pdf": "corpus_v2/source/yusupov.pdf",
+        "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427"
+      }
+    }
+  ],
+  "metadata": {
+    "purpose": "frozen-holdout",
+    "split_policy": "document-level",
+    "ground_truth_policy": "human-reviewed-text",
+    "materialization": "rendered from the local source PDFs at 150 dpi",
+    "page_index_base": 1,
+    "notes": "Four reviewed pages; expand before commercial claims."
+  },
+  "corpus_sha256": "6d187d987f044fed684e731fdeec6c21f2293809fb630275da69837b64395724"
+}

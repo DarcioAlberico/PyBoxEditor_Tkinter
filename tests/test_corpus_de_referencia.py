@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(
@@ -92,6 +95,22 @@ def test_a_cobertura_diz_o_que_o_corpus_ainda_nao_mede():
     assert fam.faltando(paginas, minimo=1) == ["imagem", "negativo"]
 
 
+def test_o_relatorio_expoe_o_deficit_de_familias_por_livro():
+    paginas = [
+        {"documento": "aagaard", "familias": ["prosa", "notacao"]},
+        {"documento": "aagaard", "familias": ["prosa"]},
+        {"documento": "nunn", "familias": ["tabela"]},
+    ]
+
+    faltantes = fam.faltando_por_livro(paginas, minimo=2)
+
+    assert faltantes["aagaard"] == ["imagem", "tabela", "trama", "negativo",
+                                     "duas_colunas", "diagramas", "notacao"]
+    assert faltantes["nunn"] == ["imagem", "tabela", "trama", "negativo", "duas_colunas",
+                                  "diagramas", "notacao", "prosa"]
+    assert fam.resumo(paginas, minimo=2)["faltando_por_livro"] == faltantes
+
+
 # ----------------------------------------------------------------------
 # A rodada
 # ----------------------------------------------------------------------
@@ -123,6 +142,24 @@ def test_a_pagina_sem_metrica_nao_entra_na_conta():
     assert totais["total"]["cer"] == 0.0 and totais["total"]["wer"] == 0.0
 
 
+def test_saida_incompleta_do_leitor_preserva_todas_as_paginas_com_erro():
+    import rodada_do_corpus
+
+    paginas = [
+        {"id": "p1", "documento": "livro", "page_index": 1,
+         "dificuldade": "", "declaradas": ["prosa"]},
+        {"id": "p2", "documento": "livro", "page_index": 2,
+         "dificuldade": "", "declaradas": ["prosa"]},
+    ]
+
+    medidas = rodada_do_corpus._medidas_sem_saida(
+        paginas, "leitor retornou 1 página(s), esperado 2")
+
+    assert [medida["id"] for medida in medidas] == ["p1", "p2"]
+    assert all(medida["metricas"] is None for medida in medidas)
+    assert all("esperado 2" in medida["erro"] for medida in medidas)
+
+
 def test_o_manifesto_vira_paginas_com_caminhos_resolvidos(tmp_path):
     import rodada_do_corpus
 
@@ -149,6 +186,59 @@ def test_o_manifesto_vira_paginas_com_caminhos_resolvidos(tmp_path):
     assert paginas[0]["declaradas"] == ["trama"]
 
 
+def test_a_rodada_registra_identidade_de_um_corpus_validado(tmp_path):
+    import rodada_do_corpus
+
+    (tmp_path / "source.pdf").write_bytes(b"pdf")
+    (tmp_path / "images").mkdir()
+    (tmp_path / "images" / "p.png").write_bytes(b"png")
+    (tmp_path / "reference.txt").write_text("texto", encoding="utf-8")
+    manifesto = tmp_path / "corpus.json"
+    manifesto.write_text(json.dumps({
+        "schema": "pyboxeditor.ocr-corpus/v1",
+        "name": "corpus-teste",
+        "documents": [{
+            "id": "livro-a", "title": "Livro A", "language": "en",
+            "source_kind": "scan", "source": "source.pdf", "split": "holdout",
+            "pages": [{"id": "livro-a-p001", "page_index": 1,
+                        "image": "images/p.png", "reference": "reference.txt",
+                        "metadata": {"annotation_status": "reviewed"}}],
+        }],
+        "metadata": {"page_index_base": 1},
+    }), encoding="utf-8")
+    from core.ocr_corpus import salvar_manifesto, carregar_manifesto
+    original = carregar_manifesto(manifesto, validate_paths=True, require_files=True)
+    salvar_manifesto(original, manifesto, base_dir=tmp_path)
+
+    identidade = rodada_do_corpus.identidade_do_manifesto(manifesto)
+
+    assert identidade["schema"] == "pyboxeditor.ocr-corpus/v1"
+    assert identidade["corpus_sha256"] == original.corpus_sha256
+    assert identidade["page_index_base"] == 1
+    assert identidade["documents"] == ["livro-a"]
+
+
+def test_a_rodada_preserva_familias_declaradas_pela_promocao(tmp_path):
+    import rodada_do_corpus
+
+    (tmp_path / "ref").mkdir()
+    (tmp_path / "ref" / "p010.txt").write_text("texto", encoding="utf-8")
+    manifesto = tmp_path / "corpus.json"
+    manifesto.write_text(json.dumps({
+        "schema": "pyboxeditor.ocr-corpus/v1",
+        "documents": [{
+            "id": "livro-a", "title": "Livro A", "language": "en",
+            "source": "../livro.pdf",
+            "pages": [{"id": "livro-a-p010", "page_index": 10,
+                       "reference": "ref/p010.txt",
+                       "metadata": {"familias": ["trama", "negativo"]}}]
+        }]}, ensure_ascii=False), encoding="utf-8")
+
+    paginas = rodada_do_corpus.paginas_do_manifesto(manifesto)
+
+    assert paginas[0]["declaradas"] == ["trama", "negativo"]
+
+
 def test_a_rodada_anterior_e_o_ponto_de_comparacao(tmp_path):
     import rodada_do_corpus
 
@@ -163,6 +253,29 @@ def test_a_rodada_anterior_e_o_ponto_de_comparacao(tmp_path):
     assert rodada_do_corpus._cer_por_pagina(ultima) == {"p1": 0.0120}
     assert rodada_do_corpus._cer_por_pagina(None) == {}
     assert rodada_do_corpus._ultima_rodada(tmp_path / "vazio") is None
+
+
+def test_baseline_explicito_precisa_ser_do_mesmo_corpus():
+    import rodada_do_corpus
+
+    rodada = {"corpus": {"corpus_sha256": "a" * 64}}
+    identidade = {"corpus_sha256": "a" * 64}
+    rodada_do_corpus._validar_baseline(
+        rodada, identidade, Path("baseline.json"))
+
+    with pytest.raises(ValueError, match="outro corpus"):
+        rodada_do_corpus._validar_baseline(
+            rodada, {"corpus_sha256": "b" * 64},
+            Path("baseline.json"))
+
+
+def test_regressao_de_pagina_entra_no_gate_persistido():
+    import rodada_do_corpus
+
+    falhas = rodada_do_corpus._falhas_de_comparacao(
+        ["p1: 1.00% -> 1.20%"])
+
+    assert falhas == ["regressão por página: p1: 1.00% -> 1.20%"]
 
 
 def test_o_portao_derruba_a_rodada_quando_uma_pagina_piora():
@@ -186,3 +299,140 @@ def test_o_portao_derruba_a_rodada_quando_uma_pagina_piora():
         "dentro da tolerância não é piora"
     assert rodada_do_corpus.pioras(medidas, {}, 0.001) == [], \
         "sem rodada anterior não há o que comparar"
+
+
+def test_o_gate_absoluto_rejeita_cer_e_cobertura_insuficientes():
+    import rodada_do_corpus
+
+    falhas = rodada_do_corpus.falhas_de_qualidade(
+        {"total": {"cer": 0.08}, "prose": {"cer": 0.03},
+         "notation": {"cer": 0.12}},
+        {"faltando": ["tabela", "negativo"]},
+        max_cer_total=0.05, max_cer_prose=0.02, max_cer_notation=0.10,
+        exigir_cobertura=True,
+    )
+
+    assert any("total" in falha for falha in falhas)
+    assert any("prosa" in falha for falha in falhas)
+    assert any("notação" in falha for falha in falhas)
+    assert any("cobertura" in falha for falha in falhas)
+
+
+def test_o_gate_absoluto_aprovado_nao_cria_falsa_falha():
+    import rodada_do_corpus
+
+    assert rodada_do_corpus.falhas_de_qualidade(
+        {"total": {"cer": 0.01}, "prose": {"cer": 0.01},
+         "notation": {"cer": 0.02}},
+        {"faltando": []},
+        max_cer_total=0.02, max_cer_prose=0.02, max_cer_notation=0.03,
+        exigir_cobertura=True,
+    ) == []
+
+
+def test_a_rodada_converte_referencia_json_e_predicao_estruturada():
+    import rodada_do_corpus
+
+    referencia = {
+        "text": "1. e4 e5",
+        "notation": ["1. e4 e5"],
+        "diagrams": [{"fen": "8/8/8/8/8/8/4P3/4K2k w - - 0 1"}],
+        "regions": [{"type": "chess_sequence"}],
+    }
+    dados = rodada_do_corpus._medir_referencia(
+        referencia, {"text": "1. e4 e5", "notation": ["1. e4 e5"],
+                     "diagrams": referencia["diagrams"],
+                     "regions": referencia["regions"]}, "p1")
+
+    assert dados["text"] == referencia["text"]
+    assert dados["semantica"]["notation"]["legais"] == 1
+    assert dados["semantica"]["diagrams"]["exatos"] == 1
+    assert dados["semantica"]["layout"]["ordem_corretamente_classificada"] is True
+
+
+def test_gate_da_rodada_rejeita_regressao_semantica():
+    import rodada_do_corpus
+
+    semanticas = {
+        "diagrams": {"acuracia_exata": 0.0, "acuracia_legal": 0.0},
+        "notation": {"acuracia_exata": 0.0, "acuracia_legal": 0.0},
+        "layout": {"ordem_corretamente_classificada": False},
+    }
+    falhas = rodada_do_corpus.falhas_de_qualidade(
+        {"total": {"cer": 0.0}, "prose": {"cer": 0.0},
+         "notation": {"cer": 0.0}},
+        {"faltando": []}, semanticas=semanticas,
+        min_diagram_exact=1.0, min_notation_legal=1.0,
+        exigir_ordem_layout=True)
+
+    assert any("FEN" in falha for falha in falhas)
+    assert any("legalidade" in falha for falha in falhas)
+    assert any("layout" in falha for falha in falhas)
+
+
+def test_main_da_rodada_aplica_gate_semantico_na_saida_do_leitor(
+        tmp_path, monkeypatch):
+    import rodada_do_corpus
+    from core import livro
+
+    manifesto = tmp_path / "manifesto.json"
+    manifesto.write_text("{}", encoding="utf-8")
+    pdf = tmp_path / "livro.pdf"
+    pdf.write_bytes(b"fonte")
+    referencia = tmp_path / "p001.json"
+    referencia.write_text(json.dumps({
+        "text": "1. e4",
+        "notation": ["1. e4"],
+        "regions": [{"type": "paragraph"}],
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(rodada_do_corpus, "identidade_do_manifesto",
+                        lambda _caminho: {"corpus_sha256": "teste"})
+    monkeypatch.setattr(rodada_do_corpus, "paginas_do_manifesto", lambda _caminho: [{
+        "documento": "livro", "titulo": "", "idioma": "en", "pdf": pdf,
+        "id": "livro-p001", "page_index": 1, "page_index_base": 1,
+        "referencia": referencia, "dificuldade": "", "declaradas": ["prosa"],
+    }])
+    monkeypatch.setattr(rodada_do_corpus.livro if hasattr(rodada_do_corpus, "livro")
+                        else livro, "extrair", lambda *args, **kwargs: [
+                            livro.PaginaExtraida(
+                                numero=0,
+                                blocos=[livro.Paragrafo("1. e4", topo=0, pe=10)],
+                                roteamento=[{"dominio": "notation", "texto": "1. Qh5"}],
+                            )
+                        ])
+
+    class Aprendizado:
+        def load_predictor(self):
+            return True
+
+        def leitor_de_texto(self, _idioma):
+            return lambda *_args, **_kwargs: ""
+
+        def candidatas(self, *_args, **_kwargs):
+            return None
+
+    class OCR:
+        pass
+
+    monkeypatch.setattr("core.services.learning_service.LearningService", Aprendizado)
+    monkeypatch.setattr("core.services.ocr_service.OCRService", OCR)
+
+    destino = tmp_path / "rodadas"
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({
+        "corpus": {"corpus_sha256": "teste"}, "paginas": []}),
+        encoding="utf-8")
+    assert rodada_do_corpus.main([
+        "--manifesto", str(manifesto), "--rodadas", str(destino),
+        "--comparar-com", str(baseline),
+        "--min-notacao-legal", "1.0", "--usar-ensemble",
+    ]) == 1
+
+    relatorio = json.loads(next(destino.glob("*.json")).read_text(encoding="utf-8"))
+    assert relatorio["semanticas"]["notation"]["acuracia_legal"] == 0.0
+    assert relatorio["quality_gate"]["passed"] is False
+    assert relatorio["engine"] == "livro.extrair+ensemble"
+    assert relatorio["config"]["ensemble"] is True
+    assert relatorio["comparison"]["baseline"] == str(baseline.resolve())
+    assert relatorio["comparison"]["matched_pages"] == 0

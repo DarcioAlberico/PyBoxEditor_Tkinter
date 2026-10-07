@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import zipfile
 
 from core.ocr_phase8 import (
@@ -83,3 +85,28 @@ def test_smoke_wheel_rejeita_arquivo_sem_modulo(tmp_path):
     report = smoke_test_wheel(package, required_modules=("core.ocr_phase8",))
     assert report.valid is False
     assert report.errors
+
+
+def test_pacote_rejeita_manifesto_vazio_ou_arquivo_nao_declarado(tmp_path):
+    vazio = tmp_path / "vazio.zip"
+    with zipfile.ZipFile(vazio, "w") as archive:
+        archive.writestr("manifest.json", json.dumps({
+            "schema": "pyboxeditor.model-package/v1",
+            "model_id": "line-crnn",
+            "pipeline_version": "v1",
+            "files": [],
+        }))
+    assert ModelPackage.verify(vazio).valid is False
+
+    extra = tmp_path / "extra.zip"
+    with zipfile.ZipFile(extra, "w") as archive:
+        archive.writestr("manifest.json", json.dumps({
+            "schema": "pyboxeditor.model-package/v1",
+            "model_id": "line-crnn",
+            "pipeline_version": "v1",
+            "files": [{"path": "weights.pth", "sha256": hashlib.sha256(b"x").hexdigest(),
+                       "size": 1}],
+        }))
+        archive.writestr("weights.pth", b"x")
+        archive.writestr("unlisted.txt", b"unexpected")
+    assert ModelPackage.verify(extra).valid is False

@@ -1,0 +1,162 @@
+{
+  "schema": "pyboxeditor.ocr-corpus-candidates/v1",
+  "source": {
+    "pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+    "documento": "yusupov-evolution-1",
+    "idioma": "en",
+    "dpi": 300,
+    "page_index_base": 1,
+    "pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427"
+  },
+  "candidatos": [
+    {
+      "id": "yusupov-evolution-1-p035",
+      "documento": "yusupov-evolution-1",
+      "page_index": 35,
+      "familias": [
+        "negativo",
+        "duas_colunas",
+        "notacao",
+        "prosa"
+      ],
+      "principal": "negativo",
+      "status": "unreviewed",
+      "declared_families": [
+        "negativo"
+      ],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 2,
+        "diagramas": 0,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 82,
+          "dominios": {
+            "mixed": 16,
+            "notation": 27,
+            "prose": 36,
+            "unknown": 3
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+      "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+      "artifacts": {
+        "draft": "rascunhos/yusupov-evolution-1-p035.txt",
+        "routing": "roteamento/yusupov-evolution-1-p035.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    },
+    {
+      "id": "yusupov-evolution-1-p036",
+      "documento": "yusupov-evolution-1",
+      "page_index": 36,
+      "familias": [
+        "negativo",
+        "prosa"
+      ],
+      "principal": "negativo",
+      "status": "unreviewed",
+      "declared_families": [
+        "negativo"
+      ],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 1,
+        "diagramas": 0,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 17,
+          "dominios": {
+            "mixed": 2,
+            "notation": 3,
+            "prose": 7,
+            "unknown": 5
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+      "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+      "artifacts": {
+        "draft": "rascunhos/yusupov-evolution-1-p036.txt",
+        "routing": "roteamento/yusupov-evolution-1-p036.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    },
+    {
+      "id": "yusupov-evolution-1-p037",
+      "documento": "yusupov-evolution-1",
+      "page_index": 37,
+      "familias": [
+        "negativo",
+        "duas_colunas",
+        "diagramas",
+        "prosa"
+      ],
+      "principal": "negativo",
+      "status": "unreviewed",
+      "declared_families": [
+        "negativo"
+      ],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 2,
+        "diagramas": 1,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 94,
+          "dominios": {
+            "mixed": 5,
+            "notation": 17,
+            "prose": 38,
+            "unknown": 34
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+      "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+      "artifacts": {
+        "draft": "rascunhos/yusupov-evolution-1-p037.txt",
+        "routing": "roteamento/yusupov-evolution-1-p037.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    },
+    {
+      "id": "yusupov-evolution-1-p038",
+      "documento": "yusupov-evolution-1",
+      "page_index": 38,
+      "familias": [
+        "negativo",
+        "diagramas",
+        "prosa"
+      ],
+      "principal": "negativo",
+      "status": "unreviewed",
+      "declared_families": [
+        "negativo"
+      ],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 1,
+        "diagramas": 3,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 46,
+          "dominios": {
+            "mixed": 6,
+            "notation": 14,
+            "prose": 22,
+            "unknown": 4
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\yusupov.pdf",
+      "source_pdf_sha256": "91f85227cdb43980b49e80f2e6f29d9ab92aabfac5652942a383df5695921427",
+      "artifacts": {
+        "draft": "rascunhos/yusupov-evolution-1-p038.txt",
+        "routing": "roteamento/yusupov-evolution-1-p038.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    }
+  ]
+}

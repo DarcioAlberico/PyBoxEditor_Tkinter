@@ -1,0 +1,73 @@
+{
+  "schema": "pyboxeditor.ocr-corpus-candidates/v1",
+  "source": {
+    "pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+    "documento": "aagaard-calculation",
+    "idioma": "en",
+    "dpi": 300,
+    "page_index_base": 1,
+    "pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53"
+  },
+  "candidatos": [
+    {
+      "id": "aagaard-calculation-p032",
+      "documento": "aagaard-calculation",
+      "page_index": 32,
+      "familias": [
+        "diagramas",
+        "prosa"
+      ],
+      "principal": "diagramas",
+      "status": "unreviewed",
+      "declared_families": [],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 1,
+        "diagramas": 3,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 2,
+          "dominios": {
+            "unknown": 2
+          }
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+      "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53",
+      "artifacts": {
+        "draft": "rascunhos/aagaard-calculation-p032.txt",
+        "routing": "roteamento/aagaard-calculation-p032.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    },
+    {
+      "id": "aagaard-calculation-p033",
+      "documento": "aagaard-calculation",
+      "page_index": 33,
+      "familias": [
+        "diagramas",
+        "prosa"
+      ],
+      "principal": "diagramas",
+      "status": "unreviewed",
+      "declared_families": [],
+      "signals": {
+        "pagina_de_imagem": false,
+        "colunas": 1,
+        "diagramas": 3,
+        "leitura": "imagem",
+        "roteamento": {
+          "linhas": 0,
+          "dominios": {}
+        }
+      },
+      "source_pdf": "C:\\Python-Chess2\\PyBoxEditor_Tkinter\\benchmarks\\corpus_v2\\source\\aagaard.pdf",
+      "source_pdf_sha256": "83ead30694424a49a8c02f0e7c4c7708c96643f80dc065089746a2f4181c5a53",
+      "artifacts": {
+        "draft": "rascunhos/aagaard-calculation-p033.txt",
+        "routing": "roteamento/aagaard-calculation-p033.json",
+        "draft_source": "livro.extrair/fusao=palavra"
+      }
+    }
+  ]
+}

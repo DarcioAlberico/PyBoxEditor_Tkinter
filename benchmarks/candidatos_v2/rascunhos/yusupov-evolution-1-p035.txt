@@ -1,0 +1,63 @@
+⯹♖⯹ Solutions
+
+Ex. 3-7
+
+A.Tolush — G.Mititelu
+
+Warsaw 1961 1.♕xf6!! gxf6 2.♘ge4+
+
+(1 point) 2...♔h8 is met by 3.♘xf6, not only threatening mate on g8, but also attacking the queen on d7.
+
+Ex. 3-8
+
+Based on the game
+
+Syversen — ].Podgorny
+
+Correspondence game 1933 1...♕a5+!! 2.♔xa5 ♖xa2+ 3.♔b4 a5#
+
+(1 point)
+
+Ex. 3-9 H.Westerinen — G.Sigurjonsson
+
+New York 1977 1.♕xg7+!! ♔xg7 2.♗d8+!
+
+(1 point) 2...♔h8 2...♔f7 3.♗h5# or 2...♔h6 3.♖h3#. 3.♖g8+! But not 3.♗f6+?? ♖xf6 4.♖g8+ ♖xg8—+. 3...♖xg8 4.♗f6+ ♖g7 5.♗xg7+ ♔g8 6.♗xd4++-
+
+(another 1 point)
+
+Ex. 3-10
+
+V.Alatortsev —
+
+USSR Ch, Moscow 1950 1...♗x1!
+
+(1 point) 2.fxg5 ♖xe2 3.♕c3 ♗g2—+
+
+(another 1 point) The bishop is very well placed on the long diagonal. 3...♗h3 (also 1 point) is not bad either, although White can struggle on with 4.g4∓.
+
+4.♕d3 4.♖e1 is followed by: 4...♖xe1+ 5.♕xe1 ♖f1 + 6.♕xf1 ♗xf1–+ Effectively Black has an extra pawn in this ending.
+
+(another 1 point for this variation) 4...♗f3 5.♖f1 No better is 5.♔f1 ♖xh2 6.♕d4 c5 and now: a) 7.♕c3 ♗e2+ 8.♔g1 (or 8.♔e1 ♖f1+ 9.♔d2 ♗xc4+ 10.♔e3 ♖e2#) 8...♖ff2—+ b) 7.♕xd6 ♗c6+ 8.♔e1 ♖e8+ 9.♔f1 ♖h1 ++ 5...♖g2+ 6.♔h1 ♗c6! 7.♖xf8+ ♔xf8 8.♕f1+ ♖f2+
+
+Ex. 3-11
+
+Vogel — Barlov
+
+West Germany 1981 1.♗b5!
+
+(1 point) 1.♕b5± is less clear. 1.♕a4 ♖a8 2.♕c6 ♖c8 leads to a repetition of moves. 1...♖xc6 2.dxc6!
+
+(another 1 point) 2...♘xe5 2...♕c7 is met by: 3.cxd7+ ♘xd7 (3...♔d8 4.♘xf7#) 4.♗xd7+ ♔d8 5.♗f4 ♕b6 6.♖d1+– 3.c7++—
+
+Ex. 3-12
+
+G.Salwe — A.Rubinstein
+
+Lodz 1907 1...♕e1 +!!
+
+(1 point) The less spectacular 1...♗xd5 (1 point) also wins. 2.♖xe1 2.♘f1 ♖h6+ 3.♔g1 (3.♖h2 ♕f2!—+) 3...f2+! 4.♖xf2 ♖h1# 2...f2+ 3.♕xe4 fxe1♕+ 4.♔g2 ♕xd2+
+
+(1 point) White will quickly be mated.
+
+34

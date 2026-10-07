@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import io
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
@@ -127,6 +128,36 @@ class LayoutMetrics:
 
 
 @dataclass
+class DiagramMetrics:
+    referencia: int
+    predicao: int
+    exatos: int
+    legais: int
+    espurios: int
+    perdidos: int
+    acuracia_exata: float | None
+    acuracia_legal: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class NotationMetrics:
+    referencia: int
+    predicao: int
+    exatas: int
+    legais: int
+    espurias: int
+    perdidas: int
+    acuracia_exata: float | None
+    acuracia_legal: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class PageMetrics:
     page_id: str
     text: TextMetrics | None = None
@@ -136,10 +167,13 @@ class PageMetrics:
     boxes: BoxMetrics | None = None
     layout: LayoutMetrics | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    diagrams: DiagramMetrics | None = None
+    notation: NotationMetrics | None = None
 
     def to_dict(self) -> dict[str, Any]:
         resultado: dict[str, Any] = {"page_id": self.page_id}
-        for nome in ("text", "words", "lines", "paragraphs", "boxes", "layout"):
+        for nome in ("text", "words", "lines", "paragraphs", "boxes", "layout",
+                     "diagrams", "notation"):
             valor = getattr(self, nome)
             if valor is not None:
                 resultado[nome] = valor.to_dict()
@@ -159,10 +193,13 @@ class AggregateMetrics:
     layout: LayoutMetrics | None
     page_results: list[PageMetrics] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    diagrams: DiagramMetrics | None = None
+    notation: NotationMetrics | None = None
 
     def to_dict(self) -> dict[str, Any]:
         resultado: dict[str, Any] = {"pages": self.pages}
-        for nome in ("text", "words", "lines", "paragraphs", "boxes", "layout"):
+        for nome in ("text", "words", "lines", "paragraphs", "boxes", "layout",
+                     "diagrams", "notation"):
             valor = getattr(self, nome)
             if valor is not None:
                 resultado[nome] = valor.to_dict()
@@ -271,6 +308,79 @@ def medir_layout(referencia: Sequence[Mapping[str, Any]],
     )
 
 
+def _fen_posicao(valor: Any) -> tuple[str, bool] | None:
+    """Retorna a chave visual da posicao e se o FEN e legal."""
+    try:
+        import chess
+        tabuleiro = chess.Board(str(valor))
+    except (ImportError, ValueError, TypeError):
+        return None
+    return f"{tabuleiro.board_fen()} {'w' if tabuleiro.turn else 'b'}", tabuleiro.is_valid()
+
+
+def medir_diagramas(referencia: Sequence[Mapping[str, Any]],
+                    predicao: Sequence[Mapping[str, Any]]) -> DiagramMetrics:
+    """Mede FENs de diagramas sem confundir texto correto com posicao correta.
+
+    A igualdade considera a disposicao das pecas e o lado a jogar; contadores
+    de meio-lance e numero da jogada nao sao observaveis no desenho do livro.
+    """
+    ref = [_fen_posicao(item.get("fen")) for item in referencia
+           if isinstance(item, Mapping)]
+    pred = [_fen_posicao(item.get("fen")) for item in predicao
+            if isinstance(item, Mapping)]
+    legais = sum(bool(item and item[1]) for item in pred)
+    exatos = sum(
+        left is not None and right is not None and left[1] and right[1]
+        and left[0] == right[0]
+        for left, right in zip(ref, pred)
+    )
+    total = max(len(ref), len(pred))
+    return DiagramMetrics(
+        referencia=len(ref), predicao=len(pred), exatos=exatos,
+        legais=legais, espurios=max(0, len(pred) - len(ref)),
+        perdidos=max(0, len(ref) - len(pred)),
+        acuracia_exata=(exatos / total if total else None),
+        acuracia_legal=(legais / len(pred) if pred else None),
+    )
+
+
+def _notacao_texto(valor: Any) -> str:
+    if isinstance(valor, Mapping):
+        valor = valor.get("text", valor.get("moves", ""))
+    if isinstance(valor, Sequence) and not isinstance(valor, (str, bytes)):
+        return " ".join(str(item) for item in valor)
+    return str(valor or "")
+
+
+def _notacao_legal(texto: str) -> bool:
+    if not texto.strip():
+        return False
+    try:
+        import chess.pgn
+        jogo = chess.pgn.read_game(io.StringIO('[Result "*"]\n\n' + texto + "\n"))
+    except (ImportError, ValueError, TypeError):
+        return False
+    return jogo is not None and not getattr(jogo, "errors", ())
+
+
+def medir_notacao(referencia: Sequence[Any],
+                  predicao: Sequence[Any]) -> NotationMetrics:
+    """Mede igualdade da linha e se cada predição pode ser jogada."""
+    ref = [normalizar_texto(_notacao_texto(item)) for item in referencia]
+    pred = [normalizar_texto(_notacao_texto(item)) for item in predicao]
+    exatas = sum(left == right for left, right in zip(ref, pred))
+    legais = sum(_notacao_legal(item) for item in pred)
+    total = max(len(ref), len(pred))
+    return NotationMetrics(
+        referencia=len(ref), predicao=len(pred), exatas=exatas,
+        legais=legais, espurias=max(0, len(pred) - len(ref)),
+        perdidas=max(0, len(ref) - len(pred)),
+        acuracia_exata=(exatas / total if total else None),
+        acuracia_legal=(legais / len(pred) if pred else None),
+    )
+
+
 def medir_pagina(page_id: str, referencia: Mapping[str, Any],
                  predicao: Mapping[str, Any], *,
                  ignorar_maiusculas: bool = False,
@@ -295,6 +405,10 @@ def medir_pagina(page_id: str, referencia: Mapping[str, Any],
                                       ignorar_maiusculas=ignorar_maiusculas)
     if "regions" in referencia and "regions" in predicao:
         resultado.layout = medir_layout(referencia["regions"], predicao["regions"])
+    if "diagrams" in referencia and "diagrams" in predicao:
+        resultado.diagrams = medir_diagramas(referencia["diagrams"], predicao["diagrams"])
+    if "notation" in referencia and "notation" in predicao:
+        resultado.notation = medir_notacao(referencia["notation"], predicao["notation"])
     return resultado
 
 
@@ -350,6 +464,40 @@ def _agregar_layout(resultados: Iterable[PageMetrics]) -> LayoutMetrics | None:
                          _percentual(corretos, max(ref, pred)))
 
 
+def _agregar_diagramas(resultados: Iterable[PageMetrics]) -> DiagramMetrics | None:
+    itens = [item.diagrams for item in resultados if item.diagrams is not None]
+    if not itens:
+        return None
+    referencia = sum(item.referencia for item in itens)
+    predicao = sum(item.predicao for item in itens)
+    exatos = sum(item.exatos for item in itens)
+    legais = sum(item.legais for item in itens)
+    total = max(referencia, predicao)
+    return DiagramMetrics(
+        referencia, predicao, exatos, legais,
+        max(0, predicao - referencia), max(0, referencia - predicao),
+        exatos / total if total else None,
+        legais / predicao if predicao else None,
+    )
+
+
+def _agregar_notacao(resultados: Iterable[PageMetrics]) -> NotationMetrics | None:
+    itens = [item.notation for item in resultados if item.notation is not None]
+    if not itens:
+        return None
+    referencia = sum(item.referencia for item in itens)
+    predicao = sum(item.predicao for item in itens)
+    exatas = sum(item.exatas for item in itens)
+    legais = sum(item.legais for item in itens)
+    total = max(referencia, predicao)
+    return NotationMetrics(
+        referencia, predicao, exatas, legais,
+        max(0, predicao - referencia), max(0, referencia - predicao),
+        exatas / total if total else None,
+        legais / predicao if predicao else None,
+    )
+
+
 def agregar(resultados: Sequence[PageMetrics], *, metadata: Mapping[str, Any] | None = None) -> AggregateMetrics:
     return AggregateMetrics(
         pages=len(resultados),
@@ -359,9 +507,59 @@ def agregar(resultados: Sequence[PageMetrics], *, metadata: Mapping[str, Any] | 
         paragraphs=_agregar_sequencia(resultados, "paragraphs"),
         boxes=_agregar_boxes(resultados),
         layout=_agregar_layout(resultados),
+        diagrams=_agregar_diagramas(resultados),
+        notation=_agregar_notacao(resultados),
         page_results=list(resultados),
         metadata=dict(metadata or {}),
     )
+
+
+def falhas_de_dominio(relatorio: AggregateMetrics | Sequence[PageMetrics], *,
+                      min_diagram_exact: float | None = None,
+                      min_diagram_legal: float | None = None,
+                      min_notation_exact: float | None = None,
+                      min_notation_legal: float | None = None,
+                      exigir_ordem_layout: bool = False) -> list[str]:
+    """Aplica limites semanticos opcionais ao benchmark agregado.
+
+    CER continua sendo necessario, mas nao suficiente: uma linha textual
+    perfeita pode acompanhar um FEN errado ou uma sequencia que nao carrega.
+    Uma metrica ausente sob limite explicito e falha, nunca zero conveniente.
+    """
+    agregado = (relatorio if isinstance(relatorio, AggregateMetrics)
+                else agregar(list(relatorio)))
+    falhas: list[str] = []
+
+    def exigir(nome: str, valor: float | None, limite: float | None) -> None:
+        if limite is None:
+            return
+        if not 0.0 <= float(limite) <= 1.0:
+            raise ValueError(f"limite fora do intervalo [0, 1] para {nome}: {limite}")
+        if valor is None:
+            falhas.append(f"metrica ausente para {nome}")
+        elif valor < float(limite):
+            falhas.append(f"{nome} {valor:.2%} abaixo do limite {float(limite):.2%}")
+
+    diagramas = agregado.diagrams
+    notacao = agregado.notation
+    exigir("exatidao de diagramas",
+           diagramas.acuracia_exata if diagramas else None,
+           min_diagram_exact)
+    exigir("legalidade de diagramas",
+           diagramas.acuracia_legal if diagramas else None,
+           min_diagram_legal)
+    exigir("exatidao de notacao",
+           notacao.acuracia_exata if notacao else None,
+           min_notation_exact)
+    exigir("legalidade de notacao",
+           notacao.acuracia_legal if notacao else None,
+           min_notation_legal)
+    if exigir_ordem_layout:
+        if agregado.layout is None:
+            falhas.append("metrica ausente para ordem de layout")
+        elif agregado.layout.ordem_corretamente_classificada is not True:
+            falhas.append("ordem de layout incorreta")
+    return falhas
 
 
 def carregar_json(caminho: str | Path) -> dict[str, Any]:

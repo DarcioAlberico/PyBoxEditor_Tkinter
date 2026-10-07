@@ -143,8 +143,27 @@ def por_livro(paginas: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]
     return saida
 
 
+def faltando_por_livro(paginas: Iterable[Mapping[str, Any]], *,
+                      minimo: int = 3) -> dict[str, list[str]]:
+    """Famílias abaixo do piso em cada livro do corpus.
+
+    O déficit global não basta para selecionar novas páginas: duas páginas de
+    uma família em um livro não representam outro livro. A saída é ordenada
+    pelo identificador do documento e pela ordem canônica de ``FAMILIAS`` para
+    que o manifesto e a tarefa humana sejam reprodutíveis.
+    """
+    cobertura_livros = por_livro(paginas)
+    return {
+        documento: [familia for familia in FAMILIAS
+                    if valores[familia] < minimo]
+        for documento, valores in sorted(cobertura_livros.items())
+    }
+
+
 def resumo(paginas: Sequence[Mapping[str, Any]], *, minimo: int = 3) -> dict[str, Any]:
     """O bloco de cobertura que o relatório da rodada publica."""
     return {"paginas": len(paginas), "cobertura": cobertura(paginas),
             "faltando": faltando(paginas, minimo=minimo),
-            "por_livro": por_livro(paginas), "minimo_por_familia": minimo}
+            "por_livro": por_livro(paginas),
+            "faltando_por_livro": faltando_por_livro(paginas, minimo=minimo),
+            "minimo_por_familia": minimo}

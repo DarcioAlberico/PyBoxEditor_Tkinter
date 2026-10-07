@@ -10,12 +10,13 @@ O modelo aprende a sequência inteira; não depende de um box por caractere.
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, Mapping, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -34,6 +35,144 @@ LARGURA_MAXIMA = 640
 #: faixa acima de 15% só injeta ruído nela. O modelo treinado em 2026-09-17
 #: estava em 96% — e era oferecido na exportação a um "Sim" de distância.
 CER_MAXIMO_EM_PRODUCAO = 0.15
+
+
+def _sha256_arquivo(caminho: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(caminho).open("rb") as arquivo:
+        for bloco in iter(lambda: arquivo.read(1024 * 1024), b""):
+            digest.update(bloco)
+    return digest.hexdigest()
+
+
+def validar_proveniencia_dataset(meta: str | Path) -> str | None:
+    """Valida o manifesto de proveniência exigido por um pacote de release."""
+    caminho_meta = Path(meta)
+    try:
+        dados = json.loads(caminho_meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        return f"metadados do modelo ilegíveis: {erro}"
+    if not isinstance(dados, dict):
+        return "metadados do modelo devem ser um objeto JSON"
+    if dados.get("dataset_provenance_verified") is not True:
+        return "dataset sem proveniência verificada"
+    caminho = str(dados.get("dataset_provenance_path", ""))
+    esperado = str(dados.get("dataset_provenance_sha256", "")).strip().lower()
+    if not caminho or len(esperado) != 64:
+        return "metadados sem caminho ou SHA-256 da proveniência do dataset"
+    arquivo = Path(caminho)
+    if not arquivo.is_absolute():
+        arquivo = (caminho_meta.parent / arquivo).resolve()
+    if not arquivo.is_file():
+        return f"proveniência do dataset ausente: {arquivo}"
+    try:
+        atual = _sha256_arquivo(arquivo)
+    except OSError as erro:
+        return f"não foi possível ler a proveniência do dataset: {erro}"
+    if atual != esperado:
+        return "SHA-256 da proveniência do dataset não corresponde"
+    return None
+
+
+def validar_relatorio_calibracao(meta: str | Path) -> str | None:
+    """Valida o artefato de confiabilidade declarado nos metadados."""
+    caminho_meta = Path(meta)
+    try:
+        dados = json.loads(caminho_meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        return f"metadados do modelo ilegíveis: {erro}"
+    caminho = str(dados.get("calibration_report", "")) if isinstance(dados, dict) else ""
+    esperado = (str(dados.get("calibration_report_sha256", "")).strip().lower()
+                if isinstance(dados, dict) else "")
+    if not caminho or len(esperado) != 64:
+        return "metadata de calibração sem relatório ou SHA-256"
+    arquivo = Path(caminho)
+    if not arquivo.is_absolute():
+        arquivo = (caminho_meta.parent / arquivo).resolve()
+    if not arquivo.is_file():
+        return f"relatório de calibração ausente: {arquivo}"
+    try:
+        dados_relatorio = json.loads(arquivo.read_text(encoding="utf-8"))
+        atual = _sha256_arquivo(arquivo)
+    except (OSError, ValueError) as erro:
+        return f"relatório de calibração ilegível: {erro}"
+    if not isinstance(dados_relatorio, dict) or dados_relatorio.get("schema") != (
+            "pyboxeditor.ocr-line-calibration/v1"):
+        return "relatório de calibração com schema incompatível"
+    if atual != esperado:
+        return "SHA-256 do relatório de calibração não corresponde"
+    return None
+
+
+def validar_manifesto_split(meta: str | Path) -> str | None:
+    """Valida o split de corpus exigido por um pacote de produção."""
+    caminho_meta = Path(meta)
+    try:
+        dados = json.loads(caminho_meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        return f"metadados do modelo ilegíveis: {erro}"
+    caminho = str(dados.get("split_manifest", "")) if isinstance(dados, dict) else ""
+    esperado = (str(dados.get("split_manifest_sha256", "")).strip().lower()
+                if isinstance(dados, dict) else "")
+    if not caminho or len(esperado) != 64:
+        return "metadata de split sem manifesto ou SHA-256"
+    arquivo = Path(caminho)
+    if not arquivo.is_absolute():
+        arquivo = (caminho_meta.parent / arquivo).resolve()
+    if not arquivo.is_file():
+        return f"manifesto de split ausente: {arquivo}"
+    try:
+        atual = _sha256_arquivo(arquivo)
+        from core.ocr_phase7 import load_split_manifest
+        split = load_split_manifest(arquivo)
+    except (OSError, ValueError) as erro:
+        return f"manifesto de split inválido: {erro}"
+    if atual != esperado:
+        return "SHA-256 do manifesto de split não corresponde"
+    if not split.train or not split.holdout:
+        return "manifesto de split sem treino e holdout reais"
+    return None
+
+
+def validar_vinculo_linhas(meta: str | Path) -> str | None:
+    """Valida o vínculo físico exigido entre split e datasets de linhas."""
+    caminho_meta = Path(meta)
+    try:
+        dados = json.loads(caminho_meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        return f"metadados do modelo ilegíveis: {erro}"
+    caminho = str(dados.get("line_binding", "")) if isinstance(dados, dict) else ""
+    esperado = (str(dados.get("line_binding_sha256", "")).strip().lower()
+                if isinstance(dados, dict) else "")
+    if not caminho or len(esperado) != 64:
+        return "metadata sem vínculo de linhas ou SHA-256"
+    arquivo = Path(caminho)
+    if not arquivo.is_absolute():
+        arquivo = (caminho_meta.parent / arquivo).resolve()
+    if not arquivo.is_file():
+        return f"vínculo de linhas ausente: {arquivo}"
+    try:
+        atual = _sha256_arquivo(arquivo)
+        from core.ocr_line_binding import load_line_binding
+        load_line_binding(arquivo, require_holdout=True)
+    except (OSError, ValueError) as erro:
+        return f"vínculo de linhas inválido: {erro}"
+    if atual != esperado:
+        return "SHA-256 do vínculo de linhas não corresponde"
+    return None
+
+
+def _impressao_dataset(registros) -> str:
+    """Identifica rótulos e pixels usados no treino, de forma determinística."""
+    digest = hashlib.sha256()
+    for caminho, texto in sorted(registros, key=lambda item: str(item[0]).casefold()):
+        digest.update(str(caminho).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(texto.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(_sha256_arquivo(caminho).encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def cer_de_validacao(meta: dict) -> Optional[float]:
@@ -58,22 +197,89 @@ def cer_de_validacao(meta: dict) -> Optional[float]:
         return None
 
 
-def modelo_utilizavel(meta: str | Path = "text_line_model.json",
-                      destino: str | Path = "text_line_model.pth",
-                      cer_maximo: float = CER_MAXIMO_EM_PRODUCAO
+def _modelo_e_meta(destino: str | Path | None,
+                   meta: str | Path | None) -> Tuple[Path, Path]:
+    """O peso e os metadados do modelo de linha (`config.paths.completar_modelo_linha`)."""
+    from config.paths import completar_modelo_linha
+    return completar_modelo_linha(destino, meta)
+
+
+def _pasta_de_linhas(pasta: str | Path | None) -> Path:
+    """A base de linhas pedida, ou a de `config.paths.pasta_de_linhas`."""
+    if pasta is None:
+        from config.paths import pasta_de_linhas
+        return pasta_de_linhas()
+    return Path(pasta)
+
+
+def modelo_utilizavel(meta: str | Path | None = None,
+                      destino: str | Path | None = None,
+                      cer_maximo: float = CER_MAXIMO_EM_PRODUCAO,
+                      *, exigir_holdout: bool = False
                       ) -> Tuple[bool, str]:
     """`(True, resumo)` se o modelo de linha pode ler faixas em produção;
     `(False, motivo)` se não — peso ou metadados ausentes, sem medida de
     validação, ou CER acima de `cer_maximo`. É o portão que separa "existe
     um `.pth` no disco" de "ele lê melhor do que atrapalha"."""
-    meta = Path(meta)
-    destino = Path(destino)
+    destino, meta = _modelo_e_meta(destino, meta)
     if not destino.exists() or not meta.exists():
         return False, "não há modelo de linha treinado (text_line_model.pth/.json)"
     try:
         dados = json.loads(meta.read_text(encoding="utf-8"))
     except (OSError, ValueError) as erro:
         return False, f"metadados do modelo de linha ilegíveis: {erro}"
+    # O .pth e o JSON podem ter sido copiados/substituídos separadamente. Um
+    # CER baixo de um JSON antigo não é evidência sobre o peso que está no
+    # disco. A comparação de mtime é a barreira de transição para metadados
+    # antigos; treinos novos também gravam o hash abaixo.
+    try:
+        if meta.stat().st_mtime_ns < destino.stat().st_mtime_ns:
+            return False, "peso e metadados desencontrados: o peso é mais novo que o JSON"
+    except OSError as erro:
+        return False, f"não foi possível verificar a proveniência do modelo: {erro}"
+    esperado_hash = str(dados.get("model_sha256", "")).strip().lower()
+    if esperado_hash:
+        try:
+            hash_atual = _sha256_arquivo(destino)
+        except OSError as erro:
+            return False, f"não foi possível ler o peso para conferir o hash: {erro}"
+        if hash_atual != esperado_hash:
+            return False, "hash dos pesos não corresponde aos metadados"
+    if dados.get("dataset_provenance_required"):
+        erro_proveniencia = validar_proveniencia_dataset(meta)
+        if erro_proveniencia:
+            return False, erro_proveniencia
+    if dados.get("calibration_evaluated"):
+        erro_calibracao = validar_relatorio_calibracao(meta)
+        if erro_calibracao:
+            return False, erro_calibracao
+    if dados.get("split_required"):
+        erro_split = validar_manifesto_split(meta)
+        if erro_split:
+            return False, erro_split
+    if dados.get("line_binding_required"):
+        erro_vinculo = validar_vinculo_linhas(meta)
+        if erro_vinculo:
+            return False, erro_vinculo
+    if exigir_holdout and not dados.get("holdout_required"):
+        return False, "o pacote de release precisa declarar holdout real"
+    if dados.get("holdout_required"):
+        if not dados.get("holdout_evaluated"):
+            return False, "o pacote exige holdout real, mas ele não foi avaliado"
+        holdout_cer = dados.get("holdout_cer")
+        if not isinstance(holdout_cer, (int, float)):
+            return False, "o holdout real não tem CER registrada"
+        if float(holdout_cer) > cer_maximo:
+            return False, (f"o holdout real erra {float(holdout_cer):.0%} dos caracteres "
+                           f"(limite para produção: {cer_maximo:.0%})")
+        if dados.get("holdout_provenance"):
+            if dados.get("holdout_line_provenance_schema") != (
+                    "pyboxeditor.ocr-line-holdout/v1"):
+                return False, ("a proveniência do holdout não identifica o dataset "
+                               "de linhas avaliado")
+            if not str(dados.get("holdout_line_dataset_sha256", "")).strip():
+                return False, ("a proveniência do holdout não identifica o dataset "
+                               "de linhas avaliado")
     cer = cer_de_validacao(dados)
     if cer is None:
         return False, ("o modelo de linha não tem medida de validação nos "
@@ -84,9 +290,9 @@ def modelo_utilizavel(meta: str | Path = "text_line_model.json",
     return True, f"modelo de linha com {cer:.1%} de CER na validação"
 
 
-def validar_dataset(pasta: str | Path = "training_data_linhas") -> dict:
+def validar_dataset(pasta: str | Path | None = None) -> dict:
     """Valida imagens, manifesto e cobertura de caracteres antes do treino."""
-    pasta = Path(pasta)
+    pasta = _pasta_de_linhas(pasta)
     manifesto = pasta / "rec_gt.txt"
     registros = _ler_manifesto(pasta)
     caracteres = sorted({c for _, texto in registros for c in texto})
@@ -147,6 +353,54 @@ def _ler_manifesto(pasta: str | Path):
     if not registros:
         raise ValueError("O manifesto não contém linhas com imagem e texto.")
     return registros
+
+
+def _grupo_linha(caminho: Path) -> str:
+    """Extrai o grupo de origem usado pelo split interno do CRNN."""
+    return caminho.stem.split("_linha_", 1)[0]
+
+
+def grupos_de_linhas(pasta: str | Path | None = None) -> tuple[str, ...]:
+    """Lista grupos de origem presentes em um ``rec_gt.txt``."""
+    return tuple(sorted({_grupo_linha(caminho)
+                         for caminho, _texto in _ler_manifesto(_pasta_de_linhas(pasta))}))
+
+
+def _registros_do_dataset(dataset):
+    """Lê um dataset por caminho ou reutiliza registros já carregados."""
+    if isinstance(dataset, (str, Path)):
+        return _ler_manifesto(dataset)
+    return dataset
+
+
+def validar_datasets_disjuntos(datasets: Mapping[str, str | Path]) -> None:
+    """Recusa imagens ou grupos de origem compartilhados entre datasets.
+
+    O nome do arquivo é a única proveniência disponível no ``rec_gt.txt``.
+    Usamos a mesma convenção de grupo do treinador para impedir que linhas da
+    mesma página/livro atravessem treino, validação, calibração ou holdout.
+    """
+    vistos_imagens: dict[str, str] = {}
+    vistos_grupos: dict[str, str] = {}
+    for nome, pasta in datasets.items():
+        for caminho, _texto in _registros_do_dataset(pasta):
+            imagem = str(caminho.resolve()).casefold()
+            anterior = vistos_imagens.get(imagem)
+            if anterior is not None and anterior != nome:
+                raise ValueError(
+                    f"vazamento de imagem entre datasets: {caminho} ({anterior}/{nome})")
+            vistos_imagens[imagem] = str(nome)
+            grupo = _grupo_linha(caminho)
+            anterior = vistos_grupos.get(grupo)
+            if anterior is not None and anterior != nome:
+                raise ValueError(
+                    f"vazamento de grupo entre datasets: {grupo} ({anterior}/{nome})")
+            vistos_grupos[grupo] = str(nome)
+
+
+def fingerprint_dataset(pasta: str | Path | None = None) -> str:
+    """Calcula a identidade dos rótulos e pixels de uma base de linhas."""
+    return _impressao_dataset(_ler_manifesto(_pasta_de_linhas(pasta)))
 
 
 def _imagem(caminho: Path):
@@ -307,9 +561,9 @@ def _beam_ctc(logits, id_to_char, largura=5):
     return max(beams.items(), key=lambda item: item[1])[0][0]
 
 
-def treinar(pasta: str = "training_data_linhas",
-            destino: str = "text_line_model.pth",
-            meta: str = "text_line_model.json",
+def treinar(pasta: str | Path | None = None,
+            destino: str | Path | None = None,
+            meta: str | Path | None = None,
             epocas: int = 20, batch_size: int = 8, paciencia: int = 6,
             semente: int = 42,
             taxa_aprendizado: float = 1e-3, dispositivo: str = "auto",
@@ -318,8 +572,14 @@ def treinar(pasta: str = "training_data_linhas",
             retomar: bool = True,
             validacao: str | None = None,
             alfabeto_automatico: bool = True) -> bool:
-    """Treina e grava o reconhecedor sequencial de linhas."""
+    """Treina e grava o reconhecedor sequencial de linhas.
+
+    Sem `pasta`, `destino` e `meta`, valem os de `config.paths` — a base de
+    linhas e o modelo ao lado do código, e não no cwd de quem abriu o programa.
+    """
     torch, nn = _torch()
+    pasta = _pasta_de_linhas(pasta)
+    destino, meta = _modelo_e_meta(destino, meta)
     # A inicialização dos pesos também obedece à semente — sem isto a mesma
     # `semente` só governava o embaralhamento, e o modelo não se repetia.
     torch.manual_seed(semente)
@@ -334,7 +594,7 @@ def treinar(pasta: str = "training_data_linhas",
     # mais de uma página, separar por página mede generalização de verdade.
     grupos = {}
     for registro in registros:
-        grupo = registro[0].stem.split("_linha_", 1)[0]
+        grupo = _grupo_linha(registro[0])
         grupos.setdefault(grupo, []).append(registro)
     if validacao is not None:
         validacao_diagnostico = validar_dataset(validacao)
@@ -342,8 +602,11 @@ def treinar(pasta: str = "training_data_linhas",
                 or validacao_diagnostico.get("ausentes")
                 or validacao_diagnostico.get("malformadas")):
             raise ValueError("Dataset de validação inválido.")
+        validacao_registros = _ler_manifesto(validacao)
+        validar_datasets_disjuntos({"treino": registros,
+                                    "validacao": validacao_registros})
         treino = registros
-        validacao = _ler_manifesto(validacao)
+        validacao = validacao_registros
         caracteres_validacao = {c for _, texto in validacao for c in texto}
         desconhecidos = caracteres_validacao - {c for _, texto in treino for c in texto}
         if desconhecidos:
@@ -362,8 +625,8 @@ def treinar(pasta: str = "training_data_linhas",
         random.Random(semente).shuffle(nomes)
         n_validacao = max(1, round(len(nomes) * 0.1))
         nomes_val = set(nomes[:n_validacao])
-        treino = [r for r in registros if r[0].stem.split("_linha_", 1)[0] not in nomes_val]
-        validacao = [r for r in registros if r[0].stem.split("_linha_", 1)[0] in nomes_val]
+        treino = [r for r in registros if _grupo_linha(r[0]) not in nomes_val]
+        validacao = [r for r in registros if _grupo_linha(r[0]) in nomes_val]
     else:
         corte = max(1, int(len(registros) * 0.9))
         treino, validacao = registros[:corte], registros[corte:]
@@ -390,8 +653,6 @@ def treinar(pasta: str = "training_data_linhas",
     sem_melhora = 0
     paciencia = max(1, int(paciencia))
     historico = []
-    destino = Path(destino)
-    meta = Path(meta)
     checkpoint_ultimo = destino.with_name(
         f"{destino.stem}_ultimo{destino.suffix}")
     retomado = False
@@ -491,22 +752,38 @@ def treinar(pasta: str = "training_data_linhas",
     # de validação —, e é ele que `modelo_utilizavel` lê para decidir se o
     # modelo entra em produção.
     cer_do_melhor = cer_de_validacao({"historico": historico})
+    modelo_hash = _sha256_arquivo(destino)
+    dataset_hash = _impressao_dataset(_ler_manifesto(pasta))
+    validacao_hash = _impressao_dataset(validacao)
+    validacao_registros = [{"imagem": str(caminho), "texto": texto}
+                           for caminho, texto in validacao]
+    grupos_validacao = sorted({_grupo_linha(caminho)
+                               for caminho, _texto in validacao})
     meta.write_text(json.dumps({"altura": ALTURA, "char_to_id": char_to_id,
                                 "blank": 0, "arquitetura": "crnn_ctc_v1",
                                 "historico": historico, "melhor_validacao": melhor,
                                 "cer_validacao": cer_do_melhor,
+                                "model_sha256": modelo_hash,
+                                "dataset_sha256": dataset_hash,
+                                "validacao_sha256": validacao_hash,
+                                "validacao_grupos": grupos_validacao,
+                                "validacao_registros": validacao_registros,
                                 "modelo": "CRNN", "versao": 1,
                                 "checkpoint_ultimo": str(checkpoint_ultimo),
                                 "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                 "alfabeto_automatico": alfabeto_automatico,
                                 "classes_suporte_sintetico": [c for _, c in suporte_charset]},
                                ensure_ascii=False, indent=2), encoding="utf-8")
-    Path("text_line_training_report.json").write_text(
+    # O relatório vai para o lado do modelo, que é onde o menu "Abrir relatório
+    # do OCR de linhas" o procura — antes era o cwd, e o menu lia outro, ou
+    # nenhum; e um treino apontado para outra pasta não escreve na raiz.
+    from config.paths import relatorio_de_linhas
+    relatorio_de_linhas(".json", destino).write_text(
         json.dumps({"linhas_treino": len(treino), "linhas_validacao": len(validacao),
                     "caracteres": len(caracteres), "historico": historico,
                     "melhor_validacao": melhor}, ensure_ascii=False, indent=2),
         encoding="utf-8")
-    Path("text_line_training_report.txt").write_text(
+    relatorio_de_linhas(".txt", destino).write_text(
         "Treinamento OCR sequencial\n"
         f"Linhas de treino: {len(treino)}\n"
         f"Linhas de validação: {len(validacao)}\n"
@@ -534,10 +811,11 @@ def _confianca_dos_caracteres(probabilidades) -> float:
 class LinhaPredictor:
     """Carrega o modelo treinado e decodifica uma linha por greedy CTC."""
 
-    def __init__(self, destino="text_line_model.pth", meta="text_line_model.json"):
+    def __init__(self, destino=None, meta=None):
         torch, _ = _torch()
         self.torch = torch
-        self.meta = json.loads(Path(meta).read_text(encoding="utf-8"))
+        destino, meta = _modelo_e_meta(destino, meta)
+        self.meta = json.loads(meta.read_text(encoding="utf-8"))
         self.id_to_char = {int(v): k for k, v in self.meta["char_to_id"].items()}
         self.modelo = _modelo(len(self.id_to_char) + 1)()
         if self.meta.get("modelo", "CRNN") != "CRNN" or self.meta.get("versao", 1) != 1:
@@ -599,21 +877,24 @@ class LinhaPredictor:
         return texto, resultado
 
 
-def avaliar(destino: str = "text_line_model.pth",
-            meta: str = "text_line_model.json",
-            pasta: str = "training_data_linhas") -> dict:
+def avaliar(destino: str | Path | None = None,
+            meta: str | Path | None = None,
+            pasta: str | Path | None = None) -> dict:
     """Mede CER/WER e acerto exato do modelo nas linhas anotadas."""
-    registros = _ler_manifesto(pasta)
-    predictor = LinhaPredictor(destino, meta)
+    pasta_real = _pasta_de_linhas(pasta)
+    modelo_path, meta_path = _modelo_e_meta(destino, meta)
+    registros = _ler_manifesto(pasta_real)
+    predictor = LinhaPredictor(modelo_path, meta_path)
     total_edicoes = total_chars = total_words = total_word_errors = exatas = 0
     piores = []
     grupos = {}
+    calibration_observations = []
     for caminho, esperado in registros:
         previsto, confianca = predictor.predict_conf(caminho)
         palavras_esperadas, palavras_previstas = esperado.split(), previsto.split()
         distancia = _distancia(previsto, esperado)
         erro_palavras = _distancia(palavras_previstas, palavras_esperadas)
-        grupo = caminho.stem.split("_linha_", 1)[0]
+        grupo = _grupo_linha(caminho)
         item = grupos.setdefault(grupo, {"linhas": 0, "exatas": 0,
                                          "edicoes": 0, "caracteres": 0,
                                          "palavras": 0, "erros_palavras": 0,
@@ -634,30 +915,37 @@ def avaliar(destino: str = "text_line_model.pth",
                        "esperado": esperado, "previsto": previsto,
                        "distancia": distancia, "cer": distancia / max(1, len(esperado)),
                        "confianca": confianca})
+        calibration_observations.append({
+            "domain": grupo, "confidence": confianca,
+            "correct": previsto == esperado,
+        })
     piores.sort(key=lambda item: (item["distancia"], item["cer"]), reverse=True)
     for item in grupos.values():
         item["cer"] = item["edicoes"] / max(1, item["caracteres"])
         item["wer"] = item["erros_palavras"] / max(1, item["palavras"])
         item["exatas_percentual"] = item["exatas"] / max(1, item["linhas"])
         item["confianca_media"] /= max(1, item["linhas"])
-    modelo_path, meta_path = Path(destino), Path(meta)
     return {"modelo": str(modelo_path), "meta": str(meta_path),
             "modelo_bytes": modelo_path.stat().st_size if modelo_path.exists() else None,
             "modelo_mtime_ns": modelo_path.stat().st_mtime_ns if modelo_path.exists() else None,
-            "dataset": str(Path(pasta) / "rec_gt.txt"),
-            "dataset_mtime_ns": ((Path(pasta) / "rec_gt.txt").stat().st_mtime_ns
-                                  if (Path(pasta) / "rec_gt.txt").exists() else None),
+            "dataset": str(pasta_real / "rec_gt.txt"),
+            "dataset_mtime_ns": ((pasta_real / "rec_gt.txt").stat().st_mtime_ns
+                                  if (pasta_real / "rec_gt.txt").exists() else None),
             "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "linhas": len(registros),
             "exatas": exatas, "exatas_percentual": exatas / max(1, len(registros)),
             "cer": total_edicoes / max(1, total_chars),
             "wer": total_word_errors / max(1, total_words),
             "caracteres": total_chars, "palavras": total_words, "grupos": grupos,
-            "piores": piores[:20]}
+            "piores": piores[:20],
+            "calibration_observations": calibration_observations}
 
 
-def salvar_avaliacao(resultado: dict, destino: str = "text_line_evaluation.json") -> Path:
+def salvar_avaliacao(resultado: dict, destino: str | Path | None = None) -> Path:
     """Persiste o benchmark e a fila de amostras prioritárias para revisão."""
+    if destino is None:
+        from config.paths import avaliacao_de_linhas
+        destino = avaliacao_de_linhas()
     caminho = Path(destino)
     caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_text(json.dumps(resultado, ensure_ascii=False, indent=2) + "\n",

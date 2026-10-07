@@ -124,10 +124,18 @@ class ModelPackage:
                metadata: Mapping[str, Any] | None = None) -> Path:
         target = Path(destination)
         target.parent.mkdir(parents=True, exist_ok=True)
+        if not str(model_id).strip():
+            raise ValueError("model_id do pacote nao pode ser vazio")
+        if not str(pipeline_version).strip():
+            raise ValueError("pipeline_version do pacote nao pode ser vazio")
+        if not files:
+            raise ValueError("pacote de modelo precisa conter arquivos")
         entries: list[dict[str, Any]] = []
         sources: dict[str, Path] = {}
         for name, source in sorted(files.items()):
             normalized = ModelPackage._safe_name(name)
+            if normalized in sources:
+                raise ValueError(f"arquivo duplicado no pacote: {normalized}")
             path = Path(source)
             if not path.is_file():
                 raise FileNotFoundError(path)
@@ -170,8 +178,20 @@ class ModelPackage:
                 if "manifest.json" not in archive.namelist():
                     return PackageVerification(False, ("manifest.json ausente",))
                 manifest = json.loads(archive.read("manifest.json"))
+                if not isinstance(manifest, Mapping):
+                    return PackageVerification(False, ("manifesto do pacote invalido",))
+                if manifest.get("schema") != MODEL_PACKAGE_SCHEMA:
+                    errors.append("schema do pacote invalido")
+                if not str(manifest.get("model_id", "")).strip():
+                    errors.append("model_id ausente no pacote")
+                if not str(manifest.get("pipeline_version", "")).strip():
+                    errors.append("pipeline_version ausente no pacote")
                 names = set(archive.namelist())
-                for entry in manifest.get("files", ()):
+                entries = manifest.get("files", ())
+                if not isinstance(entries, list) or not entries:
+                    errors.append("manifesto do pacote nao declara arquivos")
+                    entries = []
+                for entry in entries:
                     name = ModelPackage._safe_name(entry["path"])
                     if name not in names:
                         errors.append(f"arquivo ausente: {name}")
@@ -185,6 +205,35 @@ class ModelPackage:
                         errors.append(f"checksum inválido: {name}")
                     if len(data) != int(entry.get("size", len(data))):
                         errors.append(f"tamanho inválido: {name}")
+                declarados = {ModelPackage._safe_name(entry["path"])
+                              for entry in entries}
+                pacote_meta = manifest.get("metadata", {})
+                artefatos = (pacote_meta.get("release_artifacts", [])
+                             if isinstance(pacote_meta, Mapping) else [])
+                if not isinstance(artefatos, list):
+                    errors.append("release_artifacts do pacote invalido")
+                    artefatos = []
+                entradas_por_nome = {
+                    ModelPackage._safe_name(entry["path"]): entry
+                    for entry in entries
+                }
+                for artefato in artefatos:
+                    if not isinstance(artefato, Mapping):
+                        errors.append("artefato de release invalido")
+                        continue
+                    try:
+                        nome = ModelPackage._safe_name(artefato["path"])
+                    except (KeyError, TypeError, ValueError) as error:
+                        errors.append(f"caminho de artefato invalido: {error}")
+                        continue
+                    entrada = entradas_por_nome.get(nome)
+                    if entrada is None:
+                        errors.append(f"artefato nao declarado: {nome}")
+                        continue
+                    if artefato.get("sha256") != entrada.get("sha256"):
+                        errors.append(f"checksum de artefato invalido: {nome}")
+                errors.extend(f"arquivo nao declarado: {name}"
+                              for name in sorted(names - {"manifest.json"} - declarados))
                 return PackageVerification(not errors, tuple(errors), manifest)
         except (OSError, zipfile.BadZipFile, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             return PackageVerification(False, (f"pacote inválido: {error}",))

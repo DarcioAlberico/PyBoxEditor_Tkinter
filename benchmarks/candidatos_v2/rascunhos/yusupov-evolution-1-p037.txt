@@ -1,0 +1,47 @@
+⩱
+
+⩱=
+
+♖ e♖APTE♖
+
+Contents
+
+⩱
+
+⯹ V The standard planof ‘winning by defleetl Y The ‘semi-stalemate’ 🗸 Drawn positions . Y Positions with fixed i ‘pawns and an 2 extra pawn on the other wing The endganie of g- arid pawns against an ligawn
+
+;
+
+⩱
+
+⩱ ⯹
+
+⩱ =
+
+⩱
+
+⩱
+
+=
+
+J 4
+
+Realizing a material
+
+advantage in a pawn
+
+ntage in a pawn
+
+ending
+
+“In pawn endings one extra pawn is sufficient for a win, apart from some rare exceptions. It is not especially difficult to realize such an advantage in material.” — Averbakh
+
+In the following example we shall examine the standard plan of winning by deflection.
+
+Diagram 4-1
+
+Amsterdarn (1 ()) 1 922
+
+1.c4 White has an advantage in material on the queenside. Therefore it is logical that he will create a passed pawn there. 1...♔e7 2.♔e3 1) “Before creating a passed pawn, it is usually a good idea to improve the position of one’s king.” — Averbakh The white king advances into the centre, in order to prevent counterplay by the opposing king and to support its own pawns. 2...♔e6 3.♔e4 a5 4.b3 White does not have to hurry. Payattention to how Euwe advances his pawns. Instead 4.a3?! a4 would have allowed a blockade on the queenside. 4...♔d6 5.♔d4 b6 6.a3 2) “One has to create a passed pawn and then queen it.” — Averbakh Counterplay on the kingside is easily thwarted, since Black does not have a pawn majority there. 6...h5 7.b4 g5 6...axb4 7.axb4 g5 8.c5+ bxc5+ 9.bxc5+ ♔c6 would be slightly more resilient, but White nevertheless wins:
+
+♔1' vvv: 10.♔e5! xc5 11.♔f5 g4 l2.♔g5 ♔d4 l3.♔xh5+— 3) “If the opposing king manages to stop the pawn, the stronger side’s king makes use of the deflection

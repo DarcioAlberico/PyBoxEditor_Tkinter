@@ -1,0 +1,273 @@
+{
+ "data": "2026-09-26T03:36:22+00:00",
+ "rotulo": "holdout v2 materializado e indexado",
+ "manifesto": "benchmarks\\corpus_v2.json",
+ "tempo_s": 15.8,
+ "paginas": [
+  {
+   "id": "aagaard-calculation-p030",
+   "documento": "aagaard-calculation",
+   "page_index": 30,
+   "dificuldade": "mixed_layout",
+   "familias": [
+    "notacao",
+    "prosa"
+   ],
+   "principal": "notacao",
+   "metricas": {
+    "prose": {
+     "tokens": 207,
+     "erros": 9,
+     "caracteres": 981,
+     "erros_de_caractere": 9,
+     "wer": 0.043478260869565216,
+     "cer": 0.009174311926605505
+    },
+    "notation": {
+     "tokens": 88,
+     "erros": 27,
+     "caracteres": 478,
+     "erros_de_caractere": 49,
+     "wer": 0.3068181818181818,
+     "cer": 0.10251046025104603
+    },
+    "total": {
+     "tokens": 295,
+     "erros": 36,
+     "caracteres": 1459,
+     "erros_de_caractere": 58,
+     "wer": 0.12203389830508475,
+     "cer": 0.039753255654557916
+    }
+   }
+  },
+  {
+   "id": "nunn-rook-endings-p237",
+   "documento": "nunn-rook-endings",
+   "page_index": 237,
+   "dificuldade": "table",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "notacao",
+    "prosa",
+    "tabela"
+   ],
+   "principal": "tabela",
+   "metricas": {
+    "prose": {
+     "tokens": 165,
+     "erros": 12,
+     "caracteres": 552,
+     "erros_de_caractere": 39,
+     "wer": 0.07272727272727272,
+     "cer": 0.07065217391304347
+    },
+    "notation": {
+     "tokens": 73,
+     "erros": 29,
+     "caracteres": 413,
+     "erros_de_caractere": 95,
+     "wer": 0.3972602739726027,
+     "cer": 0.23002421307506055
+    },
+    "total": {
+     "tokens": 238,
+     "erros": 41,
+     "caracteres": 965,
+     "erros_de_caractere": 134,
+     "wer": 0.1722689075630252,
+     "cer": 0.138860103626943
+    }
+   }
+  },
+  {
+   "id": "yusupov-evolution-1-p034",
+   "documento": "yusupov-evolution-1",
+   "page_index": 34,
+   "dificuldade": "two_columns",
+   "familias": [
+    "duas_colunas",
+    "notacao",
+    "prosa"
+   ],
+   "principal": "duas_colunas",
+   "metricas": {
+    "prose": {
+     "tokens": 128,
+     "erros": 9,
+     "caracteres": 610,
+     "erros_de_caractere": 45,
+     "wer": 0.0703125,
+     "cer": 0.07377049180327869
+    },
+    "notation": {
+     "tokens": 118,
+     "erros": 21,
+     "caracteres": 658,
+     "erros_de_caractere": 41,
+     "wer": 0.17796610169491525,
+     "cer": 0.06231003039513678
+    },
+    "total": {
+     "tokens": 246,
+     "erros": 30,
+     "caracteres": 1268,
+     "erros_de_caractere": 86,
+     "wer": 0.12195121951219512,
+     "cer": 0.06782334384858044
+    }
+   }
+  },
+  {
+   "id": "yusupov-evolution-1-p047",
+   "documento": "yusupov-evolution-1",
+   "page_index": 47,
+   "dificuldade": "halftone_panel",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "prosa",
+    "trama"
+   ],
+   "principal": "trama",
+   "metricas": {
+    "prose": {
+     "tokens": 265,
+     "erros": 18,
+     "caracteres": 1269,
+     "erros_de_caractere": 71,
+     "wer": 0.06792452830188679,
+     "cer": 0.05594956658786446
+    },
+    "notation": {
+     "tokens": 43,
+     "erros": 7,
+     "caracteres": 209,
+     "erros_de_caractere": 17,
+     "wer": 0.16279069767441862,
+     "cer": 0.08133971291866028
+    },
+    "total": {
+     "tokens": 308,
+     "erros": 25,
+     "caracteres": 1478,
+     "erros_de_caractere": 88,
+     "wer": 0.08116883116883117,
+     "cer": 0.05953991880920163
+    }
+   }
+  }
+ ],
+ "totais": {
+  "prose": {
+   "caracteres": 3412.0,
+   "erros_de_caractere": 164.0,
+   "tokens": 765.0,
+   "erros": 48.0,
+   "cer": 0.04806565064478312,
+   "wer": 0.06274509803921569
+  },
+  "notation": {
+   "caracteres": 1758.0,
+   "erros_de_caractere": 202.0,
+   "tokens": 322.0,
+   "erros": 84.0,
+   "cer": 0.1149032992036405,
+   "wer": 0.2608695652173913
+  },
+  "total": {
+   "caracteres": 5170.0,
+   "erros_de_caractere": 366.0,
+   "tokens": 1087.0,
+   "erros": 132.0,
+   "cer": 0.07079303675048355,
+   "wer": 0.12143514259429623
+  }
+ },
+ "cobertura": {
+  "paginas": 4,
+  "cobertura": {
+   "imagem": 0,
+   "tabela": 1,
+   "trama": 1,
+   "negativo": 0,
+   "duas_colunas": 3,
+   "diagramas": 2,
+   "notacao": 3,
+   "prosa": 4
+  },
+  "faltando": [
+   "imagem",
+   "tabela",
+   "trama",
+   "negativo",
+   "diagramas"
+  ],
+  "por_livro": {
+   "aagaard-calculation": {
+    "imagem": 0,
+    "tabela": 0,
+    "trama": 0,
+    "negativo": 0,
+    "duas_colunas": 0,
+    "diagramas": 0,
+    "notacao": 1,
+    "prosa": 1
+   },
+   "nunn-rook-endings": {
+    "imagem": 0,
+    "tabela": 1,
+    "trama": 0,
+    "negativo": 0,
+    "duas_colunas": 1,
+    "diagramas": 1,
+    "notacao": 1,
+    "prosa": 1
+   },
+   "yusupov-evolution-1": {
+    "imagem": 0,
+    "tabela": 0,
+    "trama": 1,
+    "negativo": 0,
+    "duas_colunas": 2,
+    "diagramas": 1,
+    "notacao": 1,
+    "prosa": 2
+   }
+  },
+  "faltando_por_livro": {
+   "aagaard-calculation": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "nunn-rook-endings": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "yusupov-evolution-1": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ]
+  },
+  "minimo_por_familia": 3
+ }
+}

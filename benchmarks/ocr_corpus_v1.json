@@ -1,0 +1,127 @@
+{
+  "schema": "pyboxeditor.ocr-corpus/v1",
+  "name": "chess-books-holdout-v1",
+  "version": "1",
+  "documents": [
+    {
+      "id": "aagaard-calculation",
+      "title": "Grandmaster Preparation — Calculation",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "../PDF/Aagaard - Grandmaster Preparation - Calculation (2012) (2)/Aagaard - Grandmaster Preparation - Calculation (2012) (2).pdf",
+      "split": "test",
+      "pages": [
+        {
+          "id": "aagaard-calculation-p030",
+          "page_index": 30,
+          "image": null,
+          "reference": "../preview_ocr/referencia/aagaard_calculation/p030.txt",
+          "pdf_text": null,
+          "predictions": {
+            "current": "../preview_ocr/ab/palavra/p030.txt"
+          },
+          "domains": [
+            "body",
+            "notation",
+            "diagram"
+          ],
+          "printed_page": null,
+          "metadata": {
+            "difficulty": "mixed_layout",
+            "annotation_status": "reviewed"
+          }
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "nunn-rook-endings",
+      "title": "Secrets of Rook Endings",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "../PDF/Nunn - Secrets of Rook Endings (1999)/Nunn - Secrets of Rook Endings (1999).pdf",
+      "split": "test",
+      "pages": [
+        {
+          "id": "nunn-rook-endings-p237",
+          "page_index": 237,
+          "image": null,
+          "reference": "../preview_ocr/referencia/nunn_secrets_of_rook_endings/p237.txt",
+          "pdf_text": null,
+          "predictions": {
+            "current": "../preview_ocr/ab/nunn/palavra/p237.txt"
+          },
+          "domains": [
+            "body",
+            "notation",
+            "table"
+          ],
+          "printed_page": null,
+          "metadata": {
+            "difficulty": "table",
+            "annotation_status": "reviewed"
+          }
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "yusupov-evolution-1",
+      "title": "Chess Evolution 1 — The Fundamentals",
+      "language": "en",
+      "source_kind": "pdf_scan",
+      "source": "../PDF/Artur Yusupov - Chess Evolution 1 - The Fundamentals (Quality Chess 2011) - editable/Artur Yusupov - Chess Evolution 1 - The Fundamentals (Quality Chess 2011) - editable.pdf",
+      "split": "test",
+      "pages": [
+        {
+          "id": "yusupov-evolution-1-p034",
+          "page_index": 34,
+          "image": null,
+          "reference": "../preview_ocr/referencia/yusupov_chess_evolution_1/p034.txt",
+          "pdf_text": null,
+          "predictions": {
+            "current": "../preview_ocr/ab/yusupov/palavra/p034.txt"
+          },
+          "domains": [
+            "body",
+            "notation",
+            "diagram"
+          ],
+          "printed_page": null,
+          "metadata": {
+            "difficulty": "two_columns",
+            "annotation_status": "reviewed"
+          }
+        },
+        {
+          "id": "yusupov-evolution-1-p047",
+          "page_index": 47,
+          "image": null,
+          "reference": "../preview_ocr/referencia/yusupov_chess_evolution_1/p047.txt",
+          "pdf_text": null,
+          "predictions": {
+            "current": "../preview_ocr/ab/yusupov/palavra/p047.txt"
+          },
+          "domains": [
+            "body",
+            "notation",
+            "diagram"
+          ],
+          "printed_page": null,
+          "metadata": {
+            "difficulty": "halftone_panel",
+            "annotation_status": "reviewed"
+          }
+        }
+      ],
+      "metadata": {}
+    }
+  ],
+  "metadata": {
+    "purpose": "frozen-holdout",
+    "split_policy": "document-level",
+    "ground_truth_policy": "human-reviewed-text",
+    "notes": "Historical four-page holdout; expand before commercial claims."
+  },
+  "corpus_sha256": "5110eaaf15a86aa75ddf18da793a54a2d8f4158949a9e55a9ff4710ba1086bae"
+}

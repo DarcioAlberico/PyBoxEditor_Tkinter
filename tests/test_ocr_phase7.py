@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import importlib.util
+from pathlib import Path
+
+import pytest
 
 from core.editorial_model import (
     Decision,
@@ -19,8 +23,14 @@ from core.ocr_phase7 import (
     WeightManifest,
     calibrate_domains,
     evaluate_holdout,
+    load_split_manifest,
     split_corpus,
 )
+_PREPARAR_FASE7 = Path(__file__).resolve().parents[1] / "scripts" / "preparar_fase7.py"
+_SPEC = importlib.util.spec_from_file_location("pyboxeditor_preparar_fase7", _PREPARAR_FASE7)
+preparar_fase7 = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+_SPEC.loader.exec_module(preparar_fase7)
 
 
 def _document() -> EditorialDocument:
@@ -52,6 +62,196 @@ def test_correcoes_sao_coletadas_com_versao_e_roundtrip(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["checksum"]
 
 
+def test_ocr14_so_entra_na_fase7_depois_de_confirmacao_explicita():
+    entrada = {
+        "arquivo": "revisao_ocr14/⩲/aagaard_p030_l002b004.png",
+        "esperado": "⩲",
+        "lido": "±",
+        "confianca": 1.0,
+        "dominio": "notation",
+        "especie": "troca",
+        "token_esperado": "g3⩲",
+        "token_lido": "g3±",
+        "caixa": [10, 20, 30, 40],
+        "pagina": 30,
+        "linha": 2,
+        "indice_do_box": 4,
+        "rotulo_confirmado": True,
+        "rotulo": "⩲",
+        "revisor": "editor",
+    }
+
+    dataset = CorrectionDataset.from_ocr14([entrada], name="ocr14-reviewed")
+
+    assert len(dataset.records) == 1
+    record = dataset.records[0]
+    assert record.before == "±"
+    assert record.after == "⩲"
+    assert record.domain == "notation"
+    assert record.kind == "glyph"
+    assert record.editor == "editor"
+    assert record.synthetic is False
+    assert record.metadata["source"] == "ocr14"
+    assert record.metadata["especie"] == "troca"
+    assert record.metadata["caixa"] == [10, 20, 30, 40]
+
+
+def test_split_ocr14_exige_proveniencia_verificada(tmp_path):
+    entrada = {
+        "arquivo": "revisao_ocr14/y/recorte.png",
+        "lido": "x", "dominio": "notation",
+        "rotulo_confirmado": True, "rotulo": "y",
+    }
+    dataset = CorrectionDataset.from_ocr14([entrada], name="ocr14-reviewed")
+    caminho = dataset.save(tmp_path / "ocr14.json")
+
+    with pytest.raises(ValueError, match="proven"):
+        preparar_fase7.main([
+            "split", str(caminho), "-o", str(tmp_path / "split.json")
+        ])
+
+
+def test_split_ocr14_exige_hash_dos_recortes(tmp_path):
+    entrada = {
+        "arquivo": "revisao_ocr14/y/recorte.png",
+        "lido": "x", "dominio": "notation",
+        "rotulo_confirmado": True, "rotulo": "y",
+    }
+    dataset = CorrectionDataset.from_ocr14([entrada], name="ocr14-reviewed")
+    dataset.metadata["review_provenance"] = {"verified": True}
+    caminho = dataset.save(tmp_path / "ocr14-sem-hash.json")
+
+    with pytest.raises(ValueError, match="hash dos recortes"):
+        preparar_fase7.main([
+            "split", str(caminho), "-o", str(tmp_path / "split.json")
+        ])
+
+
+def test_ocr14_nao_pode_promover_quarentena_sem_rotulo_confirmado():
+    entrada = {
+        "arquivo": "revisao_ocr14/⩲/recorte.png",
+        "esperado": "⩲",
+        "lido": "±",
+        "dominio": "notation",
+        "rotulo_confirmado": False,
+    }
+
+    with pytest.raises(ValueError, match="confirmação humana"):
+        CorrectionDataset.from_ocr14([entrada], name="ocr14-unreviewed")
+
+
+def test_ocr14_recusa_o_mesmo_recorte_duas_vezes():
+    entrada = {
+        "arquivo": "revisao_ocr14/y/recorte.png",
+        "lido": "x", "dominio": "notation",
+        "rotulo_confirmado": True, "rotulo": "y",
+    }
+
+    with pytest.raises(ValueError, match="recorte OCR-14 duplicado"):
+        CorrectionDataset.from_ocr14([entrada, dict(entrada)], name="duplicado")
+
+
+def test_ocr14_dataset_recusa_rotulo_com_multiplos_glifos():
+    entrada = {
+        "arquivo": "revisao_ocr14/y/recorte.png",
+        "lido": "x", "dominio": "notation",
+        "rotulo_confirmado": True, "rotulo": "xy",
+    }
+
+    with pytest.raises(ValueError, match="um único glifo"):
+        CorrectionDataset.from_ocr14([entrada], name="rotulo-invalido")
+
+
+def test_ocr14_importacao_estrita_recusa_relatorio_sem_recortes():
+    with pytest.raises(ValueError, match="não contém recortes confirmados"):
+        CorrectionDataset.from_ocr14([], exigir_registros=True)
+
+
+def test_ocr14_modo_estrito_confere_arquivo_e_guarda_hash(tmp_path):
+    arquivo = tmp_path / "revisao_ocr14" / "y" / "recorte.png"
+    arquivo.parent.mkdir(parents=True)
+    arquivo.write_bytes(b"recorte conferido")
+    entrada = {
+        "arquivo": "revisao_ocr14/y/recorte.png",
+        "lido": "x", "dominio": "notation",
+        "rotulo_confirmado": True, "rotulo": "y",
+    }
+
+    dataset = CorrectionDataset.from_ocr14(
+        [entrada], name="ocr14-estrito", base_dir=tmp_path,
+        exigir_arquivos=True)
+
+    assert len(dataset.records[0].metadata["arquivo_sha256"]) == 64
+
+
+def test_ocr14_modo_estrito_recusa_arquivo_ausente_e_traversal(tmp_path):
+    entrada = {
+        "arquivo": "revisao_ocr14/y/ausente.png",
+        "lido": "x", "dominio": "notation",
+        "rotulo_confirmado": True, "rotulo": "y",
+    }
+    with pytest.raises(FileNotFoundError, match="recorte OCR-14 ausente"):
+        CorrectionDataset.from_ocr14(
+            [entrada], base_dir=tmp_path, exigir_arquivos=True)
+
+    entrada["arquivo"] = "../fora.png"
+    with pytest.raises(ValueError, match="fora do base_dir"):
+        CorrectionDataset.from_ocr14(
+            [entrada], base_dir=tmp_path, exigir_arquivos=True)
+
+
+def test_comando_fase7_importa_relatorio_ocr14_revisado(tmp_path):
+    relatorio = tmp_path / "ocr14.json"
+    saida = tmp_path / "dataset.json"
+    relatorio.write_text(json.dumps({"pdf": "livro.pdf", "paginas": {"30": {"recortes": [{
+        "arquivo": "revisao_ocr14/y/recorte.png",
+        "esperado": "y", "lido": "x", "dominio": "notation",
+        "especie": "troca", "pagina": 30, "rotulo": "y",
+        "rotulo_confirmado": True, "revisor": "editor",
+    }]}}}, ensure_ascii=False), encoding="utf-8")
+
+    assert preparar_fase7.main([
+        "ocr14", str(relatorio), "-o", str(saida), "--nome", "ocr14-round",
+    ]) == 0
+    dataset = CorrectionDataset.load(saida)
+    assert dataset.name == "ocr14-round"
+    assert dataset.records[0].after == "y"
+    assert dataset.records[0].document_id == "livro.pdf"
+
+
+def test_comando_fase7_modo_estrito_confere_recorte(tmp_path):
+    recorte = tmp_path / "revisao_ocr14" / "y" / "recorte.png"
+    recorte.parent.mkdir(parents=True)
+    recorte.write_bytes(b"recorte")
+    relatorio = tmp_path / "ocr14.json"
+    saida = tmp_path / "dataset.json"
+    relatorio.write_text(json.dumps({"pdf": "livro.pdf", "paginas": {"30": {
+        "recortes": [{
+            "arquivo": "revisao_ocr14/y/recorte.png",
+            "lido": "x", "dominio": "notation", "pagina": 30,
+            "rotulo": "y", "rotulo_confirmado": True,
+        }]}}}), encoding="utf-8")
+
+    assert preparar_fase7.main([
+        "ocr14", str(relatorio), "-o", str(saida),
+        "--base-dir", str(tmp_path), "--exigir-arquivos",
+    ]) == 0
+    dataset = CorrectionDataset.load(saida)
+    assert dataset.records[0].metadata["arquivo_sha256"]
+
+
+def test_comando_fase7_modo_estrito_recusa_relatorio_vazio(tmp_path):
+    relatorio = tmp_path / "ocr14-vazio.json"
+    saida = tmp_path / "dataset.json"
+    relatorio.write_text(json.dumps({"pdf": "livro.pdf", "paginas": {}}),
+                         encoding="utf-8")
+
+    with pytest.raises(ValueError, match="não contém recortes confirmados"):
+        preparar_fase7.main([
+            "ocr14", str(relatorio), "-o", str(saida), "--exigir-registros",
+        ])
+
+
 def test_split_isola_holdout_real_sintetico_e_grupos_editoriais():
     records = [
         CorpusItem("a", "book-a", "book-a", "editor-a", "source-a", "two-column", "body"),
@@ -71,6 +271,55 @@ def test_split_isola_holdout_real_sintetico_e_grupos_editoriais():
             for key in (item.book_id, item.editor_id, item.source_id, item.layout):
                 assert key not in groups or groups[key] == name
                 groups[key] = name
+
+
+def test_manifesto_de_split_tem_schema_e_revalida_vazamento(tmp_path):
+    registros = [
+        CorpusItem("a", "doc-a", "book-a", "editor-a", "source-a",
+                   "single-column", "body"),
+        CorpusItem("h", "doc-h", "book-h", "editor-h", "source-h",
+                   "two-column", "body", holdout=True),
+    ]
+    caminho = tmp_path / "split.json"
+    caminho.write_text(json.dumps(
+        split_corpus(registros, validation_fraction=0, test_fraction=0).to_dict(),
+        ensure_ascii=False), encoding="utf-8")
+
+    carregado = load_split_manifest(caminho)
+
+    assert [item.id for item in carregado.train] == ["a"]
+    assert [item.id for item in carregado.holdout] == ["h"]
+
+    dados = json.loads(caminho.read_text(encoding="utf-8"))
+    dados["holdout"][0]["book_id"] = "book-a"
+    caminho.write_text(json.dumps(dados), encoding="utf-8")
+    with pytest.raises(ValueError, match="vazamento"):
+        load_split_manifest(caminho)
+
+
+def test_manifesto_de_split_recusa_id_duplicado_e_sintetico_no_treino(tmp_path):
+    caminho = tmp_path / "split.json"
+    dados = {
+        "schema": "pyboxeditor.ocr-split/v1",
+        "train": [{
+            "id": "same", "document_id": "doc-t", "book_id": "book-t",
+            "editor_id": "editor-t", "source_id": "source-t",
+            "layout": "single-column", "domain": "body",
+            "synthetic": True, "holdout": False, "payload": None,
+        }],
+        "validation": [], "test": [],
+        "holdout": [{
+            "id": "same", "document_id": "doc-h", "book_id": "book-h",
+            "editor_id": "editor-h", "source_id": "source-h",
+            "layout": "two-column", "domain": "body",
+            "synthetic": False, "holdout": True, "payload": None,
+        }],
+        "synthetic": [],
+    }
+    caminho.write_text(json.dumps(dados), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="sint.tico|duplicado"):
+        load_split_manifest(caminho)
 
 
 def test_active_learning_combina_incerteza_e_impacto_com_ordem_reprodutivel():

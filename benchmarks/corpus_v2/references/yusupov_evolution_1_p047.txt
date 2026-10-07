@@ -1,0 +1,34 @@
+CHAPTER 5
+
+Contents
+✓ Two methods
+✓ How to force an exchange of pieces
+✓ Combining both methods
+
+Diagram 5-1
+
+Realizing a material advantage
+
+This important practical theme was already dealt with in Chapter 13 of Build Up Your Chess 1. The side with a material advantage has at its disposal two different methods of converting it.
+
+We can play for an attack with the justified hope that we can make our extra forces count.
+
+The second method is used more often. If we simplify the position (exchange pieces), then we can normally realize our material advantage more easily. However, less experienced players often make the typical mistake of simply chasing the opponent's pieces about, in the vague hope that the opponent will tire and allow the exchange of pieces. It is much better to put your pieces in active positions. Then the opponent will be the one trying to exchange off these active pieces.
+
+In some cases both methods can be combined: the threat of an attack can force the desired simplification of the position. Or an exchange may be offered, and if the opponent declines this exchange and moves his piece away, then an attack becomes possible.
+
+We shall look at some practical examples.
+
+Diagram 5-1
+A.Yusupov – A.Reuss
+German Ch, Altenkirchen 2005
+
+1...♘e4?
+This move allows White to occupy the important e5-square, and leads to the loss of a pawn.
+1...♘g4! is correct. Then after 2.e4 ♕f6 3.♔g2 dxe4 4.♗xe4 ♖ad8 Black obtains counterplay.
+2.♗xe4 dxe4 3.♘e5 ♖ac8 4.♖c1 ♔g7 5.♕xe4!
+It is correct to take the central pawn. 5.♘xc6?! would give Black more chances. For example: 5...♕d6 6.♘e5 ♖xc3 7.♕xc3 ♖c8 8.♕e1 ♖xc1 9.♕xc1 f6 10.♘c4 ♕c7 Black has good play for the pawn.
+5...c5 6.♕f4 cxb4
+6...f6 7.♘d3 ♕d7 would not be good: 8.bxc5 (or 8.dxc5 ♕d5 9.f3 ♕xf3 10.c6 ♕xf4 11.♘xf4+-)
+
+46

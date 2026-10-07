@@ -1,0 +1,304 @@
+{
+ "data": "2026-09-26T04:19:16+00:00",
+ "rotulo": "baseline apos rotulos humanos",
+ "manifesto": "benchmarks\\corpus_v2.json",
+ "corpus": {
+  "schema": "pyboxeditor.ocr-corpus/v1",
+  "version": "2",
+  "corpus_sha256": "6d187d987f044fed684e731fdeec6c21f2293809fb630275da69837b64395724",
+  "page_index_base": 1,
+  "documents": [
+   "aagaard-calculation",
+   "nunn-rook-endings",
+   "yusupov-evolution-1"
+  ]
+ },
+ "engine": "livro.extrair",
+ "config": {
+  "dpi": 300,
+  "fusao": "palavra",
+  "diagramas": "recorte",
+  "geometria": true
+ },
+ "tempo_s": 49.3,
+ "paginas": [
+  {
+   "id": "aagaard-calculation-p030",
+   "documento": "aagaard-calculation",
+   "page_index": 30,
+   "dificuldade": "mixed_layout",
+   "familias": [
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "principal": "diagramas",
+   "metricas": {
+    "prose": {
+     "tokens": 207,
+     "erros": 5,
+     "caracteres": 981,
+     "erros_de_caractere": 5,
+     "wer": 0.024154589371980676,
+     "cer": 0.0050968399592252805
+    },
+    "notation": {
+     "tokens": 88,
+     "erros": 9,
+     "caracteres": 478,
+     "erros_de_caractere": 14,
+     "wer": 0.10227272727272728,
+     "cer": 0.029288702928870293
+    },
+    "total": {
+     "tokens": 295,
+     "erros": 14,
+     "caracteres": 1459,
+     "erros_de_caractere": 19,
+     "wer": 0.04745762711864407,
+     "cer": 0.013022618231665525
+    }
+   }
+  },
+  {
+   "id": "nunn-rook-endings-p237",
+   "documento": "nunn-rook-endings",
+   "page_index": 237,
+   "dificuldade": "table",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "notacao",
+    "prosa",
+    "tabela"
+   ],
+   "principal": "tabela",
+   "metricas": {
+    "prose": {
+     "tokens": 165,
+     "erros": 3,
+     "caracteres": 552,
+     "erros_de_caractere": 3,
+     "wer": 0.01818181818181818,
+     "cer": 0.005434782608695652
+    },
+    "notation": {
+     "tokens": 73,
+     "erros": 5,
+     "caracteres": 413,
+     "erros_de_caractere": 14,
+     "wer": 0.0684931506849315,
+     "cer": 0.03389830508474576
+    },
+    "total": {
+     "tokens": 238,
+     "erros": 8,
+     "caracteres": 965,
+     "erros_de_caractere": 17,
+     "wer": 0.03361344537815126,
+     "cer": 0.017616580310880828
+    }
+   }
+  },
+  {
+   "id": "yusupov-evolution-1-p034",
+   "documento": "yusupov-evolution-1",
+   "page_index": 34,
+   "dificuldade": "two_columns",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "negativo",
+    "notacao",
+    "prosa"
+   ],
+   "principal": "negativo",
+   "metricas": {
+    "prose": {
+     "tokens": 128,
+     "erros": 3,
+     "caracteres": 610,
+     "erros_de_caractere": 4,
+     "wer": 0.0234375,
+     "cer": 0.006557377049180328
+    },
+    "notation": {
+     "tokens": 118,
+     "erros": 4,
+     "caracteres": 658,
+     "erros_de_caractere": 5,
+     "wer": 0.03389830508474576,
+     "cer": 0.007598784194528876
+    },
+    "total": {
+     "tokens": 246,
+     "erros": 7,
+     "caracteres": 1268,
+     "erros_de_caractere": 9,
+     "wer": 0.028455284552845527,
+     "cer": 0.007097791798107256
+    }
+   }
+  },
+  {
+   "id": "yusupov-evolution-1-p047",
+   "documento": "yusupov-evolution-1",
+   "page_index": 47,
+   "dificuldade": "halftone_panel",
+   "familias": [
+    "diagramas",
+    "duas_colunas",
+    "prosa",
+    "trama"
+   ],
+   "principal": "trama",
+   "metricas": {
+    "prose": {
+     "tokens": 265,
+     "erros": 14,
+     "caracteres": 1269,
+     "erros_de_caractere": 37,
+     "wer": 0.052830188679245285,
+     "cer": 0.029156816390858944
+    },
+    "notation": {
+     "tokens": 43,
+     "erros": 0,
+     "caracteres": 209,
+     "erros_de_caractere": 0,
+     "wer": 0.0,
+     "cer": 0.0
+    },
+    "total": {
+     "tokens": 308,
+     "erros": 14,
+     "caracteres": 1478,
+     "erros_de_caractere": 37,
+     "wer": 0.045454545454545456,
+     "cer": 0.02503382949932341
+    }
+   }
+  }
+ ],
+ "totais": {
+  "prose": {
+   "caracteres": 3412.0,
+   "erros_de_caractere": 49.0,
+   "tokens": 765.0,
+   "erros": 25.0,
+   "cer": 0.014361078546307152,
+   "wer": 0.032679738562091505
+  },
+  "notation": {
+   "caracteres": 1758.0,
+   "erros_de_caractere": 33.0,
+   "tokens": 322.0,
+   "erros": 18.0,
+   "cer": 0.01877133105802048,
+   "wer": 0.055900621118012424
+  },
+  "total": {
+   "caracteres": 5170.0,
+   "erros_de_caractere": 82.0,
+   "tokens": 1087.0,
+   "erros": 43.0,
+   "cer": 0.01586073500967118,
+   "wer": 0.03955841766329347
+  }
+ },
+ "cobertura": {
+  "paginas": 4,
+  "cobertura": {
+   "imagem": 0,
+   "tabela": 1,
+   "trama": 1,
+   "negativo": 1,
+   "duas_colunas": 3,
+   "diagramas": 4,
+   "notacao": 3,
+   "prosa": 4
+  },
+  "faltando": [
+   "imagem",
+   "tabela",
+   "trama",
+   "negativo"
+  ],
+  "por_livro": {
+   "aagaard-calculation": {
+    "imagem": 0,
+    "tabela": 0,
+    "trama": 0,
+    "negativo": 0,
+    "duas_colunas": 0,
+    "diagramas": 1,
+    "notacao": 1,
+    "prosa": 1
+   },
+   "nunn-rook-endings": {
+    "imagem": 0,
+    "tabela": 1,
+    "trama": 0,
+    "negativo": 0,
+    "duas_colunas": 1,
+    "diagramas": 1,
+    "notacao": 1,
+    "prosa": 1
+   },
+   "yusupov-evolution-1": {
+    "imagem": 0,
+    "tabela": 0,
+    "trama": 1,
+    "negativo": 1,
+    "duas_colunas": 2,
+    "diagramas": 2,
+    "notacao": 1,
+    "prosa": 2
+   }
+  },
+  "faltando_por_livro": {
+   "aagaard-calculation": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "nunn-rook-endings": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ],
+   "yusupov-evolution-1": [
+    "imagem",
+    "tabela",
+    "trama",
+    "negativo",
+    "duas_colunas",
+    "diagramas",
+    "notacao",
+    "prosa"
+   ]
+  },
+  "minimo_por_familia": 3
+ },
+ "quality_gate": {
+  "enabled": true,
+  "passed": true,
+  "limits": {
+   "max_cer_total": 0.02,
+   "max_cer_prosa": 0.03,
+   "max_cer_notacao": 0.03
+  },
+  "require_coverage": false,
+  "failures": []
+ }
+}

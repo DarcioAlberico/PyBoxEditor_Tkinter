@@ -1,0 +1,41 @@
+[
+  {
+    "linha": 0,
+    "dominio": "unknown",
+    "primario": "glyph",
+    "motivo": "region_type=unknown",
+    "fonte": "glyph",
+    "ancora": "@",
+    "linha_ocr": "",
+    "confianca_ocr": 0.0,
+    "semelhanca": null,
+    "descartados": 0,
+    "caixa": [
+      810,
+      560,
+      858,
+      608
+    ],
+    "texto": "@"
+  },
+  {
+    "linha": 1,
+    "dominio": "unknown",
+    "primario": "glyph",
+    "motivo": "region_type=unknown",
+    "fonte": "glyph",
+    "ancora": "",
+    "linha_ocr": "11",
+    "confianca_ocr": 0.39,
+    "semelhanca": 0.0,
+    "descartados": 1,
+    "caixa": [
+      822,
+      988,
+      828,
+      1016
+    ],
+    "faixa": true,
+    "texto": ""
+  }
+]
