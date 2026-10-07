@@ -32,6 +32,10 @@ from typing import Any, Callable, Iterable
 from core.editor import modelo, sumario
 from core.editor.modelo import Capitulo, Diagrama, Figura, Livro, Recurso
 
+from core.log import logger
+
+log = logger(__name__)
+
 _RE_CLASSE_NO_XHTML = re.compile(r'\bclass\s*=\s*"([^"]*)"')
 _RE_ID_NO_XHTML = re.compile(r'\bid\s*=\s*"([^"]*)"')
 _RE_HREF_NO_XHTML = re.compile(r'\b(?:href|src|xlink:href|poster)\s*=\s*"([^"]*)"')
@@ -521,7 +525,8 @@ def cobertura_das_fontes(livro: Livro, ler: LerRecurso | None, pasta_temporaria:
     for caminho in caminhos:
         try:
             fontes.append(fitz.Font(fontfile=caminho))
-        except Exception:      # noqa: BLE001 — uma fonte ilegível não derruba o relatório
+        except Exception as erro:      # noqa: BLE001 — uma fonte ilegível não derruba o relatório
+            log.debug("o relatório não abriu a fonte %s: %s", caminho, erro)
             continue
     if not fontes:
         return None
@@ -545,7 +550,8 @@ def fontes(livro: Livro, ler: LerRecurso | None, pasta_temporaria: str) -> list[
         if recurso.tipo_mime == MIME_CSS:
             try:
                 folha = css_minima.ler(_texto_do(recurso, ler))
-            except Exception:      # noqa: BLE001 — folha ilegível
+            except Exception as erro:      # noqa: BLE001 — folha ilegível
+                log.debug("o relatório não leu a folha %s: %s", href, erro)
                 continue
             for face in folha.fontes:
                 declaradas[face.familia] = _relativo_ao_opf(face.arquivo, href)

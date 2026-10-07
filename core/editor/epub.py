@@ -69,6 +69,10 @@ from core.editor.modelo import (Capitulo, Diagrama, Figura, FormatoDePagina, Liv
                                 OrigemDoLivro, Pessoa, Recurso, Titulo, Trecho)
 from core.editor.xhtml import ErroDeXhtml
 
+from core.log import logger
+
+log = logger(__name__)
+
 NS_OPF = "http://www.idpf.org/2007/opf"
 NS_DC = "http://purl.org/dc/elements/1.1/"
 NS_XML = "http://www.w3.org/XML/1998/namespace"
@@ -945,7 +949,7 @@ class _Escritor:
             try:
                 os.unlink(temporario)
             except OSError:
-                pass
+                log.debug("EPUB: o temporário %s não foi apagado", temporario)
             raise
 
 

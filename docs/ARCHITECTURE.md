@@ -126,8 +126,10 @@ importam módulos opcionais de OCR, Torch ou EasyOCR.
 Medidas em `docs/ANALISE_GERAL_2026-10-06.md`: `MainWindow` com 170 métodos e 53
 importações do projeto, `TextoRico` com 202 e `JanelaDoEditor` com 175; dezessete ciclos
 diretos de importação (`livro` ↔ `pdf_nativo`, `editorial_legacy` ↔ `editorial_pipeline`,
-`ui/editor/dialogos` ↔ seis vizinhos); `core` sem logging. A ordem do que fazer está no
-mesmo documento.
+`ui/editor/dialogos` ↔ seis vizinhos). A ordem do que fazer está no mesmo documento. O
+`core` sem logging foi resolvido no item 5: `core/log.py` é o tronco `pyboxeditor`, o
+arquivo `pyboxeditor.log` fica na pasta de dados, e os módulos do editor entram sob
+`pyboxeditor.editor`, que o painel Mensagens ecoa.
 
 **Os escritores de EPUB e DOCX.** São dois por decisão medida (ED-12, "convive", re-medida
 em 2026-10-06): `core/exportar.py` é a primeira saída do OCR — sai direto das

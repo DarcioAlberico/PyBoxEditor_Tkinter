@@ -31,6 +31,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from core.log import logger
+
+log = logger(__name__)
+
 #: Elementos que marcam linha: os de bloco do dialeto e os de fora que o livro importado traz.
 ELEMENTOS_DE_BLOCO = ("p", "h1", "h2", "h3", "h4", "h5", "h6", "figure", "div", "li", "blockquote",
                       "table", "tr", "pre", "hr", "ul", "ol", "dl", "dt", "dd", "section", "aside",
@@ -150,7 +154,8 @@ class Montador:
         if self.recursos is not None:
             try:
                 dados = self.recursos(caminho)
-            except Exception:      # noqa: BLE001 — um recurso ilegível não derruba a prévia
+            except Exception as erro:      # noqa: BLE001 — um recurso ilegível não derruba a prévia
+                log.debug("a prévia não leu o recurso %s: %s", caminho, erro)
                 dados = None
         if dados is None:
             self._faltando.add(caminho)
@@ -218,8 +223,8 @@ class Montador:
                 from core.editor import fontes
 
                 partes.append(fontes.regras_para_o_pre("\n".join(partes)))
-            except Exception:      # noqa: BLE001
-                pass
+            except Exception as erro:      # noqa: BLE001
+                log.warning("a prévia ficou sem as regras do <pre> do diagrama: %s", erro)
         partes.append(self.regras_de_fonte())
         partes.append("figure { margin: 0.6em auto; text-align: center; }\n"
                       "figure img, img { max-width: 100%; }\n"

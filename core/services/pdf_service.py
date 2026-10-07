@@ -22,6 +22,10 @@ from typing import List, Optional, Tuple
 import fitz  # PyMuPDF
 from PIL import Image
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 # **Lido de uma tabela, e a tabela contradiz o comentário que estava aqui.**
 #
@@ -96,6 +100,7 @@ class PDFService:
             self.num_pages = paginas
             return self.num_pages, ""
         except Exception as e:
+            log.warning("o PDF %s não abriu: %s", path, e)
             self.close()
             return 0, f"Erro ao abrir PDF:\n{e}"
 
@@ -112,7 +117,8 @@ class PDFService:
         try:
             with fitz.open(stream=self.pdf_bytes, filetype="pdf") as doc:
                 return _para_pil(doc[page_index], DPI_PADRAO, cinza=True)
-        except Exception:
+        except Exception as erro:
+            log.warning("a página %d do PDF não renderizou: %s", page_index + 1, erro)
             return None
 
     def is_loaded(self) -> bool:

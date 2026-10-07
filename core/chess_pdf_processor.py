@@ -4,6 +4,10 @@ from typing import Tuple
 
 from core import perfis, relatorio_pdf
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 def _primeira_fonte_de_xadrez(block: dict) -> str:
     """Nome da primeira fonte de xadrez do bloco, ou '' se não houver."""
@@ -437,8 +441,9 @@ def analisar_substituicao(input_pdf: str, output_pdf: str,
                 # o que o usuário não pediu para alterar.
                 try:
                     doc.subset_fonts()
-                except Exception:
-                    pass   # sem subset o arquivo fica grande, mas continua correto
+                except Exception as erro:
+                    # Sem subset o arquivo fica grande, mas continua correto.
+                    log.info("as fontes do PDF não foram reduzidas (%s); o arquivo sai maior", erro)
                 doc.save(output_pdf, garbage=3, deflate=True)
             else:
                 doc.save(output_pdf)

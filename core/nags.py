@@ -50,6 +50,11 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Set, Tuple
 
+import logging
+from core.log import logger, uma_vez
+
+log = logger(__name__)
+
 
 @dataclass(frozen=True)
 class Nag:
@@ -354,7 +359,9 @@ def sem_glifo(simbolos: Optional[Sequence[str]] = None) -> Set[str]:
         from core.chess_pdf_processor import (CHESS_FONT_CANDIDATES,
                                               FONTES_DE_SIMBOLO,
                                               missing_glyphs)
-    except Exception:
+    except Exception as erro:
+        uma_vez(log, "fontes-de-simbolo", logging.WARNING,
+                "as fontes de símbolo não foram carregadas (%s); nenhum NAG é dado por faltante", erro)
         return set()
 
     faltam = set(alvo)
@@ -368,7 +375,8 @@ def sem_glifo(simbolos: Optional[Sequence[str]] = None) -> Set[str]:
             continue
         try:
             faltam &= set(missing_glyphs(caminho, "".join(sorted(alvo))))
-        except Exception:      # fonte ilegível não condena a tabela
+        except Exception as erro:      # fonte ilegível não condena a tabela
+            log.debug("a fonte %s não foi lida para os NAGs: %s", caminho, erro)
             continue
     return faltam
 

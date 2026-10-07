@@ -10,6 +10,9 @@ from datetime import datetime, timezone
 from tkinter import messagebox
 
 from config.paths import crash_log_path, ensure_data_dir
+from core.log import configurar as _configurar_arquivo_de_log, logger
+
+log = logger("appy")
 
 #: Tamanho desejado da janela. Não é imposto: ver `_geometria_que_cabe`.
 LARGURA_DESEJADA, ALTURA_DESEJADA = 1600, 900
@@ -80,6 +83,23 @@ def _geometria_que_cabe(root):
     return f"{largura}x{altura}+{x}+{y}"
 
 
+def _configurar_log():
+    """
+    O arquivo `pyboxeditor.log` na pasta de dados recebe o que `core` e a interface
+    avisam (item 5 da análise de 2026-10-06): a fonte que não embutiu, a página que não
+    renderizou, o corretor que ficou sem dicionário. Antes só havia o `crash_log.txt`,
+    para a exceção que chegava ao Tk; o que um `except` engolia não deixava rastro.
+
+    Uma pasta de dados que não se escreve não impede o programa de abrir: o log fica só
+    no stderr, que é o que o `logging` faz sem handler para WARNING ou pior.
+    """
+    try:
+        return _configurar_arquivo_de_log()
+    except OSError as erro:
+        print(f"sem arquivo de log: {erro}", file=sys.stderr)
+        return None
+
+
 def _gravar_no_log(texto: str) -> str:
     """Anexa `texto` ao log de falhas no diretório de dados e devolve o caminho."""
     caminho_log = ensure_data_dir() / crash_log_path().name
@@ -107,6 +127,7 @@ def _instalar_relator_de_callbacks(root):
 
     def relatar(tipo, valor, tb):
         texto = "".join(traceback.format_exception(tipo, valor, tb))
+        log.error("exceção num callback do Tk:\n%s", texto)
         try:
             caminho = _gravar_no_log(texto)
         except OSError:
@@ -190,6 +211,9 @@ def editor(arquivo="", fechar_apos=None, diagnostico=False):
 
 def main(argv=None):
     argumentos = _argumentos(argv)
+    _configurar_log()
+    log.info("PyBoxEditor abre: %s",
+             "editor de livros" if argumentos.editor is not None else "janela principal")
     if argumentos.editor is not None:
         editor(argumentos.editor, argumentos.fechar_apos, argumentos.diagnostico_modulos)
         return
@@ -215,6 +239,7 @@ def main(argv=None):
         root.mainloop()
     except Exception as e:
         err_msg = traceback.format_exc()
+        log.critical("erro fatal:\n%s", err_msg)
         try:
             caminho_log = _gravar_no_log(err_msg)
         except OSError:

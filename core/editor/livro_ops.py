@@ -45,6 +45,10 @@ from core.editor import modelo
 from core.editor.modelo import (Capitulo, Diagrama, EntradaDeSumario, Figura, Livro, MarcaDePagina,
                                 Recurso, Separador, Titulo)
 
+from core.log import logger
+
+log = logger(__name__)
+
 _RE_ATRIBUTO_DE_CAMINHO = re.compile(r'\b(src|href|xlink:href|poster|data)="([^"]*)"')
 _RE_URL_CSS = re.compile(r"""url\(\s*(['"]?)([^)'"]+)\1\s*\)""")
 _RE_PAGINA_NO_TITULO = re.compile(r"^\s*p[áa]g(?:ina)?\.?\s*(\d+)\s*$", re.IGNORECASE)
@@ -724,7 +728,8 @@ def dimensoes_da_imagem(dados: bytes) -> tuple[int, int] | None:
 
         with Image.open(io.BytesIO(dados)) as imagem:
             return int(imagem.width), int(imagem.height)
-    except Exception:      # noqa: BLE001 — sem PIL, ou formato que ele não abre
+    except Exception as erro:      # noqa: BLE001 — sem PIL, ou formato que ele não abre
+        log.debug("o tamanho da imagem não foi lido: %s", erro)
         return None
 
 

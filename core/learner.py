@@ -5,6 +5,10 @@ import uuid
 import glob
 from typing import Tuple, List, Optional
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 #: Não alfanuméricos que ainda cabem num nome de pasta legível.
 #:
@@ -312,14 +316,15 @@ class CharacterLearner:
                 if np.array_equal(z["digital"], digital):
                     self._instalar([str(c) for c in z["chars"]],
                                    z["X"].astype(np.float32))
-                    print(f"Loaded {self.total} reference samples (cache).")
+                    log.info("%d amostras de referência carregadas do cache", self.total)
                     return
-            except (OSError, ValueError, KeyError):
-                pass        # cache ilegível é motivo para refazer, não para parar
+            except (OSError, ValueError, KeyError) as erro:
+                # Cache ilegível é motivo para refazer, não para parar.
+                log.info("o cache do k-NN não foi lido (%s); a base é relida do disco", erro)
 
         chars, X = self._ler_do_disco()
         self._instalar(chars, X)
-        print(f"Loaded {self.total} reference samples.")
+        log.info("%d amostras de referência carregadas do disco", self.total)
         if self.usar_cache:
             self.salvar_cache(digital)
 
@@ -388,8 +393,9 @@ class CharacterLearner:
                      X=self._X.astype(np.uint8),
                      chars=np.array(self._chars), digital=digital)
             self._cache_sujo = False
-        except OSError:
-            pass        # sem cache o programa só fica lento, não quebra
+        except OSError as erro:
+            # Sem cache o programa só fica lento, não quebra.
+            log.warning("o cache do k-NN não foi gravado em %s: %s", self.caminho_do_cache, erro)
 
     def learn(self, crop_np: np.ndarray, char: str, nome: str = ""):
         """

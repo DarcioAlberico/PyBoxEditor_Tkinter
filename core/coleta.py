@@ -70,6 +70,10 @@ import numpy as np
 
 from core.learner import CharacterLearner, char_to_folder, folder_to_char
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 #: Onde a quarentena mora. Fora de `training_data` de propósito: uma pasta que o
 #: treino varre não pode conter amostra por conferir.
@@ -418,8 +422,8 @@ class Coletor:
         antigo = reserva[j]
         try:
             os.remove(antigo["_caminho"])
-        except OSError:
-            pass
+        except OSError as erro:
+            log.warning("o recorte trocado pelo teto, %s, não foi apagado: %s", antigo["_caminho"], erro)
         self.trocados_pelo_teto += 1
         return j
 
@@ -463,7 +467,8 @@ class Coletor:
             return
         try:
             topo = list(self.detalhar(imagem))
-        except Exception:
+        except Exception as erro:
+            log.debug("o detalhe do recorte falhou (%s); a coleta segue sem a segunda opção", erro)
             return
         # A vencedora pode não ser o palpite quando quem detalha não é quem
         # classificou; nesse caso a "segunda" é a primeira que não é o palpite.
@@ -590,7 +595,8 @@ def promover(pasta: str = PASTA_PADRAO, data_dir: str = "training_data",
             continue
         try:
             char = folder_to_char(nome, strict=True)
-        except Exception:
+        except Exception as erro:
+            log.debug("a pasta %s não é um rótulo (%s); vai para os recusados", nome, erro)
             char = ""
         if not char or char_to_folder(char) != nome:
             resultado.recusados.append(nome)
@@ -616,8 +622,8 @@ def promover(pasta: str = PASTA_PADRAO, data_dir: str = "training_data",
             if apagar:
                 try:
                     os.remove(completo)
-                except OSError:
-                    pass
+                except OSError as erro:
+                    log.warning("o recorte aprendido %s não foi apagado: %s", completo, erro)
 
         if aprendidos:
             resultado.aprendidos += aprendidos

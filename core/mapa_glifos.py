@@ -38,6 +38,10 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import fitz
 import numpy as np
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 #: O caractere que o produtor do PDF escreve quando não soube mapear o glifo.
 SEM_MAPA = "�"
@@ -311,7 +315,8 @@ def mapas_atuais(doc: fitz.Document) -> Dict[str, Dict[int, str]]:
         try:
             mapas[fonte] = ler_cmap(
                 doc.xref_stream(int(chave[1].split()[0])).decode("latin-1"))
-        except Exception:
+        except Exception as erro:
+            log.warning("a tabela de caracteres da fonte %s não foi lida (%s); a fonte fica sem mapa", fonte, erro)
             continue
     return mapas
 
@@ -756,8 +761,8 @@ def mesmo_arquivo(a: str, b: str) -> bool:
     try:
         if os.path.exists(a) and os.path.exists(b):
             return os.path.samefile(a, b)
-    except OSError:
-        pass
+    except OSError as erro:
+        log.debug("samefile(%s, %s) falhou (%s); compara pelos caminhos", a, b, erro)
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(
         os.path.realpath(b))
 

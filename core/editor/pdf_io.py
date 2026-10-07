@@ -40,6 +40,10 @@ from core.editor import dialeto, epub, fontes, modelo, xhtml
 from core.editor.conversao import Cronometro, OpcoesDeConversao, RelatorioDeConversao
 from core.editor.modelo import Capitulo, Diagrama, Livro, Titulo
 
+from core.log import logger
+
+log = logger(__name__)
+
 PT_POR_MM = 72.0 / 25.4
 #: Tamanho do cabeçalho e do rodapé, em pt.
 CORPO_DO_CABECALHO = 9.0
@@ -410,8 +414,8 @@ def _acabamento(doc: Any, livro: Livro, posicoes: list[Any], relatorio: Relatori
     if livro.metadados.idioma:
         try:
             doc.set_language(livro.metadados.idioma)
-        except Exception:      # noqa: BLE001 — idioma que o MuPDF não aceita
-            pass
+        except Exception as erro:      # noqa: BLE001 — idioma que o MuPDF não aceita
+            log.info("o PDF sai sem o idioma %r nos metadados: %s", livro.metadados.idioma, erro)
 
 
 def titulo_do_capitulo(cap: Capitulo) -> str:

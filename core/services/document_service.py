@@ -7,6 +7,10 @@ from typing import Dict, List, Optional, Set
 
 from core.box_model import BoxEntry
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 SIDECAR_SUFIXO = ".pyboxsession.json"
 SCHEMA = 1
@@ -215,8 +219,8 @@ class DocumentSession:
         ou quando o usuário decidiu descartá-lo."""
         try:
             os.remove(self.sidecar())
-        except OSError:
-            pass
+        except OSError as erro:
+            log.debug("o rascunho %s não foi apagado: %s", self.sidecar(), erro)
 
     def fator_de_escala(self, payload: dict) -> float:
         """

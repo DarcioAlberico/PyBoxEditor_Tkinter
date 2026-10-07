@@ -14,6 +14,10 @@ import numpy as np
 from core.neural_model import SimpleCNN, get_device
 from core.learner import folder_to_char
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 #: Versão do `model_meta.json`. Sobe quando o formato ganha campo obrigatório.
 #:   1 — label_map, idx_to_char, num_classes (+ temperatura, da F1.9)
@@ -309,7 +313,7 @@ class CharDataset(Dataset):
                         continue
                     do_grupo.append(cv2.resize(img, (32, 32)))
                 except Exception as e:
-                    print(f"Skipping {img_path}: {e}")
+                    log.warning("amostra %s pulada no treino: %s", img_path, e)
 
             # Pasta vazia não ganha índice. A `lower_ä` da base real ficou vazia
             # (o cv2.imwrite descartava as amostras em silêncio, F1.4) e mesmo
@@ -760,7 +764,7 @@ class NeuralPredictor:
                         "erro nenhum.\n\n"
                         "Treine de novo (Ferramentas → Treinar Rede Neural) ou "
                         "reponha o par completo.")
-                    print(f"Erro ao carregar modelo: {self.erro}")
+                    log.error("o modelo não carregou: %s", self.erro)
                     return False
             else:
                 # Modelo anterior à F7.3 não tem a impressão. Segue carregando:
@@ -801,7 +805,7 @@ class NeuralPredictor:
             self.erro = (f"Não foi possível carregar "
                          f"{os.path.basename(self.model_path)}: "
                          f"{type(e).__name__}: {e}")
-            print(f"Erro ao carregar modelo: {self.erro}")
+            log.error("o modelo não carregou: %s", self.erro)
             return False
             
     def predict_topk(self, img_np, k=5):

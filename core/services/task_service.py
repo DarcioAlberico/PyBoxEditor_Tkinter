@@ -20,6 +20,10 @@ callback `on_done`, que roda na thread da UI.
 import queue
 import threading
 
+from core.log import logger
+
+_log = logger(__name__)
+
 
 class Cancelled(Exception):
     """Levantada por TaskHandle.raise_if_cancelled() quando o usuário cancela."""
@@ -161,6 +165,7 @@ class BackgroundTask:
                     )
                 except Exception:
                     # Janela destruída enquanto a tarefa rodava: nada a fazer.
+                    _log.debug("a janela sumiu com a tarefa em andamento; o laço de eventos para")
                     self._after_id = None
 
     def _encerrar(self):
@@ -169,7 +174,7 @@ class BackgroundTask:
             try:
                 self._widget.after_cancel(self._after_id)
             except Exception:
-                pass
+                _log.debug("after_cancel sem janela; a tarefa já não tem onde avisar")
             self._after_id = None
 
     def shutdown(self):

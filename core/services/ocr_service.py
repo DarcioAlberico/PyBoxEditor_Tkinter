@@ -8,6 +8,10 @@ from PIL import Image
 from core import alfabeto, preprocess, proporcao
 from core.box_model import SEM_MARGEM
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 @dataclass
 class Leitura:
@@ -697,7 +701,7 @@ class OCRService:
         try:
             import torch  # noqa: F401
         except ImportError:
-            pass
+            log.debug("sem o torch; o PaddleOCR carrega sozinho")
         try:
             from paddleocr import TextRecognition
         except ModuleNotFoundError as exc:

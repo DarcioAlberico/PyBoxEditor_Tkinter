@@ -50,6 +50,12 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   `newline="\n"`: o modo texto do Windows troca `\n` por CRLF e desfaz a normalização.
 - Trabalho pesado nunca toca em widget: passa por `TaskService`/`_run_task`, e o callback
   volta na thread do Tk.
+- Log, não `print`: `from core.log import logger` e `log = logger(__name__)` no módulo; o
+  `except` que engole uma exceção diz no log o que deixou de fazer — WARNING se a saída
+  mudou sem o usuário saber, INFO para a degradação esperada, DEBUG para o que só interessa
+  a quem depura; `uma_vez` para o aviso que sairia a cada parágrafo. O arquivo é
+  `pyboxeditor.log` na pasta de dados; `tests/test_log.py` recusa `print` e logger fora do
+  tronco em `core`.
 
 ## Git
 

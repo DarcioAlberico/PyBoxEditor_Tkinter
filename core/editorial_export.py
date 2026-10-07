@@ -15,6 +15,10 @@ import fitz
 
 from core.editorial_model import EditorialBlock, EditorialDocument
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 EXPORT_FORMATS = frozenset({"html", "epub", "docx", "pdf", "json", "txt"})
 EXPORT_MODES = frozenset({"faithful", "clean", "hybrid"})
@@ -134,7 +138,8 @@ def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
             # que o resto deste módulo existe para não fazer.
             lado_a_jogar=(lado_jogar.do_fen(fen)
                           if origem_do_lado(block) != "assumed" else None))
-    except Exception:  # noqa: BLE001 — fonte ausente ou FEN torto não derruba a exportação
+    except Exception as erro:  # noqa: BLE001 — fonte ausente ou FEN torto não derruba a exportação
+        log.warning("diagrama %s sem imagem na exportação: %s", block.id, erro)
         return "", "nenhuma"
     return base64.b64encode(png).decode("ascii"), "desenho"
 

@@ -167,6 +167,10 @@ import numpy as np
 from core import lado_a_jogar as lado_jogar
 from core.box_model import BoxEntry
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 #: Lado do recorte normalizado de uma casa.
 LADO = 48
@@ -1292,7 +1296,8 @@ def impressao_do_modelo() -> str:
         import torch
         d = torch.load(CAMINHO_MODELO, map_location="cpu", weights_only=True)
         return str(d.get("impressao", ""))
-    except Exception:
+    except Exception as erro:
+        log.debug("a impressão do modelo de diagramas não foi lida: %s", erro)
         # Arquivo ausente, truncado, de outra versão do torch ou de outro
         # formato: para quem só quer a impressão, tudo isso é "não tem".
         # Quem precisa da rede chama `_carregar_modelo`, que levanta.

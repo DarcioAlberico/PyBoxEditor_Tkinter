@@ -25,6 +25,10 @@ from core.chess_pdf_processor import (CHESS_UNICODE, FONTES_DE_SIMBOLO,
                                       resolve_chess_font)
 from core.services.box_service import BoxService
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 MODOS = ("searchable", "replace", "both")
 
@@ -92,7 +96,8 @@ def _pagina_tem_texto(page: fitz.Page, minimo: int = 12) -> bool:
     """
     try:
         return len(page.get_text("text").strip()) >= minimo
-    except Exception:
+    except Exception as erro:
+        log.debug("a página não deu o texto que já tem (%s); conta como sem texto", erro)
         return False
 
 
@@ -397,8 +402,9 @@ def gerar_pdf_pesquisavel(
         # inserções — e num livro inteiro a diferença se repete por arquivo.
         try:
             doc.subset_fonts()
-        except Exception:
-            pass    # sem subset o arquivo fica grande, mas continua correto
+        except Exception as erro:
+            # Sem subset o arquivo fica grande, mas continua correto.
+            log.info("PDF pesquisável: as fontes não foram reduzidas (%s); o arquivo sai maior", erro)
 
         doc.save(output_pdf, garbage=3, deflate=True)
     finally:

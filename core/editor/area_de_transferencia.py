@@ -32,6 +32,10 @@ from typing import Any, Callable, Sequence
 from core.editor import modelo
 from core.editor.modelo import Bloco, Nota, Paragrafo, Trecho
 
+from core.log import logger
+
+log = logger(__name__)
+
 
 @dataclass
 class Fragmento:
@@ -206,7 +210,8 @@ class AreaDeTransferencia:
     def _texto_do_sistema(self) -> str:
         try:
             texto = self.ler_sistema()
-        except Exception:      # noqa: BLE001 — sem texto no sistema (o Tk levanta TclError)
+        except Exception as erro:      # noqa: BLE001 — sem texto no sistema (o Tk levanta TclError)
+            log.debug("a área de transferência não deu texto: %s", erro)
             return ""
         return "" if texto is None else str(texto)
 
@@ -215,7 +220,8 @@ class AreaDeTransferencia:
             return ""
         try:
             return self.ler_html() or ""
-        except Exception:      # noqa: BLE001 — a área de transferência é de terceiros
+        except Exception as erro:      # noqa: BLE001 — a área de transferência é de terceiros
+            log.debug("a área de transferência não deu HTML: %s", erro)
             return ""
 
     def colar(self, forcar_texto: bool = False) -> Colagem | None:
@@ -236,7 +242,8 @@ class AreaDeTransferencia:
         if self.ler_imagem is not None:
             try:
                 imagem = self.ler_imagem()
-            except Exception:      # noqa: BLE001 — a leitura de imagem é de terceiros (ImageGrab)
+            except Exception as erro:      # noqa: BLE001 — a leitura de imagem é de terceiros (ImageGrab)
+                log.debug("a área de transferência não deu imagem: %s", erro)
                 imagem = None
             if imagem:
                 return Colagem("imagem", imagem=bytes(imagem))

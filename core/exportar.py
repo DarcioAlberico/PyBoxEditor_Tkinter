@@ -36,6 +36,10 @@ from core.livro import Figura, PaginaExtraida, Paragrafo, Tabela
 from core.render_diagrama import (CANTO_PADRAO, MOLDURA_PADRAO,
                                   normalizar_cantos, normalizar_moldura)
 
+from core.log import logger
+
+log = logger(__name__)
+
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -768,7 +772,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         try:
             os.unlink(temporario)
         except OSError:
-            pass
+            log.debug("EPUB: o temporário %s não foi apagado", temporario)
         raise
     return caminho
 
@@ -1288,7 +1292,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 try:
                     t.style = doc.styles["Table Grid"]
                 except KeyError:
-                    pass
+                    log.warning("DOCX: o modelo não tem o estilo Table Grid; a tabela sai sem moldura")
                 for fila, textos in zip(t.rows, bloco.linhas):
                     for celula, texto in zip(fila.cells, textos):
                         # Pelo mesmo caminho da prosa, e não por `celula.text`
@@ -1342,7 +1346,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         try:
             os.unlink(temporario)
         except OSError:
-            pass
+            log.debug("DOCX: o temporário %s não foi apagado", temporario)
         raise
     return caminho
 

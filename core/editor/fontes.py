@@ -46,6 +46,10 @@ from core.editor import css_minima, modelo
 from core.editor.modelo import Diagrama, Livro, Recurso
 from core.estilo_do_livro import PISO_DO_SIMBOLO, classe_da_fonte, seletor_do_tabuleiro
 
+from core.log import logger
+
+log = logger(__name__)
+
 _RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CAMINHO_DOS_MAPAS = os.path.join(_RAIZ, "core", "dados", "fontes_de_diagrama.json")
 #: As fontes de símbolos, na ordem de preferência: o recorte, depois a inteira.
@@ -344,7 +348,8 @@ def familias_declaradas(livro: Livro, ler_recurso=None) -> set[str]:
         texto = folha_com_fontes(texto, "")
         try:
             saida.update(f.familia for f in css_minima.ler(texto).fontes)
-        except Exception:      # noqa: BLE001 — uma folha que o leitor mínimo recusa não impede a gravação
+        except Exception as erro:      # noqa: BLE001 — uma folha que o leitor mínimo recusa não impede a gravação
+            log.warning("a folha %s não foi lida para as fontes (%s); as famílias dela ficam de fora", href, erro)
             continue
     return saida
 
@@ -360,7 +365,8 @@ def _texto_da_folha(livro: Livro, href: str, ler_recurso=None) -> str | None:
     if ler_recurso is not None:
         try:
             return ler_recurso(recurso)
-        except Exception:      # noqa: BLE001 — a folha que não se consegue ler fica como está
+        except Exception as erro:      # noqa: BLE001 — a folha que não se consegue ler fica como está
+            log.warning("a folha %s não foi lida: %s", recurso.caminho, erro)
             return None
     return None
 
@@ -443,7 +449,8 @@ def embutir(livro: Livro, ler_recurso=None, ler_dados=None) -> tuple[list[str], 
             return recurso.dados
         try:
             return ler_dados(recurso) if ler_dados is not None else None
-        except Exception:      # noqa: BLE001 — a fonte que não se lê fica como está
+        except Exception as erro:      # noqa: BLE001 — a fonte que não se lê fica como está
+            log.warning("a fonte %s não foi lida: %s", recurso.caminho, erro)
             return None
 
     def por(arquivo: str, nome: str = "") -> str:

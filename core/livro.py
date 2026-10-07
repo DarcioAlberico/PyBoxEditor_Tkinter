@@ -59,6 +59,11 @@ from core.ocr_result import RegionResult
 from core.ocr_routing import OCRRouter
 from core.services.box_service import BoxService
 
+import logging
+from core.log import logger, uma_vez
+
+log = logger(__name__)
+
 
 #: Quanto o retângulo do tabuleiro cresce antes de excluir o que está dentro
 #: dele, em alturas de caractere.
@@ -2269,6 +2274,8 @@ def _corrigir_juncoes(texto: str, lex, idioma: str = "en") -> str:
     try:
         from wordfreq import zipf_frequency
     except Exception:
+        uma_vez(log, "wordfreq-juncoes", logging.WARNING,
+                "sem o wordfreq, a correção das junções do segmentador (PD-20) está desligada")
         return texto
     chave = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
     from core.ocr_language import TERMOS_XADREZ as termos
@@ -2511,6 +2518,8 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
             from wordfreq import top_n_list
             vocabulario = top_n_list(chave_idioma, 100000)
         except Exception:
+            uma_vez(log, "wordfreq-vocabulario", logging.WARNING,
+                    "sem o wordfreq, o corretor de prosa fica sem vocabulário e não aproxima palavras")
             vocabulario = []
         _VOCABULARIO_OCR[chave_idioma] = vocabulario
     if vocabulario:
@@ -2518,6 +2527,8 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
             from rapidfuzz import fuzz, process
             from wordfreq import zipf_frequency
         except Exception:
+            uma_vez(log, "rapidfuzz", logging.WARNING,
+                    "sem o rapidfuzz, o corretor de prosa não aproxima palavras")
             vocabulario = []
 
     def corrigir(match: re.Match[str]) -> str:
@@ -3900,7 +3911,7 @@ def _ajustar_lado_por_legalidade(fen: str) -> tuple[str, str | None, str]:
         if chess.Board(candidato).is_valid():
             return candidato, lado_oposto, "legalidade"
     except ValueError:
-        pass
+        log.debug("lado pela legalidade: o FEN %r não forma tabuleiro", candidato)
     return texto, None, "convencao"
 
 
@@ -4593,8 +4604,9 @@ def titulo_e_autor(caminho: str) -> Tuple[str, str]:
             doc.close()
         titulo = (meta.get("title") or "").strip()
         autor = (meta.get("author") or "").strip()
-    except Exception:                                    # noqa: BLE001
-        pass
+    except Exception as erro:                            # noqa: BLE001
+        log.warning("os metadados do PDF %s não foram lidos (%s); o livro sai sem título e autor",
+                    caminho, erro)
     # Um autor sem espaço e sem maiúscula é o `cipun` do Nunn: não é nome.
     if autor and " " not in autor and autor.islower():
         autor = ""
