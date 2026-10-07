@@ -133,14 +133,23 @@ MODOS_DE_DIAGRAMA = ("png", "fonte")
 #: continua obedecendo ao leitor.
 #:
 #: **A moldura mora numa classe à parte porque nem todo diagrama a quer por
-#: fora** (F99). O que sai com coordenada numa fonte que tem glifo de borda já
-#: traz o filete dentro do próprio texto, e uma borda de CSS por cima seria a
-#: segunda moldura. A folha é do livro inteiro e a decisão é de cada figura, e é
-#: por isso que ela é uma classe e não uma regra em `div.diagrama`.
+#: fora** (F99). O que sai numa fonte que tem glifo de borda já traz o filete
+#: dentro do próprio texto — com coordenada desde a F99, e sem ela desde a F122 —,
+#: e uma borda de CSS por cima seria a segunda moldura. A `caixa` fica para a
+#: fonte sem o glifo (a SkakNew com coordenada, que não tem rótulo) e para o
+#: "sem", cuja regra é vazia. A folha é do livro inteiro e a decisão é de cada
+#: figura, e é por isso que ela é uma classe e não uma regra em `div.diagrama`.
+#:
+#: **As filas moram num `<pre>`, e a regra pega o `p` também** (F120). Até a F120
+#: era um `<p>` por fila, e o `white-space: pre` daqui era a única coisa que
+#: segurava o espaço da casa clara na borda da Chess Merida — quem apara o
+#: parágrafo (o "Mend and Prettify" do Sigil) ou não aplica a folha tirava uma
+#: casa de cada fila. O `p` fica no seletor pelos diagramas escritos antes, que o
+#: editor ainda lê e pode guardar como estão.
 CSS_DO_DIAGRAMA = """\
 div.diagrama { display: table; margin: 1.2em auto; page-break-inside: avoid; }
 div.diagrama.caixa { %(moldura)s }
-div.diagrama p { font-family: monospace; font-size: %(corpo)spt;
+div.diagrama pre, div.diagrama p { font-family: monospace; font-size: %(corpo)spt;
   line-height: 1 !important; letter-spacing: 0; margin: 0; padding: 0;
   text-indent: 0; text-align: left; white-space: pre; }
 div.diagrama span.rot { display: inline-block; width: 0.92em; text-align: right;
@@ -161,7 +170,7 @@ div.diagrama i { font-family: serif; font-style: normal; font-size: 0.4em;
 CSS_DA_FONTE_DO_DIAGRAMA = """\
 @font-face { font-family: "%(familia)s"; font-weight: normal; font-style: normal;
   src: url("fonts/%(arquivo)s"); }
-div.diagrama.%(classe)s p { font-family: "%(familia)s", monospace; }
+div.diagrama.%(classe)s pre, div.diagrama.%(classe)s p { font-family: "%(familia)s", monospace; }
 """
 
 def classe_da_fonte(nome: str) -> str:
@@ -169,6 +178,19 @@ def classe_da_fonte(nome: str) -> str:
     seguro = "".join(c if (c.isascii() and (c.isalnum() or c in "-_")) else "-"
                      for c in nome)
     return f"fonte-{seguro}"
+
+
+def seletor_do_tabuleiro(classe: str = "") -> str:
+    """
+    O seletor das filas do tabuleiro em texto: o `<pre>` de hoje e os `<p>` de
+    antes da F120, como em `CSS_DO_DIAGRAMA`. `classe` é a da fonte
+    (`classe_da_fonte`), para a regra que liga a família aos diagramas dela.
+
+    Fica fora do `__all__`, que é a lista do que saiu de `core/exportar.py` e que
+    ele reexporta com o nome de sempre: este nasceu aqui, para o editor.
+    """
+    base = f"div.diagrama.{classe}" if classe else "div.diagrama"
+    return f"{base} pre, {base} p"
 
 #: Extensão → tipo de mídia da fonte, como o EPUB 3 os nomeia.
 TIPOS_DE_FONTE = {".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff"}

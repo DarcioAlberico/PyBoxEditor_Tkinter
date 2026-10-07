@@ -188,7 +188,7 @@ def test_as_linhas_do_diagrama_saem_escapadas():
     paginas = [livro.PaginaExtraida(numero=0, blocos=[f])]
     pagina = zipfile.ZipFile(_epub(paginas, diagramas="fonte")).read(
         "OEBPS/pagina-0001.xhtml").decode()
-    assert "<p>&lt;&amp;&gt;" in pagina
+    assert "<pre>&lt;&amp;&gt;" in pagina
     ET.fromstring(pagina.encode("utf-8"))
 
 

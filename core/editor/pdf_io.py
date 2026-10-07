@@ -89,11 +89,11 @@ class _Montador:
             self.relatorio.aviso(aviso)
         regras: list[str] = []
         for nome, arquivo in diagramas.items():
-            caminho = self._fonte_no_arquivo(arquivo)
+            caminho = self._fonte_no_arquivo(arquivo, nome)
             if caminho:
                 classe = fontes.classe_da_fonte(nome)
                 regras.append(f'@font-face {{ font-family: "{nome}"; src: url({caminho}); }}\n'
-                              f'div.diagrama.{classe} p {{ font-family: "{nome}", monospace; }}\n')
+                              f'{fontes.seletor_do_tabuleiro(classe)} {{ font-family: "{nome}", monospace; }}\n')
                 if nome not in self.fontes_embutidas:
                     self.fontes_embutidas.append(nome)
         if simbolos is not None:
@@ -106,10 +106,17 @@ class _Montador:
                     self.fontes_embutidas.append(familia)
         return "".join(regras)
 
-    def _fonte_no_arquivo(self, arquivo: str) -> str:
+    def _fonte_no_arquivo(self, arquivo: str, nome: str = "") -> str:
         base = os.path.basename(arquivo)
         for caminho in self.dados:
             if posixpath.basename(caminho).lower() == base.lower():
+                # A do livro de antes da moldura em glifo não a desenha (F122): o PDF leva a do projeto.
+                if nome and fontes.desatualizada(self.dados[caminho], nome):
+                    try:
+                        with open(arquivo, "rb") as f:
+                            self.dados[caminho] = f.read()
+                    except OSError as erro:
+                        self.relatorio.aviso(f"fonte do projeto ilegível, ficou a do livro: {arquivo} ({erro})")
                 return caminho
         try:
             with open(arquivo, "rb") as f:
@@ -154,6 +161,9 @@ class _Montador:
             partes.append(_RE_URL.sub(lambda m: f"url({_resolver(pasta, m.group(2))})", texto))
         if not partes:
             partes.append(dialeto.css_padrao(corpo_pt=self.opcoes.corpo_pt))
+        # A folha de um livro de antes da F120 só estiliza o `p` das filas do tabuleiro,
+        # e o diagrama agora sai num `pre` — o mesmo remendo que a gravação põe no EPUB.
+        partes.append(fontes.regras_para_o_pre("\n".join(partes)))
         partes.append(self._fontes())
         partes.append(
             "body { line-height: 1.35; }\n"

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
+import re
 from typing import Any, Mapping
 
 from core.estilo_do_livro import (CSS, CSS_DO_DIAGRAMA, MOLDURA_NA_CSS, RAIO_NA_CSS,
@@ -312,8 +313,10 @@ def alt_de(d: Diagrama, idioma: str = "pt") -> str:
 def div_do_diagrama(linhas: list[str], fonte: str, *, coordenadas: bool, orientacao: str,
                     emolduradas: bool, alt: str, escapar) -> str:
     """
-    O `<div class="diagrama …">` de hoje (F59/F95/F99), byte a byte igual ao de
-    `core/exportar.py`, para o EPUB continuar abrindo sem ilha (R5).
+    O `<div class="diagrama …">` de hoje (F59/F95/F99/F120), byte a byte igual ao de
+    `core/exportar.py`, para o EPUB continuar abrindo sem ilha (R5). As filas vão num
+    `<pre>` só (F120): num `<p>` por fila, o espaço da casa clara da Chess Merida na
+    ponta da fila sumia no primeiro programa que aparasse o parágrafo.
 
     `escapar` é a função de escape de texto de quem chama — este módulo não
     conhece o `xml.sax.saxutils` de propósito, para as duas escritas usarem a mesma.
@@ -321,23 +324,48 @@ def div_do_diagrama(linhas: list[str], fonte: str, *, coordenadas: bool, orienta
     familia = classe_da_fonte(fonte)
     alt_esc = escapar(alt, {'"': "&quot;"})
     if emolduradas:
-        miolo = "\n".join(f"<p>{escapar(linha)}</p>" for linha in linhas)
+        miolo = "\n".join(escapar(linha) for linha in linhas)
         return (f'<div class="diagrama {familia}" title="{alt_esc}" '
-                f'aria-label="{alt_esc}" role="img">\n{miolo}\n</div>')
+                f'aria-label="{alt_esc}" role="img">\n<pre>{miolo}</pre>\n</div>')
     colunas, filas = _rotulos(orientacao)
     saida = []
     for i, linha in enumerate(linhas):
         linha = escapar(linha)
         if coordenadas:
             linha = f'<span class="rot"><i>{filas[i]}</i></span>{linha}'
-        saida.append(f"<p>{linha}</p>")
+        saida.append(linha)
     if coordenadas:
         cols = "".join(f'<span class="col"><i>{c}</i></span>' for c in colunas)
-        saida.append(f'<p class="colunas"><span class="rot"></span>{cols}</p>')
+        saida.append(f'<span class="colunas"><span class="rot"></span>{cols}</span>')
     # `caixa` sai sempre neste caminho, como em `exportar._diagrama_em_texto`: a
     # moldura "sem" é a regra CSS vazia de `MOLDURA_NA_CSS`, não a ausência da classe.
-    return (f'<div class="diagrama caixa {familia}" title="{alt_esc}" aria-label="{alt_esc}" role="img">\n'
-            + "\n".join(saida) + "\n</div>")
+    return (f'<div class="diagrama caixa {familia}" title="{alt_esc}" aria-label="{alt_esc}" role="img">\n<pre>'
+            + "\n".join(saida) + "</pre>\n</div>")
+
+
+_RE_REGRA_DA_CAIXA = re.compile(r"div\.diagrama\.caixa\s*\{([^{}]*)\}")
+
+
+def moldura_da_folha(css: str) -> tuple[str, str] | None:
+    """
+    `(moldura, cantos)` que a regra `div.diagrama.caixa` da folha desenha — `None` sem a regra.
+
+    **O `div.diagrama caixa` não diz qual moldura é** (F122): o exportador põe a classe
+    sempre, e quem decide é a regra da folha (`MOLDURA_NA_CSS`, vazia para "sem"). Sem
+    olhar a folha, o livro exportado sem moldura voltava "simples" — e desde que a
+    moldura é da fonte, regravá-lo acrescentaria uma que ele não tinha.
+    """
+    achado = _RE_REGRA_DA_CAIXA.search(re.sub(r"/\*.*?\*/", "", css, flags=re.S))
+    if achado is None:
+        return None
+    corpo = achado.group(1)
+    borda = re.search(r"border(?:-style)?\s*:\s*([^;]*)", corpo)
+    if borda is None or re.fullmatch(r"\s*(none|0|hidden)?\s*", borda.group(1)):
+        moldura = "sem"
+    else:
+        moldura = "dupla" if "double" in borda.group(1) else "simples"
+    cantos = "arredondado" if moldura != "sem" and "border-radius" in corpo else modelo.CANTO_PADRAO
+    return moldura, cantos
 
 
 def _rotulos(orientacao: str) -> tuple[list[str], list[str]]:

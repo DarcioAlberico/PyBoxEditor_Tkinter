@@ -317,12 +317,13 @@ def bem_formado(texto: str | bytes) -> ErroDeXhtml | None:
 # ----------------------------------------------------------------------
 
 class _Leitor:
-    def __init__(self, doc: Documento, arquivo: str):
+    def __init__(self, doc: Documento, arquivo: str, caixa: tuple[str, str] | None = None):
         self.doc = doc
         self.arquivo = arquivo
         self.pasta = posixpath.dirname(arquivo)
         self.avisos: list[str] = []
         self.ids_referenciados: set[str] = set()
+        self.caixa = caixa
 
     # -- utilidades -------------------------------------------------------
 
@@ -782,7 +783,7 @@ class _Leitor:
 
     def _diagrama_de_div(self, div: No, campos: dict[str, Any], resto: dict[str, Any]) -> Bloco:
         try:
-            return diagrama_de_div(div, **campos, **resto)
+            return diagrama_de_div(div, caixa=self.caixa, **campos, **resto)
         except (ValueError, KeyError) as erro:
             self.avisos.append(f"diagrama em texto que não deu para ler virou ilha: {erro}")
             return self._ilha(div)
@@ -1016,26 +1017,109 @@ def _pct(valor: str) -> int | None:
 # O diagrama em texto de hoje → `Diagrama`
 # ----------------------------------------------------------------------
 
-def diagrama_de_div(div: No, **campos: Any) -> Diagrama:
+def diagrama_de_div(div: No, *, caixa: tuple[str, str] | None = None, **campos: Any) -> Diagrama:
     """
-    O `div.diagrama` nu de `exportar._diagrama_em_texto` (F59/F95/F99) → `Diagrama`.
+    O `div.diagrama` nu de `exportar._diagrama_em_texto` (F59/F95/F99/F120) → `Diagrama`.
 
-    O de hoje traz o FEN em `title` e `aria-label` (`exportar._alternativo`): o FEN vem
+    As filas vêm do `<pre>` de hoje ou dos `<p>` de antes da F120, um por fila. O de
+    hoje traz o FEN em `title` e `aria-label` (`exportar._alternativo`): o FEN vem
     daí — com a ressalva do lado a jogar atrás, desde o item 3 da revisão de
-    2026-09-18 —, e a orientação é a que **reproduz** as linhas lidas. Só um `div` de fora, sem
+    2026-09-18 —, e a orientação é a que **reproduz** as linhas lidas (`_reproduz`,
+    que aceita a fila que o Sigil aparou). Só um `div` de fora, sem
     `title` que seja FEN, passa pelas linhas (`render_diagrama.fen_de_linhas`), com a
     orientação dos `span.rot` (a primeira fila rotulada `1` é o lado das pretas) ou dos
     glifos de moldura; sem nenhum dos dois é `estado="revisar"` (DEC-06).
+
+    A moldura em glifo diz qual é (`render_diagrama.moldura_da_grade`); a da classe
+    `caixa` é a que a folha do livro desenha, e `caixa` é o `(moldura, cantos)` lido dela
+    (`dialeto.moldura_da_folha`) — sem folha, "simples", como sempre foi.
     """
     from core import render_diagrama
 
     fonte = next((c[len("fonte-"):] for c in div.classes if c.startswith("fonte-")), modelo.FONTE_PADRAO)
     titulo, lado_do_titulo = lado_a_jogar.do_alt(
         div.attrs.get("title", "") or div.attrs.get("aria-label", ""))
+    elementos = div.elementos()
+    if len(elementos) == 1 and elementos[0].nome == "pre":
+        linhas, rotulos, coordenadas = _filas_do_pre(elementos[0])
+    else:
+        linhas, rotulos, coordenadas = _filas_dos_paragrafos(elementos)
+    emolduradas = len(linhas) == 10
+    estado, aviso = "ok", ""
+    if modelo.fen_valido(titulo):
+        fen = modelo.fen_completo(titulo)
+        mapa = render_diagrama.mapa_da_fonte(fonte)
+        miolo = [linha[1:9] for linha in linhas[1:9]] if emolduradas else linhas
+        orientacao = next((o for o in ("branca", "preta")
+                           if _reproduz(render_diagrama.linhas(fen, mapa, o), miolo)), None)
+        if orientacao is None:
+            orientacao, estado, aviso = "branca", "revisar", "as linhas não batem com o FEN do título"
+    else:
+        posicao, orientacao = render_diagrama.fen_de_linhas(linhas, fonte)
+        if orientacao is None and rotulos:
+            orientacao = "preta" if rotulos[0] == "1" else "branca"
+            if orientacao == "preta":
+                # As oito linhas vieram giradas: desgira-se agora que se sabe.
+                filas = posicao.split("/")
+                posicao = "/".join(_inverter_fila(f) for f in reversed(filas))
+        if orientacao is None:
+            orientacao, estado, aviso = "branca", "revisar", "orientação não registrada"
+        fen = modelo.fen_completo(posicao)
+    # A moldura em glifo diz qual é, e se traz rótulo (F122): a grade sem rótulo não é
+    # coordenada, e a dupla não volta simples. A de CSS só diz que existe (`caixa`).
+    da_grade = render_diagrama.moldura_da_grade(linhas, fonte) if emolduradas else None
+    if da_grade is not None:
+        moldura, cantos, rotulada = da_grade
+        coordenadas = coordenadas or rotulada
+    else:
+        if "caixa" in div.classes and caixa is not None:
+            moldura, cantos = caixa
+        else:
+            moldura = "simples" if ("caixa" in div.classes or emolduradas) else "sem"
+            cantos = modelo.CANTO_PADRAO
+        coordenadas = coordenadas or emolduradas
+    return Diagrama(fen=fen, lado=lado_do_titulo if modelo.fen_valido(titulo) else "",
+                    orientacao=orientacao,
+                    coordenadas=coordenadas, fonte=fonte, modo="fonte", moldura=moldura, cantos=cantos,
+                    alt="" if modelo.fen_valido(titulo) else titulo, estado=estado, aviso=aviso, **campos)
+
+
+def _filas_do_pre(pre: No) -> tuple[list[str], list[str], bool]:
+    """
+    `(filas, rótulos, coordenadas)` do `<pre>` de hoje (F120): o texto partido nas
+    quebras, o `span.rot` no começo de cada fila, e a fila do `span.colunas` fora da
+    conta — ela é só a régua das letras.
+    """
+    linhas = [""]
+    rotulos: list[str] = []
+    regua: set[int] = set()
+    for filho in pre.filhos:
+        if isinstance(filho, Texto):
+            primeira, *resto = filho.texto.split("\n")
+            linhas[-1] += primeira
+            linhas.extend(resto)
+        elif isinstance(filho, No) and filho.nome == "span" and "rot" in filho.classes:
+            rotulos.append(filho.texto().strip())
+        elif isinstance(filho, No) and filho.nome == "span" and "colunas" in filho.classes:
+            regua.add(len(linhas) - 1)
+        else:
+            raise ValueError(f"<{getattr(filho, 'nome', '?')}> dentro do diagrama")
+    filas = [linha for k, linha in enumerate(linhas) if k not in regua]
+    # Uma quebra logo depois de `<pre>` (a que um programa de HTML acrescenta) ou antes
+    # de `</pre>` não é fila: nenhuma fila de verdade é vazia.
+    while filas and not filas[0]:
+        filas.pop(0)
+    while filas and not filas[-1]:
+        filas.pop()
+    return filas, rotulos, bool(rotulos or regua)
+
+
+def _filas_dos_paragrafos(paragrafos: list[No]) -> tuple[list[str], list[str], bool]:
+    """`(filas, rótulos, coordenadas)` dos `<p>` de antes da F120, um por fila; o `p.colunas` é a régua."""
     linhas: list[str] = []
     rotulos: list[str] = []
     coordenadas = False
-    for p in div.elementos():
+    for p in paragrafos:
         if p.nome != "p":
             raise ValueError(f"<{p.nome}> dentro do diagrama")
         if "colunas" in p.classes:
@@ -1053,32 +1137,23 @@ def diagrama_de_div(div: No, **campos: Any) -> Diagrama:
             else:
                 raise ValueError(f"<{getattr(filho, 'nome', '?')}> dentro da linha do diagrama")
         linhas.append(texto.strip("\n"))
-    emolduradas = len(linhas) == 10
-    estado, aviso = "ok", ""
-    if modelo.fen_valido(titulo):
-        fen = modelo.fen_completo(titulo)
-        mapa = render_diagrama.mapa_da_fonte(fonte)
-        miolo = [linha[1:9] for linha in linhas[1:9]] if emolduradas else linhas
-        orientacao = next((o for o in ("branca", "preta")
-                           if render_diagrama.linhas(fen, mapa, o) == miolo), None)
-        if orientacao is None:
-            orientacao, estado, aviso = "branca", "revisar", "as linhas não batem com o FEN do título"
-    else:
-        posicao, orientacao = render_diagrama.fen_de_linhas(linhas, fonte)
-        if orientacao is None and rotulos:
-            orientacao = "preta" if rotulos[0] == "1" else "branca"
-            if orientacao == "preta":
-                # As oito linhas vieram giradas: desgira-se agora que se sabe.
-                filas = posicao.split("/")
-                posicao = "/".join(_inverter_fila(f) for f in reversed(filas))
-        if orientacao is None:
-            orientacao, estado, aviso = "branca", "revisar", "orientação não registrada"
-        fen = modelo.fen_completo(posicao)
-    return Diagrama(fen=fen, lado=lado_do_titulo if modelo.fen_valido(titulo) else "",
-                    orientacao=orientacao,
-                    coordenadas=coordenadas or emolduradas, fonte=fonte, modo="fonte",
-                    moldura="simples" if ("caixa" in div.classes or emolduradas) else "sem",
-                    alt="" if modelo.fen_valido(titulo) else titulo, estado=estado, aviso=aviso, **campos)
+    return linhas, rotulos, coordenadas
+
+
+def _reproduz(esperadas: list[str], lidas: list[str]) -> bool:
+    """
+    As filas lidas são as que o FEN desenha? Iguais, ou iguais sem o espaço das pontas.
+
+    **A segunda metade é pelos livros de antes da F120.** Lá era um `<p>` por fila, e
+    o "Mend and Prettify" do Sigil apara o começo e o fim de cada parágrafo — que na
+    Chess Merida é a casa clara vazia, o espaço: a fila chega com sete casas. Quem
+    manda na posição é o FEN do `title`, e o tabuleiro é redesenhado dele ao gravar;
+    as filas só decidem a orientação, e a fila aparada ainda a decide. A SkakNew não
+    tem espaço no tabuleiro, e para ela as duas metades são a mesma.
+    """
+    return len(esperadas) == len(lidas) and all(
+        esperada == lida or esperada.strip(" ") == lida.strip(" ")
+        for esperada, lida in zip(esperadas, lidas))
 
 
 def _inverter_fila(fila: str) -> str:
@@ -1101,13 +1176,15 @@ def _inverter_fila(fila: str) -> str:
 # Leitura pública
 # ----------------------------------------------------------------------
 
-def ler(texto: str | bytes, arquivo: str = "") -> Capitulo:
+def ler(texto: str | bytes, arquivo: str = "", caixa: tuple[str, str] | None = None) -> Capitulo:
     """
     Um documento XHTML → `Capitulo`. `arquivo` é o href do capítulo relativo ao OPF
     (é o que torna os `href` de `<link>` e `<img>` relativos ao OPF, como o modelo pede).
+    `caixa` é a moldura que a folha do livro desenha no `div.diagrama.caixa`
+    (`dialeto.moldura_da_folha`; F122).
     """
     doc = analisar(texto)
-    return _Leitor(doc, arquivo).capitulo()
+    return _Leitor(doc, arquivo, caixa).capitulo()
 
 
 def ler_fragmento(texto: str, arquivo: str = "") -> list[Bloco]:
@@ -1410,13 +1487,8 @@ class _Escritor:
         from core import render_diagrama
 
         fonte = render_diagrama.mapa_da_fonte(d.fonte)
-        linhas = None
-        emolduradas = False
-        if d.coordenadas and d.moldura != "sem":
-            linhas = render_diagrama.grade(d.fen, fonte, d.orientacao, d.moldura, d.cantos)
-            emolduradas = linhas is not None
-        if linhas is None:
-            linhas = render_diagrama.linhas(d.fen, fonte, d.orientacao)
+        linhas, emolduradas = render_diagrama.linhas_do_diagrama(d.fen, fonte, d.orientacao, d.moldura,
+                                                                 d.cantos, d.coordenadas)
         return dialeto.div_do_diagrama(linhas, d.fonte, coordenadas=d.coordenadas, orientacao=d.orientacao,
                                        emolduradas=emolduradas, alt=alt, escapar=escape)
 

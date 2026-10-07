@@ -462,6 +462,15 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
     livro.nav = leitor.itens[nav_id][0] if nav_id else ""
     livro.ncx = leitor.itens[ncx_id][0] if ncx_id else ""
 
+    # A moldura do `div.diagrama.caixa` é a da folha, e não a da classe (F122).
+    caixa = None
+    for href, mime, _props in leitor.itens.values():
+        nome = nome_no_zip(livro, href)
+        if (mime == MIME_CSS or href.lower().endswith(".css")) and nome in nomes:
+            caixa = dialeto.moldura_da_folha(z.read(nome).decode("utf-8", errors="replace"))
+            if caixa is not None:
+                break
+
     # A espinha vira capítulos; o resto do manifesto, recursos.
     na_espinha: set[str] = set()
     for i, (id_, linear) in enumerate(leitor.espinha):
@@ -482,7 +491,7 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
             continue
         dados = z.read(nome)
         try:
-            cap = xhtml.ler(dados, href)
+            cap = xhtml.ler(dados, href, caixa)
         except ErroDeXhtml as erro:
             texto = dados.decode("utf-8", errors="replace").lstrip("\ufeff")
             cap = Capitulo(arquivo=href, texto_cru=texto, avisos=[f"XHTML mal-formado: {erro}"])
@@ -709,7 +718,7 @@ class _Escritor:
             return dados_de(livro, recurso).decode("utf-8", errors="replace").lstrip("\ufeff")
 
         try:
-            novas, avisos = fontes.embutir(livro, ler_recurso=ler)
+            novas, avisos = fontes.embutir(livro, ler_recurso=ler, ler_dados=lambda r: dados_de(livro, r))
         except Exception as erro:      # noqa: BLE001 — uma fonte que não se lê não derruba a gravação
             novas, avisos = [], [f"fontes não embutidas ({erro})"]
         for aviso in avisos:

@@ -26,9 +26,11 @@ mapa das fontes de diagrama é lido do JSON de `render_diagrama` sem importá-lo
 livro (a que ele já usa; `Fonts/` no livro novo; `fonts/` no EPUB de hoje) como
 `Recurso`, e reescreve na folha padrão um bloco marcado `/* pybox:fontes */` com o
 `@font-face` (a `src` relativa **à folha**, não ao OPF) e a regra que liga a família
-ao seletor — `div.diagrama.<classe> p` ou `span.sim`. Uma família que alguma folha
-já declara em `@font-face` (o EPUB de hoje) não é declarada de novo; o bloco é
-regenerado a cada gravação, e o resto da folha não é tocado (como o de hifenização).
+ao seletor — `div.diagrama.<classe> pre, div.diagrama.<classe> p` ou `span.sim`. Uma
+família que alguma folha já declara em `@font-face` (o EPUB de hoje) não é declarada
+de novo; o bloco é regenerado a cada gravação, e o resto da folha não é tocado (como
+o de hifenização). A folha de antes da F120, que só estiliza o `p` das filas do
+tabuleiro, ganha no bloco as mesmas regras para o `pre` (`regras_para_o_pre`).
 """
 
 from __future__ import annotations
@@ -36,12 +38,13 @@ from __future__ import annotations
 import json
 import os
 import posixpath
+import re
 import struct
 from typing import Iterable
 
 from core.editor import css_minima, modelo
 from core.editor.modelo import Diagrama, Livro, Recurso
-from core.estilo_do_livro import PISO_DO_SIMBOLO, classe_da_fonte
+from core.estilo_do_livro import PISO_DO_SIMBOLO, classe_da_fonte, seletor_do_tabuleiro
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CAMINHO_DOS_MAPAS = os.path.join(_RAIZ, "core", "dados", "fontes_de_diagrama.json")
@@ -205,6 +208,31 @@ def e_fonte_de_diagrama(familia: str) -> bool:
     return bool(familia) and (familia in _mapas() or familia.endswith("-Diagram"))
 
 
+def caracteres_do_mapa(nome: str) -> set[int]:
+    """Os caracteres que o mapa da fonte de diagrama promete desenhar: as casas e os pedaços da moldura."""
+    bruto = _mapas().get(nome) or {}
+    caracteres: set[str] = set(bruto.get("casas", {}))
+    for pecas in bruto.get("molduras", {}).values():
+        for valor in pecas.values():
+            caracteres.update(valor.values() if isinstance(valor, dict) else valor)
+    return {ord(c) for c in caracteres}
+
+
+def desatualizada(dados: bytes | None, nome: str) -> bool:
+    """
+    A cópia da fonte de diagrama que o livro traz deixa de fora algo que o mapa promete? (F122)
+
+    É o livro de antes da moldura em glifo: ele embutiu a SkakNew de 2004, com o mesmo
+    nome de arquivo e a mesma família, e o `@font-face` dele continua apontando para
+    ela — o diagrama regravado sairia com a moldura em caracteres que a fonte do livro
+    não desenha. Sem dados ou sem `cmap` legível não se decide nada (`False`).
+    """
+    if not dados:
+        return False
+    cobertos = caracteres_dos_dados(dados)
+    return cobertos is not None and not caracteres_do_mapa(nome) <= cobertos
+
+
 def simbolos_de(texto: str) -> str:
     """Os caracteres do texto que precisam da fonte de recurso (acima de `PISO_DO_SIMBOLO`), únicos e ordenados."""
     return "".join(sorted({c for c in texto if ord(c) >= PISO_DO_SIMBOLO}))
@@ -359,11 +387,48 @@ def _regra(familia: str, src: str, seletor: str, reserva: str) -> str:
             f'{seletor} {{ font-family: "{familia}", {reserva}; }}\n')
 
 
-def embutir(livro: Livro, ler_recurso=None) -> tuple[list[str], list[str]]:
+#: Uma regra das filas do tabuleiro numa folha de antes da F120: `div.diagrama p` ou
+#: `div.diagrama.<classe> p`, sozinha no seletor e fora de `@media` — como
+#: `CSS_DO_DIAGRAMA` e este módulo as escreviam.
+_RE_REGRA_DO_P = re.compile(r"(?:^|(?<=[;}]))\s*(div\.diagrama(?:\.[\w-]+)*)\s+p\s*\{([^{}]*)\}")
+_RE_REGRA_DO_PRE = re.compile(r"div\.diagrama(?:\.[\w-]+)*\s+pre\b")
+_RE_COMENTARIO = re.compile(r"/\*.*?\*/", re.S)
+
+
+def regras_para_o_pre(css: str) -> str:
+    """
+    As regras que a folha escreve para as filas do tabuleiro no `p`, repetidas para o
+    `pre` — ou nada, se a folha já fala do `pre` (F120).
+
+    O tabuleiro em texto passou de um `<p>` por fila para um `<pre>`, e a folha de um
+    livro de antes (o `estilo.css` do exportador, ou a padrão do editor) só conhece o
+    `p`: sem isto, o livro reaberto e gravado ganharia o `<pre>` sem a fonte de xadrez,
+    sem o corpo, e com a margem de 1 em que o `pre` tem de fábrica. As declarações vão
+    como estão — o corpo que o livro escolheu, a entrelinha, a família —, e a folha em
+    si não é tocada: as cópias moram no bloco `pybox:fontes`, refeito a cada gravação.
+    """
+    texto = _RE_COMENTARIO.sub("", css)
+    if _RE_REGRA_DO_PRE.search(texto):
+        return ""
+    return "".join(f"{seletor} pre {{{corpo}}}\n" for seletor, corpo in _RE_REGRA_DO_P.findall(texto))
+
+
+def _texto_das_folhas(livro: Livro, ler_recurso=None) -> str:
+    """As folhas do livro emendadas, sem o bloco marcado (que é refeito)."""
+    textos = (_texto_da_folha(livro, href, ler_recurso) for href in livro.folhas)
+    return "\n".join(folha_com_fontes(texto, "") for texto in textos if texto is not None)
+
+
+def embutir(livro: Livro, ler_recurso=None, ler_dados=None) -> tuple[list[str], list[str]]:
     """
     Põe no livro as fontes que ele precisa e não tem, e regenera o bloco `pybox:fontes`
     da folha padrão. Devolve `(hrefs das fontes embutidas agora, avisos)`. Sem folha
     padrão, as fontes entram e a regra fica por conta de quem a escrever (aviso).
+
+    A fonte de diagrama que o livro já traz e que não desenha tudo o que o mapa promete
+    (`desatualizada`, F122) tem os bytes trocados pelos do projeto, no mesmo lugar:
+    o `@font-face` do livro continua valendo. `ler_dados(recurso) -> bytes` lê a que
+    ainda está no zip de origem.
     """
     diagramas, simbolos, avisos = necessarias(livro)
     if not diagramas and simbolos is None:
@@ -373,10 +438,23 @@ def embutir(livro: Livro, ler_recurso=None) -> tuple[list[str], list[str]]:
     por_nome = {posixpath.basename(c).lower(): c for c, r in livro.recursos.items() if _e_fonte(r)}
     novos: list[str] = []
 
-    def por(arquivo: str) -> str:
+    def dados_de(recurso: Recurso) -> bytes | None:
+        if recurso.dados is not None:
+            return recurso.dados
+        try:
+            return ler_dados(recurso) if ler_dados is not None else None
+        except Exception:      # noqa: BLE001 — a fonte que não se lê fica como está
+            return None
+
+    def por(arquivo: str, nome: str = "") -> str:
         base = os.path.basename(arquivo)
         if base.lower() in por_nome:
-            return por_nome[base.lower()]
+            href = por_nome[base.lower()]
+            if nome and desatualizada(dados_de(livro.recursos[href]), nome):
+                with open(arquivo, "rb") as f:
+                    livro.recursos[href].dados = f.read()
+                avisos.append(f"fonte de diagrama atualizada: {href} (a do livro não desenhava a moldura em glifo)")
+            return href
         href = posixpath.join(pasta, base) if pasta != "." else base
         with open(arquivo, "rb") as f:
             dados = f.read()
@@ -386,7 +464,7 @@ def embutir(livro: Livro, ler_recurso=None) -> tuple[list[str], list[str]]:
         novos.append(href)
         return href
 
-    hrefs = {nome: por(arquivo) for nome, arquivo in diagramas.items()}
+    hrefs = {nome: por(arquivo, nome) for nome, arquivo in diagramas.items()}
     href_simbolos = por(simbolos[1]) if simbolos else ""
     if not livro.folhas or livro.recurso(livro.folhas[0]) is None:
         avisos.append("livro sem folha padrão: as fontes foram embutidas sem @font-face")
@@ -399,7 +477,9 @@ def embutir(livro: Livro, ler_recurso=None) -> tuple[list[str], list[str]]:
         if nome in declaradas:
             continue
         src = posixpath.relpath(href, pasta_da_folha) if pasta_da_folha else href
-        regras.append(_regra(nome, src, f"div.diagrama.{classe_da_fonte(nome)} p", "monospace"))
+        regras.append(_regra(nome, src, seletor_do_tabuleiro(classe_da_fonte(nome)), "monospace"))
+    if diagramas:
+        regras.append(regras_para_o_pre(_texto_das_folhas(livro, ler_recurso)))
     if simbolos and simbolos[0] not in declaradas:
         src = posixpath.relpath(href_simbolos, pasta_da_folha) if pasta_da_folha else href_simbolos
         regras.append(_regra(simbolos[0], src, "span.sim", "serif"))
@@ -434,5 +514,5 @@ def _tirar_bloco(livro: Livro, ler_recurso=None) -> None:
 
 __all__ = ["familia_do_arquivo", "familia_dos_dados", "caracteres_dos_dados", "desenha", "simbolos_de",
            "fonte_dos_simbolos", "fontes_de_diagrama_usadas", "arquivo_da_fonte_de_diagrama", "necessarias",
-           "pasta_de_fontes", "familias_declaradas", "folha_com_fontes", "embutir", "FONTES_DE_SIMBOLOS",
-           "MARCA_DAS_FONTES", "FIM_DAS_FONTES"]
+           "pasta_de_fontes", "familias_declaradas", "folha_com_fontes", "regras_para_o_pre", "embutir",
+           "caracteres_do_mapa", "desatualizada", "FONTES_DE_SIMBOLOS", "MARCA_DAS_FONTES", "FIM_DAS_FONTES"]

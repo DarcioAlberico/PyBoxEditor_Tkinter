@@ -4,9 +4,9 @@
   "fontes": {
     "SkakNew-Diagram": {
       "arquivo": "fonts/SkakNew-Diagram.otf",
-      "sha256": "bb0a3c03aba60f88f5b81d4dd76fbbf5ccc190978e481bd2c9c915789dd2aea1",
+      "sha256": "4c2b86b6e9cd83cb660f0d6101eabb689be851095aaed00ec0bb1619fbe1add1",
       "em": 1000,
-      "licenca": "LPPL 1.2 ou posterior, (c) 2004-2009 Ulrich Dirr. Redistribuicao autorizada -- ver fonts/SkakNew.pdf",
+      "licenca": "LPPL 1.2 ou posterior, (c) 2004-2009 Ulrich Dirr. Redistribuicao autorizada -- ver fonts/SkakNew.pdf. Esta copia ganhou os glifos de moldura do gerar_moldura_da_skaknew.py (F122), e diz isso na tabela de nomes; os 47 glifos de 2004 sao byte a byte os originais, e a original continua em fonts/SkakNew-Diagram-original.otf (sha256 bb0a3c03aba60f88f5b81d4dd76fbbf5ccc190978e481bd2c9c915789dd2aea1).",
       "origem": "posicao inicial impressa na pagina 3 de fonts/SkakNew.pdf, fechada por eliminacao e conferida pela geometria dos glifos e pelas duas redes da F7.4/F7.5",
       "casas": {
         "0": [null, "clara"],
@@ -38,7 +38,42 @@
       },
       "sobreposicoes": "1 2 3 4 5 6 T U V W X Y",
       "nota_sobreposicoes": "Avanco zero: nao andam com a caneta, entao nao sao casa. Na folha de contato veem-se como as mesmas 12 pecas em casa cheia -- 1-6 sao as brancas sobre quadrado preto e T-Y as pretas sem quadrado; o 'z', que anda 1 em, e o quadrado preto vazio. E a familia de destaque da fonte. Nenhum uso ainda.",
-      "sem_uso": "z"
+      "sem_uso": "z",
+      "molduras": {
+        "simples": {
+          "canto_ne": "[",
+          "topo": "=",
+          "canto_no": "]",
+          "esquerda": "{",
+          "direita": "}",
+          "canto_se": "7",
+          "base": "8",
+          "canto_so": "9",
+          "cantos_arredondados": {
+            "canto_ne": "g",
+            "canto_no": "h",
+            "canto_se": "d",
+            "canto_so": "f"
+          }
+        },
+        "dupla": {
+          "canto_ne": "!",
+          "topo": "\"",
+          "canto_no": "#",
+          "esquerda": "$",
+          "direita": "%",
+          "canto_se": "/",
+          "base": "(",
+          "canto_so": ")",
+          "cantos_arredondados": {
+            "canto_ne": "G",
+            "canto_no": "H",
+            "canto_se": "D",
+            "canto_so": "F"
+          }
+        }
+      },
+      "nota_molduras": "A SkakNew de 2004 nao tem glifo de borda -- a skak do LaTeX desenha o filete por fora. Estes 24 glifos foram acrescentados pelo gerar_moldura_da_skaknew.py (F122), desenhados la com as proporcoes da moldura da Chess Merida (vao, filete, entrelinha da dupla e raio da quina) no em de 1000, e so em codepoints que a fonte nao usava: a copia e um superconjunto da original, que continua em fonts/SkakNew-Diagram-original.otf. A dupla usa as mesmas teclas da Merida; a simples e as quinas redondas nao podem, porque 1-5 sao as sobreposicoes desta fonte e a/s/A/S sao pecas. Nao ha rotulo em glifo (nem filas nem colunas): com coordenada a moldura continua sendo desenhada pela CSS e pela caneta."
     },
     "ChessMerida-Diagram": {
       "arquivo": "fonts/ChessMerida-Diagram.ttf",

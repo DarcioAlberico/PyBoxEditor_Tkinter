@@ -13912,6 +13912,128 @@ prova) e um em `tests/test_f26_livro.py` (a barra determinada com a página). Su
 
 ---
 
+## F120 — O diagrama em fonte saía 7×8: a casa clara da Merida era o espaço da ponta de um parágrafo — CONCLUÍDA
+
+"Os diagramas do livro ficaram no formato 7x8" (2026-09-23), com o *The Russian Endgame
+Handbook* do Rabinovich exportado em EPUB com os diagramas na Chess Merida, e um diagrama
+do plugin ChessMeridaOCR do Sigil ao lado como o certo. O que o usuário colou da p. 368:
+
+    <p>T + +l+</p>
+
+    <p>+ + + +</p>
+
+Sete caracteres por fila. A posição é `1r4k1/8/5PK1/8/8/8/R7/8`, e a oitava fila na Merida é
+` T + +l+` — **na Chess Merida a casa clara vazia é o espaço** (a SkakNew usa o `0`), e
+como a cor alterna, toda fila começa ou termina numa casa clara. Só `r+ + + +` começa numa
+peça e termina numa casa escura; era a única com oito no que ele colou.
+
+### Onde a casa sumia
+
+Não no programa. O EPUB no disco, lido às 21h, tinha `<p> T + +l+</p>` — oito casas — e a
+folha pedia `white-space: pre`, que o Chromium respeita: desenhado no Edge, o tabuleiro
+fechava 8×8. O `sigil_v6.ini` tinha esse EPUB no topo dos recentes, e o recuo com uma linha
+em branco entre os `<p>` do que ele colou é o do **"Mend and Prettify" do Sigil**, que apara o
+começo e o fim do conteúdo de cada bloco de texto e deixa só o `<pre>` intacto. Às 22:11 o
+arquivo foi regravado pelo Sigil, e aí sim: os 944 diagramas do livro com fila de sete.
+
+O mesmo acontece em qualquer programa que trate o `<p>` como parágrafo — e é o que ele é —,
+e no leitor que não aplica a folha do livro: sem o `white-space: pre`, o espaço da ponta de um
+parágrafo cai como cai o de qualquer outro. O diagrama dependia de uma única declaração de CSS
+para existir, e dizia isso como `<p>`.
+
+### Por que o `<pre>`, e não trocar o espaço
+
+- **O `&#160;` na ponta** não é espaço para o HTML, mas a `ChessMerida-Diagram.ttf` não
+  tem U+00A0: o leitor pegaria o espaço fixo da `monospace` (0,6 em), e a fila andaria
+  meia casa. Dar o glifo à fonte exigiria trocar a fonte de todo livro já exportado.
+- **O `*`**, que o `LEEME__D.TXT` da própria Merida lista como a outra tecla da casa
+  clara ("[espacio] ó *"), não é branco: o glifo tem um ponto de 25 unidades (em 2048) no
+  canto de baixo — invisível no papel, um pixel cinza em cada casa clara numa tela de 300 ppi.
+- **A moldura em glifo** (`$ T + +l+%`, como o plugin do Sigil faz) protege as pontas, mas
+  só quando há moldura: a "sem" continuaria exposta, e a SkakNew nem tem glifo de borda.
+
+O `<pre>` é o elemento do HTML para texto pré-formatado: quem arruma o código não mexe no
+que ele contém — o diagrama do plugin, que é um `<pre>` e passou pelo mesmo Sigil, chegou
+com as filas inteiras —, e sem folha nenhuma o leitor já o desenha com o espaço.
+
+### O que entrou
+
+- **As filas num `<pre>` só**, dentro do mesmo `div.diagrama`, nos dois escritores —
+  `exportar._diagrama_em_texto` e `dialeto.div_do_diagrama`, que continuam dando o mesmo
+  tabuleiro (R5). A régua das coordenadas vira `<span class="colunas">` na última linha, e
+  nenhuma quebra logo depois do `<pre>`: o analisador de HTML come a primeira, o de XML não.
+- **A folha pega os dois**: `div.diagrama pre, div.diagrama p` e a regra da família por
+  fonte idem (`seletor_do_tabuleiro`). O `p` fica pelos diagramas de antes que o editor
+  guardar como ilha.
+- **O editor lê as duas formas** (`_filas_do_pre`, `_filas_dos_paragrafos`), e a
+  orientação sai de `_reproduz`, que aceita a fila **aparada**: o FEN do `title` manda na
+  posição e o tabuleiro é redesenhado dele ao gravar, então a fila de sete ainda decide a
+  orientação sem virar "revisar". Uma casa trocada no meio continua "revisar".
+- **A folha de um livro de antes aprende o `pre` ao ser gravada**: `fontes.regras_para_o_pre`
+  repete no bloco `pybox:fontes` as regras que a folha escreve para o `p` das filas — o corpo
+  que o livro escolheu, a entrelinha, a família —, sem tocar no resto da folha; o PDF do
+  editor põe as mesmas no `user_css`. Sem isso, o livro reaberto sairia com o `<pre>` na
+  `monospace` do leitor e com a margem de 1 em que o `pre` tem de fábrica.
+
+### Medido
+
+No `fitz.Story` (o motor do PDF do editor), com a folha e a fonte do próprio EPUB, contando
+as casas desenhadas por fila da p. 368:
+
+| marcação | intacta | aparada como o Sigil |
+|---|---|---|
+| um `<p>` por fila (antes) | 8 em todas | **7** em sete filas, 8 em `r+ + + +` |
+| um `<pre>` (agora) | 8 em todas | 8 em todas |
+
+No Edge (Chromium), as cinco formas lado a lado: a de antes intacta fecha 8×8, a do disco
+depois do Sigil é a de listras verticais que o usuário viu, e a de agora fecha 8×8 intacta e
+aparada.
+
+O livro inteiro, já estragado pelo Sigil, **numa cópia**: `epub.ler` em 5,5 s lê os 944
+diagramas como "ok" (nenhum vira ilha nem "revisar"); `epub.escrever` em 1,5 s grava 944
+`<pre>`, todos com oito filas de oito, e a folha ganha no bloco `pybox:fontes` o
+`div.diagrama pre { … font-size: 16pt; … white-space: pre; }` e a família da Merida. Ou
+seja: **o livro que já passou pelo Sigil se conserta abrindo e salvando no editor**, sem
+exportar de novo do PDF.
+
+### O que fica registrado, e não entrou
+
+- **`test_adapter_sem_perdas::test_o_epub_do_round_trip_e_byte_identico` oscila.** O
+  `z.writestr(nome, …)` carimba cada entrada do zip com a hora local, e o
+  `SOURCE_DATE_EPOCH` que o teste põe só vale para o `dcterms:modified`: dois EPUBs gravados
+  dos dois lados de uma virada de 2 s saem diferentes. Caiu uma vez aqui, com a máquina
+  carregada, e passou de novo sozinho e na mesma ordem. *Consertado depois (PD-00 de
+  `docs/ROADMAP_PENDENCIAS.md`): o `exportar` carimba toda entrada do zip com um instante
+  só, em UTC; `tests/test_exportacao_reprodutivel.py`.*
+- **Um `div.diagrama` de fora, sem FEN no `title`, com fila aparada continua virando ilha**:
+  `render_diagrama.fen_de_linhas` exige oito casas. Todo diagrama que o projeto escreve leva
+  o FEN no `title`.
+- **A moldura sem coordenada continua na CSS** (`caixa`, F99), e não em glifo como no plugin
+  do Sigil. Com o `<pre>`, as duas sobrevivem ao "Mend and Prettify".
+
+### Onde está
+
+- `core/exportar.py` — `_diagrama_em_texto`.
+- `core/editor/dialeto.py` — `div_do_diagrama`.
+- `core/estilo_do_livro.py` — `CSS_DO_DIAGRAMA`, `CSS_DA_FONTE_DO_DIAGRAMA` e
+  `seletor_do_tabuleiro`.
+- `core/editor/xhtml.py` — `diagrama_de_div`, `_filas_do_pre`, `_filas_dos_paragrafos` e
+  `_reproduz`.
+- `core/editor/fontes.py` — `regras_para_o_pre` e o bloco de `embutir`.
+- `core/editor/pdf_io.py` — `_css` e `_fontes`.
+
+Cobertura: `tests/test_f120_diagrama_em_pre.py` (11 testes — as filas no `<pre>` com oito
+casas, o desenho do `fitz.Story` intacto e aparado nas duas marcações, a folha, coordenada e
+moldura em glifo no `<pre>`, a ida e volta pelo editor, o livro de antes aparado voltando
+inteiro nas duas orientações, a casa trocada que continua "revisar", as regras do `pre` só
+quando faltam, a folha de antes regravada e desenhada 8×8, e o PDF do editor do livro de
+antes); `test_f59`, `test_f99`, `test_f111` e `test_editor_epub_completo` passam a pedir o
+`<pre>`, e o golden `tests/dados/editor/capitulo.xhtml` mudou só no diagrama. Contra o
+código de antes, 8 dos 11 testes novos falham. Suíte: 3052 (`-m "not slow"`), e os testes
+`slow` do `epubcheck` passam; o EPUB novo do exportador sai do `epubcheck` sem erro.
+
+---
+
 ## F121 — O pontilhado do sumário virava a régua de tamanho, e o ponto saía apóstrofo — CONCLUÍDA
 
 Achado de passagem da F112. Na janela, o veto de tamanho da F106 compara o maior lado do
@@ -14066,6 +14188,118 @@ abaixo da base continua na linha. Os outros quatro prendem o que ela não pode m
 comum fica com a mediana até o pixel, a página de rosto não troca o texto pelo título, a
 moldura não abriga a página, e o miúdo fora das linhas não é pontilhado. Suíte: 2.993 e 12
 puladas, com as `slow`.
+
+---
+
+## F122 — A moldura do diagrama em texto sai da própria fonte, e a SkakNew ganhou a dela — CONCLUÍDA
+
+"Gostaria que a opção de borda dos diagramas Chess-Merida-Diagram e Skak-New-Diagram sejam
+feitas com a própria fonte" (2026-09-24), com o exemplo do plugin ChessMeridaOCR do Sigil:
+
+    !""""""""#
+    $ + + + +%
+    …
+    /(((((((()
+
+Até aqui a moldura sem coordenada saía **por fora do texto**: a borda da CSS no
+`div.diagrama.caixa` do EPUB e a borda da célula no DOCX. Só com coordenada, e só na Merida,
+a grade de dez em glifo entrava (F99). A Merida sempre teve os oito pedaços das duas
+molduras e as quinas redondas; a SkakNew de 2004 não tinha glifo de borda nenhum — a `skak`
+do LaTeX desenha o filete por fora.
+
+### O que entrou
+
+- **Uma decisão só**: `render_diagrama.linhas_do_diagrama(fen, fonte, orientação, moldura,
+  cantos, coordenadas) → (linhas, emolduradas)`. Com moldura e com os glifos dela, a grade;
+  com coordenada, a grade rotulada, se a fonte tiver o rótulo; senão, as oito linhas de
+  sempre. Quem escrevia a decisão à mão passou a chamá-la: `livro`, `pdf_nativo`,
+  `editorial_legacy` (a figura redesenhada da revisão), e no editor o XHTML e o DOCX. A
+  `grade` ganhou `com_rotulos=False`, que troca a `filas`/`colunas` pela `esquerda`/`base`:
+  a do exemplo do usuário sai idêntica, caractere a caractere.
+- **A SkakNew com moldura** (`gerar_moldura_da_skaknew.py`): 24 glifos — os oito pedaços da
+  simples e da dupla e as quatro quinas redondas de cada —, desenhados no script com as
+  proporções da Merida (vão 17, filete 49, entrelinha da dupla 51, filete de fora 83, em
+  1000; o raio é o `RAIO_DO_CANTO` que o projeto já usava). **Só se acrescenta**: os 47
+  glifos de 2004 guardam os bytes, o cmap só ganha codepoints livres, e a cópia é um
+  superconjunto da original, que fica em `fonts/SkakNew-Diagram-original.otf`. A LPPL
+  permite modificar e pede que se diga: a tabela de nomes diz, e a família continua
+  `SkakNew-Diagram` porque é a chave do mapa e o nome que o DOCX pede no run. A dupla usa
+  as teclas da Merida (`! " # $ % / ( )`); a simples e as quinas não podem (`1`–`5` são as
+  sobreposições desta fonte, `a s A S` são peças) e ficaram em `[ = ] { } 7 8 9` e
+  `g h d f` / `G H D F` — o mapa diz, e o script recusa tecla ocupada.
+- **O editor lê a moldura** (`render_diagrama.moldura_da_grade`): a grade diz qual moldura
+  é, a quina e se traz rótulo — antes, dez linhas eram "coordenada, moldura simples", e a
+  dupla voltava simples. O `div.diagrama caixa` não diz qual é, e a regra da folha diz
+  (`dialeto.moldura_da_folha`, lida pelo `epub.ler` antes dos capítulos): **o livro
+  exportado sem moldura continua sem**; o que tinha a da CSS ganha a da fonte ao ser gravado.
+- **O livro com a SkakNew de 2004 embutida ganha a nova** (`fontes.desatualizada`): mesmo
+  nome de arquivo e mesma família, e o `@font-face` do livro continuaria desenhando `[` e
+  `=` com uma fonte que não os tem. Ao gravar o EPUB e o HTML, os bytes da do livro são
+  trocados pelos do projeto, no mesmo lugar; o PDF leva a do projeto. Só troca a que não
+  desenha tudo o que o mapa promete.
+
+### O que o navegador achou e o `fitz` não
+
+Desenhadas pelo `fitz`, as molduras da SkakNew fechavam. **No Edge, a de cima e a de baixo
+saíam tracejadas.** O charstring do CFF guarda o avanço como diferença do `nominalWidthX` —
+107 nesta fonte —, ou não guarda nada quando ele é o `defaultWidthX`; o `T2CharStringPen`
+escreve o número cru, e cada peça andava 1107. O `fitz` lê o avanço do `hmtx` (1000), o
+Edge o do CFF. O `--conferir` passou a medir os dois (`T2WidthExtractor`), e pega a fonte
+errada: "anda 1107 no CFF, e o `hmtx` diz 1000".
+
+### Por que o PNG continua com o filete da caneta
+
+A grade em glifo, recortada na tinta, sai 3,4% mais larga que as oito casas na simples — e
+a F97 mede que o diagrama desenhado e o recorte da página, que convivem no mesmo livro,
+tenham quase o mesmo tamanho (menos de 2%). A caneta desenha a mesma moldura, com o raio da
+Merida (F101); com coordenada na Merida o PNG continua sendo a grade, como desde a F99.
+
+### Medido
+
+- O exemplo do usuário: `grade("8/5k2/8/5K2/5P2/8/8/8", Merida, dupla, reto,
+  com_rotulos=False)` é a mesma lista de dez linhas que ele colou.
+- A SkakNew nova nas quatro provas do `medir_fonte_diagrama.py`: fechamento, avanço, tinta e
+  ida e volta pelas duas redes — 128 de 128 casas nas 24 combinações e 2560 de 2560 nos 40
+  tabuleiros do corpus.
+- No Edge, as seis molduras (as três da Merida e as três da SkakNew, inclusive a do exemplo)
+  fecham; no `fitz.Story`, cada fila da grade tem dez casas nas duas fontes.
+- Um livro de antes com a folha em "sem", "simples" e "dupla arredondada": relido "sem" e
+  regravado com oito linhas; relido "simples" e regravado com `1222222223`; relido "dupla
+  arredondada" e regravado com `A""""""""S`.
+- O golden do DOCX do editor mudou só no diagrama da SkakNew: dez linhas, `[========]` no
+  topo, e a célula com a borda `nil`.
+
+### O que fica registrado, e não entrou
+
+- **A SkakNew não tem rótulo em glifo.** Com coordenada ela continua com a moldura da CSS e
+  da caneta e com o `a`–`h` em fonte de texto, e no DOCX cai para imagem. Desenhar rótulo
+  pede contornos de letra e algarismo, e copiá-los de outra fonte mistura licenças.
+- **O Word de uma máquina com a SkakNew original instalada** usa a instalada, que não tem a
+  moldura, em vez da embutida — o nome da família é o mesmo. O EPUB não tem esse problema:
+  o `@font-face` manda.
+- **O exportador escapa o `"` da dupla** (`&quot;`, pelo `html.escape`) e o editor não; o
+  conteúdo é o mesmo, e o `<pre>` dos dois só difere na grafia.
+
+### Onde está
+
+- `core/render_diagrama.py` — `grade(com_rotulos=)`, `linhas_do_diagrama`, `moldura_da_grade`.
+- `gerar_moldura_da_skaknew.py`, `fonts/SkakNew-Diagram.otf` (a cópia) e
+  `fonts/SkakNew-Diagram-original.otf`; `core/dados/fontes_de_diagrama.json` (`molduras` e o
+  sha da SkakNew).
+- `core/livro.py`, `core/pdf_nativo.py`, `core/editorial_legacy.py` — a decisão pela
+  `linhas_do_diagrama`.
+- `core/editor/xhtml.py` (`diagrama_de_div(caixa=)`, `ler(caixa=)`), `core/editor/dialeto.py`
+  (`moldura_da_folha`), `core/editor/epub.py`, `core/editor/docx_io.py`,
+  `core/editor/docx_leitura.py`, `core/editor/fontes.py` (`caracteres_do_mapa`,
+  `desatualizada`, `embutir(ler_dados=)`), `core/editor/html_io.py`, `core/editor/pdf_io.py`.
+
+Cobertura: `tests/test_f122_moldura_na_fonte.py` (31 testes — o exemplo do usuário, as oito
+combinações de fonte, moldura e quina indo e voltando, o "sem" e a SkakNew com coordenada, a
+SkakNew como superconjunto e o gerador reprodutível, a tinta de cada peça do lado do
+tabuleiro, o EPUB e o DOCX, o desenho do `fitz.Story`, a leitura pelo editor, o livro de
+antes com a moldura da folha, a SkakNew de 2004 trocada no EPUB e no PDF, e o pipeline do
+`livro`); `test_f120_diagrama_em_pre.py` e `test_fila_de_suspeitas.py` passam a esperar a
+grade, e o golden do DOCX do editor foi regravado.
 
 ---
 

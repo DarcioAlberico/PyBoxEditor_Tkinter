@@ -973,18 +973,12 @@ class _Escritor:
         except (render_diagrama.FonteDesconhecida, render_diagrama.FonteIncompleta, OSError) as erro:
             self.relatorio.aviso(f"{onde}: diagrama {d.id} em imagem — fonte {d.fonte} indisponível ({erro})")
             return False
-        linhas = None
-        emolduradas = False
-        if d.coordenadas:
-            if d.moldura != "sem":
-                linhas = render_diagrama.grade(d.fen, fonte, d.orientacao, d.moldura, d.cantos)
-                emolduradas = linhas is not None
-            if linhas is None:
-                self.relatorio.aviso(f"{onde}: diagrama {d.id} em imagem — {d.fonte} não desenha coordenadas "
-                                     "em glifo (no Word não há como alinhar rótulos de outra fonte sobre as casas)")
-                return False
-        if linhas is None:
-            linhas = render_diagrama.linhas(d.fen, fonte, d.orientacao)
+        linhas, emolduradas = render_diagrama.linhas_do_diagrama(d.fen, fonte, d.orientacao, d.moldura,
+                                                                 d.cantos, d.coordenadas)
+        if d.coordenadas and not emolduradas:
+            self.relatorio.aviso(f"{onde}: diagrama {d.id} em imagem — {d.fonte} não desenha coordenadas "
+                                 "em glifo (no Word não há como alinhar rótulos de outra fonte sobre as casas)")
+            return False
         corpo_pt = corpo_valido(d.corpo_pt)
         corpo = Pt(corpo_pt)
         colunas = max(len(linha) for linha in linhas)

@@ -134,9 +134,11 @@ GUTTER_ROTULO = 0.72
 CORPO_ROTULO = 0.46
 
 #: A fonte dos rótulos **não é a do diagrama**: medido no `cmap` da
-#: SkakNew-Diagram, ela tem 46 codepoints e entre eles não há `a`–`h` nem `7` e
-#: `8` — as letras `a b j k l m n o p q r s` e os dígitos `0`–`6` desenham casas,
-#: não texto. Rótulo sai em fonte de texto, e a `helv` do PyMuPDF basta.
+#: SkakNew-Diagram de 2004, ela tinha 46 codepoints e entre eles não havia
+#: `a`–`h` nem `7` e `8` — as letras `a b j k l m n o p q r s` e os dígitos
+#: `0`–`6` desenham casas, não texto (e a cópia do projeto pôs moldura em `7`,
+#: `8`, `d`, `f`, `g` e `h`, F122). Rótulo sai em fonte de texto, e a `helv` do
+#: PyMuPDF basta.
 FONTE_DO_ROTULO = "helv"
 
 
@@ -161,14 +163,16 @@ class Fonte:
     #: `{"simples"|"dupla": {peça da moldura: caractere}}`, quando a fonte
     #: desenha a moldura com glifo (F99).
     #:
-    #: **Nem toda fonte de diagrama tem isto, e é o que a torna interessante.**
-    #: A SkakNew-Diagram não tem glifo de borda nenhum — a `skak` desenha o
-    #: filete por fora, no LaTeX. A Chess Merida tem os oito pedaços da moldura
-    #: *e* mais dezesseis que trazem o filete com o rótulo da fila ou da coluna
-    #: desenhado ao lado. São esses dezesseis que permitem escrever um diagrama
-    #: com coordenada **inteiro em texto**, sem uma segunda fonte para os
-    #: rótulos — que é o que o EPUB fazia com um `<i>` dentro de um `<span>`, e
-    #: o que o DOCX não conseguia fazer de jeito nenhum.
+    #: **As duas fontes de hoje têm os oito pedaços, e só uma tem rótulo.** A
+    #: Chess Merida tem os oito pedaços da moldura *e* mais dezesseis que trazem
+    #: o filete com o rótulo da fila ou da coluna desenhado ao lado. São esses
+    #: dezesseis que permitem escrever um diagrama com coordenada **inteiro em
+    #: texto**, sem uma segunda fonte para os rótulos — que é o que o EPUB fazia
+    #: com um `<i>` dentro de um `<span>`, e o que o DOCX não conseguia fazer de
+    #: jeito nenhum. A SkakNew de 2004 não tinha glifo de borda (a `skak` desenha
+    #: o filete por fora, no LaTeX); a cópia do projeto ganhou os oito pedaços e
+    #: as quinas redondas do `gerar_moldura_da_skaknew.py` (F122), mas não os
+    #: rótulos — sem `filas` e `colunas` no mapa.
     molduras: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     @property
@@ -363,10 +367,11 @@ def normalizar_cantos(valor) -> str:
 
 def grade(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
           moldura: str = MOLDURA_PADRAO,
-          cantos: str = CANTO_PADRAO) -> Optional[List[str]]:
+          cantos: str = CANTO_PADRAO,
+          com_rotulos: bool = True) -> Optional[List[str]]:
     """
-    As dez linhas de dez caracteres que desenham o tabuleiro **emoldurado e
-    rotulado** — ou `None` se esta fonte não sabe (F99).
+    As dez linhas de dez caracteres que desenham o tabuleiro **emoldurado** — e
+    rotulado, com `com_rotulos` — ou `None` se esta fonte não sabe (F99, F122).
 
     O quadro é o do livro impresso:
 
@@ -380,10 +385,12 @@ def grade(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
     Merida o glifo `0xC0` *é* a borda esquerda com um `1` desenhado ao lado.
     Daí a consequência que atravessa o resto do projeto: não há como pedir
     coordenada sem moldura por este caminho, e `moldura="sem"` devolve `None`.
+    Sem rótulo (F122), a coluna da esquerda é a `esquerda` e a linha de baixo a
+    `base` — a moldura do usuário, `!""""""""#` em cima e `/(((((((()` embaixo.
 
-    **Devolver `None` é a resposta certa, e não uma falha.** A SkakNew-Diagram
-    não tem glifo de borda nenhum, e o desenho dela continua saindo com o filete
-    da caneta e o rótulo em fonte de texto, que é o que sempre fez.
+    **Devolver `None` é a resposta certa, e não uma falha.** Fonte sem glifo de
+    borda, ou sem rótulo quando ele é pedido (a SkakNew, F122), continua saindo
+    com o filete da caneta ou da CSS e o rótulo em fonte de texto.
 
     A orientação sai dos mesmos `rotulos` que o resto usa, e por isso o
     diagrama impresso do lado das pretas ganha `h` na primeira coluna e `1` na
@@ -392,19 +399,69 @@ def grade(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
     fonte = fonte or carregar()
     moldura = normalizar_moldura(moldura)
     pecas = fonte.moldura_em_glifo(moldura, normalizar_cantos(cantos))
-    if pecas is None:
+    if pecas is None or (com_rotulos and not (pecas.get("filas") and pecas.get("colunas"))):
         return None
 
     corpo = linhas(fen, fonte, orientacao)
-    colunas, filas = rotulos(orientacao)
+    topo = pecas["canto_ne"] + pecas["topo"] * 8 + pecas["canto_no"]
+    if not com_rotulos:
+        return ([topo] + [pecas["esquerda"] + linha + pecas["direita"] for linha in corpo]
+                + [pecas["canto_se"] + pecas["base"] * 8 + pecas["canto_so"]])
 
-    saida = [pecas["canto_ne"] + pecas["topo"] * 8 + pecas["canto_no"]]
+    colunas, filas = rotulos(orientacao)
+    saida = [topo]
     for rotulo, linha in zip(filas, corpo):
         saida.append(pecas["filas"][int(rotulo) - 1] + linha + pecas["direita"])
     saida.append(pecas["canto_se"]
                  + "".join(pecas["colunas"][ord(c) - ord("a")] for c in colunas)
                  + pecas["canto_so"])
     return saida
+
+
+def linhas_do_diagrama(fen: str, fonte: Optional[Fonte] = None, orientacao: str = "branca",
+                       moldura=MOLDURA_PADRAO, cantos: str = CANTO_PADRAO,
+                       coordenadas: bool = False) -> Tuple[List[str], bool]:
+    """
+    `(linhas, emolduradas)` do diagrama em texto — a decisão de quem escreve
+    EPUB e DOCX, num lugar só (F122).
+
+    **Com moldura, a moldura é da fonte.** Se ela tem os glifos, o tabuleiro sai
+    na grade de dez, como o plugin ChessMeridaOCR do Sigil o escreve e como a
+    Merida sempre soube; a moldura de CSS ou de célula de tabela fica para a
+    fonte que não os tem. Com coordenada a grade precisa dos glifos de rótulo, e
+    faltando eles saem as oito linhas de sempre, com o rótulo e o filete de fora.
+    """
+    fonte = fonte or carregar()
+    em_grade = grade(fen, fonte, orientacao, moldura, cantos, com_rotulos=coordenadas)
+    if em_grade is not None:
+        return em_grade, True
+    return linhas(fen, fonte, orientacao), False
+
+
+def moldura_da_grade(linhas_de_texto: Sequence[str],
+                     fonte: "Fonte | str" = FONTE_PADRAO) -> Optional[Tuple[str, str, bool]]:
+    """
+    `(moldura, cantos, rotulada)` de dez linhas emolduradas em glifo, lidos do
+    canto de cima e da primeira fila — ou `None` se elas não são grade desta
+    fonte. É o inverso da `grade` para quem relê o arquivo (F122): sem isto, a
+    moldura dupla voltava simples e a grade sem rótulo voltava com coordenada.
+    """
+    fonte = mapa_da_fonte(fonte) if isinstance(fonte, str) else fonte
+    if len(linhas_de_texto) != 10 or any(len(linha) != 10 for linha in linhas_de_texto):
+        return None
+    canto, lateral = linhas_de_texto[0][0], linhas_de_texto[1][0]
+    for nome, pecas in fonte.molduras.items():
+        if canto == pecas.get("canto_ne"):
+            cantos = "reto"
+        elif canto == pecas.get("cantos_arredondados", {}).get("canto_ne"):
+            cantos = "arredondado"
+        else:
+            continue
+        if lateral == pecas.get("esquerda"):
+            return nome, cantos, False
+        if lateral in pecas.get("filas", ""):
+            return nome, cantos, True
+    return None
 
 
 def normalizar_moldura(valor) -> str:
@@ -537,8 +594,13 @@ def desenhar(fen: str, *, fonte: str = FONTE_PADRAO, lado_px: int = LADO_PADRAO,
     coordenada a uma fonte que tenha os glifos de borda com rótulo, o diagrama
     inteiro sai da fonte — moldura e `a`–`h` e `8`–`1` —, e o tamanho da figura
     passa a ser o do recorte na tinta. Pedida a uma que não tenha, sai como
-    sempre saiu: filete de caneta e rótulo em fonte de texto. Sem coordenada os
-    dois caminhos são o mesmo, e é o de sempre.
+    sempre saiu: filete de caneta e rótulo em fonte de texto.
+
+    **Sem coordenada o filete continua sendo da caneta, mesmo onde o texto o
+    tira da fonte** (F122). A figura convive no livro com o recorte da página, e
+    a F97 mede que os dois têm quase o mesmo tamanho; a grade em glifo, recortada
+    na tinta, sairia 3,4% mais larga na simples. A caneta desenha a mesma
+    moldura — a quina redonda tem o raio da da Merida (F101).
     """
     f = carregar(fonte)
     moldura = normalizar_moldura(moldura)
@@ -674,9 +736,9 @@ def _pintar_com_caneta(texto: Sequence[str], f: Fonte, casa: float, lado: int,
     """
     O tabuleiro com o filete desenhado e o rótulo em fonte de texto.
 
-    É o desenho de sempre, e o único que a SkakNew-Diagram sabe fazer: ela tem
-    46 codepoints e nenhum deles é `a`–`h`, `7` ou `8` — as letras que sobrariam
-    para rótulo desenham casa.
+    É o desenho de sempre, e o único que a SkakNew-Diagram sabe fazer com
+    coordenada: ela não tem glifo de rótulo — as letras e os números que
+    sobrariam desenham casa ou moldura.
 
     **A quina redonda é desenhada aqui também, e não só na fonte** (F101). Sem
     isso a caixinha dos cantos não faria nada no caminho mais usado de todos —

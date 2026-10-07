@@ -1173,6 +1173,12 @@ class _Leitor:
                 orientacao, estado, aviso = "branca", "revisar", "orientação não registrada"
             fen = modelo.fen_completo(posicao)
         self._contadores["diagrama"] += 1
+        # A moldura em glifo diz qual é e se traz rótulo (F122): sem rótulo não é coordenada.
+        da_grade = render_diagrama.moldura_da_grade(linhas, fonte) if emolduradas else None
+        if da_grade is not None:
+            moldura, cantos, rotulada = da_grade
+            return Diagrama(fen=fen, lado="", orientacao=orientacao, coordenadas=rotulada, fonte=fonte,
+                            modo="fonte", moldura=moldura, cantos=cantos, estado=estado, aviso=aviso)
         return Diagrama(fen=fen, lado="", orientacao=orientacao, coordenadas=emolduradas, fonte=fonte, modo="fonte",
                         estado=estado, aviso=aviso)
 

@@ -278,7 +278,7 @@ class _Escritor:
             return epub.dados_de(livro, recurso).decode("utf-8", errors="replace").lstrip("﻿")
 
         try:
-            _novas, avisos = fontes.embutir(livro, ler_recurso=ler)
+            _novas, avisos = fontes.embutir(livro, ler_recurso=ler, ler_dados=lambda r: epub.dados_de(livro, r))
         except Exception as erro:      # noqa: BLE001 — fonte ilegível não derruba a exportação
             avisos = [f"fontes não embutidas ({erro})"]
         for aviso in avisos:

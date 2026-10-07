@@ -79,8 +79,8 @@ def test_o_epub_em_fonte_troca_a_imagem_por_texto():
     assert not [n for n in nomes if n.endswith(".png")], (
         "o diagrama saiu como texto, mas o PNG dele foi para o zip assim mesmo")
     assert '<div class="diagrama caixa fonte-SkakNew-Diagram"' in pagina
-    for linha in rd.linhas(FEN):
-        assert f"<p>{linha}</p>" in pagina
+    # As oito filas num `<pre>` só (F120), e não um `<p>` por fila.
+    assert "<pre>" + "\n".join(rd.linhas(FEN)) + "</pre>" in pagina
     assert "<img" not in pagina
 
 
@@ -146,9 +146,9 @@ def test_as_coordenadas_saem_em_texto_no_epub():
         pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
         css = z.read("OEBPS/estilo.css").decode("utf-8")
 
-    assert '<p class="colunas">' in pagina
+    assert '<span class="colunas">' in pagina and "<p" not in pagina.split("<pre>")[1].split("</pre>")[0]
     assert pagina.count('<span class="col">') == 8
-    assert '<span class="rot"><i>8</i></span>' in pagina
+    assert '<pre><span class="rot"><i>8</i></span>' in pagina
     # a classe é o que impede o seletor das colunas de alargar o rótulo da fila
     assert "span.col {" in css and "span.rot {" in css
 

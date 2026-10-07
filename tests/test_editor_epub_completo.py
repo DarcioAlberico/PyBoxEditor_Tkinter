@@ -50,7 +50,8 @@ def test_ac1_diagrama_em_fonte_e_simbolo_embutem_duas_fontes_com_font_face_relat
     css = entradas["OEBPS/Styles/estilo.css"].decode("utf-8")
     assert fontes.MARCA_DAS_FONTES in css and fontes.FIM_DAS_FONTES in css
     assert '@font-face { font-family: "SkakNew-Diagram";' in css and 'src: url("../Fonts/SkakNew-Diagram.otf")' in css
-    assert 'div.diagrama.fonte-SkakNew-Diagram p { font-family: "SkakNew-Diagram", monospace; }' in css
+    assert ('div.diagrama.fonte-SkakNew-Diagram pre, div.diagrama.fonte-SkakNew-Diagram p '
+            '{ font-family: "SkakNew-Diagram", monospace; }') in css
     assert '@font-face { font-family: "Simbolos de Xadrez";' in css and 'url("../Fonts/SimbolosDeXadrez.ttf")' in css
     assert 'span.sim { font-family: "Simbolos de Xadrez", serif; }' in css
     opf = entradas["OEBPS/package.opf"].decode("utf-8")
