@@ -49,12 +49,15 @@ PESOS = {
     "malformed_move": 0.60,
     "malformed_move_number": 0.60,
     "orientation_missing": 0.50,
+    "side_to_move_legalidade": 0.55,
     "engine_disagreed": 0.50,
     "motor_indisponivel": 0.50,
     "result_incomplete": 0.45,
     "dropped_in_notation": 0.40,
     "low_confidence": 0.40,
     "engine_missing": 0.35,
+    "ensemble_conflict": 0.65,
+    "ensemble_engine_unavailable": 0.50,
     "stray_mark": 0.30,
     "engine_garbage": 0.25,
 }
@@ -78,6 +81,7 @@ MOTIVOS = {
     "motor_indisponivel": "o motor de prosa faltou nesta página; ela saiu só com a cadeia própria",
     "diagram_uncertain": "o modelo não confiou na leitura do diagrama e a figura saiu recortada",
     "orientation_missing": "não há coordenadas impressas que digam o lado do tabuleiro",
+    "side_to_move_legalidade": "o lado a jogar foi inferido pela legalidade da posição; confirme",
     "side_to_move_convention": "o lado a jogar é convenção (brancas), não leitura",
     "fen_invalid": "a posição lida não é legal",
     "low_confidence": "a confiança da leitura ficou abaixo do piso",
@@ -98,6 +102,13 @@ MOTIVOS = {
 #: Códigos que dizem de onde a leitura veio, e não que ela está em dúvida.
 #: Ficam fora da frase da fila — o revisor quer saber o que conferir, não a
 #: genealogia do bloco.
+MOTIVOS.update({
+    "ensemble_conflict": "as engines do ensemble nÃ£o concordaram; a linha precisa de conferÃªncia humana",
+    "ensemble_engine_unavailable": (
+        "a(s) engine(s) {motores} do ensemble nÃ£o responderam; "
+        "a leitura precisa de conferÃªncia"),
+})
+
 PROCEDENCIA = frozenset({"legacy_adapter", "page_result_region", "page_result_text"})
 
 _FIGURINAS = notacao.GLIFOS_DE_XADREZ
@@ -302,6 +313,27 @@ def _conflito_de_lance(texto: str, linha_ocr: str) -> Motivo | None:
     return None
 
 
+def _motivos_do_ensemble(registro: Mapping[str, Any]) -> list[Motivo]:
+    """Traduz a evidÃªncia do consenso em motivos da fila editorial."""
+    ensemble = registro.get("ensemble")
+    if not isinstance(ensemble, Mapping):
+        return []
+    erros = ensemble.get("errors") or ensemble.get("engine_errors") or {}
+    motivos: list[Motivo] = []
+    if isinstance(erros, Mapping) and erros:
+        motores = ", ".join(sorted(str(nome) for nome in erros)) or "desconhecida"
+        motivos.append(Motivo(
+            "ensemble_engine_unavailable",
+            descrever("ensemble_engine_unavailable", motores=motores)))
+    codigos = {str(codigo) for codigo in ensemble.get("reason_codes", ())}
+    conflito = (ensemble.get("review_required") is True
+                and (ensemble.get("consensus") is False
+                     or codigos & {"no_consensus", "conflicting_consensus"}))
+    if conflito:
+        motivos.append(Motivo("ensemble_conflict", descrever("ensemble_conflict")))
+    return motivos
+
+
 def motivos_da_linha(registro: Mapping[str, Any]) -> list[Motivo]:
     """Os motivos de suspeita de uma linha, pelo registro de roteamento dela.
 
@@ -320,16 +352,16 @@ def motivos_da_linha(registro: Mapping[str, Any]) -> list[Motivo]:
     descartados = int(registro.get("descartados") or 0)
     preenchidas = int(registro.get("lacunas_preenchidas") or 0)
     semelhanca = registro.get("semelhanca")
+    motivos: list[Motivo] = _motivos_do_ensemble(registro)
 
     if not texto.strip():
         if descartados > 0 or ancora.strip():
             frase = descrever("line_lost", descartados=descartados)
             if linha_ocr.strip():
                 frase += f"; o motor leu «{linha_ocr.strip()}»"
-            return [Motivo("line_lost", frase)]
-        return []
+            return [Motivo("line_lost", frase), *motivos]
+        return motivos
 
-    motivos: list[Motivo] = []
     if primario == "line" and fonte == "glyph":
         if linha_ocr.strip():
             motivos.append(Motivo("engine_disagreed", descrever(

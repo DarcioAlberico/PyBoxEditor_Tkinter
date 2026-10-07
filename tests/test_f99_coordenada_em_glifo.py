@@ -19,6 +19,7 @@ encoste no caminho velho.
 Rodar sem pytest:      python tests/test_f99_coordenada_em_glifo.py
 """
 
+import html
 import json
 import os
 import re
@@ -186,7 +187,9 @@ def test_no_epub_o_diagrama_emoldurado_dispensa_o_span_e_a_borda():
     # Sem a classe `caixa`: a moldura já está dentro do texto, e a borda da CSS
     # por cima seria a segunda.
     assert re.search(r'<div class="diagrama fonte-[\w-]+"', pagina)
-    assert pagina.count("<p>") == 10
+    # As dez filas num `<pre>` só (F120); o topo da dupla é `"`, que sai `&quot;`.
+    miolo = html.unescape(re.search(r"<pre>(.*?)</pre>", pagina, re.S).group(1))
+    assert [len(fila) for fila in miolo.split("\n")] == [10] * 10
 
 
 def test_no_docx_o_diagrama_com_coordenada_deixa_de_virar_imagem():
@@ -241,10 +244,10 @@ def test_duas_fontes_no_mesmo_livro_nao_se_atropelam_na_css():
         css = z.read("OEBPS/estilo.css").decode("utf-8")
         pagina = z.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
 
-    assert css.count("div.diagrama p {") == 1, "a regra geral saiu duplicada"
+    assert css.count("div.diagrama pre, div.diagrama p {") == 1, "a regra geral saiu duplicada"
     for nome in (MERIDA, SKAK):
         classe = exportar.classe_da_fonte(nome)
-        assert f'div.diagrama.{classe} p {{ font-family: "{nome}"' in css
+        assert f'div.diagrama.{classe} pre, div.diagrama.{classe} p {{ font-family: "{nome}"' in css
         assert classe in pagina
 
 

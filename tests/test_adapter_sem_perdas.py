@@ -194,6 +194,20 @@ def test_o_lado_assumido_nao_volta_como_lido():
     assert lido.lado_a_jogar == "b" and lido.lado_origem == "legenda"
 
 
+def test_o_lado_inferido_por_legalidade_sobrevive_ao_round_trip():
+    inferido = livro.PaginaExtraida(
+        numero=0,
+        blocos=[livro.Figura(_png(), 64, 64, fen=FEN.replace(" w ", " b "),
+                             origem="render", lado_a_jogar="b",
+                             lado_origem="legalidade")],
+    )
+
+    volta = _ida_e_volta(inferido).blocos[0]
+
+    assert volta.lado_a_jogar == "b"
+    assert volta.lado_origem == "legalidade"
+
+
 def test_o_bloco_rejeitado_na_revisao_fica_de_fora():
     pagina = pagina_extraida_para_pagina(_pagina(), document_id="book")
     pagina.blocks[0].decision.status = "rejected"

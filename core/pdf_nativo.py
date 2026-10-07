@@ -75,6 +75,9 @@ LEITURA_IMAGEM = "imagem"
 #: página que tem texto, inclusive o OCR de fábrica que a régua recusaria.
 MODOS = ("nunca", "auto", "sempre")
 
+#: O começo do motivo da recusa da página do ClearScan — ver `Veredito.clearscan`.
+MOTIVO_CLEARSCAN = "fonte sintetizada pelo OCR"
+
 #: As bandeiras da extração: o espaço entra como caractere (é ele que separa
 #: palavra em livro composto), o que está fora da página não entra, e a
 #: ligadura sai desfeita — `ﬁ` vira `fi`, que é o que o dicionário conhece.
@@ -555,6 +558,13 @@ class Veredito:
     def leitura(self) -> str:
         return LEITURA_CAMADA if self.aceita else LEITURA_IMAGEM
 
+    @property
+    def clearscan(self) -> bool:
+        """A página foi recusada por ser o texto que o ClearScan achou (PD-14):
+        prosa quase limpa, notação ilegível. É a camada que `livro` usa para
+        consertar a palavra de prosa que o OCR não acertou."""
+        return not self.aceita and self.motivo.startswith(MOTIVO_CLEARSCAN)
+
 
 _ESPACOS = frozenset({9, 10, 13, 32, 0xA0})
 
@@ -634,7 +644,7 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         return recusa(f"texto invisível sobre a imagem ({invisiveis} de {total} "
                       "caracteres): é camada de OCR")
     if de_ocr > LIMITE_DE_OCR * total:
-        return recusa(f"fonte sintetizada pelo OCR ({de_ocr} de {total} caracteres "
+        return recusa(f"{MOTIVO_CLEARSCAN} ({de_ocr} de {total} caracteres "
                       "em fontes como Fd…): é o texto que o ClearScan achou")
     if sem_unicode > LIMITE_DE_OCR * total:
         return recusa(f"glifos sem Unicode ({sem_unicode} de {total}): a fonte "
@@ -707,6 +717,9 @@ class _Glifo:
     #: `(bloco, linha)` do MuPDF: a linha que ele montou, antes de qualquer
     #: regra nossa.
     linha: Tuple[int, int]
+    #: O span é itálico (PD-06). Por último e com padrão, para quem monta o
+    #: glifo à mão continuar montando.
+    italico: bool = False
 
     @property
     def cx(self) -> float:
@@ -725,6 +738,20 @@ def _e_negrito(nome: str, flags: int) -> bool:
     do Dvoretsky não liga a bandeira 16, e o nome é o que o compositor escolheu."""
     chave = _chave(nome)
     return bool(flags & 16) or any(p in chave for p in _NEGRITO_NO_NOME)
+
+
+#: O sufixo que o compositor usa para o itálico no nome da fonte, fora
+#: `Italic` e `Oblique` por extenso: `MinionPro-It`, `MinionPro-BoldIt`,
+#: `TimesNewRomanPS-ItalicMT` (esse já pelo extenso).
+_ITALICO_NO_NOME = re.compile(r"(italic|oblique|kursiv|[-_,](bold|semibold|medium)?it(mt)?$)")
+
+
+def _e_italico(nome: str, flags: int) -> bool:
+    """O span é itálico pela bandeira (`TEXT_FONT_ITALIC`, 2) ou pelo nome
+    (PD-06). O molde é o `_e_negrito`: onde o compositor não ligou a bandeira,
+    o nome da fonte é o que ele escolheu."""
+    base = _SUBCONJUNTO.sub("", str(nome or "")).lower()
+    return bool(flags & 2) or bool(_ITALICO_NO_NOME.search(base))
 
 
 def _glifos(page: fitz.Page) -> List[_Glifo]:
@@ -748,6 +775,9 @@ def _glifos(page: fitz.Page) -> List[_Glifo]:
                 fonte = str(span.get("font") or "")
                 xadrez = _de_xadrez(fonte)
                 negrito = _e_negrito(fonte, int(span.get("flags") or 0))
+                # A fonte de xadrez não diz se o lance é itálico, como não diz
+                # se é negrito — `_montar` a faz herdar dos vizinhos.
+                italico = _e_italico(fonte, int(span.get("flags") or 0))
                 for ch in span.get("chars", ()):
                     c = ch.get("c") or ""
                     if not c:
@@ -764,7 +794,7 @@ def _glifos(page: fitz.Page) -> List[_Glifo]:
                         c = pelo_nome.get((round(float(origem[0]), 1),
                                            round(float(origem[1]), 1)), c)
                     saida.append(_Glifo(c, x0, y0, x1, y1, float(origem[1]),
-                                        tamanho, fonte, negrito, (b, k)))
+                                        tamanho, fonte, negrito, (b, k), italico))
     return saida
 
 
@@ -1034,6 +1064,8 @@ class _Linha:
     y1: float = 0.0
     base: float = 0.0
     tamanho: float = 0.0
+    #: `italico[i]` diz se `texto[i]` está impresso em itálico (PD-06).
+    italico: List[bool] = field(default_factory=list)
 
     @property
     def cx(self) -> float:
@@ -1074,11 +1106,14 @@ def _montar(glifos: List[_Glifo]) -> _Linha:
     em Times negrito com o rei na `SemFigNormal` — a fonte de figurina tem os
     dois pesos, e o compositor nem sempre escolhe o certo —, e o lance saía
     `<strong>1...</strong>♔<strong>c7!</strong>`. O glifo de fonte de xadrez
-    fica com o negrito dos vizinhos quando os dois concordam.
+    fica com o negrito dos vizinhos quando os dois concordam. O itálico (PD-06)
+    anda junto, pelas mesmas regras: a figurina não o diz, o espaço o tem
+    quando os dois lados o têm.
     """
     glifos = sorted(glifos, key=lambda o: o.x0)
     texto: List[str] = []
     negrito: List[bool] = []
+    italico: List[bool] = []
     neutros: List[int] = []
     anterior: Optional[_Glifo] = None
     for g in glifos:
@@ -1087,6 +1122,7 @@ def _montar(glifos: List[_Glifo]) -> _Linha:
                 and texto and texto[-1] != " "):
             texto.append(" ")
             negrito.append(anterior.negrito and g.negrito)
+            italico.append(anterior.italico and g.italico)
         pedaco = " " if g.c.isspace() else _caractere(g)
         xadrez = not g.c.isspace() and _de_xadrez(g.fonte)
         for c in pedaco:
@@ -1096,26 +1132,30 @@ def _montar(glifos: List[_Glifo]) -> _Linha:
                 neutros.append(len(texto))
             texto.append(c)
             negrito.append(g.negrito)
+            italico.append(g.italico)
         anterior = g
     while texto and texto[-1] == " ":
         texto.pop()
         negrito.pop()
+        italico.pop()
     de_xadrez = set(neutros)
-    for i in neutros:
-        if i >= len(texto):
-            continue
-        antes = next((negrito[k] for k in range(i - 1, -1, -1)
-                      if k not in de_xadrez and not texto[k].isspace()), None)
-        depois = next((negrito[k] for k in range(i + 1, len(texto))
-                       if k not in de_xadrez and not texto[k].isspace()), None)
-        if antes is not None and antes == depois:
-            negrito[i] = antes
+    for marcas in (negrito, italico):
+        for i in neutros:
+            if i >= len(texto):
+                continue
+            antes = next((marcas[k] for k in range(i - 1, -1, -1)
+                          if k not in de_xadrez and not texto[k].isspace()), None)
+            depois = next((marcas[k] for k in range(i + 1, len(texto))
+                           if k not in de_xadrez and not texto[k].isspace()), None)
+            if antes is not None and antes == depois:
+                marcas[i] = antes
     cheios = [g for g in glifos if not g.c.isspace()] or glifos
     return _Linha(glifos, "".join(texto), negrito,
                   x0=min(g.x0 for g in cheios), y0=min(g.y0 for g in cheios),
                   x1=max(g.x1 for g in cheios), y1=max(g.y1 for g in cheios),
                   base=statistics.median(g.base for g in cheios),
-                  tamanho=statistics.median(g.tamanho for g in cheios))
+                  tamanho=statistics.median(g.tamanho for g in cheios),
+                  italico=italico)
 
 
 def _linhas(glifos: Sequence[_Glifo]) -> List[_Linha]:
@@ -1384,9 +1424,11 @@ def _secao(grupo: Sequence[_Linha], antes: Optional[_Linha], depois: Optional[_L
                 and depois.base - ultima.base > passo))
 
 
-def _juntar(linhas: Sequence[_Linha], lex) -> Tuple[str, List[bool], List[int]]:
+def _juntar(linhas: Sequence[_Linha], lex
+            ) -> Tuple[str, List[bool], List[int], List[bool]]:
     """
-    As linhas de um parágrafo num texto só, com o negrito e o começo de cada linha.
+    As linhas de um parágrafo num texto só, com o negrito, o começo de cada
+    linha e o itálico (PD-06, por último para não mexer no que já se lia).
 
     **O hífen do fim da linha fica, a não ser que o dicionário diga que era
     quebra.** O Dvoretsky não hifeniza palavra: os 567 hífens de fim de linha
@@ -1404,15 +1446,21 @@ def _juntar(linhas: Sequence[_Linha], lex) -> Tuple[str, List[bool], List[int]]:
 
     texto = ""
     negrito: List[bool] = []
+    italico: List[bool] = []
     inicios: List[int] = []
     branda = False
     for i, linha in enumerate(linhas):
         pedaco, marcas = linha.texto, list(linha.negrito)
+        # A linha montada à mão (os testes) pode vir sem itálico.
+        inclinadas = (list(linha.italico) if len(linha.italico) == len(pedaco)
+                      else [False] * len(pedaco))
         termina_branda = pedaco.endswith(_HIFEN_BRANDO)
         if _HIFEN_BRANDO in pedaco:
-            mantidos = [(c, n) for c, n in zip(pedaco, marcas) if c != _HIFEN_BRANDO]
-            pedaco = "".join(c for c, _n in mantidos)
-            marcas = [n for _c, n in mantidos]
+            mantidos = [(c, n, t) for c, n, t in zip(pedaco, marcas, inclinadas)
+                        if c != _HIFEN_BRANDO]
+            pedaco = "".join(c for c, _n, _t in mantidos)
+            marcas = [n for _c, n, _t in mantidos]
+            inclinadas = [t for _c, _n, t in mantidos]
         if i:
             anterior = linhas[i - 1].texto
             if branda:
@@ -1420,15 +1468,19 @@ def _juntar(linhas: Sequence[_Linha], lex) -> Tuple[str, List[bool], List[int]]:
             elif i - 1 in juntas:
                 corte = len(texto.rstrip(_HIFENS))
                 texto, negrito = texto[:corte], negrito[:corte]
+                italico = italico[:corte]
             elif not (anterior.endswith(tuple(_HIFENS)) and len(anterior) > 1
                       and anterior[-2].isalnum() and pedaco[:1].isalnum()):
                 texto += " "
                 negrito.append(bool(negrito and negrito[-1] and marcas and marcas[0]))
+                italico.append(bool(italico and italico[-1]
+                                    and inclinadas and inclinadas[0]))
         inicios.append(len(texto))
         texto += pedaco
         negrito.extend(marcas)
+        italico.extend(inclinadas)
         branda = termina_branda
-    return texto, negrito, inicios
+    return texto, negrito, inicios, italico
 
 
 def _trechos_negritos(texto: str, negrito: Sequence[bool]) -> List[Tuple[int, int]]:
@@ -1496,7 +1548,7 @@ def _paragrafos(linhas: Sequence[_Linha], m: _Metricas, escala: float, lex
 
     saida = []
     for indice, grupo in enumerate(fundidos):
-        texto, negrito, inicios = _juntar(grupo, lex)
+        texto, negrito, inicios, italico = _juntar(grupo, lex)
         capitulo = _capitulo(grupo, m)
         antes = fundidos[indice - 1][-1] if indice else None
         depois = fundidos[indice + 1][0] if indice + 1 < len(fundidos) else None
@@ -1506,6 +1558,9 @@ def _paragrafos(linhas: Sequence[_Linha], m: _Metricas, escala: float, lex
             # Título não leva marca: o `<h1>`/`<h2>` já desenha negrito, e o
             # OCR também não marca título (`negrito.marcar`).
             negrito=[] if titulo else _trechos_negritos(texto, negrito),
+            # O itálico (PD-06) pela mesma régua de fatias; o título também
+            # não o leva, pelo mesmo motivo.
+            italico=[] if titulo else _trechos_negritos(texto, italico),
             topo=int(min(linha.y0 for linha in grupo) * escala),
             pe=int(round(max(linha.y1 for linha in grupo) * escala)),
             inicios=inicios, registros=[]))
@@ -1810,12 +1865,11 @@ def _desenhada(fen: str, *, orientacao: str, lado: Optional[str], coordenadas: b
         moldura=o.moldura, cantos=o.cantos, orientacao=orientacao,
         lado_a_jogar=lado, marcas=marcas)
     objeto = render_diagrama.carregar(o.fonte)
-    em_grade = (render_diagrama.grade(fen, objeto, orientacao, o.moldura, o.cantos)
-                if coordenadas else None)
+    linhas, emolduradas = render_diagrama.linhas_do_diagrama(
+        fen, objeto, orientacao, o.moldura, o.cantos, coordenadas)
     return livro.Figura(
         png, largura, altura, fen=fen, origem="render", aviso=aviso,
-        linhas=em_grade or render_diagrama.linhas(fen, objeto, orientacao),
-        linhas_emolduradas=em_grade is not None, fonte=o.fonte,
+        linhas=linhas, linhas_emolduradas=emolduradas, fonte=o.fonte,
         coordenadas=coordenadas, orientacao=orientacao,
         casas_de_largura=largura * 8.0 / render_diagrama.lado_efetivo(o.lado_do_diagrama),
         caixa=caixa, lado_a_jogar=lado,

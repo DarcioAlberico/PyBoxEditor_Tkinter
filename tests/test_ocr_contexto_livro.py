@@ -111,6 +111,96 @@ def test_corretor_contextual_corrige_maiusculas_e_erros_de_prosa_do_yusupov():
     assert resultado == "White exploits the outpost; then earns one point."
 
 
+def test_corretor_remove_figurina_falsa_colada_a_palavra_de_prosa():
+    resultado = livro._corrigir_prosa_contextual(
+        "immediate tactical ♗tisfaction."
+    )
+
+    assert resultado == "immediate tactical satisfaction."
+
+
+def test_corretor_corrige_erros_de_prosa_contextuais_observados_no_aagaard():
+    resultado = livro._corrigir_prosa_contextual(
+        "where a a strike is likely; it ss actually a chance "
+        "to apitalise while men remain an the bench."
+    )
+
+    assert resultado == (
+        "where a strike is likely; it is actually a chance "
+        "to capitalise while men remain on the bench."
+    )
+
+
+def test_corretor_reinsere_espacos_perdidos_em_prosa_do_aagaard():
+    resultado = livro._corrigir_prosa_contextual(
+        "Blackhasto find a move; thiswas strongattack andas the defence "
+        "was not ready; Blackreturnsby committing the same mistake."
+    )
+
+    assert resultado == (
+        "Black has to find a move; this was strong attack and as the defence "
+        "was not ready; Black returns by committing the same mistake."
+    )
+
+
+def test_corretor_remove_repeticoes_de_artigo_e_letra_do_aagaard():
+    resultado = livro._corrigir_prosa_contextual(
+        "a a child; allowed a a nice finish; had a a strong attack; "
+        "with a a gain of tempo; When I I finally met Artur; Aack and Defence."
+    )
+
+    assert resultado == (
+        "a child; allowed a nice finish; had a strong attack; "
+        "with a gain of tempo; When I finally met Artur; Attack and Defence."
+    )
+
+
+def test_corretor_remove_espaco_antes_de_pontuacao():
+    resultado = livro._corrigir_prosa_contextual(
+        "The rook was on c1 , but 21.♖h1 ! was possible; play ...d6 next."
+    )
+
+    assert resultado == (
+        "The rook was on c1, but 21.♖h1! was possible; play ...d6 next."
+    )
+
+
+def test_corretor_recola_casa_separada_da_figurina():
+    resultado = livro._corrigir_prosa_contextual(
+        "The move 17.♖e 1! was followed by 20.♖ h 1!? in the variation."
+    )
+
+    assert resultado == (
+        "The move 17.♖e1! was followed by 20.♖h1!? in the variation."
+    )
+
+
+def test_corretor_corrige_erros_curto_de_prosa_observados_no_aagaard():
+    resultado = livro._corrigir_prosa_contextual(
+        "Againnot the most aggressive option; utonce the pawn is surrendered. "
+        "Below ! have given a short narrative about how the zame continued."
+    )
+
+    assert resultado == (
+        "Again not the most aggressive option; once the pawn is surrendered. "
+        "Below I have given a short narrative about how the game continued."
+    )
+    assert livro._corrigir_frases_de_prosa("Below ! have continued.") == (
+        "Below I have continued."
+    )
+
+
+def test_correcao_de_frase_atravessa_quebra_de_linha_do_paragrafo():
+    linhas = [
+        livro.Linha(0, 0, 10, "though it", 0),
+        livro.Linha(20, 0, 10, "ss actually a mistake", 0),
+    ]
+
+    paragrafo = livro._paragrafo_de(linhas)
+
+    assert paragrafo.texto == "though it is actually a mistake"
+
+
 def test_trocas_diretas_nao_dependem_do_vocabulario_de_frequencia(monkeypatch):
     # Sem `wordfreq` a busca aproximada é desligada, mas a tabela desta fonte
     # continua valendo: era ela que devolvia a linha intocada quando o pacote

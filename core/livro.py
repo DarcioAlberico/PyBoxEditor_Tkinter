@@ -39,6 +39,7 @@ import re
 from difflib import SequenceMatcher
 from array import array
 import collections
+import itertools
 import os
 from dataclasses import dataclass, field
 from math import isnan, nan
@@ -46,6 +47,7 @@ from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 
 import fitz
+import chess
 import numpy as np
 from PIL import Image
 
@@ -170,6 +172,11 @@ class Paragrafo:
     #: parágrafo para escolher a fonte dos símbolos, para o léxico ou para o
     #: PGN continua lendo o que estava escrito, sem marcação nenhuma no meio.
     negrito: List[Tuple[int, int]] = field(default_factory=list)
+    #: Os trechos em itálico, do mesmo jeito (PD-06). Hoje só a camada de texto
+    #: do PDF os preenche (`pdf_nativo`, pela bandeira e pelo nome da fonte):
+    #: no OCR não há régua de inclinação medida, e marcar sem régua seria
+    #: inventar ênfase.
+    italico: List[Tuple[int, int]] = field(default_factory=list)
     #: A espessura do traço de cada caractere do `texto`, em alturas do glifo —
     #: `nan` no que não deu para medir, e no espaço entre palavras.
     #:
@@ -314,6 +321,13 @@ class Tabela:
 
     `linhas[i][j]` é o texto da célula, e a matriz é retangular: célula vazia é
     string vazia. Quem exporta decide o que fazer com a primeira linha.
+
+    **A célula de duas linhas leva o `\n` entre elas** (PD-03): `W: Win (1 ♖e1!)`
+    e `B: Draw (1...♖a2!)` são duas linhas no papel, e numa tabela de frases
+    independentes juntá-las com espaço faria de duas uma. O EPUB escreve
+    `<br/>`, o DOCX uma quebra de linha no run, e o texto corrido da página
+    (`PaginaExtraida.texto`) volta ao espaço — é dele que saem o alfabeto dos
+    símbolos e a régua do corpus, e para os dois a quebra não diz nada.
     """
     linhas: List[List[str]]
 
@@ -399,7 +413,8 @@ class PaginaExtraida:
             if isinstance(b, Paragrafo):
                 partes.append(b.texto)
             elif isinstance(b, Tabela):
-                partes.extend(" ".join(fila) for fila in b.linhas)
+                partes.extend(" ".join(c.replace("\n", " ") for c in fila)
+                              for fila in b.linhas)
         return "\n\n".join(partes)
 
 
@@ -1073,6 +1088,8 @@ _ERROS_OCR_FREQUENTES = {
     "activatcs": "activates",
     "consolation": "consolation",
     "haper": "chapter",
+    "apitalise": "capitalise",
+    "tisfaction": "satisfaction",
 }
 
 
@@ -1462,6 +1479,9 @@ def _ler_faixa_registrando(ler_faixa: Callable, falhas: List[str]) -> Callable:
             return []
         estado["seguidas"] = 0
         return registros
+    # Mantém a seam de evidência do leitor especializado para o chamador sem
+    # alterar o contrato antigo da função embrulhada.
+    ler._source_reader = ler_faixa
     return ler
 
 
@@ -1512,6 +1532,15 @@ def _disjuntor_do_motor(ler_pagina: Optional[Callable],
 
     return (None if ler_pagina is None else pagina,
             None if ler_faixa is None else faixa)
+
+
+class _DetalhesDaFaixa(tuple):
+    """Detalhes compatíveis com a tupla antiga, com evidência opcional."""
+
+    def __new__(cls, valores, metadata=None):
+        objeto = super().__new__(cls, valores)
+        objeto.metadata = metadata
+        return objeto
 
 
 def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
@@ -1566,10 +1595,13 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
     registro = max(registros, key=lambda r: r[2][2] - r[2][0])
     dx = x1 - m
     dy = topo - m
-    detalhes = tuple(
+    detalhes_valores = tuple(
         (palavra, conf, (caixa[0] + dx, caixa[1] + dy, caixa[2] + dx, caixa[3] + dy))
         for palavra, conf, caixa in (d[:3] for d in (registro[3] if len(registro) > 3 else ()))
         if len(caixa) >= 4)
+    detalhes = (_DetalhesDaFaixa(detalhes_valores, registro[4])
+                if len(registro) > 4 and isinstance(registro[4], dict)
+                else detalhes_valores)
     return str(registro[0]).strip(), float(registro[1] or 0.0), detalhes, trama
 
 
@@ -2165,6 +2197,274 @@ def _preservar_glifos_por_palavra(
     return "".join(saida)
 
 
+#: As junções que o segmentador faz ao partir uma letra larga em duas — e as
+#: que a cadeia própria lê no lugar dela (PD-20). Medido nas aberturas de lição
+#: do Yusupov *Chess Evolution 1* (p. 9, 19, 29, 37, 47, 57), cuja prosa está
+#: sobre trama: `tlie`, `vvith`, `niake`, `bisliop`, `qLieen`, `diagona[`,
+#: `veryr`. `tl`→`d` e `cl`→`d` ficaram de fora: medidos, davam `itlf`→`idf` e
+#: tornavam `tlie` ambíguo entre `the` e `die`; e `ii`→`u` dava `niide`→`nude`.
+JUNCOES_DO_SEGMENTADOR = (("li", "h"), ("vv", "w"), ("ni", "m"), ("rn", "m"),
+                          ("Li", "u"), ("[", "l"), ("yr", "y"))
+
+#: Quão comum a palavra corrigida tem de ser (`wordfreq.zipf_frequency`). Com
+#: 3,0 passavam `tlier`→`ther`, `vrn`→`vm`, `riinible`→`rumble`; com 3,5 sobra
+#: `niar`→`mar`, uma em 175 trocas no Yusupov.
+#:
+#: **E a frequência sozinha não separa o vocabulário do livro**: `pawns` tem
+#: 2,99, `rook` 3,10 e `diagonal` 3,36, no meio de `ther` (3,10), `vm` (3,22) e
+#: `rumble` (3,43). O termo de xadrez passa pela lista do domínio
+#: (`TERMOS_DA_JUNCAO`), e não pela frequência.
+FREQUENCIA_MINIMA_DA_JUNCAO = 3.5
+
+#: Os termos de xadrez que a junção aceita abaixo da frequência mínima: os de
+#: `ocr_language.TERMOS_XADREZ` e os do tabuleiro que ela não tem. O plural em
+#: `s` vale pelo singular.
+TERMOS_DA_JUNCAO = frozenset({
+    "diagonal", "file", "rank", "square", "stalemate", "fianchetto", "mating",
+    "opposition", "outpost", "blockade", "exchange", "promotion", "zwischenzug",
+})
+
+
+def _variantes_de_juncao(palavra: str) -> set:
+    """Toda troca de até três junções que não se sobrepõem."""
+    posicoes = []
+    for de, para in JUNCOES_DO_SEGMENTADOR:
+        inicio = palavra.find(de)
+        while inicio >= 0:
+            posicoes.append((inicio, inicio + len(de), para))
+            inicio = palavra.find(de, inicio + 1)
+    saida = set()
+    for k in range(1, min(3, len(posicoes)) + 1):
+        for combo in itertools.combinations(sorted(posicoes), k):
+            if any(a[1] > b[0] for a, b in zip(combo, combo[1:])):
+                continue
+            partes, ultimo = [], 0
+            for inicio, fim, para in combo:
+                partes.append(palavra[ultimo:inicio] + para)
+                ultimo = fim
+            partes.append(palavra[ultimo:])
+            saida.add("".join(partes))
+    return saida
+
+
+def _corrigir_juncoes(texto: str, lex, idioma: str = "en") -> str:
+    """
+    Desfaz a letra que o segmentador partiu em duas (PD-20): `tlie` → `the`,
+    `vvith` → `with`, `pavvn` → `pawn`.
+
+    Só em palavra que o léxico **não** conhece, e só quando **uma** variante,
+    e uma só, é palavra conhecida e comum (`FREQUENCIA_MINIMA_DA_JUNCAO`) com
+    três letras ou mais. Nome de jogador que o léxico não tem (`Nimzowitsch`)
+    não vira nada, porque a variante dele também não existe; e a palavra que o
+    léxico conhece nunca é tocada. Sem léxico, ou sem `wordfreq`, é o texto de
+    antes.
+
+    É das linhas que ficam com a cadeia própria (`origem == "glyph"`), onde a
+    correção aproximada do `_corrigir_prosa_contextual` fica desligada de
+    propósito: ali o que se desfaz é um erro de segmentação com forma
+    conhecida, e não uma palavra parecida qualquer.
+    """
+    if not texto or lex is None or getattr(lex, "vazio", True):
+        return texto
+    try:
+        from wordfreq import zipf_frequency
+    except Exception:
+        return texto
+    chave = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
+    from core.ocr_language import TERMOS_XADREZ as termos
+
+    def corrigir(achado: "re.Match[str]") -> str:
+        palavra = achado.group(0)
+        if len(palavra) < 3 or not any(de in palavra for de, _ in JUNCOES_DO_SEGMENTADOR):
+            return palavra
+        if lex.conhece(palavra):
+            return palavra
+        def do_dominio(v: str) -> bool:
+            base = v.lower()
+            return (base in termos or base in TERMOS_DA_JUNCAO
+                    or (base.endswith("s") and (base[:-1] in termos
+                                                or base[:-1] in TERMOS_DA_JUNCAO)))
+
+        boas = {v for v in _variantes_de_juncao(palavra)
+                if len(v) >= 3 and lex.conhece(v)
+                and (do_dominio(v) or zipf_frequency(v.lower(), chave)
+                     >= FREQUENCIA_MINIMA_DA_JUNCAO)}
+        return boas.pop() if len(boas) == 1 else palavra
+
+    return re.sub(r"[A-Za-zÀ-ÿ\[]+", corrigir, texto)
+
+
+#: Quanto a palavra da camada tem de se parecer com a lida para a trocar
+#: (`difflib.SequenceMatcher.ratio`, PD-14). Medido nas três páginas do corpus
+#: de referência com camada ClearScan (`scripts/medir_prosa_da_camada.py`):
+#: sem trava, o alinhamento que cruza colunas trocava a palavra desconhecida
+#: por uma conhecida de outro lugar, e a p. 34 do Yusupov piorava de 3,28% para
+#: 5,74% de CER na prosa; com 0,5, nenhuma página piora, e com 0,7 a p. 47
+#: devolve metade do ganho.
+SEMELHANCA_DA_CAMADA = 0.5
+
+
+#: A pontuação de frase que a ponta da palavra do OCR mantém quando o núcleo
+#: vem da camada. Outra ponta — o `1` de `reciproca1`, o `()` de `()therwise`
+#: — é pedaço da letra mal lida, e sai a ponta da camada no lugar dela.
+PONTUACAO_DE_FRASE = frozenset(".,;:!?")
+
+
+def _pontas_casam(lido: str, outro: str) -> bool:
+    """As duas palavras se encaixam de ponta a ponta (PD-14)?
+
+    Recusa o par em que uma delas tem duas letras ou mais **sobrando** numa
+    ponta que a outra não tem: é pedaço, e não leitura errada. Na listagem do
+    Nunn e do Yusupov era `ofstud` → `study` (sumia o `of`), `theresult` →
+    `result`, `J.Nunn` → `Nunn`, `Zamodiakin` → `akin` — e no outro sentido
+    `lity` → `possibility`, que duplicaria o `possibi` da linha de cima. A troca
+    de letra por letra (`hrstly` → `firstly`, `h` por `fi`) sobra dos dois lados
+    e passa.
+    """
+    from difflib import SequenceMatcher
+
+    blocos = [b for b in SequenceMatcher(None, lido.lower(), outro.lower())
+              .get_matching_blocks() if b.size]
+    if not blocos:
+        return False
+    primeiro, ultimo = blocos[0], blocos[-1]
+    cabeca = (primeiro.a, primeiro.b)
+    cauda = (len(lido) - ultimo.a - ultimo.size, len(outro) - ultimo.b - ultimo.size)
+    for sobra_lido, sobra_outro in (cabeca, cauda):
+        if (sobra_lido >= 2 and sobra_outro == 0) or (sobra_outro >= 2 and sobra_lido == 0):
+            return False
+    return True
+
+
+def reparar_pela_camada(pagina: "PaginaExtraida", texto_da_camada: str,
+                        lex) -> int:
+    """
+    Conserta a palavra de prosa que o OCR leu e o léxico não conhece com a da
+    camada do ClearScan, alinhada a ela (PD-14). Devolve quantas trocou.
+
+    A F110 registrou o que o ClearScan deixa no PDF: prosa quase limpa e
+    notação ilegível. A página inteira da camada perde para o OCR — a notação
+    dela é lixo, e a ordem de leitura dela cruza colunas e tabelas —, mas a
+    palavra dela ganha onde o OCR errou. Trocar só essa palavra, e só com as
+    três travas, é o que a medida sustentou: prosa de 13,29% para 8,76% de CER
+    nas três páginas, e nenhuma pior.
+
+    As travas: a palavra lida é de prosa (`_dominio_do_token`), o léxico não a
+    conhece, a da camada ele conhece, e as duas se parecem
+    (`SEMELHANCA_DA_CAMADA`). Troca-se só o núcleo — a pontuação das pontas é
+    a que o OCR leu —, e os vetores do parágrafo (`pesos`, `lacunas`, os
+    começos de linha) andam junto.
+    """
+    from difflib import SequenceMatcher
+
+    from core.ocr_ab import _dominio_do_token, alinhar_tokens, normalizar_tipografia
+
+    if lex is None or getattr(lex, "vazio", True) or not texto_da_camada:
+        return 0
+    da_camada = normalizar_tipografia(texto_da_camada).split()
+    if not da_camada:
+        return 0
+
+    # Os tokens da página, com de onde vieram: (parágrafo, índice do token).
+    paragrafos = [b for b in pagina.blocos if isinstance(b, Paragrafo)]
+    origem, lidos = [], []
+    for k, p in enumerate(paragrafos):
+        for j, token in enumerate(p.texto.split(" ")):
+            if token:
+                origem.append((k, j))
+                normal = normalizar_tipografia(token).split()
+                lidos.append(normal[0] if len(normal) == 1 else token)
+
+    trocas: dict = {}
+    posicao = 0
+    for lido, da_outra in alinhar_tokens(lidos, da_camada):
+        if lido is None:
+            continue
+        indice = posicao
+        posicao += 1
+        if da_outra is None or _dominio_do_token(lido) != "prose":
+            continue
+        nucleo_lido, ini = lexico.nucleo(lido)
+        nucleo_outro, _ini = lexico.nucleo(da_outra)
+        if (not nucleo_lido or not nucleo_outro or nucleo_lido == nucleo_outro
+                or lex.conhece(nucleo_lido) or not lex.conhece(nucleo_outro)):
+            continue
+        if (SequenceMatcher(None, nucleo_lido.lower(),
+                            nucleo_outro.lower()).ratio() < SEMELHANCA_DA_CAMADA
+                or not _pontas_casam(nucleo_lido, nucleo_outro)):
+            continue
+        trocas[origem[indice]] = da_outra
+
+    for k, p in enumerate(paragrafos):
+        tokens = p.texto.split(" ")
+        mudou = False
+        for j, token in enumerate(tokens):
+            novo = trocas.get((k, j))
+            if novo is None:
+                continue
+            nucleo_lido, ini = lexico.nucleo(token)
+            nucleo_novo, ini_novo = lexico.nucleo(novo)
+            antes, depois = token[:ini], token[ini + len(nucleo_lido):]
+            antes_novo = novo[:ini_novo]
+            depois_novo = novo[ini_novo + len(nucleo_novo):]
+            # A ponta do OCR fica se é pontuação de frase ou se a camada tem a
+            # mesma; senão é pedaço de letra, e fica a da camada.
+            if antes != antes_novo and not set(antes) <= PONTUACAO_DE_FRASE:
+                antes = antes_novo
+            if depois != depois_novo and not set(depois) <= PONTUACAO_DE_FRASE:
+                depois = depois_novo
+            tokens[j] = antes + nucleo_novo + depois
+            mudou = True
+        if not mudou:
+            continue
+        antigo, texto = p.texto, " ".join(tokens)
+        # O começo de cada linha impressa é começo de token: mapeia-se pelo
+        # índice do token, que a troca não muda.
+        comeco_do_token, pos = {}, 0
+        for j, token in enumerate(antigo.split(" ")):
+            comeco_do_token[pos] = j
+            pos += len(token) + 1
+        comeco_novo, pos = {}, 0
+        for j, token in enumerate(tokens):
+            comeco_novo[j] = pos
+            pos += len(token) + 1
+        p.inicios = [comeco_novo.get(comeco_do_token.get(i, -1), i)
+                     for i in p.inicios]
+        if p.pesos is not None and len(p.pesos) == len(antigo):
+            pesos, lacunas = _transferir_medidas(
+                antigo, texto, list(p.pesos),
+                list(p.lacunas) if p.lacunas is not None else [nan] * len(antigo))
+            p.pesos = negrito.vetor(pesos)
+            if p.lacunas is not None:
+                p.lacunas = negrito.vetor(lacunas)
+        p.texto = texto
+    return len(trocas)
+
+
+def _corrigir_frases_de_prosa(texto: str) -> str:
+    """Corrige padrões de frase que podem atravessar uma quebra impressa."""
+    texto = re.sub(r"\bwhere a a strike\b", "where a strike", texto)
+    texto = re.sub(r"\bit ss actually\b", "it is actually", texto)
+    texto = re.sub(r"\bremain an the bench\b", "remain on the bench", texto)
+    # A segmentação de caixas pode perder mais de um espaço dentro da mesma
+    # palavra. Estes padrões são frases editoriais observadas no Aagaard e
+    # permanecem deliberadamente específicos: não se deve separar nomes ou
+    # tokens de notação por uma heurística geral.
+    texto = re.sub(r"\bBlackhasto\b", "Black has to", texto)
+    texto = re.sub(r"\bBlackreturnsby\b", "Black returns by", texto)
+    texto = re.sub(r"\bstrongattack\b", "strong attack", texto)
+    texto = re.sub(r"\bandas\b", "and as", texto)
+    texto = re.sub(r"\bthiswas\b", "this was", texto)
+    texto = re.sub(r"\ba a (child|nice|strong|gain)\b", r"a \1", texto)
+    texto = re.sub(r"\bWhen I I finally\b", "When I finally", texto)
+    texto = re.sub(r"\bAack and Defence\b", "Attack and Defence", texto)
+    texto = re.sub(r"\bAgainnot\b", "Again not", texto)
+    texto = re.sub(r"\butonce\b", "once", texto)
+    texto = re.sub(r"\bBelow\s*! have\b", "Below I have", texto)
+    texto = re.sub(r"\bzame\b", "game", texto)
+    return re.sub(r"\bTused to think\b", "I used to think", texto)
+
+
 def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
                                fuzzy: bool = True) -> str:
     """Corrige erros tipográficos claros usando um vocabulário de frequência.
@@ -2182,11 +2482,23 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
     texto = (str(texto).replace("\ufffd", "")
              .replace("\xa5", "")
              .replace("�", ""))
+    # A caixa de pontuação pode ficar separada do token pelo OCR. Espaço
+    # depois de um ponto continua preservado; só removemos o espaço espúrio
+    # imediatamente antes de pontuação editorial.
+    texto = re.sub(r"\s+([,!?;:])", r"\1", texto)
+    texto = re.sub(r"\s+\.(?!\.)", ".", texto)
+    # A figurina e a casa pertencem ao mesmo token de notação. O OCR às vezes
+    # abre a caixa em ``♖e 1`` ou ``♖ h 1``; a regra fica limitada a glifo de
+    # xadrez + coluna + linha para não colar palavras da prosa.
+    pecas = re.escape("".join(GLIFOS_DE_XADREZ))
+    texto = re.sub(r"([" + pecas + r"])\s*([a-h])\s*([1-8])",
+                   r"\1\2\3", texto)
     if not re.search(r"\d", texto):
         # ``=`` e ``~`` soltos são resíduos da mesma textura; preservamos ``=``
         # quando a linha contém lances, onde ele pode ser promoção.
         texto = re.sub(r"(?<!\w)[=~|]+(?!\w)", " ", texto)
     texto = re.sub(r"\bof['’]a\b", "of a", texto, flags=re.IGNORECASE)
+    texto = _corrigir_frases_de_prosa(texto)
     texto = re.sub(r"\s+", " ", texto).strip()
     chave_idioma = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
     # As trocas diretas são conhecimento desta fonte, não do vocabulário: elas
@@ -2236,12 +2548,26 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
             return palavra
         return melhor
 
+    def corrigir_token(token: str) -> str:
+        # Uma figurina isolada pode ser um falso positivo da cadeia no começo
+        # de uma palavra (``♗tisfaction``). Só a remove quando o sufixo inteiro
+        # recebe uma correção lexical clara; assim ``♘e4`` e nomes não viram
+        # prosa por heurística.
+        padrao = (r"^(?:[" + re.escape("".join(GLIFOS_DE_XADREZ))
+                  + r"])([A-Za-zÀ-ÿ]{4,})([^A-Za-zÀ-ÿ]*)$")
+        achado = re.fullmatch(padrao, token)
+        if achado:
+            sufixo = re.sub(r"[A-Za-zÀ-ÿ]+", corrigir, achado.group(1))
+            if sufixo != achado.group(1):
+                return sufixo + achado.group(2)
+        if _e_token_de_notacao(token):
+            return token
+        return re.sub(r"[A-Za-zÀ-ÿ]+", corrigir, token)
+
     # O lance não passa pelo corretor. Ele corria sobre a linha inteira, e a
     # busca aproximada trocava `axb4` por `ab4` e `cxd5` por `cd5`: são três
     # letras, minúsculas, e `ab4` não está no vocabulário, mas `ab` está.
-    return " ".join(token if _e_token_de_notacao(token)
-                    else re.sub(r"[A-Za-zÀ-ÿ]+", corrigir, token)
-                    for token in texto.split(" "))
+    return " ".join(corrigir_token(token) for token in texto.split(" "))
 
 
 def _transferir_medidas(texto_antigo: str, texto_novo: str,
@@ -2702,7 +3028,8 @@ def _tabela_da_pagina(img: np.ndarray, boxes: Sequence[BoxEntry],
                 fracos += n
                 if texto:
                     partes.append(texto)
-            fila.append(" ".join(partes))
+            # Uma linha da célula por linha de texto (PD-03), e não um espaço.
+            fila.append("\n".join(partes))
         matriz.append(fila)
 
     if not any(c for fila in matriz for c in fila):
@@ -2973,6 +3300,10 @@ def _paragrafo_de(linhas: Sequence[Linha],
         if len(arrumado) == len(texto):
             texto = arrumado
 
+    # Algumas deformações só aparecem quando a palavra seguinte chega na linha
+    # impressa seguinte; nesta altura o parágrafo já tem o contexto completo.
+    texto = _corrigir_frases_de_prosa(texto)
+
     capitulo = DETECTAR_CAPITULOS and _e_titulo(linhas, altura_de_referencia)
     return Paragrafo(texto, titulo=capitulo, nivel=1 if capitulo else 2,
                      pesos=negrito.vetor(todos),
@@ -3207,14 +3538,18 @@ def _nas_margens(pagina: PaginaExtraida) -> List[Tuple[str, Paragrafo]]:
     if not paragrafos or not pagina.altura:
         return []
     saida = []
-    alto = min(paragrafos, key=lambda p: p.topo)
-    if alto.topo <= pagina.altura * MARGEM_DE_PAGINA:
-        saida.append(("alto", alto))
-    baixo = max(paragrafos, key=lambda p: p.pe if p.pe is not None else p.topo)
-    pe = baixo.pe if baixo.pe is not None else baixo.topo
-    if (pe >= pagina.altura * (1 - MARGEM_DE_PAGINA)
-            and not (baixo is alto and len(baixo.inicios) == 1)):
-        saida.append(("baixo", baixo))
+    limite_alto = pagina.altura * MARGEM_DE_PAGINA
+    altos = [p for p in paragrafos if p.topo <= limite_alto]
+    # Em duas colunas, cada coluna pode trazer o próprio running head no alto.
+    # Escolher só o parágrafo mais alto deixava o segundo cabeçalho colado à
+    # primeira linha da prosa daquela coluna.
+    saida.extend(("alto", p) for p in altos)
+    limite_baixo = pagina.altura * (1 - MARGEM_DE_PAGINA)
+    baixos = [p for p in paragrafos
+              if (p.pe if p.pe is not None else p.topo) >= limite_baixo]
+    saida.extend(("baixo", p) for p in baixos
+                 if not (id(p) in {id(alto) for alto in altos}
+                         and len(p.inicios) == 1))
     return saida
 
 
@@ -3244,6 +3579,9 @@ def _cortar(p: Paragrafo, inicio: int, fim: int) -> None:
     p.negrito = [(a if a < inicio else a - tamanho,
                   b if b <= inicio else b - tamanho)
                  for a, b in p.negrito if b <= inicio or a >= fim]
+    p.italico = [(a if a < inicio else a - tamanho,
+                  b if b <= inicio else b - tamanho)
+                 for a, b in p.italico if b <= inicio or a >= fim]
 
 
 def retirar_cabecalhos(paginas: Sequence[PaginaExtraida]
@@ -3537,6 +3875,35 @@ def _leitura_estavel_do_diagrama(img: np.ndarray, d: Diagrama,
     return max(mesmo_fen, key=firmeza)
 
 
+def _ajustar_lado_por_legalidade(fen: str) -> tuple[str, str | None, str]:
+    """Corrige só a convenção de turno quando a posição o desambigua.
+
+    Um diagrama não informa o turno, então ``w`` continua sendo a convenção.
+    Há, porém, posições impressas depois de um lance das brancas nas quais
+    ``w`` torna o FEN inválido porque o rei preto fica em xeque fora do turno.
+    Nesse caso, e somente nesse caso, ``b`` pode ser inferido sem alterar as
+    peças lidas. A origem continua explícita para a revisão editorial.
+    """
+    texto = str(fen or "").strip()
+    try:
+        atual = chess.Board(texto)
+    except ValueError:
+        return texto, None, "convencao"
+    if atual.is_valid() or atual.status() != chess.STATUS_OPPOSITE_CHECK:
+        return texto, None, "convencao"
+
+    campos = texto.split()
+    lado_atual = campos[1] if len(campos) > 1 else "w"
+    lado_oposto = "b" if lado_atual == "w" else "w"
+    candidato = lado_jogar.com_lado(texto, lado_oposto)
+    try:
+        if chess.Board(candidato).is_valid():
+            return candidato, lado_oposto, "legalidade"
+    except ValueError:
+        pass
+    return texto, None, "convencao"
+
+
 def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                         dpi_figura: int, modo: str, coordenadas, fonte: str,
                         lado: int,
@@ -3573,7 +3940,9 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
     """
     aviso = None
     quer = _quer_coordenadas(coordenadas, d)
-    lido = lado_jogar.ler_varios(cabecalho, d.legenda.texto)
+    cabecalho = lado_jogar.normalizar_legenda(cabecalho)
+    legenda = lado_jogar.normalizar_legenda(d.legenda.texto)
+    lido = lado_jogar.ler_varios(cabecalho, legenda)
     if modo == "render":
         try:
             leitura = diagrama.ler(img, d.tabuleiro,
@@ -3589,6 +3958,11 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                     passa, aviso = True, ""
             if passa:
                 fen = lado_jogar.com_lado(leitura.fen(), lido.lado)
+                lado_inferido = None
+                origem_do_lado = "legenda" if lido else "convencao"
+                if not lido:
+                    fen, lado_inferido, origem_do_lado = (
+                        _ajustar_lado_por_legalidade(fen))
                 png, larg, alt = render_diagrama.desenhar(
                     fen, fonte=fonte, lado_px=lado, coordenadas=quer,
                     moldura=moldura, cantos=cantos,
@@ -3597,27 +3971,25 @@ def _figura_do_diagrama(img: np.ndarray, d: Diagrama, *, dpi: int,
                     # **sabe** o lado (ED-05, DEC-06) — e agora ele às vezes
                     # sabe: é o que a legenda disse.
                     lado_a_jogar=lido.lado)
-                # As linhas de texto seguem o mesmo critério do desenho (F99):
-                # havendo glifo de borda com rótulo, elas saem emolduradas; não
-                # havendo, saem as oito de sempre. Decidir aqui, e não na hora
-                # de escrever, é o que faz o EPUB e o DOCX concordarem sobre o
-                # que a figura é.
+                # As linhas de texto seguem o mesmo critério do desenho (F99,
+                # F122): com moldura, e havendo os glifos dela, saem
+                # emolduradas; não havendo, saem as oito de sempre. Decidir
+                # aqui, e não na hora de escrever, é o que faz o EPUB e o DOCX
+                # concordarem sobre o que a figura é.
                 objeto = render_diagrama.carregar(fonte)
-                em_grade = (render_diagrama.grade(
-                    fen, objeto, leitura.orientacao, moldura, cantos)
-                    if quer else None)
+                linhas_da_figura, emolduradas = render_diagrama.linhas_do_diagrama(
+                    fen, objeto, leitura.orientacao, moldura, cantos, quer)
                 return Figura(png, larg, alt, fen=fen, origem="render",
-                              linhas=(em_grade or render_diagrama.linhas(
-                                  fen, objeto, leitura.orientacao)),
-                              linhas_emolduradas=em_grade is not None,
+                              linhas=linhas_da_figura,
+                              linhas_emolduradas=emolduradas,
                               fonte=fonte, coordenadas=quer,
                               orientacao=leitura.orientacao,
                               casas_de_largura=(
                                   larg * 8.0
                                   / render_diagrama.lado_efetivo(lado)),
                               caixa=tuple(int(v) for v in d.tabuleiro),
-                              lado_a_jogar=lido.lado,
-                              lado_origem=("legenda" if lido else "convencao"))
+                              lado_a_jogar=(lido.lado or lado_inferido),
+                              lado_origem=origem_do_lado)
         except (diagrama.ModeloAusente, render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta) as erro:
             # Falta de modelo ou de fonte não pode derrubar a exportação de um
@@ -3671,8 +4043,9 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
     # O roteador da OCR-11 decide pelo domínio da âncora: a linha só de
     # lances fica com a cadeia própria e nem paga o motor; a de prosa ou
     # mista vai para a fusão. A de domínio desconhecido só paga o motor
-    # quando a âncora está fraca — perdeu caractere por confiança —, que é
-    # a regra do `HybridOCRPipeline` para o mesmo caso.
+    # quando a âncora está fraca — perdeu caractere por confiança —, que era
+    # a regra do `HybridOCRPipeline` da OCR-12 para o mesmo caso (o módulo
+    # saiu na poda de 2026-09-23; a regra ficou aqui).
     dominio = _dominio_da_linha(texto)
     decisao_bbox = (min(b.x1 for b in linha), min(b.y1 for b in linha),
                     max(b.x2 for b in linha), max(b.y2 for b in linha))
@@ -3715,9 +4088,21 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
         # A passada de página não devolveu esta linha (ou devolveu a
         # errada): o motor lê a faixa dela sozinha. Só aqui, e não em toda
         # linha, porque é uma chamada de processo por faixa.
+        fonte_faixa = getattr(ler_faixa, "_source_reader", ler_faixa)
+        if hasattr(fonte_faixa, "last_result"):
+            fonte_faixa.last_result = None
         faixa = _registro_da_faixa(img, linha, ler_faixa)
+        resultado_ensemble = getattr(fonte_faixa, "last_result", None)
+        if (resultado_ensemble is not None
+                and (getattr(resultado_ensemble, "errors", ())
+                     or (len(getattr(resultado_ensemble, "hypotheses", ())) >= 2
+                         and getattr(resultado_ensemble, "review_required", False)))):
+            estatisticas["ensemble"] = resultado_ensemble.to_dict()
         if faixa is not None:
             texto_ocr, confianca_ocr, detalhes_ocr, trama = faixa
+            evidencia_ensemble = getattr(detalhes_ocr, "metadata", None)
+            if evidencia_ensemble:
+                estatisticas["ensemble"] = evidencia_ensemble
             semelhanca, compativel = _compatibilidade_da_linha(
                 texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao,
                 trama=trama)
@@ -3973,6 +4358,14 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 continue
             if dominio != "notation":
                 texto = _corrigir_prosa_contextual(texto, idioma_ocr, fuzzy=False)
+                # A letra que o segmentador partiu em duas (PD-20), com as
+                # medidas acompanhando: `li` → `h` encurta o texto.
+                corrigido = _corrigir_juncoes(texto, lex, idioma_ocr)
+                if corrigido != texto:
+                    if pesos is not None and len(pesos) == len(texto):
+                        pesos, vaos = _transferir_medidas(texto, corrigido,
+                                                          pesos, vaos)
+                    texto = corrigido
         if provar is not None and texto and origem == "glyph":
             # O índice do box passa a ser o da **página**, que é onde a régua do
             # box largo e a prova visual falam (`boxes_largos`,
@@ -4039,6 +4432,9 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         cabecalho = (_faixa_em_texto(img, d, classificar, conf_minima, coletor,
                                      numero, candidatas)
                      if d.faixa is not None else None)
+        if cabecalho is not None:
+            cabecalho.texto = lado_jogar.normalizar_legenda(cabecalho.texto)
+        legenda = lado_jogar.normalizar_legenda(d.legenda.texto)
         principal = _figura_do_diagrama(img, d, dpi=dpi, dpi_figura=dpi_figura,
                                         modo=diagramas, coordenadas=coordenadas,
                                         fonte=fonte, lado=lado_do_diagrama,
@@ -4048,9 +4444,9 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         # A legenda de baixo entra **depois** da figura, que é onde ela está
         # impressa (F95). Não é `titulo=True`: título embaixo da figura viraria
         # um `<h2>` no meio do texto seguinte, e o que ela é, é legenda.
-        depois = ([Paragrafo(d.legenda.texto)]
-                  if d.legenda.texto and not (principal.origem == "recorte"
-                                              and principal.coordenadas)
+        depois = ([Paragrafo(legenda)]
+                  if legenda and not (principal.origem == "recorte"
+                                      and principal.coordenadas)
                   else [])
         ja_esta_dentro = principal.origem == "recorte" and principal.coordenadas
         if d.faixa is None or ja_esta_dentro:
@@ -4305,6 +4701,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
         for i, numero in enumerate(numeros):
             if progress_callback:
                 progress_callback(i, len(numeros))
+            veredito = None
             if camada != "nunca":
                 veredito = pdf_nativo.avaliar_pagina(doc[numero], numero=numero,
                                                      produtor=carimbo)
@@ -4330,6 +4727,14 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
                                         lex=lex,
                                         probabilidade=probabilidade,
                                         candidatas=candidatas))
+            if veredito is not None and veredito.clearscan:
+                # A página que o ClearScan já tinha lido: a prosa dele conserta
+                # a palavra que o OCR errou (PD-14). Só com a camada ligada, que
+                # é o modo da exportação; os instrumentos leem em "nunca".
+                camada_da_pagina = pdf_nativo.extrair_pagina(
+                    doc[numero], numero=numero, idioma=idioma_ocr,
+                    diagramas="recorte")
+                reparar_pela_camada(saida[-1], camada_da_pagina.texto, lex)
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
         if camada != "nunca":

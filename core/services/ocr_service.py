@@ -100,6 +100,52 @@ PRAZO_DA_PAGINA_S = 180
 PRAZO_DA_FAIXA_S = 30
 #: O caractere isolado (`--psm 10`) é um recorte de dezenas de pixels.
 PRAZO_DO_CARACTERE_S = 10
+#: A sondagem da caixa de exportação (`--version`, `--list-langs`), que não lê
+#: imagem nenhuma e volta em dezenas de milissegundos (PD-01). O pytesseract não
+#: aceita prazo nessas duas chamadas, e elas rodavam na thread da interface.
+PRAZO_DA_SONDAGEM_S = 10
+
+
+def _sondar(argumentos, prazo: float = PRAZO_DA_SONDAGEM_S) -> Tuple[int, str]:
+    """`(código de saída, saída)` de um executável, com prazo (PD-01).
+
+    `Popen` + `communicate(timeout=)`, e não `subprocess.run`: no Windows o
+    `run` espera o pipe depois de matar o processo, e um neto que o herdou
+    prenderia a espera — que é o que o prazo existe para impedir. O executável
+    que não existe sobe como `FileNotFoundError` (um `OSError`); o que passa
+    do prazo é morto e sobe como `TesseractSemResposta`."""
+    import subprocess
+
+    processo = subprocess.Popen(
+        list(argumentos), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        saida, _ = processo.communicate(timeout=prazo)
+    except subprocess.TimeoutExpired:
+        processo.kill()
+        raise TesseractSemResposta(prazo) from None
+    return processo.returncode, (saida or b"").decode("utf-8", "replace")
+
+
+def _versao_da_saida(saida: str) -> Optional[str]:
+    """A versão na primeira linha de `tesseract --version` (`tesseract v5.3.0.2022…`
+    ou `tesseract 4.1.1`), como o pytesseract a lia: os dígitos até o espaço ou
+    o hífen."""
+    import re
+
+    primeira = (saida.strip().splitlines() or [""])[0]
+    achado = re.search(r"\d+(?:\.\d+)*", primeira)
+    return achado.group(0) if achado else None
+
+
+def _idiomas_da_saida(saida: str) -> set:
+    """Os pacotes de `tesseract --list-langs`, sem o cabeçalho ("List of
+    available languages in …") — o padrão de nome do pytesseract (`^[a-z_]+$`)."""
+    import re
+
+    return {linha.strip() for linha in saida.splitlines()
+            if re.fullmatch(r"[a-z_]+", linha.strip())}
 
 
 class OCRService:
@@ -166,22 +212,38 @@ class OCRService:
         """`(True, versão)` se o Tesseract roda com este idioma; `(False, motivo)`
         se não. É a sondagem que a interface faz **antes** de uma exportação
         de livro, para o usuário decidir sabendo — e não descobrir no relatório
-        do fim que 300 páginas saíram só com a cadeia própria."""
+        do fim que 300 páginas saíram só com a cadeia própria.
+
+        As duas chamadas vão ao executável por `_sondar`, com
+        `PRAZO_DA_SONDAGEM_S` (PD-01): o executável que não volta é
+        indisponível, com o motivo dito, em vez de prender quem sondou."""
         try:
             import pytesseract
         except ImportError:
             return False, ("o pacote Python 'pytesseract' não está instalado "
                            "(python -m pip install -e \".[ocr]\")")
         self._configurar_tesseract(pytesseract)
+        executavel = pytesseract.pytesseract.tesseract_cmd
         try:
-            versao = str(pytesseract.get_tesseract_version())
-        except Exception as erro:  # noqa: BLE001 — traduzida logo abaixo
-            traduzido = self._erro_do_tesseract(pytesseract, erro)
-            return False, getattr(traduzido, "motivo", str(traduzido))
+            codigo, saida = _sondar([executavel, "--version"])
+        except OSError:
+            return False, "o executável não foi encontrado"
+        except TesseractSemResposta as erro:
+            return False, (f"o executável não respondeu a '--version' em "
+                           f"{erro.prazo:g} s")
+        versao = _versao_da_saida(saida)
+        if codigo != 0 or versao is None:
+            return False, (f"o executável respondeu com erro: "
+                           f"{saida.strip()[:200] or f'código {codigo}'}")
         try:
-            idiomas = set(pytesseract.get_languages(config=""))
-        except Exception:  # noqa: BLE001 — versões antigas não listam idiomas
-            idiomas = set()
+            codigo, saida = _sondar([executavel, "--list-langs"])
+            # O Tesseract 3.x sai com 1 ao listar; o pytesseract aceita os dois.
+            idiomas = _idiomas_da_saida(saida) if codigo in (0, 1) else set()
+        except OSError:
+            idiomas = set()     # versões antigas não listam: a leitura dirá
+        except TesseractSemResposta as erro:
+            return False, (f"o executável não respondeu a '--list-langs' em "
+                           f"{erro.prazo:g} s")
         pacote = self._idioma_tesseract(idioma)
         if idiomas and pacote not in idiomas:
             return False, (f"o pacote de idioma '{pacote}' não está instalado "
@@ -484,27 +546,29 @@ class OCRService:
         """
         self._init_easyocr(tuple(languages), gpu, model_storage_directory)
 
-    def linha_treinada_conf(self, faixa_np: np.ndarray,
-                            model_path: str = "text_line_model.pth",
-                            meta_path: str = "text_line_model.json") -> Tuple[str, float]:
-        """Reconhece uma linha com o modelo CRNN/CTC treinado pelo projeto."""
-        chave = (str(model_path), str(meta_path))
+    def _preditor_de_linha(self, model_path, meta_path):
+        """O `LinhaPredictor` dos pesos pedidos — ou dos de `config.paths`, e não
+        do nome solto no cwd —, guardado enquanto os caminhos não mudam."""
+        from config.paths import completar_modelo_linha
+        modelo, meta = completar_modelo_linha(model_path, meta_path)
+        chave = (str(modelo), str(meta))
         if self._linha_predictor is None or self._linha_predictor_key != chave:
             from core.linha_trainer import LinhaPredictor
-            self._linha_predictor = LinhaPredictor(model_path, meta_path)
+            self._linha_predictor = LinhaPredictor(modelo, meta)
             self._linha_predictor_key = chave
-        return self._linha_predictor.predict_conf(faixa_np)
+        return self._linha_predictor
+
+    def linha_treinada_conf(self, faixa_np: np.ndarray,
+                            model_path: Optional[str] = None,
+                            meta_path: Optional[str] = None) -> Tuple[str, float]:
+        """Reconhece uma linha com o modelo CRNN/CTC treinado pelo projeto."""
+        return self._preditor_de_linha(model_path, meta_path).predict_conf(faixa_np)
 
     def linha_treinada_detalhada(self, faixa_np: np.ndarray,
-                                 model_path: str = "text_line_model.pth",
-                                 meta_path: str = "text_line_model.json"):
+                                 model_path: Optional[str] = None,
+                                 meta_path: Optional[str] = None):
         """Retorna ``(texto, confianças_por_caractere)`` do modelo CTC."""
-        chave = (str(model_path), str(meta_path))
-        if self._linha_predictor is None or self._linha_predictor_key != chave:
-            from core.linha_trainer import LinhaPredictor
-            self._linha_predictor = LinhaPredictor(model_path, meta_path)
-            self._linha_predictor_key = chave
-        return self._linha_predictor.predict_detalhado(faixa_np)
+        return self._preditor_de_linha(model_path, meta_path).predict_detalhado(faixa_np)
 
     def recarregar_linha_treinada(self) -> None:
         """Faz a próxima leitura usar os pesos gravados pelo último treino."""

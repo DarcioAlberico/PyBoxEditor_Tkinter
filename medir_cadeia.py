@@ -1109,6 +1109,19 @@ def _reguas_candidatas():
         c = concorda_knn(reg, s)
         return None if c is None else c + reg[1]
 
+    def discorda_ou_hoje(reg, s):
+        """
+        A regra que produção consegue embarcar (PD-13): marca quando o k-NN
+        discorda do EasyOCR **ou** quando a regra de hoje já marca — nota 0
+        para marcado, 1 para não. Não tem corte a ajustar: ela é o que a fila
+        faria, e a coluna `marcados` diz o custo dela em vez de gastar o de hoje.
+        """
+        c = concorda_knn(reg, s)
+        if c is None:
+            return None
+        hoje_marca = conf_ui.precisa_revisao(_BoxFalso(reg))
+        return 0.0 if (c == 0.0 or hoje_marca) else 1.0
+
     def confianca_knn(reg, s):
         """
         O número do outro elo, que a F47 proibiu de **emprestar** calado.
@@ -1147,6 +1160,7 @@ def _reguas_candidatas():
         ("hoje (confiança do EasyOCR)", hoje),
         ("concorda com o k-NN", concorda_knn),
         ("concorda, e a confiança dentro", concorda_e_confianca),
+        ("discorda, ou hoje marca (PD-13)", discorda_ou_hoje),
         ("confiança do k-NN", confianca_knn),
         ("mín. das duas confianças", minimo),
         ("proximidade da base (-dist)", proximidade),
@@ -1204,6 +1218,42 @@ def tabela_regua_do_easyocr(linhas, sinais):
         _bloco_de_reguas(titulo, parte, sinais, errou)
 
 
+def _regua_fora_da_amostra(notados, errou):
+    """
+    `(marcados, pegos)` da régua com o corte **ajustado fora da página medida**
+    (PD-13), ou `None` com uma página só.
+
+    A F57 deixou dito o que faltava para a régua embarcar: a coluna `marcados`
+    escolhe o corte da candidata na mesma amostra em que mede, e o `LIMIAR_ALTO`
+    de hoje não foi ajustado em lugar nenhum. É a assimetria que a F56 desfez
+    para o limiar por fonte, e aqui pelo mesmo método: para cada página, a curva
+    das outras dá o maior corte que cabe no orçamento **delas** (o que a regra
+    de hoje marca nelas), e esse corte é aplicado à página que ficou de fora. O
+    que atravessa é o limiar, e nada da página medida entra na escolha dele.
+
+    `notados` são os pares `(registro, nota da candidata)`, com a página na
+    posição 4 do registro. O orçamento de cada lado é contado com a régua de
+    hoje, no registro original.
+    """
+    paginas = sorted({r[4] for r, _n in notados})
+    if len(paginas) < 2:
+        return None
+    marcados = pegos = 0
+    for pagina in paginas:
+        treino = [(r, n) for r, n in notados if r[4] != pagina]
+        orcamento = sum(1 for r, _n in treino
+                        if conf_ui.precisa_revisao(_BoxFalso(r)))
+        curva = _cortes_possiveis([(r[0], n) + tuple(r[2:]) for r, n in treino],
+                                  errou)
+        alcancavel = [p for p in curva if p[0] <= orcamento] or [curva[0]]
+        corte = alcancavel[-1][2]
+        for r, n in notados:
+            if r[4] == pagina and n < corte:
+                marcados += 1
+                pegos += errou(r)
+    return marcados, pegos
+
+
 def _bloco_de_reguas(titulo, parte, sinais, errou):
     """Uma passada da tabela da F57 sobre uma população."""
     total_erros = sum(1 for r in parte if errou(r))
@@ -1215,7 +1265,7 @@ def _bloco_de_reguas(titulo, parte, sinais, errou):
           f"{len(parte)} boxes com {total_erros} erros ---")
     print(f"o orçamento de hoje é {orcamento} marcados, que pegam {pegos_hoje}")
     print(f"\n{'régua':<32}{'boxes':>7}{'separação':>11}{'discordam':>11}"
-          f"{'marcados':>10}{'pegos':>7}{'escapam':>9}")
+          f"{'marcados':>10}{'pegos':>7}{'escapam':>9}{'fora da amostra':>18}")
 
     for nome, regua in _reguas_candidatas():
         notados = [(r, n) for r in parte
@@ -1238,11 +1288,24 @@ def _bloco_de_reguas(titulo, parte, sinais, errou):
         curva = _cortes_possiveis(reescritos, errou)
         alcancavel = [p for p in curva if p[0] <= orcamento] or [curva[0]]
         marcados, pegos, _t = alcancavel[-1]
+        fora = _regua_fora_da_amostra(notados, errou)
 
         print(f"{nome:<32}{len(notados):>7}{sep:>11.4f}"
               f"{100.0 * discordam / max(1, len(notados) - 1):>10.1f}%"
-              f"{marcados:>10}{pegos:>7}{total_erros - pegos:>9}")
+              f"{marcados:>10}{pegos:>7}{total_erros - pegos:>9}"
+              f"{f'{fora[1]} em {fora[0]}' if fora else '—':>18}")
 
+    # A regra que produção embarcaria não tem corte: o custo é o dela.
+    com_knn = [r for r in parte if sinais.get(r[5]) is not None]
+    marca = [r for r in com_knn
+             if conf_ui.precisa_revisao(_BoxFalso(r))
+             or normalizar(sinais[r[5]]["knn_char"]) != normalizar(r[2])]
+    print(f"  a regra 'o k-NN discorda, ou hoje marca' (PD-13): marca "
+          f"{len(marca)} de {len(com_knn)}, pega "
+          f"{sum(1 for r in marca if errou(r))} dos "
+          f"{sum(1 for r in com_knn if errou(r))} erros")
+    print("  'fora da amostra' é 'erros pegos em marcados' com o corte de cada "
+          "página ajustado nas outras, ao orçamento de hoje delas (PD-13)")
     print("  'discordam' é o quanto a candidata inverte a ordem da régua de "
           "hoje: zero é a mesma régua com outra roupa")
     print("  'marcados' é o maior ponto da curva que cabe no orçamento — "

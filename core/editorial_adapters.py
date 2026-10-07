@@ -96,9 +96,18 @@ def page_result_para_pagina(page, *, document_id: str | None = None,
         texto = str(region.text or "")
         region_metadata = dict(getattr(region, "metadata", {}) or {})
         diagram = region_metadata.get("diagram")
-        value = diagram if region.type == "diagram" and isinstance(diagram, Mapping) else texto
+        if region.type == "diagram" and isinstance(diagram, Mapping):
+            value = diagram
+        elif region.type == "table":
+            value = {"rows": [list(row) for row in
+                              region_metadata.get("rows", ()) or ()]}
+        else:
+            value = texto
         review_status = str(region_metadata.get("review_status", "automatic"))
-        decision_status = ("unresolved" if review_status in {"review_required", "unresolved"}
+        region_warnings = list(getattr(region, "warnings", []) or [])
+        requires_review = (review_status in {"review_required", "unresolved"}
+                           or bool(region_metadata.get("review_required")))
+        decision_status = ("unresolved" if requires_review
                            else "reviewed" if review_status == "reviewed" else "automatic")
         evidencia = Evidence(
             id=evidence_id, ref=region_ref, observed_text=texto,
@@ -122,9 +131,10 @@ def page_result_para_pagina(page, *, document_id: str | None = None,
                                 if isinstance(diagram, Mapping) else None),
             ),
             children=list(region.line_ids),
-            warnings=list(getattr(region, "warnings", []) or []),
+            warnings=region_warnings,
             metadata={"region_type": region.type, "region_order": region.order,
-                      **region_metadata},
+                      **region_metadata,
+                      **({"review_required": True} if requires_review else {})},
         ))
     if not blocks:
         texto = str(getattr(page, "text", "") or "")
@@ -212,7 +222,8 @@ def _evidencia_da_linha(registro: Mapping[str, Any], *, evidence_id: str,
             bbox=caixa, metadata={"papel": "linha do motor de prosa"}))
     metadata = {chave: registro.get(chave) for chave in
                 ("linha", "celula", "dominio", "primario", "motivo", "fonte",
-                 "semelhanca", "confianca_ocr", "descartados", "fragmento")
+                 "semelhanca", "confianca_ocr", "descartados", "fragmento",
+                 "ensemble")
                 if chave in registro}
     metadata["caixa"] = list(caixa) if caixa else None
     metadata["motivos"] = [m.codigo for m in motivos]
@@ -285,6 +296,10 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
                 "heading_level": legado.nivel if legado.titulo else None,
                 "bold_spans": [list(item) for item in legado.negrito],
             }
+            # O itálico (PD-06) só entra quando há: o IR de quem não o tem
+            # continua byte a byte o de antes.
+            if getattr(legado, "italico", None):
+                style["italic_spans"] = [list(item) for item in legado.italico]
             metadata = {"legacy_type": tipo, "top": legado.topo, "bottom": legado.pe,
                         # As linhas impressas de que este parágrafo saiu: o
                         # começo de cada uma no texto e o registro de
@@ -337,7 +352,8 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
                 # repõe, e o FEN de um recorte nem sempre existe.
                 "side_to_move": (legado.lado_a_jogar
                                  or lado_jogar.do_fen(legado.fen or "") or "w"),
-                "side_to_move_source": {"legenda": "legend"}.get(
+                "side_to_move_source": {"legenda": "legend",
+                                         "legalidade": "legalidade"}.get(
                     legado.lado_origem, "assumed"),
                 # As casas que o livro marcou (F110): sem elas, o diagrama que
                 # ia e voltava perdia o `x` das casas-chave no redesenho.
@@ -347,6 +363,9 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
             texto = legado.fen or ""
             style = {}
             metadata = {"legacy_type": tipo}
+            if legado.lado_origem == "legalidade":
+                reason_codes.append("side_to_move_legalidade")
+                metadata["review_required"] = True
             caixa = _caixa(getattr(legado, "caixa", None))
             if caixa:
                 value["bbox"] = list(caixa)
@@ -363,7 +382,10 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
         elif tipo == "Tabela":
             value = {"rows": [list(row) for row in legado.linhas]}
             kind = "table"
-            texto = "\n".join(" ".join(row) for row in legado.linhas)
+            # A quebra dentro da célula (PD-03) fica no `value`; a evidência
+            # é texto corrido, uma linha por fila, como era.
+            texto = "\n".join(" ".join(c.replace("\n", " ") for c in row)
+                              for row in legado.linhas)
             style = {}
             metadata = {"legacy_type": tipo, "rows": len(legado.linhas)}
             registros = [i for i, r in enumerate(roteamento) if _celula(r)]
@@ -511,6 +533,7 @@ def _figura_do_valor(valor: Mapping[str, Any]) -> Any:
         lado_a_jogar=(lado if lado in ("w", "b") and origem_do_lado != "assumed"
                       else None),
         lado_origem=("legenda" if origem_do_lado in ("legend", "legenda")
+                     else origem_do_lado if origem_do_lado == "legalidade"
                      else "convencao"),
         marcas=[str(casa) for casa in valor.get("marks") or []],
     )
@@ -536,6 +559,7 @@ def _bloco_de_volta(block: EditorialBlock) -> Any:
         titulo=block.kind == "heading",
         nivel=int(nivel) if nivel else 2,
         negrito=[(int(a), int(b)) for a, b in estilo.get("bold_spans") or []],
+        italico=[(int(a), int(b)) for a, b in estilo.get("italic_spans") or []],
         topo=_inteiro_ou_nada(block.metadata.get("top")),
         pe=_inteiro_ou_nada(block.metadata.get("bottom")),
         inicios=[int(i) for i in block.metadata.get("line_starts") or []],

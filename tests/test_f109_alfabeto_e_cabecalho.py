@@ -291,6 +291,24 @@ def test_o_cabecalho_colado_ao_paragrafo_sai_e_o_paragrafo_fica():
     assert paginas[0].cabecalhos == ["Chapter 4 95"]
 
 
+def test_os_dois_cabecalhos_do_topo_de_duas_colunas_saem():
+    paginas = []
+    for n in range(3):
+        paginas.append(_pagina(
+            n,
+            _paragrafo("The Attacking Manual - Volume 1", 40),
+            _paragrafo("Prosa da coluna esquerda.", 160, linhas=3),
+            _paragrafo("The Attacking Manual - Volume 1", 40),
+            _paragrafo("Prosa da coluna direita.", 160, linhas=3),
+        ))
+
+    retirados = livro.retirar_cabecalhos(paginas)
+
+    assert retirados == {"The Attacking Manual - Volume 1": 6}
+    assert all(sum(isinstance(b, livro.Paragrafo) for b in p.blocos) == 2
+               for p in paginas)
+
+
 def test_o_rodape_colado_ao_ultimo_paragrafo_sai_pelo_pe():
     """O parágrafo começa no meio da página e **acaba** na margem de baixo:
     é o pé que o põe na margem, e a última linha é que sai."""

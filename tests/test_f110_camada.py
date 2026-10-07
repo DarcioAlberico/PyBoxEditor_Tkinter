@@ -452,7 +452,7 @@ def test_o_hifen_brando_junta_sem_espaco():
     segunda = "ing maneuver, with a mid" + brando + "word break."
     linhas = [pdf_nativo._Linha([], primeira, [True] * len(primeira)),
               pdf_nativo._Linha([], segunda, [False] * len(segunda))]
-    texto, negrito, inicios = pdf_nativo._juntar(linhas, None)
+    texto, negrito, inicios, _italico = pdf_nativo._juntar(linhas, None)
     assert texto == "The king starts an outflanking maneuver, with a midword break."
     assert len(negrito) == len(texto)
     assert inicios == [0, texto.index("ing maneuver")]

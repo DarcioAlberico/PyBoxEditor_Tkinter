@@ -62,9 +62,36 @@ def _fen(value: Any) -> str:
     return str(value.get("fen", "")) if isinstance(value, Mapping) else ""
 
 
+def texto_do_bloco(block: EditorialBlock) -> str:
+    """
+    A face de texto de um bloco: o que o PDF pesquisável põe na camada
+    invisível e o TXT escreve (item 10 da revisão de 2026-09-18).
+
+    O parágrafo e o título são o texto; o diagrama, `FEN: <posição>`; a tabela,
+    uma fila por linha, com as células separadas por espaço — a mesma forma da
+    evidência do adapter. A figura sem posição (o cabeçalho impresso, a página
+    que virou imagem) não tem texto, e sai vazia. Era o `json.dumps` do valor:
+    a tabela ia para a camada que a busca lê como `{"rows": [["W", "Win"], …]}`,
+    e a figura, com o PNG inteiro em base64.
+    """
+    value = block.decision.value
+    if block.kind == "diagram":
+        fen = _fen(value)
+        return f"FEN: {fen}" if fen else ""
+    if block.kind == "table" and isinstance(value, Mapping):
+        return "\n".join(" ".join(_text(celula).replace("\n", " ") for celula in fila)
+                         for fila in value.get("rows", ()))
+    if isinstance(value, Mapping):
+        return str(value.get("text") or "")
+    return _text(value)
+
+
 #: Lado do tabuleiro desenhado quando o diagrama chega sem imagem, em pixels.
 #: Oito casas de 24 px: 1 KB de PNG, e legível no tablet e no papel.
 LADO_DO_DIAGRAMA_PX = 192
+
+#: O nome da fonte de xadrez na página do PDF pesquisável (ver `_pdf`).
+FONTE_DA_CAMADA = "pyboxchess"
 
 
 def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
@@ -200,13 +227,43 @@ def trechos_em_negrito(texto: str, block: EditorialBlock) -> list[tuple[str, boo
     return saida
 
 
+def _faixas(block: EditorialBlock, chave: str) -> list[tuple[int, int]]:
+    faixas = []
+    for item in block.style.get(chave) or []:
+        try:
+            faixas.append((int(item[0]), int(item[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    return faixas
+
+
+def trechos_com_estilo(texto: str, block: EditorialBlock
+                       ) -> list[tuple[str, bool, bool]]:
+    """`(trecho, negrito, itálico)`, cortado onde qualquer um dos dois muda
+    (PD-06). Sem `italic_spans` é o `trechos_em_negrito` de sempre."""
+    from core.exportar import trechos_com_estilo as cortar
+
+    inclinados = _faixas(block, "italic_spans")
+    if not inclinados:
+        return [(t, forte, False) for t, forte in trechos_em_negrito(texto, block)]
+    return cortar(texto, _faixas(block, "bold_spans"), inclinados)
+
+
 def _com_negrito(texto: str, block: EditorialBlock) -> str:
-    """O texto escapado, com `<strong>` onde o livro imprimiu negrito."""
-    partes = trechos_em_negrito(texto, block)
+    """O texto escapado, com `<strong>` onde o livro imprimiu negrito e `<em>`
+    onde imprimiu itálico (PD-06)."""
+    partes = trechos_com_estilo(texto, block)
     if not partes:
         return html.escape(texto)
-    return "".join(f"<strong>{html.escape(trecho)}</strong>" if forte
-                   else html.escape(trecho) for trecho, forte in partes)
+    saida = []
+    for trecho, forte, inclinado in partes:
+        pedaco = html.escape(trecho)
+        if inclinado:
+            pedaco = f"<em>{pedaco}</em>"
+        if forte:
+            pedaco = f"<strong>{pedaco}</strong>"
+        saida.append(pedaco)
+    return "".join(saida)
 
 
 def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
@@ -252,7 +309,9 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
     elif block.kind == "table" and isinstance(value, Mapping):
         rows = value.get("rows", ())
         body = (f"<table{common}>" + "".join(
-            "<tr>" + "".join(f"<td>{html.escape(_text(cell))}</td>" for cell in row) + "</tr>"
+            "<tr>" + "".join(
+                "<td>" + "<br/>".join(html.escape(linha) for linha in _text(cell).split("\n"))
+                + "</td>" for cell in row) + "</tr>"
             for row in rows) + "</table>")
     elif block.kind == "page_break":
         body = f'<hr{common} class="page-break">'
@@ -280,7 +339,9 @@ def _text_document(document: EditorialDocument) -> str:
     lines: list[str] = []
     for page in sorted(document.pages, key=lambda item: item.page_index):
         for block in sorted(page.blocks, key=lambda item: item.order):
-            lines.append(_text(block.decision.value))
+            texto = texto_do_bloco(block)
+            if texto:
+                lines.append(texto)
     return "\n\n".join(lines) + "\n"
 
 
@@ -311,6 +372,14 @@ def avisos_dos_diagramas(document: EditorialDocument) -> tuple[str, ...]:
     return tuple(avisos)
 
 
+def _gravar_atomico(caminho: Path, conteudo: str) -> None:
+    """Grava num temporário ao lado e troca: uma falha no meio não deixa meio
+    arquivo no lugar do que havia (era como a fachada gravava o TXT)."""
+    temporario = caminho.with_suffix(caminho.suffix + ".tmp")
+    temporario.write_text(conteudo, encoding="utf-8")
+    temporario.replace(caminho)
+
+
 class EditorialExporter:
     """Exportador único: todos os destinos percorrem a mesma ordem de blocos."""
 
@@ -320,12 +389,12 @@ class EditorialExporter:
         caminho = Path(target)
         caminho.parent.mkdir(parents=True, exist_ok=True)
         if options.format == "html":
-            caminho.write_text(_html_body(document, options), encoding="utf-8")
+            _gravar_atomico(caminho, _html_body(document, options))
             return ExportReport("html", (str(caminho),),
                                 warnings=avisos_dos_diagramas(document),
                                 metadata={"mode": options.mode})
         if options.format == "txt":
-            caminho.write_text(_text_document(document), encoding="utf-8")
+            _gravar_atomico(caminho, _text_document(document))
             return ExportReport("txt", (str(caminho),))
         if options.format == "json":
             document.save_json(caminho)
@@ -430,9 +499,11 @@ class EditorialExporter:
                     # e este escritor o ignorava (item 4 da revisão de
                     # 2026-09-18).
                     paragraph = word.add_paragraph()
-                    for trecho, forte in (trechos_em_negrito(text, block)
-                                          or [(text, False)]):
-                        paragraph.add_run(trecho).bold = forte or None
+                    for trecho, forte, inclinado in (trechos_com_estilo(text, block)
+                                                     or [(text, False, False)]):
+                        run = paragraph.add_run(trecho)
+                        run.bold = forte or None
+                        run.italic = inclinado or None
                 if options.mode != "clean":
                     word.add_paragraph(f"[auditoria: {block.decision.status}]")
         word.save(target)
@@ -455,6 +526,17 @@ class EditorialExporter:
         text_items = 0
         failed_items = 0
         warnings: list[str] = []
+        # A camada é escrita na fonte de xadrez do `searchable_pdf`, e não na
+        # Helvetica padrão: nela o PyMuPDF troca cada figurina por `·` sem
+        # avisar, e `2.♘f3` não era achado pela busca do PDF (item 10).
+        try:
+            from core.chess_pdf_processor import resolve_chess_font
+            fonte_da_camada = resolve_chess_font()
+        except Exception as error:  # noqa: BLE001 — sem fonte, a camada sai assim mesmo
+            fonte_da_camada = None
+            warnings.append(f"sem fonte de xadrez para a camada de texto ({error}); "
+                            "as figurinas saem como ·")
+        escrita = {"fontname": FONTE_DA_CAMADA} if fonte_da_camada else {}
         for page_model in sorted(document.pages, key=lambda item: item.page_index):
             if page_model.page_index >= len(pdf):
                 # Página fora do PDF: contada como falha e anunciada — o
@@ -464,20 +546,19 @@ class EditorialExporter:
                                 f"({len(pdf)} páginas)")
                 continue
             page = pdf[page_model.page_index]
+            if fonte_da_camada:
+                page.insert_font(fontname=FONTE_DA_CAMADA, fontfile=fonte_da_camada)
             # As caixas do IR estão em **pixels do raster**; a página do PDF
-            # está em pontos. A escala é a mesma de `ocr_export._escala_pdf`:
-            # largura da página sobre largura da imagem, e `72/dpi` quando a
-            # largura não foi gravada. Sem ela a caixa a 300 dpi caía 4,17×
-            # fora da página.
+            # está em pontos. A escala é a largura da página sobre a largura da
+            # imagem, e `72/dpi` quando a largura não foi gravada. Sem ela a
+            # caixa a 300 dpi caía 4,17× fora da página.
             largura_imagem = page_model.metadata.get("image_width")
             dpi = float(page_model.metadata.get("dpi") or 300)
             escala = (page.rect.width / float(largura_imagem)
                       if largura_imagem else 72.0 / dpi)
             y = 40.0
             for block in sorted(page_model.blocks, key=lambda item: item.order):
-                text = _text(block.decision.value)
-                if block.kind == "diagram":
-                    text = f"FEN: {_fen(block.decision.value) or text}"
+                text = texto_do_bloco(block)
                 if not text:
                     continue
                 ref = block.source_refs[0] if block.source_refs else None
@@ -494,10 +575,28 @@ class EditorialExporter:
                         # negativo quando não coube.
                         for tamanho in (14, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3):
                             if page.insert_textbox(rect, text, fontsize=tamanho,
-                                                   render_mode=3) >= 0:
+                                                   render_mode=3, **escrita) >= 0:
                                 break
                         else:
-                            raise ValueError("texto não coube na caixa do bloco")
+                            # A caixa veio da altura do glifo na imagem. Em
+                            # linhas muito curtas, a conversão de pixels para
+                            # pontos pode deixá-la menor que a altura mínima
+                            # do PDF, embora o texto ainda seja válido. A
+                            # camada é invisível: aumentá-la para baixo
+                            # preserva a busca sem alterar um pixel da página.
+                            altura_minima = min(
+                                max(rect.y1, rect.y0 + 8.0), page.rect.y1)
+                            caixa_fallback = fitz.Rect(
+                                rect.x0, rect.y0, rect.x1, altura_minima)
+                            for tamanho in (3, 2, 1):
+                                if page.insert_textbox(
+                                        caixa_fallback, text,
+                                        fontsize=tamanho, render_mode=3,
+                                        **escrita) >= 0:
+                                    break
+                            else:
+                                raise ValueError(
+                                    "texto não coube na caixa do bloco")
                         y = max(y, rect.y1 + 8)
                     else:
                         # Sem caixa a camada continua **invisível** (`render_mode=3`)
@@ -505,8 +604,8 @@ class EditorialExporter:
                         # é o que o formato "pesquisável" existe para não fazer.
                         # Só o PDF criado do zero, sem imagem, recebe texto visível.
                         page.insert_text((40, y), text, fontsize=11,
-                                         render_mode=3 if source_path else 0)
-                        y += 18
+                                         render_mode=3 if source_path else 0, **escrita)
+                        y += 18 * max(1, text.count("\n") + 1)
                 except Exception as error:  # noqa: BLE001 — contada, e o resto segue
                     failed_items += 1
                     warnings.append(f"bloco {block.id}: {type(error).__name__}: {error}")

@@ -30,6 +30,24 @@ def test_page_result_vira_documento_sem_perder_regioes_e_metadados():
     assert documento.pages[0].observations["page_result"]["page_id"] == "p1"
 
 
+def test_page_result_promove_warning_da_regiao_para_revisao_no_ir():
+    pagina = PageResult(
+        "p1", metadata={"document_id": "book", "source_sha256": "hash"},
+        regions=[RegionResult(
+            "r1", "body", 0, 0.8, (0, 0, 100, 20), text="Texto",
+            warnings=["engine indisponível"],
+            metadata={"review_required": True},
+        )],
+    )
+
+    documento = page_result_para_documento(pagina)
+    bloco = documento.pages[0].blocks[0]
+
+    assert bloco.decision.status == "unresolved"
+    assert bloco.metadata["review_required"] is True
+    assert bloco.warnings == ["engine indisponível"]
+
+
 def test_pagina_extraida_mapeia_paragrafo_figura_e_tabela():
     pagina = PaginaExtraida(
         numero=2,
@@ -50,4 +68,3 @@ def test_pagina_extraida_mapeia_paragrafo_figura_e_tabela():
     assert figura["png_base64"]
     assert documento.pages[0].blocks[2].decision.value["rows"] == [["A", "B"], ["1", "2"]]
     assert documento.validate() == []
-

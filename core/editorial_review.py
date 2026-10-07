@@ -55,6 +55,7 @@ _KIND_PRIORITY = {
 _HIGH_IMPACT_REASONS = {
     "low_confidence", "orientation_missing", "fen_invalid", "notation_conflict",
     "diagram_uncertain", "layout_ambiguous", "manual_review",
+    "side_to_move_legalidade",
 }
 #: O prefixo que marca um evento de lote: `batch:<id>`. Todos os eventos do
 #: mesmo lote levam o mesmo id, e `undo` os desfaz juntos.

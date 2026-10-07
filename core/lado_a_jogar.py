@@ -30,6 +30,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Optional
 
 #: Os dois valores que o campo do FEN aceita.
@@ -140,6 +141,43 @@ def ler(texto: str) -> LadoLido:
     return LadoLido(cor, "legenda", trecho)
 
 
+_LEGENDAS_DE_TURNO = (
+    ("White to play", "white to play"),
+    ("Black to play", "black to play"),
+    ("White to move", "white to move"),
+    ("Black to move", "black to move"),
+    ("White to play and win", "white to play and win"),
+    ("Black to play and win", "black to play and win"),
+)
+
+
+def normalizar_legenda(texto: Optional[str]) -> str:
+    """Recupera uma legenda curta quando o OCR a deformou severamente.
+
+    A correção só considera as frases de vez conhecidas e exige margem entre
+    a melhor e a segunda candidata. Não é aplicada a prosa: uma legenda
+    vizinha ao diagrama pode alimentar o FEN e, por isso, merece uma regra
+    pequena e explícita em vez do corretor lexical geral.
+    """
+    original = str(texto or "").strip()
+    if not original or ler(original):
+        return original
+    dobrado = dobrar(original)
+    compacto = dobrado.replace(" ", "")
+    if len(compacto) < 5 or len(compacto) > 28:
+        return original
+    candidatos = []
+    for exibicao, chave in _LEGENDAS_DE_TURNO:
+        similaridade = SequenceMatcher(None, compacto, chave.replace(" ", "")).ratio()
+        candidatos.append((similaridade, exibicao))
+    candidatos.sort(reverse=True)
+    melhor, nome = candidatos[0]
+    segunda = candidatos[1][0]
+    if melhor >= 0.74 and melhor - segunda >= 0.08:
+        return nome
+    return original
+
+
 def ler_varios(*textos: Optional[str]) -> LadoLido:
     """
     O lado dito por um dos textos em volta do diagrama — o de cima e o de baixo.
@@ -149,7 +187,9 @@ def ler_varios(*textos: Optional[str]) -> LadoLido:
     inventaria uma frase que a página não tem. Dois textos que discordam são
     `ambigua`, pela mesma razão que dois lados na mesma legenda o são.
     """
-    lidos = [item for item in (ler(texto) for texto in textos if texto) if item]
+    lidos = [item for item in (
+        ler(normalizar_legenda(texto)) for texto in textos if texto
+    ) if item]
     if not lidos:
         return LadoLido()
     lados = {item.lado for item in lidos}
@@ -197,6 +237,7 @@ ASSUMIDO = "assumido"
 
 _PROCEDENCIA = {
     "legenda": "da legenda", "legend": "da legenda",
+    "legalidade": "inferido pela legalidade da posição",
     "usuario": "informado na revisão", "manual": "informado na revisão",
     "explicit": "informado na revisão", "explícito": "informado na revisão",
     "ambigua": f"{ASSUMIDO}: a legenda fala dos dois lados",

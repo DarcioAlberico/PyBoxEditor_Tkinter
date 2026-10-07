@@ -77,10 +77,11 @@ def test_outra_excecao_nao_e_traduzida_nem_engolida(monkeypatch):
 def test_sondagem_diz_o_motivo_sem_executavel(monkeypatch):
     pytesseract = pytest.importorskip("pytesseract")
 
-    def sem_executavel(*a, **k):
-        raise pytesseract.TesseractNotFoundError()
-
-    monkeypatch.setattr(pytesseract, "get_tesseract_version", sem_executavel)
+    # A sondagem chama o executável direto, com prazo (PD-01), e não mais o
+    # `get_tesseract_version` do pytesseract: o executável é que falta.
+    monkeypatch.setattr(OCRService, "_configurar_tesseract", staticmethod(lambda _p: None))
+    monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd",
+                        r"C:\nao\existe\tesseract-que-falta.exe")
     disponivel, motivo = OCRService().tesseract_disponivel("en")
     assert disponivel is False
     assert "não foi encontrado" in motivo

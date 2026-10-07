@@ -699,7 +699,7 @@ capítulo reescrevendo espinha, sumário, marcos e links; renomear; anexar) mora
 | `Lista` | `<ol start>`/`<ul>` + `<li>`; `style="list-style-type"` | `<li><p>…</p><p>…</p></li>`; sublista no `<li>` |
 | `Tabela` | `<table style="width:n%" data-numero>`, `<caption>`, `<thead>`/`<tbody>`, `<tr>`, `<th>`/`<td style="text-align">` | `<th>` só quando marcado |
 | `Figura` | `<figure class="esq|centro|dir" data-numero><img src alt style="width:…pt"/><figcaption/></figure>` | |
-| `Diagrama` | `<figure class="diagrama" data-fen data-lado data-orientacao data-coordenadas data-indicador data-marcas data-setas data-fonte data-moldura data-cantos data-corpo data-modo data-numero data-recorte data-estado data-aviso title="<fen>">` com `<img src alt/>` (png) ou o `div.diagrama` de `exportar._diagrama_em_texto` (fonte; `p.colunas`, `span.rot`, `span.col`, `<i>` lidos como parte opaca do diagrama), depois `<figcaption/>` | ler aceita as formas nuas de hoje (DEC-06) |
+| `Diagrama` | `<figure class="diagrama" data-fen data-lado data-orientacao data-coordenadas data-indicador data-marcas data-setas data-fonte data-moldura data-cantos data-corpo data-modo data-numero data-recorte data-estado data-aviso title="<fen>">` com `<img src alt/>` (png) ou o `div.diagrama` de `exportar._diagrama_em_texto` (fonte; as filas num `<pre>` desde a F120, com `span.colunas`, `span.rot`, `span.col`, `<i>` lidos como parte opaca do diagrama — os `<p>` por fila de antes, com `p.colunas`, continuam sendo lidos; com moldura, a grade de dez em glifo da própria fonte desde a F122, e a moldura, a quina e o rótulo relidos dela), depois `<figcaption/>` | ler aceita as formas nuas de hoje (DEC-06) |
 | `Citacao` | `<blockquote>` com `<p>` | |
 | `Nota` rodapé | `<aside epub:type="footnote" role="doc-footnote" id="<id>"><p/></aside>` no fim do `<body>` | referência: `<a epub:type="noteref" role="doc-noteref" href="#<id>"><sup>n</sup></a>` ↔ `Trecho.nota` |
 | `Nota` fim | `<section epub:type="endnotes" role="doc-endnotes"><ol><li epub:type="endnote" id="<id>"><p/></li></ol></section>` no fim do capítulo | `doc-endnote` só é permitido em `li` (DPUB-ARIA 1.1); a referência é a mesma |
@@ -1289,8 +1289,10 @@ para margens espelhadas, cabeçalhos par/ímpar, numeração), fontes via `Archi
    `Paragrafo` (`bold_spans` → negrito); `heading` → `Titulo`; `caption` → `Paragrafo(
    estilo="legenda")`; `diagram` → `Diagrama` (chaves reais do dicionário: `fen`,
    `origin`, `warning`, `width`, `height`, `orientation`, `lines`, `font`, `coordinates`,
-   `framed_lines`, `png_base64`, `bbox`; `lado=""`; o `png_base64` do recorte vira
-   `recorte`) — `diagram` **sem `fen`** ou `origin == "faixa"` → `Figura` com aviso;
+   `framed_lines`, `png_base64`, `bbox`, `side_to_move`, `side_to_move_source`, `marks`;
+   `lado=""`, salvo o lado **lido** — `side_to_move_source` ≠ `assumed`, a legenda ou a
+   revisão —, que entra com `lado_indicador="marca"`, como o desenho do leitor; o
+   `png_base64` do recorte vira `recorte`) — `diagram` **sem `fen`** ou `origin == "faixa"` → `Figura` com aviso;
    `table` → `Tabela`; `chess_sequence` → `Paragrafo` estilo `notacao`; `page_break` e
    toda nova `EditorialPage` → `MarcaDePagina(pagina = page_index + 1)` (índice do PDF,
    não o fólio); `header`/`footer` ignorados com aviso; `unknown` → `Paragrafo` + aviso.

@@ -6,7 +6,8 @@ A ponte com o documento editorial (ED-11; SPEC_EDITOR §10.6.5, §10.7, DEC-10, 
 `de_documento(documento)` monta um `Livro` do `EditorialDocument` com o mapa da §10.6.5
 na letra: `paragraph` → `Paragrafo` (`bold_spans` → negrito), `heading` → `Titulo`,
 `caption` → `Paragrafo(estilo="legenda")`, `chess_sequence` → `notacao`, `diagram` →
-`Diagrama` com `lado=""` (DEC-06) e o recorte impresso como recurso — sem `fen`, ou
+`Diagrama` com `lado=""` (DEC-06) — salvo o lado que o IR diz ter lido (`side_to_move_source`
+≠ `assumed`), que entra com o indicador — e o recorte impresso como recurso — sem `fen`, ou
 `origin == "faixa"`, vira `Figura` com aviso —, `table` → `Tabela`, toda página nova →
 `MarcaDePagina(page_index + 1)` (o índice do PDF, não o fólio), `page_break` no meio da
 página → `QuebraDePagina` (a marca da página já está no começo dela),
@@ -77,6 +78,17 @@ def _fen_completo(fen: str) -> str:
 def _casa_valida(casa: str) -> bool:
     """`c6` sim, `z9` não — a marca que não é casa não entra no diagrama do editor."""
     return len(casa) == 2 and casa[0] in "abcdefgh" and casa[1] in "12345678"
+
+
+def _lado_lido(valor: dict) -> str:
+    """
+    O lado a jogar que o IR diz ter **lido** (a legenda, a revisão), ou `""`: o que o adapter
+    declarou convenção (`side_to_move_source == "assumed"`) continua desconhecido (DEC-06) — a
+    mesma regra da volta, `editorial_adapters._figura_do_valor`.
+    """
+    lado = str(valor.get("side_to_move") or "")
+    lido = str(valor.get("side_to_move_source") or "assumed") != "assumed"
+    return lado if lado in ("w", "b") and lido else ""
 
 
 def _codigos_de_suspeita(block: EditorialBlock) -> str:
@@ -167,6 +179,15 @@ class _Construtor:
             ini, fim = max(0, ini), min(len(texto), fim)
             if ini < fim:
                 modelo.aplicar_formato(bloco, ini, fim, negrito=True)
+        # O itálico da camada de texto (PD-06), pelo mesmo caminho.
+        for par in block.style.get("italic_spans") or []:
+            try:
+                ini, fim = int(par[0]), int(par[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            ini, fim = max(0, ini), min(len(texto), fim)
+            if ini < fim:
+                modelo.aplicar_formato(bloco, ini, fim, italico=True)
         return bloco
 
     def _diagrama(self, page: EditorialPage, block: EditorialBlock) -> Bloco:
@@ -183,7 +204,14 @@ class _Construtor:
         if fen and origin != "faixa" and modelo.fen_valido(_fen_completo(fen)):
             recorte = self._recurso(f"recorte-{nome}.png", png) if png and origin != "render" else ""
             fonte = str(valor.get("font") or "") or modelo.FONTE_PADRAO
-            return Diagrama(fen=_fen_completo(fen), lado="",
+            # O lado lido manda sobre o campo do FEN e leva o indicador: é o desenho que o
+            # leitor fez (`livro.Figura.lado_a_jogar`) e que o arquivo exportado já mostra —
+            # sem isto o editor, que redesenha, o tirava na primeira gravação.
+            lado = _lado_lido(valor)
+            campos = _fen_completo(fen).split()
+            if lado:
+                campos[1] = lado
+            return Diagrama(fen=" ".join(campos), lado=lado, lado_indicador="marca" if lado else "",
                             orientacao="preta" if str(valor.get("orientation") or "") == "preta" else "branca",
                             coordenadas=bool(valor.get("coordinates")), fonte=fonte, modo="png", recorte=recorte,
                             aviso=str(valor.get("warning") or ""),
@@ -200,7 +228,11 @@ class _Construtor:
         valor = block.decision.value if isinstance(block.decision.value, dict) else {}
         filas = [[str(c) for c in fila] for fila in valor.get("rows") or []]
         largura = max((len(f) for f in filas), default=0)
-        celulas = [[Celula(blocos=[Paragrafo(trechos=[Trecho(texto=c)] if c else [])])
+        # A linha de dentro da célula (PD-03) vira `quebra_antes`, o `<br/>`
+        # do modelo do editor — e não um parágrafo a mais na célula.
+        celulas = [[Celula(blocos=[Paragrafo(trechos=[
+                        Trecho(texto=linha, quebra_antes=k > 0)
+                        for k, linha in enumerate(c.split("\n"))] if c else [])])
                     for c in fila + [""] * (largura - len(fila))] for fila in filas]
         if not celulas:
             celulas = [[Celula(blocos=[Paragrafo(trechos=[])])]]

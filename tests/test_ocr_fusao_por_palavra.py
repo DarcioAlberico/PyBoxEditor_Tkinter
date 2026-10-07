@@ -412,6 +412,20 @@ def test_o_registro_da_faixa_volta_em_coordenadas_da_pagina():
     assert livro._registro_da_faixa(img, linha, lambda faixa: []) is None
 
 
+def test_o_registro_da_faixa_preserva_evidencia_do_ensemble():
+    import numpy as np
+    img = np.full((100, 200), 255, dtype=np.uint8)
+    linha = [BoxEntry("", 40, 30, 60, 50)]
+    evidencia = {"consensus": True, "support": 2}
+
+    def ler(_faixa):
+        return [("linha", .8, (0, 0, 20, 20), (), evidencia)]
+
+    _texto, _conf, detalhes, _trama = livro._registro_da_faixa(img, linha, ler)
+
+    assert detalhes.metadata == evidencia
+
+
 def test_o_agrupador_do_tesseract_junta_as_palavras_da_mesma_linha():
     from core.services.ocr_service import OCRService
     dados = {

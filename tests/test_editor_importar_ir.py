@@ -212,6 +212,39 @@ def test_de_paginas_passa_pelo_adapter(tmp_path):
     assert livro.metadados.titulo == "Das páginas" and rel.blocos == 7          # as duas células contam
 
 
+def test_o_lado_lido_chega_ao_diagrama_e_o_assumido_nao():
+    """
+    O lado que a legenda disse (o `W`/`B` do Dvoretsky, F110) chega ao editor, com o
+    indicador que o desenho do leitor já tinha; o da convenção continua desconhecido
+    (DEC-06). Até aqui os dois chegavam `lado=""`, e todo diagrama do documento editorial
+    abria com "lado a jogar desconhecido" — 1.273 no Dvoretsky, 1.235 deles lidos.
+    """
+    from core import livro as livro_mod
+
+    png = base64.b64decode(png_cinza())
+    pagina = livro_mod.PaginaExtraida(numero=0, blocos=[
+        livro_mod.Figura(png, 24, 24, fen=FEN_REIS + " b - - 0 1", origem="render",
+                         lado_a_jogar="b", lado_origem="legenda", marcas=["c6"]),
+        livro_mod.Figura(png, 24, 24, fen=FEN_REIS + " w - - 0 1", origem="render"),
+    ], largura=800, altura=1000)
+    livro, _rel = importar_ir.de_paginas([pagina], document_id="livro")
+    lida, assumida = [b for b in livro.capitulos[0].blocos if isinstance(b, m.Diagrama)]
+    assert (lida.lado, lida.lado_indicador, lida.fen) == ("b", "marca", FEN_REIS + " b - - 0 1")
+    assert lida.marcas == ["c6"]
+    assert (assumida.lado, assumida.lado_indicador) == ("", "")
+    # a revisão também é leitura, e o lado lido manda sobre o campo do FEN — sem evento na volta
+    doc = documento_sintetico()
+    doc.pages[0].blocks[2].decision.value.update(side_to_move="b", side_to_move_source="manual")
+    livro, _rel = importar_ir.de_documento(doc)
+    d = _bloco_de(livro, "block-doc-p0001-b0002")
+    assert (d.lado, d.fen) == ("b", FEN_E4 + " b - - 0 1")
+    assert importar_ir.eventos_de(livro, doc) == []
+    # o "b" que o adapter declarou convenção não vira leitura
+    doc.pages[0].blocks[2].decision.value["side_to_move_source"] = "assumed"
+    livro, _rel = importar_ir.de_documento(doc)
+    assert _bloco_de(livro, "block-doc-p0001-b0002").lado == ""
+
+
 # ----------------------------------------------------------------------
 # AC-ED11-2 (AC-008), AC-ED11-3, AC-ED11-4
 # ----------------------------------------------------------------------

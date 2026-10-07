@@ -338,6 +338,12 @@ def test_a_leitura_com_o_lado_da_legenda_sai_com_ele():
     assert _leitura("b").fen().endswith(" b - - 0 1")
 
 
+def test_legenda_curta_com_erro_de_ocr_e_normalizada():
+    assert lado_a_jogar.normalizar_legenda("Blakt la") == "Black to play"
+    assert lado_a_jogar.normalizar_legenda("Black to play") == "Black to play"
+    assert lado_a_jogar.normalizar_legenda("Knaak - Hartston") == "Knaak - Hartston"
+
+
 def test_o_titulo_do_diagrama_troca_o_aviso_da_convencao():
     from core import diagrama
 

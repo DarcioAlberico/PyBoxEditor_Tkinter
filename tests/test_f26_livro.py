@@ -34,6 +34,16 @@ from core.box_model import BoxEntry
 from core.services.box_service import BoxService
 
 
+def test_turno_assumido_e_ajustado_quando_so_o_lado_oposto_e_legal():
+    fen = "5Rkr/p1p4p/1p2qp1B/8/3P4/8/PPP2PPP/6K1 w - - 0 1"
+
+    ajustado, lado, origem = livro._ajustar_lado_por_legalidade(fen)
+
+    assert ajustado.endswith(" b - - 0 1")
+    assert lado == "b"
+    assert origem == "legalidade"
+
+
 # ----------------------------------------------------------------------
 # Apoio
 # ----------------------------------------------------------------------
@@ -559,6 +569,7 @@ class _App:
             coletar=bool(r.get("Guardar")), teto=r.get("Teto"),
             reparar=bool(r.get("Consertar")),
             modelo_de_linha=bool(r.get("Modelo")),
+            usar_ensemble=bool(r.get("Ensemble")),
             # Os PDFs destes testes nascem digitais (`insert_text`), e a régua
             # da camada (F110) os leria do arquivo: estes testes são do OCR, e
             # só lê a camada quem pede `Camada`.
@@ -798,6 +809,28 @@ def test_as_duas_perguntas_da_f58_chegam_a_extracao(monkeypatch):
         assert not app.erros, app.erros
         assert recebido["coordenadas"] == livro.COMO_NO_LIVRO, (
             "'como no livro' parou no diálogo")
+
+
+def test_o_ensemble_da_caixa_chega_ao_leitor_de_livro(monkeypatch):
+    recebido = {}
+
+    def falsa_extrair(_input_pdf, _classificar, **kw):
+        recebido.update(kw)
+        return []
+
+    monkeypatch.setattr(livro, "extrair", falsa_extrair)
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    _pdf_de_uma_pagina(entrada)
+
+    with _App(entrada, os.path.join(tmp, "ensemble.epub"),
+              respostas={"Ensemble": True}) as app:
+        app.rodar()
+        assert not app.erros, app.erros
+
+    leitor = recebido["ler_faixa"]
+    assert hasattr(leitor, "last_result")
+    assert leitor.last_result is None
 
 
 def test_a_fonte_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):

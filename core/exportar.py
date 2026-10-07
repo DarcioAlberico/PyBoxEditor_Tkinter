@@ -100,11 +100,24 @@ def em_fonte(figura: Figura) -> bool:
 
 def _diagrama_em_texto(figura: Figura) -> str:
     """
-    O tabuleiro como oito linhas de texto na fonte de xadrez.
+    O tabuleiro como oito linhas de texto na fonte de xadrez, num `<pre>`.
 
-    As coordenadas entram em **fonte de texto**, e não é escolha: a
-    SkakNew-Diagram tem 46 codepoints e nenhum deles é `a`–`h`, `7` ou `8` — as
-    letras que sobrariam para rótulo desenham casa. Daí o `<i>` dentro do
+    **Um `<pre>` com as filas, e não um `<p>` por fila** (F120). Na Chess Merida
+    a casa clara vazia é o espaço, e toda fila começa ou termina numa casa
+    clara: `<p> T + +l+</p>`. O espaço da ponta de um parágrafo é o primeiro que
+    se perde — o "Mend and Prettify" do Sigil apara o começo e o fim de cada
+    `<p>`, e o leitor que não aplica o `white-space: pre` da folha junta o
+    espaço da borda como junta o de qualquer parágrafo —, e o tabuleiro
+    aparecia 7×8, sem erro nenhum. O conteúdo de um `<pre>` ninguém apara, e
+    sem folha nenhuma ele já é pré-formatado.
+
+    **Com moldura, ela vem nas linhas** (F122): numa fonte com os glifos de
+    borda as `linhas` já são a grade de dez, e o `div` sai sem a `caixa` — a
+    borda da CSS por cima seria a segunda moldura.
+
+    As coordenadas entram em **fonte de texto** onde a fonte não tem glifo de
+    rótulo, e não é escolha: na SkakNew-Diagram as letras e os números que
+    sobrariam para rótulo desenham casa ou moldura. Daí o `<i>` dentro do
     `<span>`: o `span` mede uma casa na fonte do tabuleiro, e o `i` desenha o
     rótulo pequeno, centrado nela.
     """
@@ -119,10 +132,9 @@ def _diagrama_em_texto(figura: Figura) -> str:
         # Escapado como as outras saídas do módulo: as duas fontes de hoje só
         # emitem caractere seguro, e a terceira que mapear `<` quebraria o
         # XHTML sem que nada aqui acusasse (F111).
-        miolo = "\n".join(f"<p>{html.escape(linha)}</p>"
-                          for linha in figura.linhas or [])
+        miolo = "\n".join(html.escape(linha) for linha in figura.linhas or [])
         return (f'<div class="diagrama {familia}" title="{titulo_do_alt}" '
-                f'aria-label="{titulo_do_alt}" role="img">\n{miolo}\n</div>')
+                f'aria-label="{titulo_do_alt}" role="img">\n<pre>{miolo}</pre>\n</div>')
 
     # Os rótulos saem do mesmo lugar que os do PNG, e não de uma lista escrita
     # aqui: o diagrama impresso do lado das pretas tem as `linhas` giradas
@@ -133,18 +145,21 @@ def _diagrama_em_texto(figura: Figura) -> str:
         linha = html.escape(linha)
         if figura.coordenadas:
             linha = f'<span class="rot"><i>{filas[i]}</i></span>{linha}'
-        linhas.append(f"<p>{linha}</p>")
+        linhas.append(linha)
     if figura.coordenadas:
         # A classe é obrigatória, e não enfeite: um seletor por elemento
-        # (`p.colunas span`) pegava junto o `span.rot` desta mesma linha e o
+        # (`.colunas span`) pegava junto o `span.rot` desta mesma linha e o
         # alargava de 0,92 em para 1 em — 2,69 px medidos no navegador, que é o
         # tabuleiro andando para um lado e as letras para o outro.
         colunas = "".join(f'<span class="col"><i>{c}</i></span>' for c in letras)
-        linhas.append(f'<p class="colunas"><span class="rot"></span>'
-                      f'{colunas}</p>')
+        linhas.append(f'<span class="colunas"><span class="rot"></span>'
+                      f'{colunas}</span>')
+    # Nenhuma quebra logo depois de `<pre>`: o analisador de HTML (o do Sigil é
+    # um) come a primeira, e o de XML não — o mesmo arquivo teria uma fila a
+    # mais num e não no outro.
     return (f'<div class="diagrama caixa {familia}" title="{titulo_do_alt}" '
-            f'aria-label="{titulo_do_alt}" role="img">\n' + "\n".join(linhas)
-            + "\n</div>")
+            f'aria-label="{titulo_do_alt}" role="img">\n<pre>' + "\n".join(linhas)
+            + "</pre>\n</div>")
 
 
 def trechos(texto: str, negrito: Sequence[Tuple[int, int]]
@@ -195,13 +210,92 @@ def _por_familia(texto: str, simbolos: str) -> List[Tuple[str, bool]]:
     return saida
 
 
+def trechos_com_estilo(texto: str, negrito: Sequence[Tuple[int, int]],
+                       italico: Sequence[Tuple[int, int]] = ()
+                       ) -> List[Tuple[str, bool, bool]]:
+    """
+    O texto partido onde o negrito **ou** o itálico muda: `(trecho, forte,
+    inclinado)` (PD-06).
+
+    Sem itálico é o `trechos` de sempre, trecho a trecho — o arquivo de quem não
+    tem itálico sai byte a byte como saía. Com ele, o corte é em toda borda das
+    duas marcas, e cada pedaço diz o que o cobre.
+    """
+    if not italico:
+        return [(t, forte, False) for t, forte in trechos(texto, negrito)]
+    n = len(texto)
+    fortes = [(max(0, a), min(b, n)) for a, b in negrito if min(b, n) > max(0, a)]
+    inclinados = [(max(0, a), min(b, n)) for a, b in italico if min(b, n) > max(0, a)]
+    cortes = sorted({0, n, *(v for par in fortes + inclinados for v in par)})
+    saida: List[Tuple[str, bool, bool]] = []
+    for a, b in zip(cortes, cortes[1:]):
+        if b <= a:
+            continue
+        saida.append((texto[a:b],
+                      any(x <= a and b <= y for x, y in fortes),
+                      any(x <= a and b <= y for x, y in inclinados)))
+    return saida
+
+
+#: O que abre aspa quando vem logo antes dela: o começo, o espaço e a
+#: pontuação que abre. Depois de qualquer outra coisa a aspa fecha.
+_ABRE_ASPA = frozenset(" \t\n([{<\u2014\u2013-/\u201c\u2018")
+
+
+def aspas_curvas(texto: str) -> str:
+    """
+    As aspas retas do texto trocadas pelas curvas, caractere por caractere (PD-07).
+
+    A F111 contou **0 aspas curvas contra 17 retas** num livro exportado: o
+    impresso tem `“`, `”` e `’`, e o OCR devolve o `"` e o `'` do teclado. A
+    troca é **de um caractere por um**, e por isso as fatias de negrito e de
+    itálico, que são índices do texto, continuam valendo sem ajuste.
+
+    A regra é a de qualquer compositor: a aspa abre no começo, depois de espaço
+    ou de pontuação que abre (`(`, `[`, travessão, outra aspa que abre), e fecha
+    no resto. O `'` entre duas letras ou números é apóstrofo (`don't`,
+    `d'água`) e fecha; antes de algarismo depois de espaço também (`'90s`),
+    que é o apóstrofo da elisão e não abertura. Só se troca na exportação: o
+    texto da página, de onde saem o léxico, o PGN e a régua do corpus, fica
+    como o OCR o leu.
+    """
+    if '"' not in texto and "'" not in texto:
+        return texto
+    saida = []
+    for i, c in enumerate(texto):
+        if c not in "\"'":
+            saida.append(c)
+            continue
+        antes = texto[i - 1] if i else ""
+        depois = texto[i + 1] if i + 1 < len(texto) else ""
+        abre = not antes or antes in _ABRE_ASPA
+        if c == '"':
+            saida.append("\u201c" if abre else "\u201d")
+        elif abre and not depois.isdigit():
+            saida.append("\u2018")
+        else:
+            saida.append("\u2019")
+    return "".join(saida)
+
+
 def _marcado(paragrafo: Paragrafo, simbolos: str) -> str:
-    """O parágrafo em XHTML, com o negrito da página e a fonte dos símbolos."""
+    """O parágrafo em XHTML, com o negrito e o itálico da página e a fonte
+    dos símbolos. Os dois juntos saem `<strong><em>…</em></strong>`."""
     def escapado(trecho: str) -> str:
         return _com_simbolos(trecho, simbolos) if simbolos else html.escape(trecho)
 
-    return "".join(f"<strong>{escapado(t)}</strong>" if forte else escapado(t)
-                   for t, forte in trechos(paragrafo.texto, paragrafo.negrito))
+    def marcado(trecho: str, forte: bool, inclinado: bool) -> str:
+        saida = escapado(trecho)
+        if inclinado:
+            saida = f"<em>{saida}</em>"
+        if forte:
+            saida = f"<strong>{saida}</strong>"
+        return saida
+
+    return "".join(marcado(t, forte, inclinado) for t, forte, inclinado in
+                   trechos_com_estilo(aspas_curvas(paragrafo.texto),
+                                      paragrafo.negrito,
+                                      getattr(paragrafo, "italico", ())))
 
 
 def ancora(pagina: PaginaExtraida, n: int) -> str:
@@ -233,18 +327,68 @@ def nome_da_pagina(pagina: PaginaExtraida) -> str:
     return f"pagina-{pagina.numero + 1:04d}.xhtml"
 
 
-def agora() -> str:
+def instante() -> int:
     """
-    A data do arquivo, como o EPUB a pede: `2026-09-02T15:04:05Z`.
+    O instante do arquivo, em segundos desde 1970.
 
     `SOURCE_DATE_EPOCH` manda quando existe — é a convenção dos builds
     reprodutíveis, e o que os testes usam para o arquivo sair igual duas vezes
-    —; sem ela, é agora. Era `2026-01-01T00:00:00Z` fixo (F111).
+    —; sem ela, é agora. **Quem escreve um arquivo o toma uma vez só** e o passa
+    adiante: o `dcterms:modified` e a data de cada entrada do zip são o mesmo
+    momento, e não um relógio consultado a cada parte.
     """
     epoca = os.environ.get("SOURCE_DATE_EPOCH")
-    instante = int(epoca) if epoca and epoca.isdigit() else int(time.time())
+    return int(epoca) if epoca and epoca.isdigit() else int(time.time())
+
+
+def agora(momento: Optional[int] = None) -> str:
+    """
+    A data do arquivo, como o EPUB a pede: `2026-09-02T15:04:05Z`.
+
+    `momento` é o `instante()` que o arquivo já tomou; sem ele, toma-se um
+    agora. Era `2026-01-01T00:00:00Z` fixo (F111).
+    """
+    if momento is None:
+        momento = instante()
     return datetime.datetime.fromtimestamp(
-        instante, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        momento, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+#: O primeiro instante que a data de uma entrada de zip sabe dizer,
+#: 1980-01-01T00:00:00Z: a data do MS-DOS conta os anos a partir de 1980, e o
+#: `ZipInfo` recusa o que vier antes — um `SOURCE_DATE_EPOCH=0`, por exemplo.
+PISO_DO_ZIP = 315532800
+
+
+def data_no_zip(momento: int) -> Tuple[int, ...]:
+    """
+    O instante como data de entrada de zip: `(ano, mês, dia, hora, min, s)`.
+
+    **Em UTC, como o `dcterms:modified`**, e não na hora local que o `zipfile`
+    usa sozinho: o mesmo `SOURCE_DATE_EPOCH` tem de dar os mesmos bytes no
+    Windows daqui e no Linux da CI. O zip guarda o segundo de dois em dois, e o
+    ímpar cai no par ao gravar.
+    """
+    return time.gmtime(max(momento, PISO_DO_ZIP))[:6]
+
+
+def _gravar_no_zip(z: zipfile.ZipFile, nome: str, dados, data_hora,
+                   compressao: Optional[int] = None) -> None:
+    """
+    O `z.writestr(nome, dados)`, mas com a data do arquivo em vez da do relógio.
+
+    **Com o nome em texto, o `writestr` carimba cada entrada com a hora local
+    do momento em que ela passa**, e o mesmo livro gravado dos dois lados de uma
+    virada de 2 s saía com outros bytes — o
+    `test_o_epub_do_round_trip_e_byte_identico` caía assim com a máquina
+    carregada. Fora a data, a entrada sai como o `writestr` a faria: com a
+    compressão do zip — o `ZipInfo` nasce sem nenhuma — e a permissão
+    `rw-------`.
+    """
+    info = zipfile.ZipInfo(nome, date_time=data_hora)
+    info.compress_type = z.compression if compressao is None else compressao
+    info.external_attr = 0o600 << 16
+    z.writestr(info, dados)
 
 
 def identificador_de(titulo: str, autor: str = "") -> str:
@@ -290,8 +434,12 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             # "coluna: W: Win" como se fosse título (F72).
             filas = []
             for fila in bloco.linhas:
+                # A linha da célula vira `<br/>` (PD-03): escapado antes, o
+                # `\n` não é marcação e o navegador o leria como espaço.
                 celulas = "".join(
-                    f"<td>{_com_simbolos(c, simbolos) if simbolos else html.escape(c)}</td>"
+                    "<td>" + "<br/>".join(
+                        _com_simbolos(linha, simbolos) if simbolos else html.escape(linha)
+                        for linha in aspas_curvas(c).split("\n")) + "</td>"
                     for c in fila)
                 filas.append(f"<tr>{celulas}</tr>")
             corpo.append("<table>\n" + "\n".join(filas) + "\n</table>")
@@ -554,6 +702,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         'livro impresso; os diagramas de xadrez trazem a posição em FEN como '
         'texto alternativo quando ela foi lida.</meta>\n')
 
+    momento = instante()
     opf = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
@@ -565,7 +714,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         f"<dc:title>{html.escape(titulo)}</dc:title>\n"
         f'<dc:language>{html.escape(idioma)}</dc:language>\n'
         + (f"<dc:creator>{html.escape(autor)}</dc:creator>\n" if autor else "")
-        + f'<meta property="dcterms:modified">{agora()}</meta>\n'
+        + f'<meta property="dcterms:modified">{agora(momento)}</meta>\n'
         + acessibilidade
         + ibooks
         + "</metadata>\n<manifest>\n" + "\n".join(itens) + "\n</manifest>\n"
@@ -576,7 +725,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     # quando não: "Página N" 2.612 vezes não é sumário, mas é o que há.
     if capitulos_do_livro:
         entradas = "".join(
-            f'<li><a href="{arquivo}#{alvo}">{html.escape(texto)}</a></li>'
+            f'<li><a href="{arquivo}#{alvo}">{html.escape(aspas_curvas(texto))}</a></li>'
             for arquivo, alvo, texto in capitulos_do_livro)
     else:
         entradas = "".join(f'<li><a href="{n}">Página {i + 1}</a></li>'
@@ -598,16 +747,17 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     fd, temporario = tempfile.mkstemp(prefix=".epub-", suffix=".tmp",
                                       dir=pasta)
     os.close(fd)
+    data_hora = data_no_zip(momento)
     try:
         with zipfile.ZipFile(temporario, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip",
-                       compress_type=zipfile.ZIP_STORED)
-            z.writestr("META-INF/container.xml", _CONTAINER)
-            z.writestr("OEBPS/content.opf", opf)
-            z.writestr("OEBPS/nav.xhtml", nav)
-            z.writestr("OEBPS/estilo.css", css)
+            _gravar_no_zip(z, "mimetype", "application/epub+zip", data_hora,
+                           zipfile.ZIP_STORED)
+            _gravar_no_zip(z, "META-INF/container.xml", _CONTAINER, data_hora)
+            _gravar_no_zip(z, "OEBPS/content.opf", opf, data_hora)
+            _gravar_no_zip(z, "OEBPS/nav.xhtml", nav, data_hora)
+            _gravar_no_zip(z, "OEBPS/estilo.css", css, data_hora)
             for nome, dados in arquivos:
-                z.writestr(nome, dados)
+                _gravar_no_zip(z, nome, dados, data_hora)
         # Reading the central directory catches a surprising class of write
         # failures before the old destination is replaced.
         with zipfile.ZipFile(temporario) as z:
@@ -662,7 +812,26 @@ def _inserir(texto: str, marca: str, trecho: str) -> str:
     return texto[:corte] + trecho + texto[corte:]
 
 
-def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
+def _partes_do_zip(caminho: str) -> dict:
+    """As entradas do zip, na ordem em que estão: nome → bytes."""
+    with zipfile.ZipFile(caminho) as z:
+        return {info.filename: z.read(info) for info in z.infolist()}
+
+
+def _regravar_zip(caminho: str, partes: dict,
+                  momento: Optional[int] = None) -> None:
+    """
+    Regrava o zip com estas partes, comprimidas e com a data do arquivo em toda
+    entrada (ver `_gravar_no_zip`). Sem `momento`, toma-se um agora.
+    """
+    data_hora = data_no_zip(instante() if momento is None else momento)
+    with zipfile.ZipFile(caminho, "w", zipfile.ZIP_DEFLATED) as z:
+        for nome, dados in partes.items():
+            _gravar_no_zip(z, nome, dados, data_hora)
+
+
+def _embutir_fontes_no_docx(caminho: str, fontes: dict,
+                            momento: Optional[int] = None) -> None:
     """
     Põe as fontes dentro do .docx, do jeito que o Word as espera.
 
@@ -680,10 +849,10 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
         word/fontTable.xml (+rels)  o nome da família ligado ao arquivo
         word/settings.xml           `w:embedTrueTypeFonts`, sem o qual o Word
                                     ignora tudo o que está acima
+
+    `momento` é o `instante()` do arquivo, que vai na data de cada entrada.
     """
-    with zipfile.ZipFile(caminho) as z:
-        itens = [(info.filename, z.read(info.filename)) for info in z.infolist()]
-    conteudo = dict(itens)
+    conteudo = _partes_do_zip(caminho)
 
     tipos = conteudo["[Content_Types].xml"].decode("utf-8")
     if "odttf" not in tipos:
@@ -726,9 +895,7 @@ def _embutir_fontes_no_docx(caminho: str, fontes: dict) -> None:
         ajustes = ajustes[:corte] + "<w:embedTrueTypeFonts/>" + ajustes[corte:]
         conteudo["word/settings.xml"] = ajustes.encode("utf-8")
 
-    with zipfile.ZipFile(caminho, "w", zipfile.ZIP_DEFLATED) as z:
-        for nome, dados in conteudo.items():
-            z.writestr(nome, dados)
+    _regravar_zip(caminho, conteudo, momento)
 
 
 #: O que a caixa do diagrama em fonte tem a mais que `corpo × colunas` (PD-09).
@@ -838,7 +1005,8 @@ def _caixa_do_diagrama(doc, moldura: str, largura_pt: float,
     return celula
 
 
-def _propriedades_do_docx(doc, titulo: str, autor: str) -> None:
+def _propriedades_do_docx(doc, titulo: str, autor: str,
+                          momento: Optional[int] = None) -> None:
     """
     O arquivo com a identidade do livro, e não a da biblioteca (F111).
 
@@ -851,7 +1019,7 @@ def _propriedades_do_docx(doc, titulo: str, autor: str) -> None:
     A miniatura sai pela relação, e não pelo zip: o `python-docx` escreve as
     partes que alcança pelas relações, e a que ninguém aponta não é escrita.
     """
-    data = datetime.datetime.strptime(agora(), "%Y-%m-%dT%H:%M:%SZ")
+    data = datetime.datetime.strptime(agora(momento), "%Y-%m-%dT%H:%M:%SZ")
     props = doc.core_properties
     props.title = titulo
     props.author = autor
@@ -965,9 +1133,9 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         **Diagrama com coordenada saía sempre em imagem, e desde a F99 não
         mais** — quando a fonte tem os glifos de borda com rótulo, as dez linhas
         já trazem o `a`–`h` e o `8`–`1` desenhados, e não há o que alinhar. Com
-        a SkakNew-Diagram continua caindo para imagem: a fonte tem 46 codepoints
-        e nenhum deles é `a`–`h`, `7` ou `8`, e pôr rótulo de outra fonte sobre
-        as casas exigiria uma tabela de 81 células por diagrama.
+        a SkakNew-Diagram continua caindo para imagem: ela tem a moldura em
+        glifo (F122), mas não o rótulo, e pôr rótulo de outra fonte sobre as
+        casas exigiria uma tabela de 81 células por diagrama.
         """
         if not (diagramas == "fonte" and em_fonte(bloco)):
             return False
@@ -984,7 +1152,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     simbolos = recurso[2] if recurso else ""
 
     def escrever_paragrafo(texto: str, negrito: Sequence[Tuple[int, int]] = (),
-                           p=None):
+                           p=None, italico: Sequence[Tuple[int, int]] = ()):
         """
         Um parágrafo, com os símbolos em runs de outra fonte e o negrito da
         página (F105).
@@ -1001,19 +1169,23 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         """
         if p is None:
             p = doc.add_paragraph()
-        for trecho, forte in trechos(texto, negrito):
+        # Um caractere por um (PD-07): as fatias continuam valendo.
+        texto = aspas_curvas(texto)
+        for trecho, forte, inclinado in trechos_com_estilo(texto, negrito, italico):
             for pedaco, e_simbolo in _por_familia(trecho, simbolos):
                 run = p.add_run(pedaco)
                 # `None` e não `False`: o `False` escreve `<w:b w:val="0"/>` em
                 # todo run do livro, e o que se quer dizer é "este run não fala
                 # de peso" — que é o que o estilo do parágrafo já diz.
                 run.bold = True if forte else None
+                run.italic = True if inclinado else None
                 if e_simbolo:
                     familia_do_run(run, recurso[0])
         return p
 
+    momento = instante()
     doc = Document()
-    _propriedades_do_docx(doc, titulo, autor)
+    _propriedades_do_docx(doc, titulo, autor, momento)
     _idioma_do_estilo(doc.styles["Normal"], idioma)
     # Heading styles do not consistently inherit language metadata across Word
     # versions. Set them explicitly so chapter headings and diagram labels are
@@ -1127,7 +1299,8 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 separador()
                 primeiro = True
             else:
-                p = escrever_paragrafo(bloco.texto, bloco.negrito)
+                p = escrever_paragrafo(bloco.texto, bloco.negrito,
+                                       italico=getattr(bloco, "italico", ()))
                 if bloco.titulo:
                     p.style = doc.styles["Heading 1" if bloco.nivel == 1
                                          else "Heading 2"]
@@ -1155,7 +1328,11 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         if recurso:
             embutir[recurso[0]] = recurso[1]
         if embutir:
-            _embutir_fontes_no_docx(temporario, embutir)
+            _embutir_fontes_no_docx(temporario, embutir, momento)
+        else:
+            # Regravado mesmo sem fonte a embutir: o `python-docx` também grava
+            # as partes por nome, cada uma com a hora de quando passou.
+            _regravar_zip(temporario, _partes_do_zip(temporario), momento)
         # python-docx can reopen the final package and catches malformed OOXML
         # produced by a future embedding change before publication.
         from docx import Document as _Document
