@@ -8,6 +8,12 @@
 # e a regra passa a valer também para quem clona sem `autocrlf`.
 * text=auto eol=lf
 
+# Os artefatos do corpus de referência são byte a byte, sem conversão de fim de linha: o
+# manifesto (`benchmarks/corpus_v2.json`) guarda um SHA-256 dos arquivos declarados e as
+# rodadas comparam com ele, e o hash de 2026-09-26 foi calculado com as predições em
+# CRLF. O que se commita aqui é o que todo clone recebe, no Windows e na CI.
+benchmarks/** -text
+
 # O que nunca é texto: o git não normaliza nem tenta mostrar diff. Um tipo binário novo
 # entra aqui e em `scripts/conferir_codificacao.EXTENSOES_BINARIAS`.
 *.png binary
