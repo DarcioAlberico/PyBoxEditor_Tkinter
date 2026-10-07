@@ -40,6 +40,8 @@ que o usuário digite um número que seria mudado debaixo dele sem aviso.
 import io
 import tkinter as tk
 from tkinter import ttk
+
+from ui import tema
 from typing import Callable, Optional, Tuple
 
 from PIL import Image, ImageTk
@@ -96,6 +98,7 @@ class PainelDoDiagrama(ttk.Frame):
         de exportação numa tela de 768 px de altura. O feitio de sempre, em
         coluna, é o da caixa sozinha."""
         super().__init__(master, **kw)
+        tema.aplicar(self)
         self.ao_mudar = ao_mudar
         self.compacto = compacto
         self._foto = None      # o Tk descarta a imagem que ninguém segura
@@ -122,7 +125,7 @@ class PainelDoDiagrama(ttk.Frame):
         self.combo_fonte.pack(anchor="w")
         self.combo_fonte.bind("<<ComboboxSelected>>",
                               lambda _e: self._desenhar_amostra())
-        ttk.Label(quadro, foreground="gray30", wraplength=240, justify="left",
+        ttk.Label(quadro, style="Secundario.TLabel", wraplength=240, justify="left",
                   text="Vale para o diagrama redesenhado. O recorte do scan sai "
                        "como está na página, em qualquer fonte."
                   ).pack(anchor="w", pady=(4, 0))
@@ -136,7 +139,7 @@ class PainelDoDiagrama(ttk.Frame):
             ttk.Radiobutton(feitio, text=rotulo, value=valor,
                             variable=self.var_moldura,
                             command=self._mudou_a_moldura).pack(anchor="w")
-            ttk.Label(feitio, text=explicacao, foreground="gray30",
+            ttk.Label(feitio, text=explicacao, style="Secundario.TLabel",
                       wraplength=240).pack(anchor="w", padx=(20, 0),
                                            pady=(0, 4))
         self.var_cantos = tk.BooleanVar(value=cantos == "arredondado")
@@ -156,11 +159,11 @@ class PainelDoDiagrama(ttk.Frame):
                     command=self._mudou_o_corpo).pack(side="left")
         ttk.Label(linha, text="pt por casa").pack(side="left", padx=(6, 0))
         self.var_corpo.trace_add("write", lambda *_a: self._mudou_o_corpo())
-        self.lbl_medida = ttk.Label(tamanho, foreground="gray30",
+        self.lbl_medida = ttk.Label(tamanho, style="Secundario.TLabel",
                                     wraplength=240, justify="left")
         self.lbl_medida.pack(anchor="w", pady=(4, 0))
 
-        ttk.Label(self, wraplength=430, foreground="gray30", justify="left",
+        ttk.Label(self, wraplength=430, style="Secundario.TLabel", justify="left",
                   text="A casa é o quadrado do tipo: o tabuleiro mede oito "
                        "vezes o corpo. Vale para o diagrama redesenhado e para "
                        "o recorte do scan, para os dois saírem do mesmo "
@@ -185,7 +188,7 @@ class PainelDoDiagrama(ttk.Frame):
         self.combo_fonte.pack(anchor="w", pady=(2, 0))
         self.combo_fonte.bind("<<ComboboxSelected>>",
                               lambda _e: self._desenhar_amostra())
-        ttk.Label(meio, foreground="gray30", wraplength=220, justify="left",
+        ttk.Label(meio, style="Secundario.TLabel", wraplength=220, justify="left",
                   text="O recorte do scan sai como está, em qualquer fonte."
                   ).pack(anchor="w", pady=(2, 0))
         ttk.Label(meio, text="Tamanho:").pack(anchor="w", pady=(10, 0))
@@ -198,7 +201,7 @@ class PainelDoDiagrama(ttk.Frame):
                     command=self._mudou_o_corpo).pack(side="left")
         ttk.Label(linha, text="pt por casa").pack(side="left", padx=(6, 0))
         self.var_corpo.trace_add("write", lambda *_a: self._mudou_o_corpo())
-        self.lbl_medida = ttk.Label(meio, foreground="gray30", wraplength=220,
+        self.lbl_medida = ttk.Label(meio, style="Secundario.TLabel", wraplength=220,
                                     justify="left")
         self.lbl_medida.pack(anchor="w", pady=(2, 0))
 
@@ -295,7 +298,7 @@ class PainelDoDiagrama(ttk.Frame):
         except (render_diagrama.FonteDesconhecida,
                 render_diagrama.FonteIncompleta, ValueError) as erro:
             self.amostra.create_text(centro, centro, width=LADO_DA_AMOSTRA,
-                                     justify="center", fill="#B71C1C",
+                                     justify="center", fill=tema.TEXTO_ERRO,
                                      text=f"não deu para desenhar:\n{erro}")
             return
         imagem = Image.open(io.BytesIO(png)).convert("L")

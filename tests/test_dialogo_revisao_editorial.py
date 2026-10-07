@@ -239,3 +239,41 @@ def test_a_janela_tambem_abre_com_o_documento_de_uma_figura_sem_caixa():
     with _Janela([pagina]) as j:
         j.selecionar("block-livro-p0001-b0000")
         assert j.janela.lbl_recorte.cget("text") == "(bloco sem caixa na página)"
+
+
+@pytest.mark.gui
+def test_gui_a_fila_pelo_teclado_de_verdade():
+    """
+    Item 10 da revisão: a tela de revisão pelo teclado, com as teclas entregues
+    pelo Tk (`event_generate` numa janela visível e com foco), e não com os
+    métodos chamados à mão. `n` anda, `a` aceita e tira o bloco da fila,
+    `Ctrl+Z` o devolve, e com o foco no campo do valor o `a` é letra.
+    """
+    with _Janela() as j:
+        janela = j.janela
+        janela.deiconify()
+        janela.focus_force()
+        ids = list(janela.tree.get_children())
+        janela.tree.selection_set(ids[0])
+        janela._show_selected()
+        janela.tree.focus_set()
+        janela.update()
+
+        janela.tree.event_generate("<Key-n>")
+        janela.update()
+        assert janela.tree.selection() == (ids[1],)
+        janela.tree.event_generate("<Key-a>")
+        janela.update()
+        assert ids[1] not in janela.tree.get_children()
+        janela.tree.event_generate("<Control-Key-z>")
+        janela.update()
+        assert ids[1] in janela.tree.get_children()
+
+        janela.tree.selection_set(ids[1])
+        janela._show_selected()
+        janela.detail.focus_force()
+        janela.update()
+        janela.detail.event_generate("<Key-a>")
+        janela.update()
+        assert ids[1] in janela.tree.get_children(), "o `a` no campo do valor aceitou o bloco"
+        janela.withdraw()

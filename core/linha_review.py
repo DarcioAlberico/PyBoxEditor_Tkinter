@@ -14,7 +14,10 @@ class LinhaAmostra:
     texto: str
 
 
-def ler_manifesto(pasta: str | Path = "training_data_linhas") -> list[LinhaAmostra]:
+def ler_manifesto(pasta: str | Path | None = None) -> list[LinhaAmostra]:
+    if pasta is None:
+        from config.paths import pasta_de_linhas
+        pasta = pasta_de_linhas()
     raiz = Path(pasta)
     arquivo = raiz / "rec_gt.txt"
     if not arquivo.exists():

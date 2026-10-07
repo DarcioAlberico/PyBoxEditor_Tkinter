@@ -364,10 +364,10 @@ def test_a_principal_e_o_editor_nao_desfazem_as_preferencias_um_do_outro(tmp_pat
         return json.loads(arquivo.read_text(encoding="utf-8"))
 
     with _App() as app:
-        app.win._abrir_para_exportar("Selecionar PDF", [("Arquivos PDF", "*.pdf")])
+        app.win._perguntar_entrada("Selecionar PDF", [("Arquivos PDF", "*.pdf")])
         editor = app.win.abrir_editor_de_livro(livro)
         assert editor.projeto is not None and gravado()["editor"]["recentes"] == [livro]
-        app.win._abrir_para_exportar("Selecionar PDF", [("Arquivos PDF", "*.pdf")])
+        app.win._perguntar_entrada("Selecionar PDF", [("Arquivos PDF", "*.pdf")])
         assert gravado()["ultimo_diretorio_de_entrada"] == str(tmp_path / "pdfs-2")
         assert gravado().get("editor", {}).get("recentes") == [livro], "a principal desfez os recentes do editor"
         assert editor.fechar()

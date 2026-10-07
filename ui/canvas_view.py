@@ -4,10 +4,11 @@ from PIL import ImageTk, Image
 
 from core.box_model import BoxEntry
 from ui import fontes
+from ui import tema
 from ui.confidence import cor_do_box, COR_LEXICO, COR_SELECAO
 
 #: Marca do lado que é o topo do glifo num box de texto girado (F8.1).
-COR_GIRADO = "#8E24AA"
+COR_GIRADO = tema.TOPO_DO_GIRADO
 
 #: A fonte do rótulo do box, e **não é escolha de estilo**. Em `Arial` o `⩲`
 #: (U+2A72) saía como o retângulo com "?" do glifo ausente, e com ele `⩱`, `∓`,
@@ -36,7 +37,9 @@ class CanvasView(tk.Canvas):
     """
     Canvas responsável por:
       - desenhar imagem + boxes
-      - zoom com roda do mouse
+      - rolar com a roda do mouse (Shift+roda: para o lado)
+      - zoom com Ctrl+roda, no ponto do cursor, e pelo menu Exibir
+      - ajustar a página à janela, que é um modo e não um zoom
       - pan com botão direito
       - selecionar box (clique)
       - mover box (arrastar dentro)
@@ -46,6 +49,17 @@ class CanvasView(tk.Canvas):
 
     HANDLE_SIZE = 6  # tamanho dos quadradinhos de resize
 
+    #: Do mínimo que ainda mostra uma página inteira — um livro a 300 dpi numa
+    #: janela de notebook pede ~17% — ao teto do "Enquadrar box" (F4).
+    ZOOM_MINIMO = 0.05
+    ZOOM_MAXIMO = 12.0
+    #: Um passo de zoom: um clique da roda com Ctrl, ou Ctrl+= / Ctrl+-.
+    PASSO_DE_ZOOM = 1.1
+    #: Quanto um clique da roda rola, em fração da view.
+    FRACAO_DE_ROLAGEM = 0.1
+    #: A folga em volta da página ajustada, para a borda não encostar na janela.
+    FOLGA_DO_AJUSTE = 0.98
+
     def __init__(self, parent, controller):
         super().__init__(parent, bg="white", highlightthickness=0)
         self.controller = controller
@@ -54,6 +68,10 @@ class CanvasView(tk.Canvas):
         self.zoom = 1.0
         self.offset_x = 0.0
         self.offset_y = 0.0
+        # "Ajustada à janela" é um modo: vale até o próximo zoom ou arrasto, e
+        # enquanto vale, virar a página e redimensionar a janela reajustam.
+        self.ajustado = False
+        self._reajuste = None
 
         # estado de drag
         self.drag_mode = None  # None | "move" | "resize" | "new"
@@ -72,8 +90,18 @@ class CanvasView(tk.Canvas):
         # ids desenhados
         self.new_box_rect_id = None
 
-        # binds
+        # binds — a roda rola, e o zoom pede Ctrl, como num leitor de PDF: com a
+        # roda dando zoom, não havia como descer a página sem arrastar
+        # (item 9 da docs/REVISAO_MODOS_OCR.md).
         self.bind("<MouseWheel>", self.on_wheel)
+        self.bind("<Shift-MouseWheel>", self.on_wheel_shift)
+        self.bind("<Control-MouseWheel>", self.on_wheel_ctrl)
+        # No X11 a roda chega como os botões 4 (cima) e 5 (baixo).
+        for botao in ("4", "5"):
+            self.bind(f"<Button-{botao}>", self.on_wheel)
+            self.bind(f"<Shift-Button-{botao}>", self.on_wheel_shift)
+            self.bind(f"<Control-Button-{botao}>", self.on_wheel_ctrl)
+        self.bind("<Configure>", self._ao_redimensionar)
         self.bind("<ButtonPress-3>", self.on_pan_start)
         self.bind("<B3-Motion>", self.on_pan_move)
         self.bind("<ButtonRelease-3>", self.on_right_release)
@@ -99,26 +127,122 @@ class CanvasView(tk.Canvas):
     # Zoom / Pan
     # -------------------------------------------------------
 
+    def _passos_da_roda(self, event) -> float:
+        """Cliques da roda no evento: positivo para cima.
+
+        No Windows o `delta` vem em múltiplos de 120 por clique — e em frações
+        disso num touchpad de precisão, que aqui rolam proporcionalmente. No X11
+        a roda é o botão 4 ou 5, e no macOS o `delta` já é o número de passos.
+        """
+        numero = getattr(event, "num", None)
+        if numero == 4:
+            return 1.0
+        if numero == 5:
+            return -1.0
+        delta = float(getattr(event, "delta", 0) or 0)
+        if self.tk.call("tk", "windowingsystem") == "win32":
+            return delta / 120.0
+        return (delta > 0) - (delta < 0)
+
     def on_wheel(self, event):
+        """A roda rola a página de cima para baixo."""
+        self.rolar(dy=-self._passos_da_roda(event) * self.FRACAO_DE_ROLAGEM)
+
+    def on_wheel_shift(self, event):
+        """Shift+roda rola para o lado."""
+        self.rolar(dx=-self._passos_da_roda(event) * self.FRACAO_DE_ROLAGEM)
+
+    def on_wheel_ctrl(self, event):
+        """Ctrl+roda dá zoom, com o ponto sob o cursor parado."""
+        self.aproximar(self._passos_da_roda(event), centro=(event.x, event.y))
+        return "break"
+
+    def _limitar(self, zoom: float) -> float:
+        return max(self.ZOOM_MINIMO, min(self.ZOOM_MAXIMO, float(zoom)))
+
+    def definir_zoom(self, zoom: float, centro=None, redesenhar: bool = True):
+        """
+        Zoom absoluto, com o ponto da imagem sob `centro` parado na tela.
+
+        `centro` é o cursor (Ctrl+roda) ou, por padrão, o meio da view (menu e
+        teclado). Sai do modo ajustado: quem deu zoom escolheu um tamanho.
+        """
         if self.controller.image is None:
             return
+        vw, vh = self.viewport()
+        cx, cy = centro if centro is not None else (vw / 2, vh / 2)
+        antigo, novo = self.zoom, self._limitar(zoom)
+        rx = (cx - self.offset_x) / antigo
+        ry = (cy - self.offset_y) / antigo
+        self.zoom = novo
+        self.offset_x = cx - rx * novo
+        self.offset_y = cy - ry * novo
+        self.ajustado = False
+        if redesenhar:
+            self.controller.update_canvas()
 
-        old_zoom = self.zoom
-        if event.delta > 0:
-            self.zoom *= 1.1
-        else:
-            self.zoom /= 1.1
+    def aproximar(self, passos: float = 1.0, centro=None):
+        """`passos` de zoom: positivo aproxima, negativo afasta (Ctrl+= / Ctrl+-)."""
+        self.definir_zoom(self.zoom * self.PASSO_DE_ZOOM ** passos, centro)
 
-        self.zoom = max(0.3, min(8.0, self.zoom))
+    def tamanho_real(self):
+        """Um pixel da imagem por pixel da tela (Ctrl+1)."""
+        self.definir_zoom(1.0)
 
-        # zoom focado no cursor
-        cx, cy = event.x, event.y
-        rx = (cx - self.offset_x) / old_zoom
-        ry = (cy - self.offset_y) / old_zoom
-        self.offset_x = cx - rx * self.zoom
-        self.offset_y = cy - ry * self.zoom
+    def ajustar_a_janela(self, redesenhar: bool = True):
+        """
+        A página inteira na view, centrada (Ctrl+0, e ao abrir um documento).
 
-        self.controller.update_canvas()
+        O canvas abria em 100% no canto de cima: uma página de livro a 300 dpi
+        mostrava um quarto de si mesma, e só a roda — que dava zoom — tirava de
+        lá. Liga o modo ajustado, que vale até o próximo zoom ou arrasto.
+        """
+        self.ajustado = True
+        img = self.controller.image
+        if img is None:
+            return
+        vw, vh = self.viewport()
+        escala = min(vw / max(1, img.width), vh / max(1, img.height))
+        self.zoom = self._limitar(escala * self.FOLGA_DO_AJUSTE)
+        self.offset_x = (vw - img.width * self.zoom) / 2
+        self.offset_y = (vh - img.height * self.zoom) / 2
+        if redesenhar:
+            self.controller.update_canvas()
+
+    def rolar(self, dx: float = 0.0, dy: float = 0.0):
+        """
+        Rola `dx`/`dy` frações da view — positivo desce, ou vai para a direita.
+
+        A página não sai da tela por rolagem: na dimensão em que ela cabe, fica
+        onde está; na que não cabe, para com `MARGEM_VISIVEL` além da borda.
+        O arrasto com o botão direito continua livre.
+        """
+        img = self.controller.image
+        if img is None:
+            return
+        vw, vh = self.viewport()
+        antes = (self.offset_x, self.offset_y)
+        self.offset_x = self._conter(self.offset_x - dx * vw, img.width * self.zoom, vw)
+        self.offset_y = self._conter(self.offset_y - dy * vh, img.height * self.zoom, vh)
+        if (self.offset_x, self.offset_y) != antes:
+            self.controller.update_canvas()
+
+    def _conter(self, offset: float, tamanho: float, view: float) -> float:
+        if tamanho <= view:
+            # cabe: rolar não tem para onde ir, e não se tira a página do lugar
+            return offset if 0 <= offset <= view - tamanho else (view - tamanho) / 2
+        margem = self.MARGEM_VISIVEL
+        return max(view - tamanho - margem, min(margem, offset))
+
+    def _ao_redimensionar(self, _event=None):
+        """No modo ajustado, a página acompanha a janela."""
+        if self.ajustado and self._reajuste is None:
+            self._reajuste = self.after_idle(self._reajustar)
+
+    def _reajustar(self):
+        self._reajuste = None
+        if self.ajustado:
+            self.ajustar_a_janela()
 
     def on_pan_start(self, event):
         self._pan_start = (event.x, event.y, self.offset_x, self.offset_y)
@@ -131,6 +255,8 @@ class CanvasView(tk.Canvas):
         dy = event.y - sy
         self.offset_x = ox + dx
         self.offset_y = oy + dy
+        if dx or dy:
+            self.ajustado = False
         self.controller.update_canvas()
 
     def on_right_release(self, event):
@@ -195,6 +321,10 @@ class CanvasView(tk.Canvas):
         o próprio defeito que esta função veio corrigir.
         """
         if self.controller.image is None:
+            return
+        # Com a página ajustada, todo box já está na tela; rolar por causa da
+        # margem tiraria a página do centro a cada seleção perto da borda.
+        if self.ajustado:
             return
 
         boxes = self.controller.boxes
@@ -266,8 +396,7 @@ class CanvasView(tk.Canvas):
 
         # Margem de contexto: queremos ver o caractere e um pouco em volta
         # Fator de zoom ideal: view / (box * margin_factor)
-        # Aumentei para 6.0 para dar mais foco
-        # Mas limitamos o zoom max em 8.0 la no on_wheel, entao ok.
+        # O teto é o mesmo ZOOM_MAXIMO do Ctrl+roda.
         margin = 10.0 # Mais zoom no box
         
         zoom_w = vw / (bw * margin)
@@ -277,9 +406,10 @@ class CanvasView(tk.Canvas):
         
         # Limites de zoom
         # Min 1.5 para garantir que nao fique muito longe
-        target_zoom = max(1.5, min(12.0, target_zoom))
-        
+        target_zoom = max(1.5, min(self.ZOOM_MAXIMO, target_zoom))
+
         self.zoom = target_zoom
+        self.ajustado = False
         
         # Calcula offsets para centralizar (cx, cy)
         self.offset_x = (vw / 2) - (cx * self.zoom)
@@ -585,7 +715,7 @@ class CanvasView(tk.Canvas):
                 # Fundo amarelo claro
                 self.create_rectangle(
                     px1, py1, px2, py2,
-                    fill="#FFFFE0", outline="black"
+                    fill=tema.FUNDO_DA_ETIQUETA, outline="black"
                 )
                 
                 # Texto

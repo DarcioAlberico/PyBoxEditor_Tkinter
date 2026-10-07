@@ -31,6 +31,8 @@ from __future__ import annotations
 import copy
 import tkinter as tk
 from tkinter import messagebox, ttk
+
+from ui import tema
 from typing import Any, Callable, Mapping, Optional
 
 import numpy as np
@@ -117,6 +119,7 @@ class DialogoRevisaoEditorial(tk.Toplevel):
                  ao_exportar: Optional[Callable[[Any], None]] = None,
                  aviso_da_exportacao: str = ""):
         super().__init__(parent)
+        tema.aplicar(self)
         self.session = session
         self.imagem_da_pagina = imagem_da_pagina
         self.abrir_diagrama = abrir_diagrama
@@ -197,7 +200,7 @@ class DialogoRevisaoEditorial(tk.Toplevel):
                                  font=("Segoe UI", 10, "bold"))
         self.summary.grid(row=0, column=0, sticky="ew")
         self.lbl_motivos = ttk.Label(panel, text="", justify="left", anchor="w",
-                                     wraplength=620, foreground="#8a3b00")
+                                     wraplength=620, style="Alerta.TLabel")
         self.lbl_motivos.grid(row=1, column=0, sticky="ew", pady=(2, 6))
 
         recorte = ttk.LabelFrame(panel, text="Recorte da página", padding=4)
@@ -217,7 +220,7 @@ class DialogoRevisaoEditorial(tk.Toplevel):
                                               ("motivo", "Motivo", 260, True)):
             self.tree_linhas.heading(column, text=title)
             self.tree_linhas.column(column, width=width, anchor="w", stretch=stretch)
-        self.tree_linhas.tag_configure("suspeita", foreground="#b00020")
+        self.tree_linhas.tag_configure("suspeita", foreground=tema.TEXTO_ERRO)
         self.tree_linhas.grid(row=0, column=0, sticky="nsew")
         self.tree_linhas.bind("<<TreeviewSelect>>", self._show_line)
         leituras = ttk.Frame(linhas)
@@ -268,7 +271,7 @@ class DialogoRevisaoEditorial(tk.Toplevel):
             if self.aviso_da_exportacao:
                 self.btn_exportar.state(["disabled"])
                 self.lbl_exportacao = ttk.Label(navegacao, text=self.aviso_da_exportacao,
-                                                foreground="#8a5a00")
+                                                style="Alerta.TLabel")
                 self.lbl_exportacao.pack(side="right", padx=6)
         for key, command in (("a", self._accept), ("r", self._reject),
                              ("d", self._defer), ("s", self._batch),

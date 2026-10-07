@@ -12,6 +12,8 @@ desmarca dali para frente — que é o gesto certo dada a ordenação, e transfo
 "conferir 300" em "achar onde a fila começa a estranhar".
 """
 
+import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import List, Optional
@@ -20,6 +22,7 @@ import numpy as np
 from PIL import Image, ImageTk
 
 from core import semelhanca
+from ui import tema
 
 
 COLUNAS = 10
@@ -31,9 +34,9 @@ LARGURA_MAXIMA_MINIATURA = 64
 #: aplicar no resto seria mudar o que o usuário não viu.
 MAX_EXIBIDOS = 400
 
-COR_MARCADO = "#2E9B4F"
-COR_DESMARCADO = "#BDBDBD"
-COR_FUNDO_MARCADO = "#E8F5E9"
+COR_MARCADO = tema.CONFIANCA_ALTA
+COR_DESMARCADO = tema.BORDA_DESMARCADA
+COR_FUNDO_MARCADO = tema.FUNDO_MARCADO
 
 
 class DialogoSemelhantes:
@@ -54,6 +57,10 @@ class DialogoSemelhantes:
         self._celulas = {}         # indice -> (frame, label)
         self._fotos = []           # PhotoImage vivas enquanto o diálogo existir
         self.resultado: Optional[List[int]] = None
+        # A busca roda fora da thread da interface; a geração descarta a busca
+        # que o rigor trocado no meio deixou velha.
+        self._geracao = 0
+        self.buscando = False
 
     # ------------------------------------------------------------------
     # Montagem
@@ -67,6 +74,7 @@ class DialogoSemelhantes:
         corte de cauda sem um usuário para clicar.
         """
         self.top = tk.Toplevel(self.parent)
+        tema.aplicar(self.top)
         self.top.title("Aplicar a todos os semelhantes")
         self.top.transient(self.parent)
 
@@ -112,7 +120,7 @@ class DialogoSemelhantes:
                             command=self._buscar).pack(side="left")
 
         self.lbl_ajuda = ttk.Label(
-            self.top, foreground="#555", padding=(10, 0),
+            self.top, style="Secundario.TLabel", padding=(10, 0),
             text="Clique num recorte para desmarcá-lo. Botão direito desmarca "
                  "dali para o fim — a fila está ordenada do mais parecido ao "
                  "menos.")
@@ -158,12 +166,61 @@ class DialogoSemelhantes:
     # ------------------------------------------------------------------
 
     def _buscar(self):
+        """
+        Procura os semelhantes numa thread (item 9 da revisão de 2026-09-18).
+
+        Era síncrono: um descritor por box da página — dois mil, num livro — e
+        o diálogo aparecia congelado, e congelava de novo a cada troca de
+        rigor. Enquanto busca, o título diz isso e o Aplicar fica desligado;
+        o resultado é desenhado na thread da interface por `_aguardar`.
+        """
+        self._geracao += 1
+        geracao = self._geracao
         limiar = semelhanca.RIGOR.get(self.var_rigor.get(),
                                       semelhanca.LIMIAR_PADRAO)
-        self.achados = semelhanca.encontrar_semelhantes(
-            self.imagem, self.boxes, self.indice, limiar, self.leitura)
+        self.buscando = True
+        self.lbl_titulo.config(text="Procurando os semelhantes...")
+        self.btn_aplicar.config(state="disabled")
+        resultado = {}
+
+        def buscar():
+            try:
+                resultado["achados"] = semelhanca.encontrar_semelhantes(
+                    self.imagem, self.boxes, self.indice, limiar, self.leitura)
+            except Exception as erro:  # noqa: BLE001 — dito no diálogo
+                resultado["erro"] = erro
+
+        linha = threading.Thread(target=buscar, daemon=True)
+        linha.start()
+        self._aguardar(linha, resultado, geracao)
+
+    def _aguardar(self, linha, resultado, geracao):
+        try:
+            aberto = bool(self.top.winfo_exists())
+        except tk.TclError:
+            aberto = False
+        if geracao != self._geracao or not aberto:
+            return                      # o rigor mudou (outra busca manda) ou fechou
+        if linha.is_alive():
+            self.top.after(30, lambda: self._aguardar(linha, resultado, geracao))
+            return
+        self.buscando = False
+        if "erro" in resultado:
+            self.achados, self.marcados = [], {}
+            self._desenhar()
+            self.lbl_titulo.config(text=f"A busca falhou: {resultado['erro']}")
+            return
+        self.achados = resultado["achados"]
         self.marcados = {i: True for i, _ in self.achados[:MAX_EXIBIDOS]}
         self._desenhar()
+
+    def esperar_busca(self, limite_s: float = 30.0):
+        """Processa os eventos até a busca em curso estar na tela — para quem
+        precisa do resultado já, como os testes."""
+        fim = time.monotonic() + limite_s
+        while self.buscando and time.monotonic() < fim:
+            self.top.update()
+            time.sleep(0.01)
 
     def _desenhar(self):
         for filho in self.grade.winfo_children():
@@ -185,7 +242,7 @@ class DialogoSemelhantes:
             rotulo = tk.Label(celula, image=foto, background="white")
             rotulo.pack()
             tk.Label(celula, text=f"{dist:.2f}", font=("Segoe UI", 7),
-                     foreground="#777").pack()
+                     foreground=tema.TEXTO_SECUNDARIO).pack()
 
             for alvo in (celula, rotulo):
                 alvo.bind("<Button-1>", lambda e, i=indice: self._alternar(i))
@@ -226,7 +283,7 @@ class DialogoSemelhantes:
 
         if len(self.achados) > MAX_EXIBIDOS:
             self.lbl_ajuda.config(
-                foreground="#B71C1C",
+                style="Erro.TLabel",
                 text=f"{len(self.achados)} semelhantes encontrados; a tela "
                      f"mostra os {MAX_EXIBIDOS} mais parecidos e o lote aplica "
                      f"só esses. Repita a operação para alcançar o resto.")
@@ -267,6 +324,11 @@ class DialogoSemelhantes:
         self.top.destroy()
 
     def _confirmar(self):
+        # O Enter chega aqui mesmo com o Aplicar desligado: no meio de uma
+        # busca, a fila na tela é a do rigor anterior, e aplicá-la seria
+        # marcar o que o usuário já pediu para trocar.
+        if self.buscando:
+            return
         self.resultado = [i for i, _ in self.achados[:MAX_EXIBIDOS]
                           if self.marcados.get(i)]
         self._fechar()

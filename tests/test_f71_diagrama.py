@@ -523,6 +523,18 @@ class _App:
         except Exception:
             pass
 
+    def aguardar(self, limite=60.0):
+        """O comando roda numa tarefa desde o item 9 da revisão de 2026-09-18:
+        o diálogo abre, e a caixa aparece, quando ela termina."""
+        import time
+        fim = time.time() + limite
+        self.root.update()
+        while self.win.task.is_running() and time.time() < fim:
+            self.root.update()
+            time.sleep(0.01)
+        self.root.update()
+        assert not self.win.task.is_running(), "a leitura não terminou no tempo"
+
 
 def _boxes_com_tabuleiro(lado=320):
     boxes = _pagina_de_texto()
@@ -569,6 +581,7 @@ def test_comando_abre_o_dialogo_com_as_leituras():
     with _App() as app:
         app.win.image = Image.fromarray(_pagina_com_diagrama())
         app.win.extrair_diagramas()
+        app.aguardar()
         assert len(app.mostrados) == 1
         assert len(app.mostrados[0]) == 1
 
@@ -586,6 +599,7 @@ def test_o_comando_nao_depende_dos_boxes_da_pagina():
         app.win.image = Image.fromarray(_pagina_com_diagrama())
         app.win.boxes = []
         app.win.extrair_diagramas()
+        app.aguardar()
         assert len(app.mostrados) == 1
 
 
@@ -595,6 +609,7 @@ def test_pagina_sem_diagrama_avisa():
     with _App() as app:
         app.win.image = Image.fromarray(np.full((400, 400), 255, np.uint8))
         app.win.extrair_diagramas()
+        app.aguardar()
         assert any("Nenhum diagrama" in a for a in app.avisos)
         assert app.mostrados == []
 
@@ -604,6 +619,7 @@ def test_comando_sem_imagem_avisa():
         app.win.image = None
         app.win.boxes = _boxes_com_tabuleiro()
         app.win.extrair_diagramas()
+        app.aguardar()
         assert app.mostrados == []
 
 
@@ -611,6 +627,7 @@ def test_pagina_sem_diagrama_explica_o_criterio():
     with _App() as app:
         app.win.boxes = _pagina_de_texto()
         app.win.extrair_diagramas()
+        app.aguardar()
         assert any("Nenhum diagrama" in a for a in app.avisos)
 
 
@@ -621,6 +638,7 @@ def test_fen_escolhido_vai_para_a_area_de_transferencia():
         app.win.image = Image.fromarray(_pagina_com_diagrama())
         app.devolver = "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
         app.win.extrair_diagramas()
+        app.aguardar()
         assert app.win.parent.clipboard_get() == app.devolver
 
 

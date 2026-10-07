@@ -7,8 +7,10 @@ def test_predictor_detalhado_retorna_confianca_por_caractere():
     from core.linha_trainer import LinhaPredictor
 
     # O teste só verifica o contrato e o intervalo; pesos reais são opcionais
-    # e não devem ser exigidos pela suíte unitária.
-    if not __import__("pathlib").Path("text_line_model.pth").exists():
+    # e não devem ser exigidos pela suíte unitária. Procurados onde o
+    # `LinhaPredictor()` os procura (`config.paths`), e não no cwd.
+    from config.paths import caminhos_modelo_linha
+    if not all(caminho.exists() for caminho in caminhos_modelo_linha()):
         pytest.skip("pesos locais não disponíveis")
     predictor = LinhaPredictor()
     texto, confiancas = predictor.predict_detalhado(

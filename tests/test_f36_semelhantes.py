@@ -500,18 +500,22 @@ def test_sem_imagem_o_comando_nao_faz_nada():
 class _Dialogo:
     """Abre o diálogo de verdade, sem esperar por usuário."""
 
-    def __init__(self, formas, chars=None, leitura=None, char_novo="e"):
+    def __init__(self, formas, chars=None, leitura=None, char_novo="e", esperar=True):
         from ui.dialogo_semelhantes import DialogoSemelhantes
 
         self.img, self.boxes = pagina(formas)
         for b, c in zip(self.boxes, chars or []):
             b.char = c
         self.root = raiz_tk()
+        self.esperar = esperar
         self.dlg = DialogoSemelhantes(self.root, self.img, self.boxes, 0,
                                       char_novo, leitura)
 
     def __enter__(self):
         self.dlg.construir()
+        # A busca roda numa thread desde o item 9 da revisão de 2026-09-18.
+        if self.esperar:
+            self.dlg.esperar_busca()
         return self.dlg
 
     def __exit__(self, *a):
@@ -571,10 +575,49 @@ def test_rigor_mais_estrito_encolhe_a_lista():
     with _Dialogo(["quadrado", "cheio", "x", "quadrado", "barra"]) as dlg:
         dlg.var_rigor.set("amplo")
         dlg._buscar()
+        dlg.esperar_busca()
         amplo = len(dlg.achados)
         dlg.var_rigor.set("estrito")
         dlg._buscar()
+        dlg.esperar_busca()
         assert len(dlg.achados) <= amplo
+
+
+def test_a_busca_roda_fora_da_interface_e_a_velha_nao_vale(monkeypatch):
+    """A busca é uma thread (item 9 da revisão de 2026-09-18): enquanto ela
+    roda, o diálogo diz que procura e não aplica nem pelo Enter; e a busca que
+    o rigor trocado deixou velha não chega à tela, mesmo terminando depois."""
+    import threading
+    import time
+
+    from core import semelhanca
+
+    liberar = threading.Event()
+    chamadas = []
+
+    def busca_falsa(imagem, boxes, indice, limiar, leitura):
+        chamadas.append(limiar)
+        if len(chamadas) == 1:
+            liberar.wait(5)
+            return [(1, 0.1)]                      # a velha
+        return [(2, 0.2)]                          # a do rigor novo
+
+    monkeypatch.setattr(semelhanca, "encontrar_semelhantes", busca_falsa)
+    with _Dialogo(["quadrado"] * 3, esperar=False) as dlg:
+        assert dlg.buscando and "Procurando" in dlg.lbl_titulo.cget("text")
+        assert str(dlg.btn_aplicar.cget("state")) == "disabled"
+        dlg._confirmar()
+        assert dlg.resultado is None, "o Enter no meio da busca aplicou"
+
+        dlg.var_rigor.set("amplo")
+        dlg._buscar()
+        dlg.esperar_busca()
+        liberar.set()                              # a velha termina agora
+        fim = time.monotonic() + 1.0
+        while time.monotonic() < fim:
+            dlg.top.update()
+            time.sleep(0.01)
+        assert dlg.achados == [(2, 0.2)]
 
 
 def test_titulo_mostra_o_caractere_e_a_leitura():

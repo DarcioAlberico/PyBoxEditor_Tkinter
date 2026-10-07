@@ -200,6 +200,8 @@ def main(argv=None):
         root = tk.Tk()
         _ajustar_escala(root)
         _instalar_relator_de_callbacks(root)
+        from ui import tema
+        tema.aplicar(root)
         root.title("PyBoxEditor")
         root.geometry(_geometria_que_cabe(root))
         root.minsize(min(LARGURA_MINIMA, root.winfo_screenwidth()),
@@ -207,6 +209,8 @@ def main(argv=None):
 
         app = MainWindow(root)
         app.pack(fill="both", expand=True)
+        # A geometria e os filtros da última vez, se ainda cabem nesta tela.
+        app.restaurar_estado_da_janela()
 
         root.mainloop()
     except Exception as e:

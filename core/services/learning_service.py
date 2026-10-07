@@ -44,6 +44,9 @@ class LearningService:
         meta_path: str = "model_meta.json",
     ):
         self.data_dir = data_dir
+        if model_path == "custom_model.pth" and meta_path == "model_meta.json":
+            from config.paths import caminhos_modelo_glifos
+            model_path, meta_path = (str(item) for item in caminhos_modelo_glifos())
         self.model_path = model_path
         self.meta_path = meta_path
 

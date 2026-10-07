@@ -51,13 +51,21 @@ def _amostra(texto: str, rng: random.Random) -> Image.Image:
     return Image.fromarray(np.uint8(np.clip(matriz, 0, 255)), mode="L")
 
 
-def gerar(pasta_origem: str | Path = "training_data_linhas",
-          pasta_destino: str | Path = "training_data_linhas_sintetico",
+def gerar(pasta_origem: str | Path | None = None,
+          pasta_destino: str | Path | None = None,
           por_linha: int = 4, semente: int = 42) -> dict:
-    """Gera ``por_linha`` variações para cada transcrição do manifesto."""
+    """Gera ``por_linha`` variações para cada transcrição do manifesto.
+
+    Sem as pastas, a base e a sintética são as de `config.paths`.
+    """
     if por_linha < 1:
         raise ValueError("por_linha deve ser maior que zero")
+    from config.paths import pasta_de_linhas, pasta_de_linhas_sinteticas
     from core.linha_trainer import _ler_manifesto
+
+    pasta_origem = pasta_de_linhas() if pasta_origem is None else pasta_origem
+    pasta_destino = (pasta_de_linhas_sinteticas() if pasta_destino is None
+                     else pasta_destino)
 
     registros = _ler_manifesto(pasta_origem)
     destino = Path(pasta_destino)

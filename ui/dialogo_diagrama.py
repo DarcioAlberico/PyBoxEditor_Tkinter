@@ -41,17 +41,17 @@ from PIL import Image, ImageTk
 
 from core import diagrama as diag
 from core.tabuleiro_edicao import SIMBOLOS, TabuleiroEdicao
-from ui import pecas
+from ui import pecas, tema
 from ui.editor.tabuleiro import (  # noqa: F401 — LADO_CASA, GLIFOS e SEM_FIGURAS continuam importáveis daqui
     CONFIANCA_BAIXA, GLIFOS, LADO_CASA, PALETAS, SEM_FIGURAS, TabuleiroEditavel)
 
 #: O lado do botão da paleta.
 LADO_PALETA = 30
 COR_CLARA, COR_ESCURA = PALETAS["normal"]
-COR_ARBITRADA = "#E53935"       # a legalidade mexeu nesta casa
-COR_DUVIDA = "#FB8C00"
-COR_CORRIGIDA = "#2E7D32"       # a mão do usuário mexeu nesta casa (F8.2)
-COR_SELECAO = "#1E88E5"
+COR_ARBITRADA = tema.CASA_ARBITRADA       # a legalidade mexeu nesta casa
+COR_DUVIDA = tema.CASA_EM_DUVIDA
+COR_CORRIGIDA = tema.CASA_CORRIGIDA       # a mão do usuário mexeu nesta casa (F8.2)
+COR_SELECAO = tema.CASA_SELECIONADA
 
 AJUDA = ("Clique numa casa e digite a letra (maiúscula = branca, minúscula = "
          "preta); Delete esvazia. Ou escolha uma peça na paleta e clique para "
@@ -119,6 +119,7 @@ class DialogoDiagrama:
 
     def construir(self):
         self.top = tk.Toplevel(self.parent)
+        tema.aplicar(self.top)
         self.top.title("Posição lida do diagrama")
         self.top.transient(self.parent)
 
@@ -162,11 +163,11 @@ class DialogoDiagrama:
         ttk.Button(rodape, text="Copiar",
                    command=self._copiar).grid(row=0, column=2)
 
-        self.lbl_avisos = ttk.Label(rodape, foreground="#B71C1C",
+        self.lbl_avisos = ttk.Label(rodape, style="Erro.TLabel",
                                     wraplength=680, justify="left")
         self.lbl_avisos.grid(row=1, column=0, columnspan=3, sticky="w",
                              pady=(8, 0))
-        ttk.Label(rodape, text=AJUDA, foreground="gray30", wraplength=680,
+        ttk.Label(rodape, text=AJUDA, style="Secundario.TLabel", wraplength=680,
                   justify="left").grid(row=2, column=0, columnspan=3,
                                        sticky="w", pady=(6, 0))
 
@@ -256,7 +257,7 @@ class DialogoDiagrama:
         self.btn_amostras = ttk.Button(treino, text="Guardar amostras",
                                        command=self._guardar_amostras)
         self.btn_amostras.pack(fill="x", pady=(4, 0))
-        self.lbl_amostras = ttk.Label(treino, text="", foreground="gray30",
+        self.lbl_amostras = ttk.Label(treino, text="", style="Secundario.TLabel",
                                       wraplength=140, justify="left")
         self.lbl_amostras.pack(anchor="w", pady=(2, 0))
 

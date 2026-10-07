@@ -12,23 +12,25 @@ Tesseract não guarda isso), e pintá-lo de vermelho diria "confira este" quando
 o correto é "não sei". Por isso ele tem cor própria.
 """
 
+from ui import tema
+
 LIMIAR_ALTO = 0.90
 LIMIAR_MEDIO = 0.70
 
-COR_VAZIO = "#9E9E9E"      # cinza  — box sem caractere
-COR_SEM_INFO = "#3F7FBF"   # azul   — não avaliado
-COR_BAIXA = "#E53935"      # vermelho
-COR_MEDIA = "#FB8C00"      # laranja
-COR_ALTA = "#2E9B4F"       # verde
+COR_VAZIO = tema.SEM_CARACTERE      # cinza  — box sem caractere
+COR_SEM_INFO = tema.SEM_AVALIACAO   # azul   — não avaliado
+COR_BAIXA = tema.CONFIANCA_BAIXA    # vermelho
+COR_MEDIA = tema.CONFIANCA_MEDIA    # laranja
+COR_ALTA = tema.CONFIANCA_ALTA      # verde
 
-COR_SELECAO = "#FFD400"    # amarelo — marcação de seleção
+COR_SELECAO = tema.SELECAO          # amarelo — marcação de seleção
 
 # Fora do dicionário (F9). **Não é um degrau da escala acima, e por isso é um
 # sublinhado e não a cor do contorno**: o sinal do léxico é independente da
 # confiança — a F1.9 mediu que 1,000 é a confiança mediana de um erro, e é
 # justamente esse que o dicionário pega. Pintar o box roubaria a informação que já
 # estava lá para mostrar outra.
-COR_LEXICO = "#8E24AA"     # roxo
+COR_LEXICO = tema.FORA_DO_DICIONARIO   # roxo
 
 LEGENDA = [
     (COR_ALTA, f"≥{int(LIMIAR_ALTO * 100)}%"),
@@ -149,7 +151,19 @@ LIMIAR_DE_MARGEM = 0.50
 #: é grupo. O número diz que o desenho é aquele, e nada sobre qual dos dois é o
 #: certo: régua plana por construção. E o box que ela trocou é justamente um em
 #: que a rede respondeu com confiança e a linha discordou.
-FONTES_SEMPRE_REVISADAS = frozenset({"easyocr", "geometria"})
+#:
+#: **`easyocr_discorda`** (PD-13) é a leitura da ação «OCR (EasyOCR)» em que o
+#: k-NN, consultado no mesmo recorte, leu **outra** coisa. A F57 mediu que
+#: concordar com o k-NN separa os erros daquela ação muito melhor que a
+#: confiança do EasyOCR (0,979 contra 0,764), e a PD-13 conferiu fora da
+#: amostra, com o corte de cada página ajustado nas outras: 2.918 erros pegos
+#: contra 2.079, ao mesmo custo. A regra que entrou é a conservadora — discordar
+#: **acrescenta** o box à fila, e a confiança continua marcando o que já
+#: marcava —, e nas 12 páginas rotuladas ela marca 5.657 boxes em 11.484 (hoje
+#: 4.739) e pega 2.928 dos 2.977 erros (hoje 2.079): os que escapam vão de 898
+#: para 49. A confiança do box continua sendo a do EasyOCR; o que o k-NN diz
+#: entra pela fonte, e não emprestado ao número (F47).
+FONTES_SEMPRE_REVISADAS = frozenset({"easyocr", "geometria", "easyocr_discorda"})
 
 
 def precisa_revisao(box) -> bool:

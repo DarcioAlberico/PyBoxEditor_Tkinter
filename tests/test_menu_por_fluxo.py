@@ -67,8 +67,8 @@ def test_os_menus_seguem_o_fluxo_e_tem_mnemonico():
         barra = app.win.parent.nametowidget(app.win.parent.cget("menu"))
         rotulos = [barra.entrycget(i, "label") for i in _entradas(barra)
                    if barra.type(i) == "cascade"]
-        assert rotulos == ["Arquivo", "Editar", "Reconhecer", "Revisar", "Modelo",
-                           "PDF", "Notação", "Ferramentas", "Ajuda"]
+        assert rotulos == ["Arquivo", "Editar", "Exibir", "Reconhecer", "Revisar",
+                           "Modelo", "PDF", "Notação", "Ferramentas", "Ajuda"]
         mnemonicos = [barra.entrycget(i, "underline") for i in _entradas(barra)
                       if barra.type(i) == "cascade"]
         assert all(int(u) >= 0 for u in mnemonicos), mnemonicos
