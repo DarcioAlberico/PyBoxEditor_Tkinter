@@ -238,7 +238,11 @@ def test_as_duas_acoes_e_a_exportacao_passam_o_mesmo_idioma():
     assert "_idioma_do_livro(" in inspect.getsource(MainWindow.idioma_da_sessao)
     # A exportação passa pela caixa única (2026-09-18): o idioma é detectado
     # por `_idioma_do_livro(..., perguntar=False)` em `_preparar_exportacao`
-    # e chega a `livro.extrair` como `idioma_ocr=idioma`.
+    # e chega a `livro.extrair` como `idioma_ocr=idioma`. O corpo mora em
+    # `ui.exportacao.Exportacao` desde o item 6 da análise de 2026-10-06; a
+    # janela só delega.
+    from ui.exportacao import Exportacao
+
     assert "_idioma_do_livro(entrada, perguntar=False)" in inspect.getsource(
-        MainWindow._preparar_exportacao)
-    assert "idioma_ocr=idioma" in inspect.getsource(MainWindow.exportar_livro_action)
+        Exportacao._preparar_exportacao)
+    assert "idioma_ocr=idioma" in inspect.getsource(Exportacao.exportar_livro_action)
