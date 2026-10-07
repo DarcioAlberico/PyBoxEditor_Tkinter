@@ -1,15 +1,25 @@
-"""Fachada de produção da Fase 2 do OCR editorial.
+"""A fachada da Fase 2 do OCR editorial.
 
 O módulo concentra a complexidade de ingestão, evidência, layout, roteamento,
 cancelamento e adaptação para o IR editorial. Os callers conhecem somente
 ``DocumentSource``, ``ProcessOptions`` e ``EditorialPipeline``; engines e
 formatos de origem ficam atrás desse seam.
+
+Quem lê depende de como ela é montada. **Em produção** — a janela,
+`scripts/processar_editorial.py` e `scripts/fila_de_suspeitas.py` — ela nasce
+de `core.editorial_legacy.pipeline_de_producao`, com o leitor medido de
+`core/livro.py` como ``legacy_extractor``. **Sem leitor**, ela atravessa a
+biblioteca de inspeção das Fases 3 e 4 (`core/ocr_phase3.py`,
+`core/ocr_phase4.py`, `core/ocr_layout.py`): lê a camada de texto de um PDF
+sem modelo nenhum e, numa página digitalizada, não lê texto — salvo com
+``engine="tesseract"``, que é o Tesseract sozinho, sem a cadeia de glifos. É o
+caminho do ``inspect``, dos testes das fases e da comparação de motores por
+script (`docs/REVISAO_MODOS_OCR.md` §3.1 e §4.11).
 """
 
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import re
 from dataclasses import dataclass, field, replace
@@ -25,7 +35,6 @@ from core.editorial_adapters import (
     page_result_para_pagina,
 )
 from core.editorial_model import EditorialDocument, EditorialPage, ReviewEvent
-from core.ocr_layout import LayoutAnalyzer
 from core.ocr_result import (
     LineResult,
     PageResult,
@@ -374,6 +383,8 @@ class ProcessOptions:
     model_manifest: str = ""
     max_memory_mb: int | None = None
     per_worker_memory_mb: int | None = None
+    cache_prune_max_age_seconds: float | None = None
+    cache_prune_max_bytes: int | None = None
 
     def __post_init__(self) -> None:
         if self.dpi <= 0 or self.workers <= 0:
@@ -382,6 +393,11 @@ class ProcessOptions:
             raise ValueError("max_memory_mb deve ser positivo")
         if self.per_worker_memory_mb is not None and self.per_worker_memory_mb < 1:
             raise ValueError("per_worker_memory_mb deve ser positivo")
+        if (self.cache_prune_max_age_seconds is not None
+                and self.cache_prune_max_age_seconds < 0):
+            raise ValueError("cache_prune_max_age_seconds não pode ser negativo")
+        if self.cache_prune_max_bytes is not None and self.cache_prune_max_bytes < 0:
+            raise ValueError("cache_prune_max_bytes não pode ser negativo")
         if self.engine not in {"auto", "native", "tesseract", "none"}:
             raise ValueError("engine deve ser auto, native, tesseract ou none")
         if self.page_indices is not None and any(int(i) < 0 for i in self.page_indices):
@@ -580,21 +596,62 @@ def _classification(text: str, *, y1: int, y2: int, height: int,
     return "body"
 
 
+def _table_rows(block: Mapping[str, Any]) -> list[list[str]]:
+    raw_rows = block.get("rows", block.get("cells", ())) or ()
+    rows: list[list[str]] = []
+    for raw_row in raw_rows:
+        cells = (raw_row.get("cells", raw_row.get("columns", ()))
+                 if isinstance(raw_row, Mapping) else raw_row)
+        if not isinstance(cells, (list, tuple)):
+            cells = (cells,)
+        row = []
+        for cell in cells:
+            if isinstance(cell, Mapping):
+                text = cell.get("text")
+                if text is None:
+                    text = "".join(str(span.get("text", ""))
+                                   for span in cell.get("spans", ()) or ()
+                                   if isinstance(span, Mapping))
+            else:
+                text = cell
+            row.append(str(text or "").strip())
+        rows.append(row)
+    return rows
+
+
 def _text_specs(evidence: PageEvidence) -> list[dict[str, Any]]:
-    blocos = [block for block in evidence.text_blocks if block.get("type", 0) == 0]
+    tabelas = []
+    blocos = []
+    for source_index, block in enumerate(evidence.text_blocks):
+        tipo = str(block.get("type", "")).casefold()
+        metadata = block.get("metadata") or {}
+        if (tipo in {"table", "tabela"}
+                or block.get("table") or metadata.get("table")):
+            caixa = _bbox(block.get("bbox"), evidence.width, evidence.height)
+            rows = _table_rows(block)
+            tabelas.append({
+                "id": f"region-{evidence.page_index:04d}-{source_index:04d}",
+                "order": source_index, "type": "table", "bbox": caixa,
+                "text": "\n".join(" ".join(row) for row in rows),
+                "lines": [], "metadata": {"spanning": False, "rows": rows,
+                                             "source_block": source_index},
+            })
+        elif block.get("type", 0) == 0:
+            blocos.append((source_index, block))
     if not blocos and evidence.text_layer.strip():
         linhas = evidence.text_layer.splitlines()
         altura = max(16, evidence.height // max(1, len(linhas)))
-        blocos = [{"bbox": [0, i * altura, evidence.width, (i + 1) * altura],
-                   "lines": [{"bbox": [0, i * altura, evidence.width, (i + 1) * altura],
-                              "spans": [{"text": linha, "size": 10.0}]}]}
+        blocos = [(len(evidence.text_blocks) + i,
+                   {"bbox": [0, i * altura, evidence.width, (i + 1) * altura],
+                    "lines": [{"bbox": [0, i * altura, evidence.width, (i + 1) * altura],
+                               "spans": [{"text": linha, "size": 10.0}]}]})
                   for i, linha in enumerate(linhas) if linha.strip()]
     tamanhos = [float(span.get("size", 0.0))
-                for block in blocos for line in block.get("lines", [])
+                for _source_index, block in blocos for line in block.get("lines", [])
                 for span in line.get("spans", []) if span.get("size")]
     mediana = float(np.median(tamanhos)) if tamanhos else 0.0
-    specs = []
-    for index, block in enumerate(blocos):
+    specs = list(tabelas)
+    for source_index, block in blocos:
         linhas = block.get("lines", []) or []
         textos = []
         for line in linhas:
@@ -610,14 +667,14 @@ def _text_specs(evidence: PageEvidence) -> list[dict[str, Any]]:
         tipo = _classification(texto, y1=caixa[1], y2=caixa[3], height=evidence.height,
                                 font_size=max(item[2] for item in textos),
                                 median_font=mediana, metadata=block)
-        specs.append({"id": f"region-{evidence.page_index:04d}-{index:04d}",
-                      "order": index, "type": tipo, "bbox": caixa, "text": texto,
+        specs.append({"id": f"region-{evidence.page_index:04d}-{source_index:04d}",
+                      "order": source_index, "type": tipo, "bbox": caixa, "text": texto,
                       "lines": textos, "metadata": {
                           "spanning": caixa[0] <= evidence.width * .05
                           and caixa[2] >= evidence.width * .95,
-                          "source_block": index,
+                          "source_block": source_index,
                       }})
-    return specs
+    return sorted(specs, key=lambda item: item["order"])
 
 
 def _layout(evidence: PageEvidence, specs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -631,16 +688,29 @@ def _layout(evidence: PageEvidence, specs: Sequence[Mapping[str, Any]]) -> dict[
             colunas = [(0, evidence.width)]
     else:
         colunas = [(0, evidence.width)]
-    ordem = [str(item["id"]) for item in specs]
+    ordenados = list(specs)
+    if (len(colunas) > 1 and ordenados
+            and all(item.get("type") not in {"table", "diagram"}
+                    and int(item["bbox"][2]) - int(item["bbox"][0])
+                    < evidence.width * .80 for item in ordenados)):
+        ordenados = sorted(
+            ordenados,
+            key=lambda item: (
+                min(range(len(colunas)), key=lambda coluna: abs(
+                    ((int(item["bbox"][0]) + int(item["bbox"][2])) / 2)
+                    - sum(colunas[coluna]) / 2)),
+                int(item["bbox"][1]), int(item["bbox"][0])),
+        )
+    ordem = [str(item["id"]) for item in ordenados]
     grafo = {item: ([ordem[i + 1]] if i + 1 < len(ordem) else [])
              for i, item in enumerate(ordem)}
     return {"width": evidence.width, "height": evidence.height,
-            "regions": [dict(item) for item in specs],
+            "regions": [dict(item) for item in ordenados],
             "columns": [list(item) for item in colunas],
             "reading_order": ordem, "reading_graph": grafo,
-            "spanning_regions": [item["id"] for item in specs
+            "spanning_regions": [item["id"] for item in ordenados
                                  if item["metadata"].get("spanning")],
-            "special_regions": [item["id"] for item in specs
+            "special_regions": [item["id"] for item in ordenados
                                 if item["type"] in {"table", "diagram"}],
             "warnings": []}
 
@@ -658,10 +728,12 @@ def _raster_specs(evidence: PageEvidence, options: ProcessOptions) -> list[dict[
 
     A segmentação é uma observação, nunca texto inventado. Isso permite ao
     inspector persistir colunas/regiões e ao reconhecimento posterior trocar o
-    engine sem recalcular a evidência original.
+    engine sem recalcular a evidência original. O `LayoutAnalyzer` é
+    biblioteca de inspeção (item 8 da revisão de 2026-09-18), e só entra aqui.
     """
     if evidence.raster is None:
         return []
+    from core.ocr_layout import LayoutAnalyzer
     try:
         variant = preparar_adaptativo(
             evidence.raster,
@@ -681,56 +753,13 @@ def _raster_specs(evidence: PageEvidence, options: ProcessOptions) -> list[dict[
             for region in layout.regions]
 
 
-def _words_for_line(text: str, caixa: tuple[int, int, int, int], line_id: str,
-                    confidence: float, prefix: str) -> list[WordResult]:
-    tokens = list(re.finditer(r"\S+", text))
-    if not tokens:
-        return []
-    x1, y1, x2, y2 = caixa
-    largura = max(1, x2 - x1)
-    resultado = []
-    for index, token in enumerate(tokens):
-        inicio = x1 + int(largura * token.start() / max(1, len(text)))
-        fim = x1 + int(largura * token.end() / max(1, len(text)))
-        resultado.append(WordResult(
-            id=f"{prefix}-w{index:03d}", text=token.group(), confidence=confidence,
-            bbox=(inicio, y1, max(inicio + 1, fim), y2), line_id=line_id,
-            source="text_layer",
-        ))
-    return resultado
-
-
-def _page_from_text(evidence: PageEvidence, specs: Sequence[Mapping[str, Any]],
-                    *, pipeline_version: str) -> PageResult:
-    linhas: list[LineResult] = []
-    palavras: list[WordResult] = []
-    regioes: list[RegionResult] = []
-    for spec in specs:
-        line_ids = []
-        for line_index, (text, caixa, _size) in enumerate(spec["lines"]):
-            line_id = f"{spec['id']}-line-{line_index:03d}"
-            items = _words_for_line(text, caixa, line_id, .98, line_id)
-            line_ids.append(line_id)
-            linhas.append(LineResult(line_id, text, .98, bbox=caixa,
-                                     region_id=spec["id"],
-                                     word_ids=[item.id for item in items],
-                                     metadata={"source": "pdf_text"}))
-            palavras.extend(items)
-        regioes.append(RegionResult(
-            id=str(spec["id"]), type=str(spec["type"]), order=int(spec["order"]),
-            confidence=.98, bbox=spec["bbox"], line_ids=line_ids,
-            text=str(spec["text"]), metadata=dict(spec["metadata"]),
-        ))
-    return PageResult(
-        page_id=f"page-{evidence.page_index:04d}",
-        text="\n\n".join(str(spec["text"]) for spec in specs), confidence=.98,
-        regions=regioes, lines=linhas, words=palavras,
-        metadata={"engine": "pdf_text", "pipeline_version": pipeline_version},
-    )
-
-
 class EditorialPipeline:
-    """Fachada única para inspeção, processamento, revisão e exportação base."""
+    """Fachada única para inspeção, processamento, revisão e exportação base.
+
+    Com ``legacy_extractor`` — o de `core.editorial_legacy.pipeline_de_producao`
+    —, é o caminho de produção; sem leitor nenhum, a biblioteca de inspeção
+    das Fases 3 e 4 (ver o docstring do módulo).
+    """
 
     def __init__(self, *, page_processor: Callable[[PageEvidence, ProcessOptions,
                                                       CancellationToken], PageResult] | None = None,
@@ -746,8 +775,33 @@ class EditorialPipeline:
         self.legacy_extractor = legacy_extractor
         self.pipeline_version = str(pipeline_version)
         self.router = OCRRouter()
-        self.layout_analyzer = LayoutAnalyzer()
         self.profiler = profiler or Profiler(enabled=False)
+
+    @classmethod
+    def from_ocr_service(cls, service: Any | None = None, *,
+                         languages: tuple[str, ...] = ("en",),
+                         language: str = "en", gpu: bool = False,
+                         trained_line: bool | None = None,
+                         model_path: str | None = None,
+                         meta_path: str | None = None,
+                         **kwargs: Any) -> "EditorialPipeline":
+        """Monta a fachada com registro, fusão de engines e diagramas.
+
+        A construção fica tardia: criar a fachada não inicializa Tesseract,
+        EasyOCR, PaddleOCR ou o CRNN. Cada adapter pode falhar isoladamente e
+        seu diagnóstico chega ao IR pela ``Phase3Processor``.
+        """
+        if service is None:
+            from core.services.ocr_service import OCRService
+            service = OCRService()
+        from core.ocr_phase3 import Phase3Processor
+        from core.ocr_phase4 import Phase4Processor
+
+        text_processor = Phase3Processor.from_ocr_service(
+            service, languages=languages, language=language, gpu=gpu,
+            trained_line=trained_line, model_path=model_path, meta_path=meta_path,
+        )
+        return cls(recognizer=Phase4Processor(text_processor=text_processor), **kwargs)
 
     def inspect(self, source: DocumentSource,
                 options: ProcessOptions | None = None) -> InspectionReport:
@@ -800,6 +854,8 @@ class EditorialPipeline:
         runtime = RuntimeConfig(
             cache_dir=options.pasta_de_cache(), workers=options.workers,
             use_cache=options.use_cache, max_memory_mb=options.max_memory_mb,
+            cache_prune_max_age_seconds=options.cache_prune_max_age_seconds,
+            cache_prune_max_bytes=options.cache_prune_max_bytes,
             engine=options.engine, per_worker_memory_mb=options.per_worker_memory_mb,
             code_version=self.pipeline_version,
             schema_version="pyboxeditor.editorial-document/v1",
@@ -835,6 +891,7 @@ class EditorialPipeline:
                       "processed_pages": resultado.processed,
                       "effective_workers": runtime.effective_workers,
                       "cached_pages": resultado.cached,
+                      "cache_prune": batch.cache_prune_report,
                       # Derivada do que já se apurou, e não de uma segunda
                       # passada pelo documento (item 7).
                       "inspection": InspectionReport(
@@ -855,7 +912,14 @@ class EditorialPipeline:
         if formato not in SUPPORTED_EXPORTS:
             raise ValueError(f"formato editorial não suportado: {formato!r}")
         caminho.parent.mkdir(parents=True, exist_ok=True)
-        if formato in {"html", "epub", "docx", "pdf"}:
+        if formato in {"epub", "docx"}:
+            legado = self._export_legacy(document, caminho, formato)
+            if legado is not None:
+                return legado
+        if formato != "json":
+            # Um escritor por formato, e o TXT é o do `EditorialExporter`
+            # também: o daqui escrevia o `json.dumps` do valor, e a tabela e a
+            # figura saíam como JSON, com o PNG em base64 (item 10).
             from core.editorial_export import EditorialExporter, ExportOptions as EditorialExportOptions
             report = EditorialExporter().export(
                 document, caminho,
@@ -866,13 +930,41 @@ class EditorialPipeline:
                 ),
             )
             return ExportReport(report.format, report.files, report.warnings, report.metadata)
-        if formato == "json":
-            document.save_json(caminho)
-        elif formato == "html":
-            _write_atomic(caminho, _html_document(document, options))
-        else:
-            _write_atomic(caminho, _text_document(document, options))
+        document.save_json(caminho)
         return ExportReport(formato, (str(caminho),), metadata={"schema": document.schema})
+
+    def _export_legacy(self, document: EditorialDocument, caminho: Path,
+                       formato: str) -> ExportReport | None:
+        """Escreve EPUB/DOCX de produÃ§Ã£o pela fachada, preservando o legado.
+
+        O leitor de produÃ§Ã£o ainda carrega medidas tipogrÃ¡ficas e artefatos de
+        diagrama que o escritor histÃ³rico sabe preservar. A decisÃ£o continua
+        sendo a do IR: antes de escrever, as revisÃµes do documento voltam para
+        cÃ³pias das pÃ¡ginas legadas. Um documento genÃ©rico ou reaberto sem as
+        pÃ¡ginas do leitor cai no exportador editorial comum.
+        """
+        if self.legacy_extractor is None:
+            return None
+        paginas = list(getattr(self.legacy_extractor, "ultimas_paginas", ()) or ())
+        if not paginas:
+            return None
+        from core import exportar, livro
+        from core.editorial_legacy import aplicar_revisao
+
+        paginas = aplicar_revisao(paginas, document)
+        origem = str(document.metadata.get("source_path") or "")
+        titulo, autor = document.title, ""
+        if origem.lower().endswith(".pdf"):
+            try:
+                titulo, autor = livro.titulo_e_autor(origem)
+            except (OSError, RuntimeError, ValueError):
+                pass
+        exportar.exportar(paginas, str(caminho), formato=formato,
+                          titulo=titulo, autor=autor, idioma=document.language)
+        return ExportReport(
+            formato, (str(caminho),),
+            metadata={"adapter": "legacy_export", "source": "editorial_document"},
+        )
 
     def _process_page(self, evidence: PageEvidence, options: ProcessOptions,
                       token: CancellationToken) -> PageResult:
@@ -887,12 +979,14 @@ class EditorialPipeline:
                 raise TypeError("page_processor deve retornar PageResult")
         elif options.engine != "none" and (evidence.text_layer.strip()
                                             or evidence.raster is not None):
-            # A fachada padrão atravessa Fases 3 e 4. Para tesseract, preserva
-            # o leitor histórico como processador textual e acrescenta os
-            # diagramas; para texto nativo/scan, usa o processador editorial.
+            # Sem leitor, a fachada atravessa a biblioteca das Fases 3 e 4. Com
+            # `engine="tesseract"`, o texto é o do Tesseract de página, sozinho,
+            # e os diagramas são acrescentados; nos outros, o processador da
+            # Fase 3 — que lê a camada de texto e, sem ela, nada.
             from core.ocr_phase4 import Phase4Processor
             text_processor = None
-            if options.engine == "tesseract":
+            if (options.engine == "tesseract"
+                    or (evidence.raster is not None and not evidence.text_layer.strip())):
                 def tesseract_page(page_evidence, page_options, page_token):
                     return self._process_raster(page_evidence, page_options, page_token)
                 text_processor = tesseract_page
@@ -985,6 +1079,15 @@ class EditorialPipeline:
         if source.path is None:
             raise ValueError("legacy_extractor exige source.path")
         token.raise_if_cancelled()
+        cache_prune_report = None
+        if (options.use_cache
+                and (options.cache_prune_max_age_seconds is not None
+                     or options.cache_prune_max_bytes is not None)):
+            from core.ocr_runtime import OCRCache
+            cache_prune_report = OCRCache(options.pasta_de_cache()).prune(
+                max_age_seconds=options.cache_prune_max_age_seconds,
+                max_bytes=options.cache_prune_max_bytes,
+            )
         paginas = self.legacy_extractor(source.path, options, token)
         paginas_editoriais = []
         for pagina in paginas:
@@ -1006,6 +1109,7 @@ class EditorialPipeline:
                       "language": options.language,
                       "engine": "livro.extrair"},
         )
+        documento.metadata["cache_prune"] = cache_prune_report
         documento.validate()
         return documento
 
@@ -1014,77 +1118,3 @@ class EditorialPipeline:
 class ExportTarget:
     path: str | Path
     format: str | None = None
-
-
-def _write_atomic(path: Path, content: str) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(content, encoding="utf-8")
-    temporary.replace(path)
-
-
-def _text_document(document: EditorialDocument, options: ExportOptions) -> str:
-    paginas = []
-    for page in document.pages:
-        blocos = []
-        for block in sorted(page.blocks, key=lambda item: item.order):
-            value = block.decision.value
-            blocos.append(value if isinstance(value, str) else json.dumps(
-                value, ensure_ascii=False, sort_keys=True))
-        paginas.append("\n\n".join(blocos))
-    return "\n\n".join(paginas) + "\n"
-
-
-def _html_document(document: EditorialDocument, options: ExportOptions) -> str:
-    corpo = []
-    for page in document.pages:
-        corpo.append(f'<section id="page-{page.page_index + 1}" data-page="{page.page_index}">')
-        for block in sorted(page.blocks, key=lambda item: item.order):
-            value = block.decision.value
-            texto = value if isinstance(value, str) else ""
-            if block.kind == "heading":
-                corpo.append(f"<h2 id=\"{html.escape(block.id)}\">{html.escape(texto)}</h2>")
-            elif (block.kind in ("figure", "caption")
-                  and isinstance(value, Mapping) and value.get("png_base64")):
-                # A figura que não é tabuleiro — a faixa do exercício e a
-                # página inteira que virou imagem (item 4 da revisão de
-                # 2026-09-18). Sem este ramo elas caíam no do diagrama e saíam
-                # com `data-fen` de uma posição que não existe.
-                from core.editorial_export import imagem_do_diagrama
-                imagem, origem = imagem_do_diagrama(block)
-                rotulo = html.escape(str(value.get("warning") or "") or (
-                    "Cabeçalho do diagrama" if block.kind == "caption" else "Figura"),
-                    quote=True)
-                figura = (f'<img src="data:image/png;base64,{imagem}" alt="{rotulo}">'
-                          if imagem else f"<figcaption>{rotulo}</figcaption>")
-                corpo.append(f'<figure id="{html.escape(block.id)}" '
-                             f'data-image="{origem}">{figura}</figure>')
-            elif block.kind == "diagram" and isinstance(value, Mapping):
-                # A imagem e a ressalva saem pelas mesmas funções da exportação
-                # editorial (item 3 da revisão de 2026-09-18): aqui o ramo sem
-                # `png_base64` escrevia uma `<figure>` com legenda e sem figura,
-                # que é justamente o que a Fase 4 produz — ela guarda a posição
-                # e o hash do recorte, não os pixels.
-                from core.editorial_export import (imagem_do_diagrama,
-                                                   legenda_do_diagrama,
-                                                   revisao_pendente)
-                fen = html.escape(str(value.get("fen", "")), quote=True)
-                imagem, origem = imagem_do_diagrama(block)
-                ressalva = legenda_do_diagrama(block)
-                pendente = ' data-review="pending"' if revisao_pendente(block) else ""
-                figura = (f'<img src="data:image/png;base64,{imagem}" '
-                          f'alt="Diagrama de xadrez{": " + fen if fen else ""}'
-                          f' — {html.escape(ressalva, quote=True)}">'
-                          if imagem else "")
-                corpo.append(f'<figure id="{html.escape(block.id)}" data-fen="{fen}" '
-                             f'data-image="{origem}"{pendente}>{figura}'
-                             f'<figcaption>{fen} ({html.escape(ressalva)})</figcaption>'
-                             f'</figure>')
-            else:
-                tag = "p" if block.kind not in {"table", "caption"} else "div"
-                corpo.append(f'<{tag} id="{html.escape(block.id)}" '
-                             f'data-kind="{html.escape(block.kind)}">{html.escape(texto)}</{tag}>')
-        corpo.append("</section>")
-    return ("<!doctype html>\n<html lang=\"" + html.escape(document.language) + "\">\n"
-            "<head><meta charset=\"utf-8\"><title>" + html.escape(document.title)
-            + "</title></head><body><main>" + "\n".join(corpo)
-            + "</main></body></html>\n")

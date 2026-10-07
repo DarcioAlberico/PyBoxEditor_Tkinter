@@ -14,7 +14,8 @@ from core.ocr_phase4 import (
     resolve_orientation,
     diagram_metrics,
 )
-from core.ocr_result import PageResult
+from core.ocr_phase3 import Phase3Processor
+from core.ocr_result import OCRHypothesis, PageResult
 from core.ocr_runtime import CancellationToken
 
 
@@ -115,6 +116,45 @@ def test_phase4_integra_diagramas_ao_pageresult_e_ao_documento_editorial():
     assert isinstance(block.decision.value, dict)
     assert block.decision.value["fen"].endswith(" w - - 0 1")
     assert block.decision.status == "automatic"
+
+
+def test_phase4_exclui_caixa_de_diagrama_do_ocr_textual():
+    chamadas = []
+
+    class LineRecognizer:
+        name = "line-test"
+
+        def recognize(self, image, context):
+            chamadas.append(context.bbox)
+            return [OCRHypothesis("fora", .9, self.name, bbox=context.bbox)]
+
+    values = {"e1": _candidates("K"), "e8": _candidates("k")}
+    text_processor = Phase3Processor(line_recognizers=[LineRecognizer()])
+    diagram_processor = DiagramProcessor(
+        detector=lambda image, **kwargs: [_board_candidate()],
+        recognizer=FakeSquareRecognizer(values),
+    )
+    evidence = PageEvidence(
+        document_id="book", page_index=0,
+        source_kind="memory",
+        raster=np.zeros((220, 200), dtype=np.uint8),
+        text_blocks=(
+            {"bbox": [20, 40, 160, 60],
+             "lines": [{"bbox": [20, 40, 160, 60],
+                        "spans": [{"text": "dentro"}]}]},
+            {"bbox": [20, 190, 180, 210],
+             "lines": [{"bbox": [20, 190, 180, 210],
+                        "spans": [{"text": "fora"}]}]},
+        ),
+    )
+
+    page = Phase4Processor(text_processor=text_processor,
+                           diagram_processor=diagram_processor).process(
+                               evidence, ProcessOptions(use_cache=False),
+                               CancellationToken())
+
+    assert chamadas == [(20, 190, 180, 210)]
+    assert page.metadata["diagram_bboxes"] == [[10, 20, 170, 180]]
 
 
 def test_diagram_result_review_aplica_correcao_sem_apagar_original():

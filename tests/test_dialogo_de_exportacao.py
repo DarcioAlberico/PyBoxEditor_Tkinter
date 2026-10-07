@@ -81,6 +81,7 @@ def test_a_caixa_abre_pronta_para_exportar_com_o_padrao(tmp_path):
         assert opcoes.coordenadas is False
         assert opcoes.reparar is False and opcoes.coletar is False
         assert opcoes.modelo_de_linha is False
+        assert opcoes.usar_ensemble is False
 
 
 def test_as_escolhas_atravessam_o_formulario(tmp_path):
@@ -94,6 +95,7 @@ def test_as_escolhas_atravessam_o_formulario(tmp_path):
         x.var_idioma.set("pt")
         x.var_coordenadas.set("livro")
         x.var_reparar.set(True)
+        x.var_ensemble.set(True)
         x.var_coletar.set(True)
         x.var_teto.set("250")
         x.var_embutir.set(True)
@@ -108,6 +110,7 @@ def test_as_escolhas_atravessam_o_formulario(tmp_path):
         assert opcoes.idioma == "pt"
         assert opcoes.coordenadas == livro.COMO_NO_LIVRO
         assert opcoes.reparar and opcoes.coletar and opcoes.teto == 250
+        assert opcoes.usar_ensemble is True
         assert opcoes.embutir_fonte and opcoes.diagramas_no_arquivo == "fonte"
         assert opcoes.moldura == "dupla" and opcoes.cantos == "arredondado"
         assert opcoes.corpo_pt == 20.0
@@ -264,6 +267,14 @@ def test_preferencia_corrompida_nao_derruba_a_caixa(tmp_path):
         opcoes, _erro = c.caixa._montar()
         assert opcoes.coordenadas is False
         assert opcoes.formato == "epub"
+
+
+def test_preferencia_do_ensemble_e_serializavel_e_tem_consenso_minimo(tmp_path):
+    opcoes = OpcoesDeExportacao(usar_ensemble=True, minimo_consenso=2)
+    recuperada = OpcoesDeExportacao.de_settings(opcoes.para_settings())
+
+    assert recuperada.usar_ensemble is True
+    assert recuperada.minimo_consenso == 2
 
 
 # ----------------------------------------------------------------------

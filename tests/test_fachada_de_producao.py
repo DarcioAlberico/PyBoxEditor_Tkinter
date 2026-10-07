@@ -17,7 +17,8 @@ import fitz
 import pytest
 
 from core import livro
-from core.editorial_adapters import pagina_extraida_para_pagina
+from core.editorial_adapters import (pagina_extraida_para_pagina,
+                                     paginas_extraidas_para_documento)
 from core.editorial_legacy import ExtratorDeLivro, OpcoesDeLeitura, pipeline_de_producao
 from core.editorial_pipeline import DocumentSource, EditorialPipeline, ExportOptions, ProcessOptions
 from core.editorial_review import _decision_requires_review
@@ -50,6 +51,63 @@ class _OCR:
 
     def tesseract_faixa_detalhada_conf(self, faixa, idioma):
         return []
+
+
+def test_ensemble_de_producao_e_opt_in_e_so_aceita_consenso(monkeypatch):
+    import numpy as np
+    from core.ocr_engines import EngineRun
+    from core.ocr_result import OCRHypothesis
+
+    class Registro:
+        def recognize(self, image, *, level):
+            return EngineRun([
+                OCRHypothesis("texto", .6, "tesseract"),
+                OCRHypothesis("texto", .7, "easyocr"),
+            ])
+
+    chamadas = []
+    monkeypatch.setattr(
+        "core.ocr_engines.OCRServiceAdapters.registry",
+        lambda *args, **kwargs: (chamadas.append(kwargs) or Registro()),
+    )
+    extrator = ExtratorDeLivro(
+        _Aprendizado(), _OCR(),
+        OpcoesDeLeitura(usar_ensemble=True, minimo_consenso=2),
+    )
+    _classificar, _pagina, faixa = extrator._leitores()
+    resultado = faixa(np.zeros((12, 40), dtype=np.uint8))
+
+    assert resultado[0][0] == "texto"
+    assert resultado[0][4]["consensus"] is True
+    assert chamadas[0]["language"] == "en"
+
+
+def test_ensemble_preserva_leitor_principal_quando_consenso_diverge(monkeypatch):
+    import numpy as np
+    from core.editorial_legacy import leitor_de_faixa_com_ensemble
+    from core.ocr_engines import EngineRun
+    from core.ocr_result import OCRHypothesis
+
+    class Registro:
+        def recognize(self, image, *, level):
+            return EngineRun([
+                OCRHypothesis("consenso errado", .95, "tesseract"),
+                OCRHypothesis("consenso errado", .80, "easyocr"),
+            ])
+
+    monkeypatch.setattr(
+        "core.ocr_engines.OCRServiceAdapters.registry",
+        lambda *args, **kwargs: Registro(),
+    )
+    leitor = leitor_de_faixa_com_ensemble(
+        lambda _faixa: [("leitura principal", .70, (0, 0, 10, 10), ())],
+        object(), "en")
+
+    resultado = leitor(np.zeros((12, 40), dtype=np.uint8))
+
+    assert resultado[0][0] == "leitura principal"
+    assert leitor.last_result.review_required is True
+    assert "primary_disagreement" in leitor.last_result.reason_codes
 
 
 def _pdf(caminho, linhas=("Uma linha de prosa comum.", "E outra linha, igual."),
@@ -91,10 +149,19 @@ def test_a_fachada_com_o_leitor_de_producao_le_a_pagina(tmp_path):
     assert pagina.metadata["dpi"] == 150
 
 
-def test_a_fachada_sem_leitor_continua_vazia_numa_pagina_digitalizada(tmp_path):
+def test_a_fachada_sem_leitor_usa_tesseract_no_raster(tmp_path, monkeypatch):
     """O defeito que a ponte existe para contornar, fixado como está: sem
     reconhecedor a fachada não lê a página. Se um dia ela passar a ler, este
     teste avisa que a ponte pode ir embora."""
+    from core.services import ocr_service
+
+    monkeypatch.setattr(
+        ocr_service.OCRService,
+        "tesseract_pagina_detalhada_conf",
+        lambda self, imagem, idioma: [
+            ("Texto do scan", .93, (0, 0, 300, 100), [])
+        ],
+    )
     pdf = _pdf(tmp_path / "livro.pdf")
     # A camada de texto do PDF é apagada rasterizando a página.
     origem = fitz.open(pdf)
@@ -110,7 +177,7 @@ def test_a_fachada_sem_leitor_continua_vazia_numa_pagina_digitalizada(tmp_path):
         DocumentSource.from_path(scan), ProcessOptions(use_cache=False))
     textos = [str(b.decision.value) for b in documento.pages[0].blocks
               if isinstance(b.decision.value, str)]
-    assert not any(t.strip() for t in textos)
+    assert "Texto do scan" in textos
 
 
 def test_as_paginas_pedidas_e_o_cancelamento_chegam_ao_leitor(tmp_path):
@@ -262,6 +329,29 @@ def test_o_pdf_pesquisavel_do_ir_e_invisivel_e_esta_na_escala(tmp_path):
     finally:
         original.close()
         novo.close()
+
+
+def test_o_pdf_pesquisavel_nao_perde_linha_em_caixa_muito_baixa(tmp_path):
+    pdf = _pdf(tmp_path / "livro.pdf", linhas=("original",))
+    pagina = livro.PaginaExtraida(
+        numero=0,
+        blocos=[livro.Paragrafo("a", topo=10, pe=11)],
+        largura=300, altura=200, dpi=150,
+    )
+    documento = paginas_extraidas_para_documento([pagina], document_id="livro")
+    documento.metadata["source_path"] = str(pdf)
+
+    from core.editorial_export import (EditorialExporter,
+                                       ExportOptions as EditorialExportOptions)
+
+    relatorio = EditorialExporter().export(
+        documento, tmp_path / "saida.pdf",
+        EditorialExportOptions(format="pdf"),
+    )
+
+    assert relatorio.metadata["failed_items"] == 0
+    with fitz.open(tmp_path / "saida.pdf") as saida:
+        assert "a" in saida[0].get_text()
 
 
 def test_pagina_fora_do_pdf_conta_como_falha_e_avisa(tmp_path):

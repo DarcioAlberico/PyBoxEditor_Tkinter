@@ -19,6 +19,7 @@ está no `docs/REVISAO_MODOS_OCR.md` (4.10).
 
 from __future__ import annotations
 
+import os
 import types
 
 import fitz
@@ -248,6 +249,23 @@ def test_o_cache_serve_a_segunda_leitura_e_nao_a_de_outro_modelo(tmp_path, monke
     pesos["glifos"].write_bytes(b"peso treinado de novo")
     pipeline.process(_fonte_de_memoria(2), opcoes)
     assert leituras["n"] == 4, "o cache serviu o resultado do modelo velho"
+
+
+def test_a_poda_do_cache_e_configuravel_no_pipeline(tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    antigo = cache_dir / "entrada-antiga.json"
+    antigo.write_text("{}", encoding="utf-8")
+    os.utime(antigo, (100.0, 100.0))
+
+    documento = EditorialPipeline(page_processor=lambda evidence, token: PageResult(
+        f"page-{evidence.page_index:04d}")).process(
+            _fonte_de_memoria(1),
+            ProcessOptions(cache_dir=cache_dir, cache_prune_max_age_seconds=100),
+        )
+
+    assert not antigo.exists()
+    assert documento.metadata["cache_prune"]["removed"] == 1
 
 
 def test_o_lote_aceita_um_fluxo_de_paginas():

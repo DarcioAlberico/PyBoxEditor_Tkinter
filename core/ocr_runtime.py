@@ -55,6 +55,8 @@ class RuntimeConfig:
     code_version: str = "runtime/v1"
     schema_version: str = "ocr-result/v1"
     model_version: str = ""
+    cache_prune_max_age_seconds: float | None = None
+    cache_prune_max_bytes: int | None = None
 
     def __post_init__(self) -> None:
         if self.workers < 1:
@@ -63,6 +65,11 @@ class RuntimeConfig:
             raise ValueError("max_memory_mb deve ser positivo")
         if self.per_worker_memory_mb is not None and self.per_worker_memory_mb < 1:
             raise ValueError("per_worker_memory_mb deve ser positivo")
+        if (self.cache_prune_max_age_seconds is not None
+                and self.cache_prune_max_age_seconds < 0):
+            raise ValueError("cache_prune_max_age_seconds não pode ser negativo")
+        if self.cache_prune_max_bytes is not None and self.cache_prune_max_bytes < 0:
+            raise ValueError("cache_prune_max_bytes não pode ser negativo")
 
     @property
     def effective_workers(self) -> int:
@@ -131,6 +138,7 @@ class OCRCache:
 
     def __init__(self, pasta: str | Path | None):
         self.pasta = Path(pasta) if pasta is not None else None
+        self._lock = threading.RLock()
         if self.pasta:
             self.pasta.mkdir(parents=True, exist_ok=True)
 
@@ -138,6 +146,10 @@ class OCRCache:
         return self.pasta / f"{chave}.json" if self.pasta else None
 
     def load(self, chave: str) -> PageResult | None:
+        with self._lock:
+            return self._load_unlocked(chave)
+
+    def _load_unlocked(self, chave: str) -> PageResult | None:
         caminho = self._path(chave)
         if caminho is None or not caminho.exists():
             return None
@@ -148,6 +160,10 @@ class OCRCache:
             return None
 
     def save(self, chave: str, resultado: PageResult) -> Path | None:
+        with self._lock:
+            return self._save_unlocked(chave, resultado)
+
+    def _save_unlocked(self, chave: str, resultado: PageResult) -> Path | None:
         caminho = self._path(chave)
         if caminho is None:
             return None
@@ -155,6 +171,49 @@ class OCRCache:
         resultado.save_json(temporario)
         temporario.replace(caminho)
         return caminho
+
+    def prune(self, *, max_age_seconds: float | None = None,
+              max_bytes: int | None = None, now: float | None = None) -> dict[str, int]:
+        """Remove entradas JSON antigas e/ou excedentes, sem tocar em temporários."""
+        if max_age_seconds is not None and max_age_seconds < 0:
+            raise ValueError("max_age_seconds nÃ£o pode ser negativo")
+        if max_bytes is not None and max_bytes < 0:
+            raise ValueError("max_bytes nÃ£o pode ser negativo")
+        with self._lock:
+            if self.pasta is None:
+                return {"removed": 0, "remaining": 0,
+                        "bytes_removed": 0, "bytes_remaining": 0}
+            arquivos = [item for item in self.pasta.glob("*.json") if item.is_file()]
+            remover: set[Path] = set()
+            limite_tempo = ((time.time() if now is None else float(now))
+                            - max_age_seconds
+                            if max_age_seconds is not None else None)
+            if limite_tempo is not None:
+                for arquivo in arquivos:
+                    if arquivo.stat().st_mtime < limite_tempo:
+                        remover.add(arquivo)
+            restantes = [arquivo for arquivo in arquivos if arquivo not in remover]
+            total = sum(arquivo.stat().st_size for arquivo in restantes)
+            if max_bytes is not None and total > max_bytes:
+                for arquivo in sorted(restantes,
+                                      key=lambda item: (item.stat().st_mtime,
+                                                        item.name)):
+                    if total <= max_bytes:
+                        break
+                    remover.add(arquivo)
+                    total -= arquivo.stat().st_size
+            bytes_removed = 0
+            for arquivo in sorted(remover, key=lambda item: item.name):
+                try:
+                    bytes_removed += arquivo.stat().st_size
+                    arquivo.unlink()
+                except OSError:
+                    pass
+            remaining = [item for item in arquivos if item.exists()]
+            return {"removed": len(arquivos) - len(remaining),
+                    "remaining": len(remaining),
+                    "bytes_removed": bytes_removed,
+                    "bytes_remaining": sum(item.stat().st_size for item in remaining)}
 
 
 @dataclass
@@ -221,6 +280,13 @@ class BatchProcessor:
         self.processor = processor
         self.config = config or RuntimeConfig()
         self.cache = OCRCache(self.config.cache_dir)
+        self.cache_prune_report: dict[str, int] | None = None
+        if (self.config.cache_prune_max_age_seconds is not None
+                or self.config.cache_prune_max_bytes is not None):
+            self.cache_prune_report = self.cache.prune(
+                max_age_seconds=self.config.cache_prune_max_age_seconds,
+                max_bytes=self.config.cache_prune_max_bytes,
+            )
         self.profiler = profiler or Profiler(enabled=False)
 
     def _one(self, item: Any, index: int, token: CancellationToken,

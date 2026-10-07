@@ -26,6 +26,24 @@ Em uma falha fatal da interface, o relatório fica em `crash_log.txt` dentro do
 diretório de dados do usuário. O caminho exato também aparece na mensagem de
 erro.
 
+## Manutenção do cache OCR
+
+O cache de páginas é identificado pelo conteúdo da entrada, configuração,
+versão do pipeline e assinatura dos pesos. A poda é opt-in e ocorre antes do
+processamento quando os limites são informados; arquivos temporários de uma
+gravação interrompida não são removidos por essa rotina.
+
+Para limitar idade e tamanho no leitor editorial:
+
+```text
+python scripts/processar_editorial.py livro.pdf -o saida.json \
+  --cache-max-idade-horas 168 --cache-max-mb 2048
+```
+
+O relatório da poda fica em `metadata.cache_prune` do documento, com as
+quantidades removidas e restantes e os bytes liberados. Sem essas opções o
+cache continua sem poda automática.
+
 ## Gate de release
 
 ```text
@@ -329,6 +347,38 @@ Os metadados do treino tambem guardam o SHA-256 do `.pth`, o fingerprint dos
 pixels e rotulos do dataset e a lista deterministica da validacao. O portao
 recusa um JSON mais antigo que o peso ou cujo hash nao corresponda; portanto,
 copiar um `.pth` sem seu `.json` correspondente nunca promove silenciosamente
+Para empacotar pesos com manifesto e checksum:
+
+```text
+python scripts/empacotar_modelo.py text_line_model.pth \
+  --meta text_line_model.json \
+  --manifesto-pesos text_line_model.manifest.json \
+  -o dist/line-crnn.zip --model-id line-crnn \
+  --pipeline-version editorial-pipeline/v4 --exigir-portao \
+  --exigir-proveniencia-dataset \
+  --rodada-corpus benchmarks/rodadas/ultima.json --exigir-gate-corpus \
+  --gate-editorial benchmarks/quality/ultima.json --exigir-gate-editorial
+  python scripts/smoke_release.py dist/pyboxeditor-0.1.0-py3-none-any.whl
+```
+
+Na caixa principal de exportaÃ§Ã£o, a opÃ§Ã£o **Combinar engines independentes**
+ativa o mesmo consenso conservador do script: Tesseract, EasyOCR e PaddleOCR
+sÃ£o consultados nas faixas de fallback; apenas duas fontes concordantes
+substituem a leitura da cadeia prÃ³pria. Conflitos e engines indisponÃ­veis ficam
+registrados na evidÃªncia e entram na fila de revisÃ£o.
+
+Quando `--meta` referencia `dataset_provenance_path`, `calibration_report`,
+`split_manifest`, `line_binding` ou `holdout_provenance`, o empacotador copia
+essas evidências para `metadata/artifacts/` e registra seus SHA-256 em
+`manifest.json`. Os caminhos originais continuam sendo a proveniência externa
+dos datasets; o ZIP carrega as evidências verificáveis, não as imagens inteiras
+do corpus. `ModelPackage.verify` confere também essa correspondência entre a
+lista de evidências e os arquivos efetivamente declarados no pacote.
+
+Comparações com engines externos devem usar o mesmo manifesto de corpus, idioma,
+DPI, pré-processamento e política de revisão. ABBYY e Acrobat são adapters
+opcionais: ausência do executável deve ser registrada como indisponibilidade,
+nunca como resultado vazio favorável ao nosso OCR.
 um modelo. `--avaliar` mede o arquivo atual, mas essa medicao nao reescreve a
 proveniencia nem substitui um holdout revisado.
 

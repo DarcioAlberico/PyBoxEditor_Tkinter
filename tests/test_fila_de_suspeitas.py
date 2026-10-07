@@ -97,6 +97,24 @@ def test_o_bloco_sem_linha_suspeita_fica_fora_da_fila_e_o_com_entra():
                         "block-livro-p0030-b0003"}
 
 
+def test_conflito_do_ensemble_vai_da_evidencia_para_a_fila():
+    pagina = _pagina()
+    pagina.roteamento[1]["ensemble"] = {
+        "consensus": False,
+        "review_required": True,
+        "reason_codes": ["conflicting_consensus", "no_consensus"],
+        "errors": {},
+    }
+
+    documento = paginas_extraidas_para_documento([pagina], document_id="livro")
+    bloco = documento.pages[0].blocks[0]
+
+    assert bloco.metadata["review_required"] is True
+    assert "ensemble_conflict" in bloco.decision.reason_codes
+    assert any("ensemble" in motivo for motivo in bloco.metadata["motivos"])
+    assert build_review_queue(documento).filter(target_id=bloco.id).items
+
+
 def test_o_item_da_fila_fala_em_frases_e_traz_as_linhas():
     documento = paginas_extraidas_para_documento([_pagina()], document_id="livro")
     fila = build_review_queue(documento)
@@ -257,7 +275,9 @@ def test_a_revisao_volta_para_as_paginas_do_leitor():
     figura = revisada.blocos[2]
     assert figura.fen == "8/8/8/8/8/8/8/4K2k w - - 0 1"
     assert figura.origem == "render" and figura.aviso is None
-    assert figura.png != b"png" and figura.largura > 80 and len(figura.linhas) == 8
+    # A moldura padrão (simples) sai em glifo da fonte, na grade de dez (F122).
+    assert figura.png != b"png" and figura.largura > 80
+    assert figura.linhas_emolduradas and len(figura.linhas) == 10
     assert figura.caixa == (500, 600, 900, 1000)
     # O que não foi tocado é o mesmo objeto; a página original não mudou.
     assert revisada.blocos[3] is original.blocos[4]
@@ -307,5 +327,3 @@ def test_o_provedor_rasteriza_a_pagina_na_escala_em_que_ela_foi_lida(tmp_path):
     assert provedor.imagem(7) is None
     provedor.fechar()
     assert ProvedorDePaginas(paginas_extraidas_para_documento([primeira])).imagem(0) is None
-
-

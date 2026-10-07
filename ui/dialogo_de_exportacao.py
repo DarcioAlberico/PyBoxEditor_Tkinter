@@ -36,6 +36,7 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from core import coleta, livro, render_diagrama
 from core.exportar import CORPO_PADRAO_PT
+from ui import tema
 from ui.dialogo_do_diagrama import PainelDoDiagrama
 
 #: Os formatos que cada ação oferece: (extensão, rótulo).
@@ -80,6 +81,11 @@ class OpcoesDeExportacao:
     coletar: bool = False
     teto: Optional[int] = None
     modelo_de_linha: bool = False
+    #: Combina engines independentes nas faixas de fallback. O consenso e
+    #: conservador: sem apoio minimo, a cadeia propria permanece e a linha
+    #: entra na revisao, em vez de uma engine isolada substituir o texto.
+    usar_ensemble: bool = False
+    minimo_consenso: int = 2
     #: Ler da camada do PDF as páginas nascidas digitais (F110) — ligado por
     #: padrão, porque a régua (`pdf_nativo.avaliar_pagina`) só aceita a camada
     #: que é o texto do livro, e a digitalização vai ao OCR do mesmo jeito.
@@ -124,6 +130,12 @@ class OpcoesDeExportacao:
                 opcoes.teto = None
         if not isinstance(opcoes.ler_camada, bool):
             opcoes.ler_camada = True
+        if not isinstance(opcoes.usar_ensemble, bool):
+            opcoes.usar_ensemble = False
+        try:
+            opcoes.minimo_consenso = max(2, int(opcoes.minimo_consenso))
+        except (TypeError, ValueError):
+            opcoes.minimo_consenso = 2
         return opcoes
 
     @property
@@ -200,6 +212,7 @@ class DialogoDeExportacao:
     def _construir(self):
         guardadas = self._guardadas()
         self.top = tk.Toplevel(self.parent)
+        tema.aplicar(self.top)
         self.top.title(self.titulo)
         self.top.transient(self.parent)
         self.top.resizable(False, False)
@@ -230,7 +243,7 @@ class DialogoDeExportacao:
         camada.pack(fill="x", pady=(8, 0))
         self._construir_camada(camada, guardadas)
 
-        self.lbl_aviso = ttk.Label(corpo, foreground="#B71C1C", wraplength=760,
+        self.lbl_aviso = ttk.Label(corpo, style="Erro.TLabel", wraplength=760,
                                    justify="left")
         self.lbl_aviso.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
@@ -317,19 +330,19 @@ class DialogoDeExportacao:
         origem = ("detectado pela camada de texto do PDF"
                   if self.idioma_detectado in ("en", "pt")
                   else "sem camada de texto que diga — decide a máscara de alfabeto")
-        ttk.Label(quadro, text=origem, foreground="gray30", wraplength=330,
+        ttk.Label(quadro, text=origem, style="Secundario.TLabel", wraplength=330,
                   justify="left").grid(row=1, column=1, sticky="w")
 
         disponivel, motivo = self.motor_de_prosa
         ttk.Label(quadro, text="Motor de prosa:").grid(row=2, column=0, sticky="nw",
                                                         pady=(6, 0))
         if disponivel:
-            texto, cor = f"Tesseract {motivo} disponível".strip(), "#2E7D32"
+            texto, estilo = f"Tesseract {motivo} disponível".strip(), "Ok.TLabel"
         else:
-            texto, cor = (f"Tesseract indisponível: {motivo}. A prosa sairá só "
+            texto, estilo = (f"Tesseract indisponível: {motivo}. A prosa sairá só "
                           "com a cadeia própria (27% de erro contra 1% com os dois).",
-                          "#B71C1C")
-        ttk.Label(quadro, text=texto, foreground=cor, wraplength=330,
+                             "Erro.TLabel")
+        ttk.Label(quadro, text=texto, style=estilo, wraplength=330,
                   justify="left").grid(row=2, column=1, sticky="w", pady=(6, 0))
 
         self.var_reparar = tk.BooleanVar(value=guardadas.reparar)
@@ -337,7 +350,7 @@ class DialogoDeExportacao:
                                      "(`Dmamic` → `Dynamic`)",
                         variable=self.var_reparar).grid(
                             row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Label(quadro, foreground="gray30", wraplength=400, justify="left",
+        ttk.Label(quadro, style="Secundario.TLabel", wraplength=400, justify="left",
                   text="Exato (19 de 19 trocas medidas), mas lento: a extração "
                        "leva cerca de doze vezes mais."
                   ).grid(row=4, column=0, columnspan=2, sticky="w", padx=(20, 0))
@@ -351,35 +364,47 @@ class DialogoDeExportacao:
         if not utilizavel:
             chk.state(["disabled"])
             self.var_modelo.set(False)
-        ttk.Label(quadro, foreground="gray30", wraplength=400, justify="left",
+        ttk.Label(quadro, style="Secundario.TLabel", wraplength=400, justify="left",
                   text=(f"{motivo_modelo[0].upper()}{motivo_modelo[1:]}."
                         if motivo_modelo else
                         "Sem ele, as faixas de fallback vão para o Tesseract.")
                   ).grid(row=6, column=0, columnspan=2, sticky="w", padx=(20, 0))
 
+        self.var_ensemble = tk.BooleanVar(value=guardadas.usar_ensemble)
+        ttk.Checkbutton(
+            quadro,
+            text="Combinar engines independentes nas faixas de fallback",
+            variable=self.var_ensemble,
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(
+            quadro, style="Secundario.TLabel", wraplength=400, justify="left",
+            text="Tesseract, EasyOCR e PaddleOCR só substituem a leitura quando "
+                 "pelo menos duas fontes concordam; conflitos ficam para revisão.",
+        ).grid(row=8, column=0, columnspan=2, sticky="w", padx=(20, 0))
+
         self.var_coletar = tk.BooleanVar(value=guardadas.coletar)
         ttk.Checkbutton(quadro, text="Guardar os recortes de baixa confiança para revisão",
                         variable=self.var_coletar, command=self._validar).grid(
-                            row=7, column=0, columnspan=2, sticky="w", pady=(8, 0))
+                            row=9, column=0, columnspan=2, sticky="w", pady=(8, 0))
         teto = ttk.Frame(quadro)
-        teto.grid(row=8, column=0, columnspan=2, sticky="w", padx=(20, 0))
+        teto.grid(row=10, column=0, columnspan=2, sticky="w", padx=(20, 0))
         ttk.Label(teto, text="Teto por classe:").pack(side="left")
         self.var_teto = tk.StringVar(
             value="" if guardadas.teto is None else str(guardadas.teto))
         self.var_teto.trace_add("write", lambda *_a: self._validar())
         ttk.Entry(teto, textvariable=self.var_teto, width=7).pack(side="left", padx=(6, 6))
-        ttk.Label(teto, text="(em branco: sem teto)", foreground="gray30").pack(side="left")
-        ttk.Label(quadro, foreground="gray30", wraplength=400, justify="left",
+        ttk.Label(teto, text="(em branco: sem teto)", style="Secundario.TLabel").pack(side="left")
+        ttk.Label(quadro, style="Secundario.TLabel", wraplength=400, justify="left",
                   text=f"Vão para '{coleta.PASTA_PADRAO}/' pelo palpite do modelo, "
                        "não para a base de treino; com teto, sorteados no livro inteiro."
-                  ).grid(row=9, column=0, columnspan=2, sticky="w", padx=(20, 0))
+                  ).grid(row=11, column=0, columnspan=2, sticky="w", padx=(20, 0))
 
     def _construir_diagramas(self, pai, guardadas: OpcoesDeExportacao):
         self.var_desenhar = tk.BooleanVar(value=guardadas.diagramas == "render")
         ttk.Checkbutton(pai, text="Redesenhar cada diagrama a partir da posição lida",
                         variable=self.var_desenhar, command=self._mudou_o_desenho).pack(
                             anchor="w")
-        ttk.Label(pai, foreground="gray30", wraplength=640, justify="left",
+        ttk.Label(pai, style="Secundario.TLabel", wraplength=640, justify="left",
                   text="Limpo, na fonte abaixo; onde a leitura não convence cai para "
                        "o recorte do scan (9% de 346 tabuleiros medidos)."
                   ).pack(anchor="w", padx=(20, 0))
@@ -388,7 +413,7 @@ class DialogoDeExportacao:
             pai, text="Como texto, com a fonte de xadrez embutida no arquivo",
             variable=self.var_embutir)
         self.chk_embutir.pack(anchor="w", pady=(6, 0))
-        ttk.Label(pai, foreground="gray30", wraplength=640, justify="left",
+        ttk.Label(pai, style="Secundario.TLabel", wraplength=640, justify="left",
                   text="Escala sem perder nitidez; exige leitor que respeite a fonte "
                        "embutida. Desligado, sai como imagem, que funciona em qualquer um."
                   ).pack(anchor="w", padx=(20, 0))
@@ -415,7 +440,7 @@ class DialogoDeExportacao:
         ttk.Checkbutton(pai, text="Ler do próprio PDF as páginas nascidas digitais — "
                                   "texto e diagramas exatos, sem OCR",
                         variable=self.var_camada).pack(anchor="w")
-        self.lbl_camada = ttk.Label(pai, foreground="gray30", wraplength=640,
+        self.lbl_camada = ttk.Label(pai, style="Secundario.TLabel", wraplength=640,
                                     justify="left", text=self._texto_da_camada())
         self.lbl_camada.pack(anchor="w", padx=(20, 0))
 
@@ -538,6 +563,8 @@ class DialogoDeExportacao:
             reparar=bool(self.var_reparar.get()),
             coletar=bool(self.var_coletar.get()), teto=teto,
             modelo_de_linha=bool(self.var_modelo.get()),
+            usar_ensemble=bool(self.var_ensemble.get()),
+            minimo_consenso=2,
             ler_camada=bool(self.var_camada.get())), None
 
     def _validar(self):

@@ -9,6 +9,8 @@ def _region(tipo, ident="r1", metadata=None):
 def test_prosa_vai_para_linha_e_tem_glifo_como_fallback():
     decisao = OCRRouter().decide(_region("body"))
     assert (decisao.domain, decisao.primary, decisao.fallback) == ("prose", "line", "glyph")
+    assert decisao.rule_version == "routing/v1"
+    assert decisao.estimated_cost == 1.0
 
 
 def test_cabecalho_e_rodape_usam_ocr_de_linha():
@@ -36,3 +38,5 @@ def test_metadata_pode_forcar_dominio_e_registro_e_serializavel():
     registro = registrar_roteamento([_region("unknown", metadata={"domain": "prose"})])
     assert registro[0]["primary"] == "line"
     assert registro[0]["reason"] == "metadata.domain"
+    assert registro[0]["rule_version"] == "routing/v1"
+    assert registro[0]["estimated_cost"] == 1.0

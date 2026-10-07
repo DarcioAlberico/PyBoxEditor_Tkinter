@@ -33,6 +33,65 @@ def test_fingerprint_e_cache_sao_estaveis(tmp_path):
     assert cache.load(chave).text == "ok"
 
 
+def test_cache_poda_entradas_por_idade_e_retorna_relatorio(tmp_path):
+    cache = OCRCache(tmp_path)
+    velho = fingerprint("velho")
+    novo = fingerprint("novo")
+    cache.save(velho, PageResult("p-velho", text="old"))
+    cache.save(novo, PageResult("p-novo", text="new"))
+    (tmp_path / f"{velho}.json").touch()
+    (tmp_path / f"{novo}.json").touch()
+    import os
+    os.utime(tmp_path / f"{velho}.json", (100.0, 100.0))
+    os.utime(tmp_path / f"{novo}.json", (950.0, 950.0))
+
+    relatorio = cache.prune(max_age_seconds=100, now=1000.0)
+
+    assert not (tmp_path / f"{velho}.json").exists()
+    assert (tmp_path / f"{novo}.json").exists()
+    assert relatorio["removed"] == 1
+    assert relatorio["remaining"] == 1
+
+
+def test_cache_poda_por_tamanho_remove_mais_antigos_e_ignora_temporario(tmp_path):
+    cache = OCRCache(tmp_path)
+    chaves = [fingerprint(item) for item in ("a", "b", "c")]
+    for indice, chave in enumerate(chaves):
+        cache.save(chave, PageResult(f"p{indice}", text="x" * (indice + 1)))
+        (tmp_path / f"{chave}.json").touch()
+        import os
+        os.utime(tmp_path / f"{chave}.json", (100 + indice, 100 + indice))
+    temporario = tmp_path / "incompleto.tmp"
+    temporario.write_text("nao apagar", encoding="utf-8")
+    limite = (tmp_path / f"{chaves[-1]}.json").stat().st_size
+
+    relatorio = cache.prune(max_bytes=limite)
+
+    assert relatorio["remaining"] == 1
+    assert (tmp_path / f"{chaves[-1]}.json").exists()
+    assert temporario.exists()
+
+
+def test_batch_aplica_poda_configurada_ao_inicializar(tmp_path):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    chave = fingerprint("antigo")
+    arquivo = cache_dir / f"{chave}.json"
+    OCRCache(cache_dir).save(chave, PageResult("p-antigo", text="old"))
+    import os
+    os.utime(arquivo, (100.0, 100.0))
+
+    batch = BatchProcessor(
+        _processor,
+        config=RuntimeConfig(cache_dir=cache_dir,
+                             cache_prune_max_age_seconds=100),
+    )
+
+    assert not arquivo.exists()
+    assert batch.cache_prune_report is not None
+    assert batch.cache_prune_report["removed"] == 1
+
+
 def test_batch_processa_em_ordem_e_reaproveita_cache(tmp_path):
     chamadas = []
 

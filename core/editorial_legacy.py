@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import copy
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, List, Mapping, Optional, Sequence
 
@@ -62,6 +62,8 @@ class OpcoesDeLeitura:
     candidatas: Optional[Callable] = None
     coletor: Optional[Callable] = None
     modelo_de_linha: bool = False
+    usar_ensemble: bool = False
+    minimo_consenso: int = 2
     dpi: int = 300
     camada: str = "nunca"
     extras: dict = field(default_factory=dict)
@@ -82,6 +84,49 @@ class OpcoesDeLeitura:
             saida["cantos"] = self.cantos
         saida.update(self.extras)
         return saida
+
+
+def leitor_de_faixa_com_ensemble(leitor_principal: Callable,
+                                 servico: Any, idioma: str, *,
+                                 modelo_de_linha: bool = False,
+                                 minimo_consenso: int = 2) -> Callable:
+    """Envolve o leitor principal com o consenso comum a todos os fluxos.
+
+    Com apenas uma engine disponível, preserva o leitor principal. Quando o
+    consenso diverge do leitor principal, mantém a leitura já medida e marca
+    a faixa para revisão; só usa o consenso quando ele é compatível.
+    """
+    from core.ocr_engines import EnsembleLineReader, OCRServiceAdapters
+
+    registro = OCRServiceAdapters.registry(
+        servico, languages=(idioma,), language=idioma,
+        trained_line=modelo_de_linha)
+    ensemble = EnsembleLineReader(registro, minimum_support=minimo_consenso)
+
+    def ler_faixa(faixa):
+        principal = list(leitor_principal(faixa) or [])
+        consenso = ensemble(faixa)
+        resultado = ensemble.last_result
+        if consenso and principal:
+            texto_principal = str(principal[0][0]).strip().casefold()
+            texto_consenso = str(consenso[0][0]).strip().casefold()
+            if texto_principal != texto_consenso and resultado is not None:
+                resultado = replace(
+                    resultado, review_required=True,
+                    reason_codes=tuple((*resultado.reason_codes,
+                                        "primary_disagreement")))
+                ensemble.last_result = resultado
+                ler_faixa.last_result = resultado
+                return principal
+        ler_faixa.last_result = resultado
+        if consenso:
+            return consenso
+        if resultado is not None and len(resultado.hypotheses) >= 2:
+            return principal
+        return principal
+
+    ler_faixa.last_result = None
+    return ler_faixa
 
 
 class ExtratorDeLivro:
@@ -135,6 +180,15 @@ class ExtratorDeLivro:
 
             def ler_faixa(faixa):
                 return servico.tesseract_faixa_detalhada_conf(faixa, idioma)
+        if self.opcoes.usar_ensemble:
+            ler_faixa = leitor_de_faixa_com_ensemble(
+                ler_faixa, servico, idioma,
+                modelo_de_linha=self.opcoes.modelo_de_linha,
+                minimo_consenso=self.opcoes.minimo_consenso)
+                # Discordância não escolhe uma fonte silenciosamente. Quando
+                # há apenas uma engine disponível, preservamos o leitor
+                # principal já medido; com duas fontes conflitantes, a cadeia
+                # própria permanece como evidência segura.
         return classificar, ler_pagina, ler_faixa
 
     def __call__(self, caminho: str | Path, options: Any = None,
@@ -323,16 +377,15 @@ def _redesenhar(figura: livro.Figura, fen: str, opcoes: OpcoesDeFigura) -> livro
             coordenadas=bool(figura.coordenadas), moldura=opcoes.moldura,
             cantos=opcoes.cantos, orientacao=orientacao)
         objeto = render_diagrama.carregar(opcoes.fonte)
-        em_grade = (render_diagrama.grade(fen, objeto, orientacao,
-                                          opcoes.moldura, opcoes.cantos)
-                    if figura.coordenadas else None)
+        linhas, emolduradas = render_diagrama.linhas_do_diagrama(
+            fen, objeto, orientacao, opcoes.moldura, opcoes.cantos, bool(figura.coordenadas))
     except (render_diagrama.FonteDesconhecida, render_diagrama.FonteIncompleta,
             ValueError) as erro:
         nova.aviso = f"FEN revisado, mas não deu para redesenhar: {erro}"
         return nova
     nova.png, nova.largura, nova.altura = png, largura, altura
-    nova.linhas = em_grade or render_diagrama.linhas(fen, objeto, orientacao)
-    nova.linhas_emolduradas = em_grade is not None
+    nova.linhas = linhas
+    nova.linhas_emolduradas = emolduradas
     nova.fonte = opcoes.fonte
     nova.origem = "render"
     nova.aviso = None

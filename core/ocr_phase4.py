@@ -6,6 +6,13 @@ entrada pequenos: :class:`DiagramProcessor` para uma página e
 Modelos neurais, detectores legados e doubles de teste entram por adapters; a
 posição final nunca é escolhida por uma string sem top-k, legalidade e estado
 de revisão.
+
+Como a Fase 3, é **biblioteca de inspeção**: o diagrama de produção sai de
+`core/livro.py` com `core/diagrama.py` (o porteiro, a orientação pelas
+coordenadas, o `_arbitrar`, o redesenho) e, no PDF nascido digital, de
+`core/pdf_nativo.py`. Aqui chega a fachada sem leitor (`docs/REVISAO_MODOS_OCR.md`
+§3.1 e §4.11), e o `resolve_position` daqui é um segundo resolvedor de posição,
+que a produção não chama.
 """
 
 from __future__ import annotations
@@ -746,10 +753,19 @@ class Phase4Processor:
         self.diagram_processor = diagram_processor or DiagramProcessor()
 
     def process(self, evidence: Any, options: Any, token: Any) -> PageResult:
+        detected_diagrams = self.diagram_processor.process(evidence, options, token)
+        diagram_bboxes = [list(item.bbox) for item in detected_diagrams]
+        text_evidence = evidence
+        if diagram_bboxes:
+            text_evidence = replace(
+                evidence,
+                metadata={**dict(getattr(evidence, "metadata", {}) or {}),
+                          "diagram_bboxes": diagram_bboxes},
+            )
         if hasattr(self.text_processor, "process"):
-            page = self.text_processor.process(evidence, options, token)
+            page = self.text_processor.process(text_evidence, options, token)
         else:
-            page = self.text_processor(evidence, options, token)
+            page = self.text_processor(text_evidence, options, token)
         if not isinstance(page, PageResult):
             raise TypeError("text_processor deve retornar PageResult")
         if (not str(getattr(evidence, "text_layer", "") or "").strip()
@@ -759,8 +775,7 @@ class Phase4Processor:
             # parágrafo vazio. A região diagram será adicionada abaixo.
             page.regions = [region for region in page.regions if region.text.strip()]
             page.text = "\n\n".join(region.text for region in page.regions)
-        diagrams = [_com_lado_da_pagina(item, page)
-                    for item in self.diagram_processor.process(evidence, options, token)]
+        diagrams = [_com_lado_da_pagina(item, page) for item in detected_diagrams]
         regions = list(page.regions)
         for diagram in diagrams:
             region = RegionResult(
@@ -777,6 +792,7 @@ class Phase4Processor:
             "phase4": True,
             "diagrams": [item.to_dict() for item in diagrams],
             "diagram_count": len(diagrams),
+            "diagram_bboxes": [list(item.bbox) for item in diagrams],
         })
         if any(item.review_required for item in diagrams):
             page.warnings.append("há diagrama aguardando revisão")

@@ -1,8 +1,19 @@
-"""Reconhecimento, alinhamento, fusão e notação da Fase 3.
+"""Reconhecimento, alinhamento, fusão e notação da Fase 3 — biblioteca de inspeção.
 
 Este módulo é o seam entre engines de OCR e o resultado editorial. Ele não
 decide por uma string isolada: cada leitura chega como hipótese, passa por uma
 calibração explícita e sai com alternativas, alinhamento e motivo.
+
+**Não é o leitor de produção.** Quem lê o livro é `core/livro.py` — a cadeia
+própria de glifos ancorando o lance, o Tesseract lendo a prosa, a fusão
+palavra a palavra —, e a fachada o usa por
+`core.editorial_legacy.pipeline_de_producao`, como a janela. A `FusionEngine`
+daqui escolhe por linha inteira, e 23 das 25 linhas da p. 30 do Aagaard são
+mistas; em notação ela prefere a camada de texto do PDF, que nos livros do
+corpus é OCR de fábrica (`docs/REVISAO_MODOS_OCR.md` §3.1). O que fica aqui
+serve à fachada sem leitor — que lê a camada de texto de um PDF sem modelo
+nenhum, e numa página digitalizada não lê nada — e à comparação de motores por
+script (`scripts/processar_editorial.py --biblioteca --usar-engines`).
 """
 
 from __future__ import annotations
@@ -18,6 +29,7 @@ import numpy as np
 from core.notacao import FIGURINAS, e_token_de_notacao, normalizar_saida
 from core.ocr_language import LanguageModel
 from core.ocr_result import LineResult, OCRHypothesis, PageResult, RegionResult, WordResult
+from core.ocr_routing import OCRRouter
 
 
 @dataclass(frozen=True)
@@ -84,17 +96,76 @@ class CallableRecognizer:
 
 
 class RegistryRecognizer:
-    """Adapter de ``EngineRegistry`` para o contrato de linha da Fase 3."""
+    """Adapter de ``EngineRegistry`` para o contrato de linha da Fase 3.
 
-    def __init__(self, registry: Any, *, level: str = "line"):
+    A decisão de roteamento é executável: o nível primário é tentado primeiro
+    e o fallback só é consultado quando não há texto. Falhas do primário não
+    são apagadas quando o fallback recupera uma hipótese; elas continuam
+    evidência de revisão no resultado editorial.
+    """
+
+    def __init__(self, registry: Any, *, level: str = "line",
+                 consensus: bool = False):
         self.registry = registry
         self.level = str(level)
+        self.consensus = bool(consensus)
         self.name = "engine_registry"
         self.capabilities = frozenset({self.level, "confidence"})
+        self.errors: dict[str, str] = {}
 
     def recognize(self, crop: Any, context: RecognitionContext) -> list[OCRHypothesis]:
-        resultado = self.registry.recognize(crop, level=self.level)
-        return list(getattr(resultado, "hypotheses", ()))
+        self.errors = {}
+        routing = context.metadata.get("routing", {}) if context.metadata else {}
+        primary = str(routing.get("primary") or self.level)
+        fallback = str(routing.get("fallback") or "")
+        levels = [primary]
+        if fallback and fallback != primary:
+            levels.append(fallback)
+        selected_level = primary
+        hypotheses: list[OCRHypothesis] = []
+        fallback_used = False
+        for index, level in enumerate(levels):
+            resultado = self.registry.recognize(crop, level=level)
+            self.errors.update({
+                str(name): str(message)
+                for name, message in dict(getattr(resultado, "errors", {}) or {}).items()
+            })
+            current = list(getattr(resultado, "hypotheses", ()))
+            tem_texto = any(str(item.text).strip() for item in current)
+            if index == 0 or tem_texto:
+                selected_level = level
+                hypotheses = current
+            if tem_texto:
+                fallback_used = index > 0
+                break
+
+        def with_engine_errors(items: Sequence[OCRHypothesis]) -> list[OCRHypothesis]:
+            if not self.errors:
+                enriched = list(items)
+            else:
+                enriched = [replace(item, metadata={**item.metadata,
+                                                     "engine_errors": dict(self.errors)})
+                            for item in items]
+            return [replace(item, metadata={
+                **item.metadata,
+                "ocr_level": selected_level,
+                "routing_fallback": fallback_used,
+            })
+                    for item in enriched]
+
+        if self.consensus and hasattr(resultado, "consolidate"):
+            consolidated = resultado.consolidate()
+            if consolidated.consensus:
+                return with_engine_errors([consolidated.chosen])
+            if consolidated.review_required:
+                return with_engine_errors([replace(
+                    item,
+                    metadata={**item.metadata,
+                              "ensemble_review_required": True,
+                              "ensemble_reason_codes": list(consolidated.reason_codes),
+                              "ensemble_alternatives": list(consolidated.alternatives)},
+                ) for item in hypotheses])
+        return with_engine_errors(hypotheses)
 
 
 @dataclass(frozen=True)
@@ -263,11 +334,24 @@ class FusionResult:
     evidence_ids: tuple[str, ...] = ()
     review_required: bool = False
     alignment: AlignmentResult | None = None
+    hypotheses: tuple[OCRHypothesis, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        def hypothesis(item: OCRHypothesis) -> dict[str, Any]:
+            return {
+                "text": item.text,
+                "confidence": item.confidence,
+                "source": item.source,
+                "bbox": list(item.bbox) if item.bbox is not None else None,
+                "alternatives": list(item.alternatives),
+                "model_version": item.model_version,
+                "preprocessing": item.preprocessing,
+                "metadata": dict(item.metadata),
+            }
+
         return {
-            "chosen": {"text": self.chosen.text, "confidence": self.chosen.confidence,
-                       "source": self.chosen.source},
+            "chosen": hypothesis(self.chosen),
+            "hypotheses": [hypothesis(item) for item in self.hypotheses],
             "alternatives": list(self.alternatives),
             "calibrated_confidence": self.calibrated_confidence,
             "reason_codes": list(self.reason_codes),
@@ -309,7 +393,8 @@ class FusionEngine:
         validas = [item for item in hypotheses if item.text]
         if not validas:
             vazio = OCRHypothesis("", 0.0, "fused")
-            return FusionResult(vazio, (), 0.0, ("no_text",), review_required=True)
+            return FusionResult(vazio, (), 0.0, ("no_text",), review_required=True,
+                                hypotheses=())
         baseline = original_text or next(
             (item.text for item in validas if item.source in {"pdf_text", "pdf_layer"}),
             "",
@@ -329,14 +414,26 @@ class FusionEngine:
         selected_score, calibrated, lexical, selected = ranqueadas[0]
         second_score = ranqueadas[1][0] if len(ranqueadas) > 1 else -float("inf")
         reasons = ["calibrated_confidence"]
+        has_engine_errors = any(item.metadata.get("engine_errors") for item in validas)
+        if has_engine_errors:
+            reasons.append("engine_unavailable")
+        if any(item.metadata.get("ensemble_review_required") for item in validas):
+            reasons.append("ensemble_conflict")
         if len(grupos[_normal(selected.text)]) > 1:
             reasons.append("consensus")
         if lexical:
             reasons.append("lexicon_support")
         alternative_texts = tuple(dict.fromkeys(item.text for _, _, _, item in ranqueadas
                                               if item.text != selected.text))
-        review_required = selected_score - second_score < self.minimum_margin
+        review_required = (selected_score - second_score < self.minimum_margin
+                           or has_engine_errors
+                           or any(item.metadata.get("ensemble_review_required")
+                                  for item in validas))
         warnings = []
+        if has_engine_errors:
+            warnings.append("engine_unavailable_requires_review")
+        if any(item.metadata.get("ensemble_review_required") for item in validas):
+            warnings.append("ensemble_conflict_requires_review")
         if review_required:
             reasons.append("low_margin")
             warnings.append("fusion_margin_below_threshold")
@@ -371,7 +468,8 @@ class FusionEngine:
                              if item.metadata.get("evidence_id"))
         return FusionResult(chosen, alternative_texts, chosen.confidence,
                             tuple(dict.fromkeys(reasons)), original, tuple(warnings),
-                            evidence_ids, review_required, alignment)
+                            evidence_ids, review_required, alignment,
+                            tuple(validas))
 
 
 @dataclass(frozen=True)
@@ -540,8 +638,7 @@ class Phase3Processor:
                  language_model: LanguageModel | None = None,
                  calibrator: ConfidenceCalibrator | None = None,
                  fusion: FusionEngine | None = None,
-                 pdf_confidence: float = .72,
-                 context_decoder: Any | None = None):
+                 pdf_confidence: float = .72):
         if not 0.0 <= pdf_confidence <= 1.0:
             raise ValueError("pdf_confidence deve estar entre 0 e 1")
         self.line_recognizers = list(line_recognizers)
@@ -549,17 +646,15 @@ class Phase3Processor:
         self.fusion = fusion or FusionEngine(calibrator, language_model=language_model)
         self.pdf_confidence = pdf_confidence
         self.parser = NotationParser()
-        if context_decoder is None and language_model is not None:
-            from core.ocr_context import ContextDecoder
-            context_decoder = ContextDecoder(language_model)
-        self.context_decoder = context_decoder
+        self.router = OCRRouter()
 
     @classmethod
     def from_ocr_service(cls, service: Any, *, languages: tuple[str, ...] = ("en",),
                          language: str = "en", gpu: bool = False,
                          trained_line: bool | None = None,
-                         model_path: str = "text_line_model.pth",
-                         meta_path: str = "text_line_model.json",
+                         model_path: str | None = None,
+                         meta_path: str | None = None,
+                         consensus: bool = True,
                          **kwargs: Any) -> "Phase3Processor":
         """Liga os adapters opcionais já existentes sem inicializá-los agora."""
         from core.ocr_engines import OCRServiceAdapters
@@ -567,7 +662,8 @@ class Phase3Processor:
             service, languages=languages, language=language, gpu=gpu,
             trained_line=trained_line, model_path=model_path, meta_path=meta_path,
         )
-        return cls(line_recognizers=[RegistryRecognizer(registry)], **kwargs)
+        return cls(line_recognizers=[RegistryRecognizer(registry,
+                                                        consensus=consensus)], **kwargs)
 
     @staticmethod
     def _crop(image: Any, bbox: Sequence[int] | None) -> np.ndarray:
@@ -579,19 +675,207 @@ class Phase3Processor:
         return image[y1:y2, x1:x2]
 
     @staticmethod
+    def _overlaps(left: Sequence[int], right: Sequence[int]) -> bool:
+        lx1, ly1, lx2, ly2 = (int(item) for item in left)
+        rx1, ry1, rx2, ry2 = (int(item) for item in right)
+        return min(lx2, rx2) > max(lx1, rx1) and min(ly2, ry2) > max(ly1, ry1)
+
+    @staticmethod
+    def _diagram_bboxes(evidence: Any) -> tuple[tuple[int, int, int, int], ...]:
+        values = (getattr(evidence, "metadata", {}) or {}).get("diagram_bboxes", ())
+        result = []
+        for value in values or ():
+            try:
+                bbox = tuple(int(item) for item in value)
+                if len(bbox) == 4 and bbox[2] > bbox[0] and bbox[3] > bbox[1]:
+                    result.append(bbox)
+            except (TypeError, ValueError):
+                continue
+        return tuple(result)
+
+    @staticmethod
+    def _is_table_block(block: Mapping[str, Any]) -> bool:
+        tipo = str(block.get("type", "")).casefold()
+        metadata = block.get("metadata") or {}
+        return tipo in {"table", "tabela"} or bool(
+            block.get("table") or metadata.get("table"))
+
+    @staticmethod
+    def _table_spec(block: Mapping[str, Any], evidence: Any,
+                    order: int) -> dict[str, Any]:
+        raw_rows = block.get("rows", block.get("cells", ())) or ()
+        rows: list[list[str]] = []
+        cell_boxes: list[list[Sequence[int] | None]] = []
+        for raw_row in raw_rows:
+            cells = (raw_row.get("cells", raw_row.get("columns", ()))
+                     if isinstance(raw_row, Mapping) else raw_row)
+            if not isinstance(cells, (list, tuple)):
+                cells = (cells,)
+            textos: list[str] = []
+            caixas: list[Sequence[int] | None] = []
+            for cell in cells:
+                if isinstance(cell, Mapping):
+                    spans = cell.get("spans", ()) or ()
+                    text = cell.get("text")
+                    if text is None:
+                        text = "".join(str(span.get("text", ""))
+                                       for span in spans if isinstance(span, Mapping))
+                    caixas.append(cell.get("bbox"))
+                else:
+                    text, caixas_value = cell, None
+                    caixas.append(caixas_value)
+                textos.append(str(text or "").strip())
+            rows.append(textos)
+            cell_boxes.append(caixas)
+        bbox = tuple(int(round(float(item))) for item in
+                     (block.get("bbox") or (0, 0, evidence.width, evidence.height)))
+        max_columns = max((len(row) for row in rows), default=0)
+        linhas: list[tuple[str, tuple[int, int, int, int]]] = []
+        for row_index, row in enumerate(rows):
+            for column_index, text in enumerate(row):
+                caixa = cell_boxes[row_index][column_index]
+                if caixa is None:
+                    largura = max(1, bbox[2] - bbox[0])
+                    x1 = bbox[0] + (largura * column_index) // max(1, max_columns)
+                    x2 = bbox[0] + (largura * (column_index + 1)) // max(1, max_columns)
+                    altura = max(1, bbox[3] - bbox[1])
+                    y1 = bbox[1] + (altura * row_index) // max(1, len(rows))
+                    y2 = bbox[1] + (altura * (row_index + 1)) // max(1, len(rows))
+                    caixa = (x1, y1, max(x1 + 1, x2), max(y1 + 1, y2))
+                linhas.append((text, tuple(int(item) for item in caixa)))
+        return {
+            "id": f"region-{evidence.page_index:04d}-{order:04d}",
+            "order": order, "bbox": bbox, "lines": linhas, "type": "table",
+            "table_rows": rows, "table_shape": [len(row) for row in rows],
+        }
+
+    @staticmethod
+    def _order_specs(specs: Sequence[dict[str, Any]], width: int
+                     ) -> list[dict[str, Any]]:
+        """Ordena caixas textuais em coluna, sem mover regiões especiais."""
+        ordenadas = sorted(specs, key=lambda item: int(item["order"]))
+        textuais = [item for item in ordenadas
+                    if item.get("type") in {"prose", "notation"}]
+        if len(textuais) < 2 or len(textuais) != len(ordenadas):
+            return ordenadas
+        centers = [((int(item["bbox"][0]) + int(item["bbox"][2])) / 2)
+                   for item in textuais]
+        if max(centers) - min(centers) <= width * .30:
+            return ordenadas
+        corte = (min(centers) + max(centers)) / 2
+        ordenadas = sorted(
+            ordenadas,
+            key=lambda item: (
+                0 if ((int(item["bbox"][0]) + int(item["bbox"][2])) / 2) < corte else 1,
+                int(item["bbox"][1]), int(item["bbox"][0])),
+        )
+        return [{**item, "order": order} for order, item in enumerate(ordenadas)]
+
+    @staticmethod
+    def _raster_specs(evidence: Any) -> list[dict[str, Any]]:
+        """Segmenta um scan em regiÃµes/linhas antes de consultar os engines."""
+        if evidence.raster is None:
+            return []
+        try:
+            import cv2
+        except ImportError:
+            return []
+        try:
+            from core.ocr_layout import LayoutAnalyzer
+            raster = np.asarray(evidence.raster)
+            if raster.size == 0:
+                return []
+            # A evidÃªncia sintÃ©tica/testada pode jÃ¡ ser uma mÃ¡scara. Para um
+            # scan normal, a variante adaptativa transforma fundo claro em
+            # mÃ¡scara de tinta; a escala permanece a da origem para as caixas
+            # continuarem vÃ¡lidas no recorte original.
+            escala = float((raster > 0).mean())
+            if raster.ndim == 2 and 0.0005 <= escala <= 0.35:
+                binaria = raster
+            else:
+                from core.preprocess import PreprocessConfig, preparar_adaptativo
+                variante = preparar_adaptativo(
+                    raster,
+                    PreprocessConfig(target_dpi=int(evidence.raster_dpi),
+                                     source_dpi=int(evidence.raster_dpi),
+                                     methods=("auto",)),
+                )
+                binaria = variante.binary
+            layout = LayoutAnalyzer().analyze(binaria)
+        except (ImportError, TypeError, ValueError, cv2.error):
+            return []
+        if not layout.lines:
+            return []
+
+        diagram_bboxes = Phase3Processor._diagram_bboxes(evidence)
+        specs: list[dict[str, Any]] = []
+        for region_index, region in enumerate(layout.regions):
+            rx1, ry1, rx2, ry2 = region.bbox
+            linhas = []
+            for detected in layout.lines:
+                cx = (detected.x1 + detected.x2) / 2
+                cy = (detected.y1 + detected.y2) / 2
+                if (rx1 <= cx <= rx2 and ry1 <= cy <= ry2
+                        and not any(Phase3Processor._overlaps(
+                            (detected.x1, detected.y1, detected.x2, detected.y2),
+                            diagram_bbox) for diagram_bbox in diagram_bboxes)):
+                    linhas.append(("", (detected.x1, detected.y1,
+                                         detected.x2, detected.y2)))
+            if linhas:
+                specs.append({
+                    "id": f"region-{evidence.page_index:04d}-{region_index:04d}",
+                    "order": region_index, "bbox": tuple(region.bbox),
+                    "lines": linhas, "type": region.type,
+                })
+        return specs
+
+    @staticmethod
     def _specs(evidence: Any) -> list[dict[str, Any]]:
-        blocks = [item for item in evidence.text_blocks if item.get("type", 0) == 0]
+        diagram_bboxes = Phase3Processor._diagram_bboxes(evidence)
+        fallback_text = False
+        table_specs = []
+        blocks = []
+        for source_index, item in enumerate(evidence.text_blocks):
+            if Phase3Processor._is_table_block(item):
+                table_specs.append(Phase3Processor._table_spec(
+                    item, evidence, source_index))
+                continue
+            if item.get("type", 0) != 0:
+                continue
+            linhas = []
+            for line in item.get("lines", []) or []:
+                bbox = line.get("bbox") or item.get("bbox")
+                if bbox and any(Phase3Processor._overlaps(bbox, diagram_bbox)
+                                for diagram_bbox in diagram_bboxes):
+                    continue
+                linhas.append(line)
+            if item.get("lines") and not linhas:
+                continue
+            if linhas != list(item.get("lines", []) or []):
+                item = {**item, "lines": linhas}
+            block_bbox = item.get("bbox")
+            if (block_bbox and any(Phase3Processor._overlaps(block_bbox, diagram_bbox)
+                                   for diagram_bbox in diagram_bboxes)
+                    and not linhas):
+                continue
+            blocks.append({**item, "_source_index": source_index})
         if not blocks and evidence.text_layer.strip():
+            fallback_text = True
             altura = max(16, evidence.height // max(1, len(evidence.text_layer.splitlines())))
             blocks = [{"bbox": [0, i * altura, evidence.width, (i + 1) * altura],
                        "lines": [{"bbox": [0, i * altura, evidence.width, (i + 1) * altura],
                                   "spans": [{"text": line, "size": 10}]}]}
                       for i, line in enumerate(evidence.text_layer.splitlines()) if line.strip()]
-        if not blocks and evidence.raster is not None:
+            blocks = [{**block, "_source_index": len(evidence.text_blocks) + index}
+                      for index, block in enumerate(blocks)]
+        if not blocks and not table_specs and evidence.raster is not None:
+            raster_specs = Phase3Processor._raster_specs(evidence)
+            if raster_specs:
+                return raster_specs
             blocks = [{"bbox": [0, 0, evidence.width, evidence.height],
                        "lines": [{"bbox": [0, 0, evidence.width, evidence.height],
                                   "spans": [{"text": "", "size": 10}]}]}]
-        specs = []
+        specs = list(table_specs)
         for index, block in enumerate(blocks):
             linhas = []
             for line in block.get("lines", []) or []:
@@ -600,12 +884,21 @@ class Phase3Processor:
                 if text or evidence.raster is not None:
                     bbox = tuple(int(round(float(item))) for item in
                                  (line.get("bbox") or block.get("bbox")))
+                    if (not fallback_text and any(
+                            Phase3Processor._overlaps(bbox, diagram_bbox)
+                            for diagram_bbox in diagram_bboxes)):
+                        continue
                     linhas.append((text, bbox))
             if linhas:
-                specs.append({"id": f"region-{evidence.page_index:04d}-{index:04d}",
-                              "order": index, "bbox": tuple(block.get("bbox", (0, 0, 1, 1))),
-                              "lines": linhas})
-        return specs
+                region_type = ("notation" if any(Phase3Processor._domain(text) == "notation"
+                                                 for text, _bbox in linhas)
+                               else "prose")
+                source_index = int(block.get("_source_index", index))
+                specs.append({"id": f"region-{evidence.page_index:04d}-{source_index:04d}",
+                              "order": source_index,
+                              "bbox": tuple(block.get("bbox", (0, 0, 1, 1))),
+                              "lines": linhas, "type": region_type})
+        return Phase3Processor._order_specs(specs, evidence.width)
 
     @staticmethod
     def _domain(text: str) -> str:
@@ -636,8 +929,17 @@ class Phase3Processor:
         fusions = []
         notation = []
         warnings = []
+        engine_errors: dict[str, str] = {}
+        routing: list[dict[str, Any]] = []
         for spec in specs:
             region_lines = []
+            route_metadata = ({"domain": "notation"}
+                              if spec.get("type") == "notation" else {})
+            route = self.router.decide(RegionResult(
+                spec["id"], spec.get("type", "prose"), spec["order"], .75,
+                spec["bbox"], metadata=route_metadata,
+            )).to_dict()
+            routing.append(route)
             for line_index, (original, bbox) in enumerate(spec["lines"]):
                 token.raise_if_cancelled()
                 line_id = f"{spec['id']}-line-{line_index:03d}"
@@ -645,8 +947,10 @@ class Phase3Processor:
                 context = RecognitionContext(
                     evidence.document_id, evidence.page_index, spec["id"], line_id,
                     domain, bbox, original,
+                    metadata={"routing": route},
                 )
                 candidates = []
+                line_engine_errors: dict[str, str] = {}
                 if original:
                     candidates.append(OCRHypothesis(
                         original, self.pdf_confidence, "pdf_text", bbox=bbox,
@@ -656,22 +960,14 @@ class Phase3Processor:
                 for recognizer in self.line_recognizers:
                     try:
                         candidates.extend(recognizer.recognize(crop, context))
+                        for engine, message in dict(getattr(recognizer, "errors", {}) or {}).items():
+                            key = f"{getattr(recognizer, 'name', type(recognizer).__name__)}.{engine}"
+                            engine_errors[key] = str(message)
+                            line_engine_errors[key] = str(message)
+                            warnings.append(f"engine_error:{key}:{message}")
                     except Exception as error:  # engine opcional isolado
                         warnings.append(f"{recognizer.name}:{type(error).__name__}: {error}")
                 result = self.fusion.fuse(candidates, context, original_text=original or None)
-                if self.context_decoder is not None and domain == "prose":
-                    decoded = self.context_decoder.decode(result.chosen)
-                    if decoded.text != result.chosen.text:
-                        original_value = result.original_text or result.chosen.text
-                        result = replace(
-                            result, chosen=decoded,
-                            alternatives=tuple(dict.fromkeys(
-                                [result.chosen.text, *result.alternatives])),
-                            original_text=original_value,
-                            reason_codes=tuple(dict.fromkeys(
-                                [*result.reason_codes, "context_decoder"])),
-                            review_required=True,
-                        )
                 if result.review_required:
                     warnings.extend(result.warnings)
                 fusion_data = result.to_dict()
@@ -686,8 +982,13 @@ class Phase3Processor:
                     warnings=list(result.warnings),
                     metadata={"domain": domain, "source": result.chosen.source,
                               "original_text": result.original_text,
-                              "fusion": fusion_data,
+                              "fusion": fusion_data, "routing": route,
                               "review_required": result.review_required},
+                )
+                line.warnings.extend(
+                    f"engine_error:{key}:{message}"
+                    for key, message in line_engine_errors.items()
+                    if f"engine_error:{key}:{message}" not in line.warnings
                 )
                 if domain == "notation" and texto:
                     parsed = self.parser.parse(texto)
@@ -704,14 +1005,35 @@ class Phase3Processor:
             region_text = "\n".join(item.text for item in region_lines)
             confidence = (sum(item.confidence for item in region_lines)
                           / len(region_lines) if region_lines else 0.0)
-            tipo = "chess_sequence" if any(
+            tipo = "table" if spec.get("type") == "table" else (
+                "chess_sequence" if any(
                 item.metadata.get("domain") == "notation" for item in region_lines
-            ) else "paragraph"
+                ) else "paragraph")
+            region_metadata = {
+                "phase3": True,
+                "routing": route,
+                "review_required": any(
+                    item.metadata.get("review_required") for item in region_lines),
+            }
+            if tipo == "table":
+                rows = []
+                inicio = 0
+                for quantidade in spec.get("table_shape", ()):
+                    fim = inicio + int(quantidade)
+                    rows.append([item.text for item in region_lines[inicio:fim]])
+                    inicio = fim
+                if not rows:
+                    rows = [list(row) for row in spec.get("table_rows", ())]
+                region_metadata.update({"domain": "table",
+                                        "rows": rows})
+            else:
+                region_metadata["domain"] = ("notation" if tipo == "chess_sequence"
+                                              else "prose")
             regions.append(RegionResult(
                 spec["id"], tipo, spec["order"], confidence, spec["bbox"],
                 line_ids=[item.id for item in region_lines], text=region_text,
                 warnings=[warning for item in region_lines for warning in item.warnings],
-                metadata={"phase3": True, "domain": "notation" if tipo == "chess_sequence" else "prose"},
+                metadata=region_metadata,
             ))
         return PageResult(
             page_id=f"page-{evidence.page_index:04d}",
@@ -721,6 +1043,8 @@ class Phase3Processor:
             regions=regions, lines=lines, words=words, warnings=warnings,
             metadata={"phase3": True, "fusions": fusions,
                       "notation_sequences": notation,
+                      "engine_errors": engine_errors,
+                      "routing": routing,
                       "recognizers": [getattr(item, "name", type(item).__name__)
                                       for item in self.line_recognizers]},
         )

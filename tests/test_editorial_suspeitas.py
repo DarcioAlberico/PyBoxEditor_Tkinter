@@ -132,6 +132,37 @@ def test_a_linha_limpa_o_fragmento_e_a_prosa_boa_nao_tem_motivo():
                               dominio="notation", fonte="glyph", primario="glyph")) == []
 
 
+def test_ensemble_com_conflito_ou_engine_indisponivel_entra_na_fila():
+    registro = _registro(
+        "White won the game.", linha_ocr="White won the game.",
+        ensemble={
+            "consensus": True,
+            "review_required": True,
+            "reason_codes": ["consensus", "engine_unavailable"],
+            "errors": {"paddleocr": "RuntimeError: offline"},
+        })
+
+    motivos = motivos_da_linha(registro)
+
+    assert [motivo.codigo for motivo in motivos] == ["ensemble_engine_unavailable"]
+    assert "paddleocr" in motivos[0].frase
+
+
+def test_ensemble_sem_consenso_entra_na_fila_mesmo_sem_engine_falha():
+    registro = _registro(
+        "White won the game.", linha_ocr="White won the game.",
+        ensemble={
+            "consensus": False,
+            "review_required": True,
+            "reason_codes": ["conflicting_consensus", "no_consensus"],
+            "errors": {},
+        })
+
+    assert [motivo.codigo for motivo in motivos_da_linha(registro)] == [
+        "ensemble_conflict"
+    ]
+
+
 @pytest.mark.parametrize("texto", [
     # Chess Evolution 1, p. 34: a avaliação colada ao lance, em toda solução.
     "2.♕xf4 ♕xf6 3.♕h4+–", "If 2...h6 then 3.♘xd7 hxg5 4.♘f6+–.", "3.♘xd7+-",

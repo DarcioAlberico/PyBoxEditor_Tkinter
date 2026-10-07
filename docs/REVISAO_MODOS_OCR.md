@@ -48,10 +48,10 @@ falta para o rótulo é o que a seção 5 lista. Os quatro primeiros itens saír
 a exportação por um diálogo só (4.4), a fila de revisão com o recorte e as
 alternativas (4.5), o diagrama sem convenção silenciosa (4.6) e o adapter sem
 perdas, com a volta para o leitor (4.7); do 5 saiu o garimpo do resíduo
-confiante (4.8), do 6 o corredor da rodada e a régua de famílias (4.9), e o 7
-inteiro (4.10) —; ficam o dado do 5 e do 6 (conferir a quarentena, transcrever
-as páginas), a poda da biblioteca paralela, a interface e os testes de
-aceitação.
+confiante (4.8), do 6 o corredor da rodada e a régua de famílias (4.9), o 7
+inteiro (4.10), o 8, a poda da biblioteca paralela (4.11), o 9, a janela
+principal (4.12), e o 10, os testes de aceitação (4.13) —; fica o dado do 5 e
+do 6: conferir a quarentena e transcrever as páginas.
 
 ## 2. O mapa dos modos
 
@@ -65,8 +65,8 @@ aceitação.
 | Arquivo → Exportar → Documento editorial | os mesmos, por `core/editorial_legacy` | idem | idem | `EditorialDocument` → JSON/HTML/TXT/PDF; EPUB/DOCX por `exportar.py` | ligado nesta revisão (antes: vazio) |
 | Arquivo → Exportar → PDF pesquisável | `fallback_chain` por box + EasyOCR por linha | `BoxService` | nenhuma | PDF com camada invisível (`searchable_pdf`) | produção, sem a fusão por palavra |
 | Reconhecer → Ler posição dos diagramas | duas CNNs por casa (ocupação, peça) + `_arbitrar` | `diagrama.localizar` / `deteccao_de_tabuleiro` | legalidade só troca a casa mais barata | FEN no diálogo 8×8 | produção (tabuleiro inteiro 92,5% no corpus F8.4) |
-| `scripts/processar_editorial.py --usar-engines` | Tesseract + EasyOCR + PaddleOCR (+ CRNN) por `Phase3Processor` | `ocr_layout.LayoutAnalyzer` | `FusionEngine` por linha inteira | `EditorialDocument` | só por script; perde para `livro.py` (ver 3.1) |
-| `ocr_hybrid.HybridOCRPipeline`, `ocr_fusion`, `ocr_context`, `ocr_review`, `ocr_export`, `abbyy_ocr` | — | — | — | — | **só em testes** (código morto) |
+| `scripts/processar_editorial.py --usar-engines` | Tesseract + EasyOCR + PaddleOCR (+ CRNN) por `Phase3Processor` | `ocr_layout.LayoutAnalyzer` | `FusionEngine` por linha inteira | `EditorialDocument` | só por script; perde para `livro.py` (ver 3.1). *Desde 4.11, `--usar-engines` implica `--biblioteca`, e o padrão do script passou a ser o leitor de produção* |
+| `ocr_hybrid.HybridOCRPipeline`, `ocr_fusion`, `ocr_context`, `ocr_review`, `ocr_export`, `abbyy_ocr` | — | — | — | — | **só em testes** (código morto). *Apagados em 4.11, menos o `abbyy_ocr`* |
 
 ## 3. Achados de consenso
 
@@ -181,9 +181,10 @@ aceitação.
   confiança e motivos aparecem como números e códigos (`low_confidence`).
 - Trabalho pesado na thread do Tk em `generate_boxes_opencv`,
   `extrair_diagramas`, `avaliar_modelo_linhas`, `validar_dataset_linhas`,
-  `save_box_file` (PNG a 300 dpi), `DialogoSemelhantes`.
+  `save_box_file` (PNG a 300 dpi), `DialogoSemelhantes`. *Corrigido em 4.12.*
 - Canvas abre em zoom 1,0 no canto; roda = zoom, logo sem rolagem vertical;
-  nenhum estado persiste (geometria, último diretório, filtros).
+  nenhum estado persiste (geometria, último diretório, filtros). *Corrigido
+  em 4.12.*
 
 ### 3.6 Testes
 
@@ -653,12 +654,206 @@ temporária de sessão (`tests/conftest.py`), pela mesma razão da guarda da bas
 de ocupação: pasta de verdade não é lugar de teste, e um teste servindo
 resultado gravado por outro é pior que lento.
 
-O que **não** foi feito, e fica anotado: a pasta do cache não é podada por
-ninguém. Cada página é um JSON de alguns KB e a chave inclui os pesos, então
-uma troca de modelo deixa o que ficou para trás sem uso — apagar a pasta é
-seguro a qualquer momento.
+Desde 4.14, `OCRCache.prune` remove entradas por idade e/ou tamanho, ordenando
+por data de acesso lógico (mtime) e ignorando temporários `.tmp`. A poda é
+opt-in em `RuntimeConfig`/`ProcessOptions`, para não mudar o comportamento de
+instalações existentes; o relatório é preservado em `metadata.cache_prune`.
 
 Aceite: `tests/test_pipeline_cache_e_memoria.py` (13).
+
+### 4.11 A poda, e o script que se dizia de produção (item 8, 2026-09-23)
+
+**Apagados** os cinco módulos que só os testes alcançavam — `ocr_hybrid`,
+`ocr_fusion`, `ocr_context`, `ocr_review` e `ocr_export`, 798 linhas — e os 19
+testes que só os exercitavam. Cada um repetia, de outro jeito, algo que a
+produção faz: a OCR-12 por linha, onde a linha destes livros é mista e a decisão
+é por palavra (`livro._fundir_por_palavra`); a OCR-13, onde há o corretor de
+prosa do `livro.py`; uma fila de palavras, onde há a `editorial_review`; um
+terceiro exportador. A tabela está em `docs/ROADMAP_IMPLEMENTACAO_OCR.md`. O
+`ocr_context` tinha uma porta de entrada: o `Phase3Processor` montava um
+`ContextDecoder` sempre que recebia um modelo de língua — e só os testes o
+passavam. O passo saiu com o parâmetro `context_decoder`. O `abbyy_ocr`, que o
+§2 também dava por morto, ficou: é a integração com um programa instalado, e não
+repete nada.
+
+**Dois pedaços mortos na fachada.** O `_page_from_text`, que estava na lista, e
+um que não estava: o `_html_document`. O ramo `html` do `export` vinha depois de
+`if formato in {"html", "epub", "docx", "pdf"}`, que já mandava o HTML para o
+`EditorialExporter` — nenhuma chamada o alcançava desde que o arquivo entrou no
+git, e as mudanças que os itens 3 e 4 fizeram nele não tiveram efeito. As que
+valeram estão em `editorial_export._block_html`, que os mesmos commits também
+mudaram, e que já trata figura e legenda.
+
+**Rebaixados** a biblioteca de inspeção: `ocr_phase3`, `ocr_phase4` e
+`ocr_layout` dizem no docstring quem os chama e por que não são produção, e a
+fachada diz que o que ela lê depende de como é montada — com o
+`legacy_extractor` de `editorial_legacy.pipeline_de_producao`, é o caminho da
+janela; sem leitor, é a biblioteca. O `LayoutAnalyzer` saiu do topo da fachada
+(só o `_raster_specs` o usa), e o atributo `layout_analyzer`, que ninguém lia,
+saiu com ele.
+
+**O script.** `scripts/processar_editorial.py` se apresentava como "OCR
+editorial de produção" e montava a fachada sem leitor. Medido na p. 30 do
+Aagaard, com a mesma régua do A/B:
+
+| `processar_editorial.py` | caracteres | CER prosa | CER notação | CER total |
+|---|---:|---:|---:|---:|
+| padrão até aqui (a biblioteca) | **0** | 100% | 100% | 100% |
+| padrão novo (o leitor de produção) | 1.748 | **0,51%** | **3,14%** | **1,37%** |
+
+É o número do A/B, porque é o mesmo leitor. O padrão agora é o de
+"Exportar → Documento editorial": `pipeline_de_producao`, a camada do PDF
+nascido digital lida como texto (`--camada auto`, como a caixa de exportação) e
+EPUB e DOCX pelo `exportar.py`, como a janela faz. A biblioteca ficou por
+extenso, com `--biblioteca`, e `--usar-engines` a implica. No Dvoretsky, pp.
+30–32 para EPUB: as três páginas lidas da camada e os seis diagramas
+desenhados, em 2,8 s.
+
+`docs/ROADMAP_IMPLEMENTACAO_OCR.md` foi reescrito: cada peça está em produção,
+é instrumento ou é biblioteca, com quem a chama e o que foi medido, e o que
+cada fase entregou diz em qual dos três lugares ficou. `docs/ROADMAP_OCR.md` e
+`docs/SPEC_OCR.md` registram a saída da OCR-12 e da OCR-13 como módulos.
+
+Aceite: `tests/test_processar_editorial.py` (5 — o padrão é o leitor de
+produção, a biblioteca só por extenso, e o documento e o EPUB de um PDF nascido
+digital saem pelo `livro.extrair` sem chamar o modelo nem o Tesseract).
+
+### 4.12 A janela principal (item 9, 2026-09-23)
+
+As cinco partes do item, cada uma com o seu teste.
+
+**Exibir.** O canvas abria em 100% no canto de cima — um quarto de uma página
+de livro a 300 dpi — e a roda dava zoom, então descer a página pedia arrastar
+com o botão direito. Agora o documento abre **ajustado à janela** (a capa do
+Aagaard a 17%, centrada), a roda **rola** (Shift+roda para o lado), o zoom é
+Ctrl+roda no ponto do cursor, e o menu Exibir tem Ajustar à janela, Tamanho
+real, Aumentar e Diminuir o zoom e o Enquadrar box, que saiu do Editar.
+"Ajustada" é um modo, e não um zoom: vale até o próximo zoom ou arrasto, e
+enquanto vale, virar a página e redimensionar a janela reajustam. A rolagem
+não tira a página da tela, e com a página ajustada a seleção não rola mais por
+causa da margem do `garantir_visivel`.
+
+Os atalhos **não** são as teclas soltas `+ − 0 F` que a lista pedia: no modo
+digitação o `<Key>` da raiz aplica toda tecla imprimível ao box, e `+`, `-` e
+`0` são caracteres da notação — pela mesma razão o Dividir virou Ctrl+D e o
+Enquadrar é F4. São Ctrl+= e Ctrl+- para o zoom, Ctrl+0 para ajustar e Ctrl+1
+para 100%, como no Acrobat; o teste confere que nenhuma tecla solta foi ligada.
+
+**Estado persistente.** A geometria, se a janela estava maximizada (e aí a
+geometria de antes, para o restaurar devolver) e os três filtros de caixa da
+lista vão para a chave `janela` do `settings.json` ao fechar, e voltam no
+`appy.main` — se a geometria ainda couber na tela, porque o notebook depois do
+monitor grande abriria a janela com a borda fora do alcance. Fora do
+`__init__` de propósito: a janela retraída dos testes seria maximizada pelo
+`settings.json` de quem roda a suíte. A origem e a busca não voltam (uma
+depende da página, a outra é do momento). O Ctrl+O, o Abrir imagem e o Abrir
+PDF começam na pasta do último documento, a mesma chave que a caixa de
+exportação já lembrava (`ultimo_diretorio_de_entrada`).
+
+**Fora da thread do Tk.** Os seis handlers da §3.5. Os cinco da janela passam
+por `_run_task`, com barra de progresso e "Cancelar" — que não interrompe a
+segmentação nem a leitura no meio, mas descarta o que elas devolverem: gerar os boxes (e os
+quatro "Detectar e reconhecer" seguem pelo `ao_concluir` dela, porque liam
+`self.boxes` logo depois de gerar), ler os diagramas (o diálogo 8×8 abre no
+fim da tarefa, e a falta do modelo de diagramas é a mesma caixa de antes),
+validar e avaliar a base de linhas, e o Ctrl+S. O Ctrl+S grava o que havia
+no momento — cópias da imagem e dos boxes — e só dá a página por salva se ela
+não mudou enquanto gravava; o `_save_box_to_path` síncrono continua, para os
+outros caminhos. O sexto, a busca do "Aplicar aos semelhantes", roda numa
+thread do próprio diálogo, que diz que procura, desliga o Aplicar (e o Enter)
+enquanto isso, e descarta a busca que a troca de rigor deixou velha.
+
+**`ui/tema.py`.** As cores estavam soltas em nove arquivos, e o mesmo papel
+tinha tons diferentes — o texto de erro era `#B71C1C`, `#b00020` e `#9b2226`
+conforme o diálogo. Agora cada cor tem um nome que diz para que serve, os
+estilos ttk `Erro`, `Alerta`, `Ok`, `Andamento` e `Secundario` são
+configurados por `tema.aplicar` (no `appy.main` e em cada diálogo que os usa),
+e a escala de confiança de `ui/confidence.py` aponta para o tema com os mesmos
+valores. Um teste recusa `#RRGGBB` ou `grayNN` escrito à mão em `ui/*.py`. O
+editor de livros tem a folha dele e ficou de fora. Medido, a linha do
+`Treeview` (20 px) comporta a fonte (15 px) no DPI que o processo recebe, e o
+`rowheight` ficou como estava.
+
+**Os caminhos.** A base de linhas, a sintética, o relatório, a avaliação, o
+léxico e o modelo de linha eram nomes soltos resolvidos no cwd: aberto por
+atalho, o app rotulava linhas numa pasta, treinava de outra e abria um
+relatório que não era o do treino. Todos saem de `config.paths`
+(`pasta_de_linhas`, `relatorio_de_linhas`, `completar_modelo_linha` e os
+vizinhos), com a regra que o `caminhos_modelo_linha` já tinha: vale o que
+existe no cwd, e senão a raiz do projeto.
+
+Conferido na janela de verdade, DPI-aware como o `appy`: a capa do Aagaard abre
+a 17% e centrada; em 100%, cinco cliques da roda descem 247 px (10% de uma
+view de 495); a página seguinte chega ajustada. Aceite:
+`tests/test_exibir.py` (10), `test_estado_da_janela.py` (5),
+`test_trabalho_fora_da_interface.py` (6), `test_tema.py` (3),
+`test_caminhos_do_treino_de_linhas.py` (6), e o teste da busca em
+`test_f36_semelhantes.py`.
+
+### 4.13 Os testes de aceitação (item 10, 2026-09-23)
+
+Os oito da lista. Dois já existiam e ficaram onde estavam: o cache invalidado
+pela troca de modelo (`test_pipeline_cache_e_memoria.py`, desde 4.10) e a fusão
+que preserva a figurina (`test_ocr_fusao_por_palavra.py`, desde a OCR-12). Os
+outros seis são novos, e o primeiro achou defeito.
+
+**A mesma sequência de blocos nos quatro formatos** — o Invariante 10 do
+`CONTEXT.md`, que nenhum teste conferia. Uma página com título de capítulo,
+prosa com negrito, lance com figurina, o cabeçalho impresso de um diagrama, o
+diagrama, uma tabela e o fecho vai ao documento editorial e sai pelos
+escritores de produção (HTML e PDF pesquisável do `EditorialExporter`, EPUB e
+DOCX do `exportar.py` a partir do documento de volta), e cada arquivo é relido
+para a sequência que de fato contém. HTML, EPUB e DOCX bateram na primeira
+rodada. **O PDF pesquisável, não**, por três defeitos da camada de texto
+invisível, que é o que a busca do leitor de PDF encontra:
+
+- as figurinas viravam `·` — a camada saía na Helvetica padrão, e o PyMuPDF
+  troca o glifo que a fonte não tem sem avisar: `2.♘f3` não era achado. Agora
+  ela sai na fonte de xadrez do `searchable_pdf` (`resolve_chess_font`);
+- a tabela ia como o `json.dumps` do valor — `{"rows": [["W", "Win"], …]}`;
+- a figura sem posição (o cabeçalho impresso, a página que virou imagem) ia com
+  o PNG inteiro em base64, que não cabia na caixa e contava como falha.
+
+A causa das duas últimas era a mesma, e estava também nos **dois** escritores
+de TXT (o do `EditorialExporter` e o da fachada): o texto de um bloco era o
+`json.dumps` do valor quando o valor não era texto. Agora é
+`editorial_export.texto_do_bloco` — o parágrafo é o texto, o diagrama é
+`FEN: …`, a tabela é uma fila por linha, a figura não tem texto —, e a fachada
+passou a escrever o TXT pelo exportador, em vez de pelo dela. A gravação atômica
+que a fachada fazia foi junto (`_gravar_atomico`, também no HTML).
+
+**A tabela nos quatro formatos** e **duas colunas de ponta a ponta** (uma página
+nascida digital com as linhas das duas colunas na mesma altura, lida pelo
+`livro.extrair`: a coluna da esquerda inteira antes da direita, no documento,
+no HTML e no EPUB) estão no mesmo arquivo. **A tela de revisão pelo teclado**
+agora tem teclas entregues pelo Tk, e não métodos chamados à mão (`gui`): `n`
+anda, `a` aceita, `Ctrl+Z` devolve, e o `a` no campo do valor é letra. **O
+smoke da instalação de verdade** (`slow`): o `smoke_test_installation` existia
+e nenhum teste o rodava; agora o wheel da árvore é instalado num venv limpo,
+sem dependências, e a configuração, o documento editorial e o editor de livros
+abrem (16 s). **O `treinar_pacote` sem escrever fora da pasta pedida** achou o
+defeito que a parte (e) do item 9 tinha trazido: o relatório e o léxico iam
+para a raiz do projeto; agora moram ao lado do modelo, como o estado e o
+manifesto já moravam.
+
+Aceite: `tests/test_aceitacao_formatos.py` (6), `test_aceitacao_instalacao.py`
+(1, `slow`), o teste `gui` em `test_dialogo_revisao_editorial.py` e os dois de
+`test_caminhos_do_treino_de_linhas.py`.
+
+### 4.14 Roteamento executável entre engines e cache operacional (2026-09-26)
+
+O `OCRRouter` já declarava uma engine primária e uma alternativa, mas a
+`RegistryRecognizer` consultava apenas a primária. Agora o nível alternativo é
+consultado quando a primária não devolve texto; a hipótese registra
+`ocr_level` e `routing_fallback`, enquanto erros da primária continuam no
+resultado e forçam revisão. Assim, recuperar texto não transforma uma falha
+de engine em aprovação silenciosa.
+
+O limite de cache também vale para a rota de produção com `legacy_extractor`,
+não só para a biblioteca de inspeção; `metadata.cache_prune` mantém o mesmo
+contrato nas duas rotas. Aceite: testes de fallback e IR em
+`tests/test_ocr_phase3.py` e poda no caminho legado em
+`tests/test_editorial_pipeline.py`.
 
 ## 5. O que fica, em ordem
 
@@ -712,22 +907,36 @@ ordem indicada.
    diagramas — têm menos de três páginas.
 7. ~~**Cache e memória do caminho novo**: `evidences()` como gerador, `sha256`
    uma vez, `inspect()` fora de `process()`, chave com a assinatura dos três
-   pesos, `cache_dir` padrão em `config.paths.data_dir()`.~~ — feito (4.10):
+   pesos, `cache_dir` padrão em `config.paths.data_dir()`, poda opt-in por idade
+   e tamanho, preservando temporários de gravação.~~ — feito (4.10/4.14):
    oito páginas passaram de 5,9 s / 268 MB / 18 leituras do PDF para 2,8 s /
-   110 MB / 1 leitura, com a inspeção derivada saindo idêntica à que a segunda
-   passada produzia. Falta poda da pasta do cache, anotada lá.
-8. **Poda**: apagar `ocr_hybrid`, `ocr_fusion`, `ocr_context`, `ocr_review`,
+   110 MB / 1 leitura, e `RuntimeConfig`/`ProcessOptions` agora aplicam poda
+   segura no caminho de produção e registram o relatório em `metadata.cache_prune`.
+8. ~~**Poda**: apagar `ocr_hybrid`, `ocr_fusion`, `ocr_context`, `ocr_review`,
    `ocr_export`, `_page_from_text`; rebaixar `Phase3Processor`/`FusionEngine`/
    `ocr_layout` a biblioteca de inspeção; reescrever
-   `ROADMAP_IMPLEMENTACAO_OCR.md` separando "em produção" de "biblioteca".
-9. **Interface**: `Exibir` (ajustar à janela ao abrir, roda = rolar, Ctrl+roda
+   `ROADMAP_IMPLEMENTACAO_OCR.md` separando "em produção" de "biblioteca".~~ —
+   feito (4.11): 798 linhas e 19 testes a menos, mais o `_html_document` que
+   nenhuma chamada alcançava; e `scripts/processar_editorial.py`, que lia pela
+   biblioteca e devolvia 0 caracteres na p. 30, passou a ler pelo leitor de
+   produção (1,37%).
+9. ~~**Interface**: `Exibir` (ajustar à janela ao abrir, roda = rolar, Ctrl+roda
    = zoom, `+ − 0 F`), estado persistente (geometria, último diretório,
    filtros), trabalho pesado fora da thread do Tk nos seis handlers
    listados em 3.5, `ui/tema.py` com tokens de cor e `ttk.Style`, e os
    caminhos relativos ao cwd (`training_data_linhas`,
-   `text_line_training_report.txt`) resolvidos por `config.paths`.
-10. **Testes de aceitação**: uma página → IR → HTML/DOCX/EPUB/PDF com a mesma
+   `text_line_training_report.txt`) resolvidos por `config.paths`.~~ — feito
+   (4.12), com os atalhos em Ctrl (Ctrl+= / Ctrl+- / Ctrl+0 / Ctrl+1) e não
+   nas teclas soltas, que o modo digitação aplica ao box.
+10. ~~**Testes de aceitação**: uma página → IR → HTML/DOCX/EPUB/PDF com a mesma
     sequência de blocos; tabela nos quatro formatos; duas colunas ponta a
     ponta; cache invalidado por troca de modelo; fusão preservando figurina;
     tela de revisão por teclado; `smoke_test_installation` real;
-    `treinar_pacote` sem escrever fora do `tmp_path`.
+    `treinar_pacote` sem escrever fora do `tmp_path`.~~ — feito (4.13): o
+    primeiro achou três defeitos na camada de texto do PDF pesquisável — a
+    figurina virava `·`, a tabela ia em JSON e a figura em base64 —, e o
+    último, que o relatório e o léxico do treino caíam na raiz do projeto.
+
+Com o 10, **o que sobra da lista é dado, e é do usuário**: conferir a
+quarentena dos erros confiantes (item 5) e transcrever páginas das famílias
+que o corpus ainda não mede (item 6).

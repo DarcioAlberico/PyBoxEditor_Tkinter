@@ -25,6 +25,8 @@ class RoutingDecision:
     fallback: str
     reason: str
     confidence: float
+    rule_version: str = "routing/v1"
+    estimated_cost: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -45,14 +47,19 @@ class OCRRouter:
 
         if tipo in PROSE_TYPES or tipo == "prose":
             return RoutingDecision(region.id, "prose", "line", "glyph",
-                                   motivo, 0.90 if tipo != "prose" else 0.95)
+                                   motivo, 0.90 if tipo != "prose" else 0.95,
+                                   estimated_cost=1.0)
         if tipo in GLYPH_TYPES:
-            return RoutingDecision(region.id, tipo, "glyph", "line", motivo, 0.95)
+            return RoutingDecision(region.id, tipo, "glyph", "line", motivo, 0.95,
+                                   estimated_cost=1.5)
         if tipo == "unknown":
-            return RoutingDecision(region.id, "unknown", "glyph", "line", motivo, 0.45)
+            return RoutingDecision(region.id, "unknown", "glyph", "line", motivo, 0.45,
+                                   estimated_cost=2.0)
         if tipo in SPECIAL_TYPES:
-            return RoutingDecision(region.id, tipo, "special", "line", motivo, 0.85)
-        return RoutingDecision(region.id, "unknown", "glyph", "line", motivo, 0.35)
+            return RoutingDecision(region.id, tipo, "special", "line", motivo, 0.85,
+                                   estimated_cost=3.0)
+        return RoutingDecision(region.id, "unknown", "glyph", "line", motivo, 0.35,
+                               estimated_cost=2.0)
 
     def decide_all(self, regions: Sequence[RegionResult]) -> list[RoutingDecision]:
         return [self.decide(region) for region in regions]
