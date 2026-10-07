@@ -15,8 +15,8 @@ from core.editorial_pipeline import (
 )
 from core.ocr_result import OCRHypothesis, PageResult, RegionResult
 from core.ocr_runtime import CancellationToken
-from core.ocr_phase4 import DiagramProcessor, Phase4Processor
-from core.ocr_phase3 import Phase3Processor
+from core.biblioteca.ocr_phase4 import DiagramProcessor, Phase4Processor
+from core.biblioteca.ocr_phase3 import Phase3Processor
 
 
 def _page(page_id: str, text: str = "1. e4") -> PageResult:
@@ -232,7 +232,7 @@ def test_ensemble_consulta_os_engines_no_nivel_special_da_tabela():
 def test_ensemble_preserva_ordem_coluna_a_coluna_no_scan():
     import cv2
 
-    from core.ocr_phase3 import CallableRecognizer
+    from core.biblioteca.ocr_phase3 import CallableRecognizer
     raster = np.zeros((260, 600), dtype=np.uint8)
     for x1, x2 in ((30, 250), (350, 570)):
         for y in (30, 80, 130):

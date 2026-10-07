@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from core.editorial_pipeline import DocumentSource, EditorialPipeline, ProcessOptions, SourcePage
-from core.ocr_phase3 import (
+from core.biblioteca.ocr_phase3 import (
     CallableRecognizer,
     ConfidenceCalibrator,
     FusionEngine,
@@ -253,7 +253,7 @@ def test_fallback_de_rota_chega_ao_ir_com_erro_evidenciado():
 
 
 def test_fusionador_preserva_conflito_do_ensemble_para_revisao():
-    from core.ocr_phase3 import FusionEngine, RecognitionContext
+    from core.biblioteca.ocr_phase3 import FusionEngine, RecognitionContext
 
     contexto = RecognitionContext("doc", 0, "reg", "linha", "prose")
     hipoteses = [

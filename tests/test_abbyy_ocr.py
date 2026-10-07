@@ -2,7 +2,7 @@ import os
 
 import fitz
 
-from core import abbyy_ocr
+from core.biblioteca import abbyy_ocr
 
 
 def _pdf_de_tres_paginas(caminho):

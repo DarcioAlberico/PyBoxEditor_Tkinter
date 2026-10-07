@@ -747,7 +747,7 @@ class Phase4Processor:
     def __init__(self, *, text_processor: Any | None = None,
                  diagram_processor: DiagramProcessor | None = None):
         if text_processor is None:
-            from core.ocr_phase3 import Phase3Processor
+            from core.biblioteca.ocr_phase3 import Phase3Processor
             text_processor = Phase3Processor()
         self.text_processor = text_processor
         self.diagram_processor = diagram_processor or DiagramProcessor()

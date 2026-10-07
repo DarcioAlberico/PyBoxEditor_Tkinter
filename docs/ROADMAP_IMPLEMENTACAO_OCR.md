@@ -83,15 +83,15 @@ ser lidas como estado anterior a esta integracao.
 
 | módulo | o que é | quem chama | por que não é produção |
 |---|---|---|---|
-| `core/ocr_phase3.py` | `Phase3Processor`, `FusionEngine`, `NotationParser`, `align_text`, os adapters de linha | a fachada sem leitor; `processar_editorial.py --biblioteca [--usar-engines]` | a fusão é por linha inteira, e 23 das 25 linhas da p. 30 do Aagaard são mistas; em notação ela prefere a camada do PDF, que nos livros do corpus é OCR de fábrica |
-| `core/ocr_phase4.py` | `DiagramProcessor`, `resolve_position`, `Phase4Processor` | a fachada sem leitor | é um segundo resolvedor de posição, sem o porteiro, a orientação pelas coordenadas e o redesenho de `core/diagrama.py` |
-| `core/ocr_layout.py` | `LayoutAnalyzer` | `EditorialPipeline.inspect` numa página sem camada de texto | `detectar_colunas` une os intervalos das linhas: uma linha que cruza a calha apaga a coluna da página inteira |
+| `core/biblioteca/ocr_phase3.py` | `Phase3Processor`, `FusionEngine`, `NotationParser`, `align_text`, os adapters de linha | a fachada sem leitor; `processar_editorial.py --biblioteca [--usar-engines]` | a fusão é por linha inteira, e 23 das 25 linhas da p. 30 do Aagaard são mistas; em notação ela prefere a camada do PDF, que nos livros do corpus é OCR de fábrica |
+| `core/biblioteca/ocr_phase4.py` | `DiagramProcessor`, `resolve_position`, `Phase4Processor` | a fachada sem leitor | é um segundo resolvedor de posição, sem o porteiro, a orientação pelas coordenadas e o redesenho de `core/diagrama.py` |
+| `core/biblioteca/ocr_layout.py` | `LayoutAnalyzer` | `EditorialPipeline.inspect` numa página sem camada de texto | `detectar_colunas` une os intervalos das linhas: uma linha que cruza a calha apaga a coluna da página inteira |
 | `core/ocr_engines.py` | o registro de adapters (Tesseract, EasyOCR, PaddleOCR, CRNN) | `Phase3Processor.from_ocr_service` | é o que `--usar-engines` monta |
 | `core/ocr_runtime.BatchProcessor` e o cache de páginas, com `ocr_phase8.resolve_resource_budget` | o laço por página da fachada | a fachada sem leitor | o leitor de produção lê por `livro.extrair`, que não passa por ele; o item 7 (§4.10) mediu e consertou este laço |
 | `core/editorial_export.py`, EPUB e DOCX | os dois formatos escritos do IR | `EditorialPipeline.export` na biblioteca | a produção escreve esses dois pelo `exportar.py`, o único que embute a fonte dos símbolos |
 | `core/ocr_phase7.py`: `calibrate_domains`, `split_corpus`, `evaluate_holdout` | calibração por domínio, splits, holdout | `core/ocr_training.py` e `scripts/treinar_ocr_linhas.py`; a janela coleta holdout e calibração | splits e vínculos físicos continuam explícitos para promoção/release (§3.3) |
-| `core/ocr_structure.py` | a estrutura de documento a partir do layout | só o teste | — |
-| `core/abbyy_ocr.py` | a integração opcional com o FineReader instalado | só o teste | ninguém a chama |
+| ~~`core/ocr_structure.py`~~ | a estrutura de documento a partir do layout | ninguém — apagado em 2026-10-06, quando a biblioteca virou o pacote `core/biblioteca/` (item 4 da análise geral) | só o teste o alcançava |
+| `core/biblioteca/abbyy_ocr.py` | a integração opcional com o FineReader instalado | só o teste | ninguém a chama |
 
 A biblioteca continua testada — `tests/test_ocr_phase3.py`, `test_ocr_phase4.py`,
 `test_ocr_layout.py`, `test_ocr_structure.py`, `test_ocr_engines.py`,

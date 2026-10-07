@@ -24,7 +24,7 @@ from core.editorial_export import (EditorialExporter, ExportOptions,
 from core.editorial_model import (Decision, EditorialBlock, EditorialDocument,
                                   EditorialPage, Evidence, SourceRef)
 from core.editorial_pipeline import PageEvidence, ProcessOptions
-from core.ocr_phase4 import (BoardCandidate, DiagramProcessor, Phase4Processor,
+from core.biblioteca.ocr_phase4 import (BoardCandidate, DiagramProcessor, Phase4Processor,
                              SquareCandidate, SquareRecognizer,
                              legendas_do_diagrama, resolve_position)
 from core.ocr_result import LineResult, PageResult

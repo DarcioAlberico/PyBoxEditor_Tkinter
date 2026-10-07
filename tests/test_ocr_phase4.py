@@ -4,7 +4,7 @@ import numpy as np
 
 from core.editorial_adapters import page_result_para_pagina
 from core.editorial_pipeline import PageEvidence, ProcessOptions
-from core.ocr_phase4 import (
+from core.biblioteca.ocr_phase4 import (
     BoardCandidate,
     DiagramProcessor,
     Phase4Processor,
@@ -14,7 +14,7 @@ from core.ocr_phase4 import (
     resolve_orientation,
     diagram_metrics,
 )
-from core.ocr_phase3 import Phase3Processor
+from core.biblioteca.ocr_phase3 import Phase3Processor
 from core.ocr_result import OCRHypothesis, PageResult
 from core.ocr_runtime import CancellationToken
 

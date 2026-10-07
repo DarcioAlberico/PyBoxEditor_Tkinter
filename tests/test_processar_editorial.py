@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(
 
 import processar_editorial  # noqa: E402
 from core.editorial_legacy import ExtratorDeLivro  # noqa: E402
-from core.ocr_phase4 import Phase4Processor  # noqa: E402
+from core.biblioteca.ocr_phase4 import Phase4Processor  # noqa: E402
 from tests.test_f110_camada import _livro_digital  # noqa: E402
 
 

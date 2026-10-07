@@ -733,7 +733,7 @@ def _raster_specs(evidence: PageEvidence, options: ProcessOptions) -> list[dict[
     """
     if evidence.raster is None:
         return []
-    from core.ocr_layout import LayoutAnalyzer
+    from core.biblioteca.ocr_layout import LayoutAnalyzer
     try:
         variant = preparar_adaptativo(
             evidence.raster,
@@ -794,8 +794,8 @@ class EditorialPipeline:
         if service is None:
             from core.services.ocr_service import OCRService
             service = OCRService()
-        from core.ocr_phase3 import Phase3Processor
-        from core.ocr_phase4 import Phase4Processor
+        from core.biblioteca.ocr_phase3 import Phase3Processor
+        from core.biblioteca.ocr_phase4 import Phase4Processor
 
         text_processor = Phase3Processor.from_ocr_service(
             service, languages=languages, language=language, gpu=gpu,
@@ -983,7 +983,7 @@ class EditorialPipeline:
             # `engine="tesseract"`, o texto é o do Tesseract de página, sozinho,
             # e os diagramas são acrescentados; nos outros, o processador da
             # Fase 3 — que lê a camada de texto e, sem ela, nada.
-            from core.ocr_phase4 import Phase4Processor
+            from core.biblioteca.ocr_phase4 import Phase4Processor
             text_processor = None
             if (options.engine == "tesseract"
                     or (evidence.raster is not None and not evidence.text_layer.strip())):

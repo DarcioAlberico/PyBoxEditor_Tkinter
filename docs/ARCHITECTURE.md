@@ -61,11 +61,14 @@ A tabela completa, com quem chama cada etapa e o número medido, está em
 | O editor | `core/editor/importar_ir.py` leva o documento editorial ao modelo do editor, com a origem de cada bloco |
 | Treino | `ocr_phase7.CorrectionDataset`, `ocr_training.treinar_pacote`, o portão `linha_trainer.modelo_utilizavel` |
 
-**Biblioteca de inspeção, não produção:** `core/ocr_phase3.py`, `ocr_phase4.py`,
-`ocr_layout.py`, `ocr_structure.py` e `abbyy_ocr.py`. A fachada sem leitor atravessa essa
+**Biblioteca de inspeção, não produção:** o pacote `core/biblioteca/` — `ocr_phase3.py`,
+`ocr_phase4.py`, `ocr_layout.py` e `abbyy_ocr.py` (a integração com o FineReader, mantida
+por ser integração com um programa instalado). A fachada sem leitor atravessa essa
 biblioteca e, numa página digitalizada, não lê texto — é o caminho do `inspect`, dos testes
 das fases e da comparação de motores por script (`processar_editorial.py --biblioteca`).
-O `ocr_engines` (adapters e o ensemble por consenso) só entra em produção como opt-in.
+`ocr_structure.py`, que só o teste alcançava, foi apagado em 2026-10-06. O `ocr_engines`
+(adapters e o ensemble por consenso) fica em `core/` porque o ensemble entra em produção
+como opt-in.
 
 ## Como uma exportação atravessa o sistema
 
@@ -123,6 +126,14 @@ importam módulos opcionais de OCR, Torch ou EasyOCR.
 Medidas em `docs/ANALISE_GERAL_2026-10-06.md`: `MainWindow` com 170 métodos e 53
 importações do projeto, `TextoRico` com 202 e `JanelaDoEditor` com 175; dezessete ciclos
 diretos de importação (`livro` ↔ `pdf_nativo`, `editorial_legacy` ↔ `editorial_pipeline`,
-`ui/editor/dialogos` ↔ seis vizinhos); três escritores de EPUB e DOCX (`exportar.py`,
-`editorial_export.py` e os do editor); a biblioteca de inspeção ainda no pacote de produção;
-`core` sem logging. A ordem do que fazer está no mesmo documento.
+`ui/editor/dialogos` ↔ seis vizinhos); `core` sem logging. A ordem do que fazer está no
+mesmo documento.
+
+**Os escritores de EPUB e DOCX.** São dois por decisão medida (ED-12, "convive", re-medida
+em 2026-10-06): `core/exportar.py` é a primeira saída do OCR — sai direto das
+`PaginaExtraida`, sem editor, e é o que a fila de revisão regrava — e `core/editor/` é o
+escritor do editor de livros, que faz o que o histórico não faz (PDF, PGN, proveniência,
+fontes pelo mapa). O terceiro, `editorial_export._epub`/`_docx`, escreve o IR só na
+biblioteca e é o único que carrega o sinal "não revisado" do diagrama (§4.6); dobrá-lo
+sobre o `exportar.py` pede que esse sinal chegue lá antes (PD-21 em
+`docs/ROADMAP_PENDENCIAS.md`).

@@ -108,7 +108,7 @@ def test_consenso_com_engine_indisponivel_exige_revisao_mesmo_com_duas_fontes():
 
 def test_adapter_da_fase3_entrega_a_leitura_de_consenso():
     from core.ocr_engines import EngineRun
-    from core.ocr_phase3 import RecognitionContext, RegistryRecognizer
+    from core.biblioteca.ocr_phase3 import RecognitionContext, RegistryRecognizer
     from core.ocr_result import OCRHypothesis
 
     class Registro:
@@ -133,7 +133,7 @@ def test_adapter_da_fase3_entrega_a_leitura_de_consenso():
 
 def test_adapter_da_fase3_marca_conflito_para_revisao():
     from core.ocr_engines import EngineRun
-    from core.ocr_phase3 import RecognitionContext, RegistryRecognizer
+    from core.biblioteca.ocr_phase3 import RecognitionContext, RegistryRecognizer
     from core.ocr_result import OCRHypothesis
 
     class Registro:

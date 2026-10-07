@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from core.ocr_layout import LayoutAnalyzer, LayoutConfig, analisar_layout, detectar_colunas
+from core.biblioteca.ocr_layout import LayoutAnalyzer, LayoutConfig, analisar_layout, detectar_colunas
 
 
 def _duas_colunas():

@@ -31,9 +31,11 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   nas pendências); o roadmap registra o que foi medido antes de dar a fase por concluída.
 - **Caminho de produção e biblioteca de inspeção são coisas distintas.** O leitor é
   `core/livro.py` (com `pdf_nativo.py` e `diagrama.py`); a fachada editorial de produção
-  nasce de `core.editorial_legacy.pipeline_de_producao`. `ocr_phase3`, `ocr_phase4` e
-  `ocr_layout` são biblioteca: não ligue produto novo neles
-  (`docs/ROADMAP_IMPLEMENTACAO_OCR.md`).
+  nasce de `core.editorial_legacy.pipeline_de_producao`. O pacote `core/biblioteca/`
+  (`ocr_phase3`, `ocr_phase4`, `ocr_layout`, `abbyy_ocr`) é biblioteca de inspeção: não
+  ligue produto novo nele (`docs/ROADMAP_IMPLEMENTACAO_OCR.md`). EPUB e DOCX do OCR saem
+  por `core/exportar.py`; os do editor, por `core/editor/` — dois escritores, por decisão
+  medida (ED-12).
 - Cor de interface só em `ui/tema.py` (um teste recusa `#RRGGBB` à mão em `ui/*.py`);
   caminho de dado só por `config.paths`, nunca um nome solto resolvido no cwd; a suíte
   nunca grava na pasta de dados do usuário (`tests/conftest.py` a reaponta).
@@ -44,7 +46,8 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   `tests/test_codificacao.py` falha com mojibake ou byte fora de UTF-8;
   `python scripts/conferir_codificacao.py --corrigir` conserta). Mojibake de propósito leva
   `mojibake intencional` na linha. Patch com acento ou figurina vai por arquivo, nunca por
-  heredoc no console cp1252.
+  heredoc no console cp1252. Script em Python que regrava texto abre com
+  `newline="\n"`: o modo texto do Windows troca `\n` por CRLF e desfaz a normalização.
 - Trabalho pesado nunca toca em widget: passa por `TaskService`/`_run_task`, e o callback
   volta na thread do Tk.
 

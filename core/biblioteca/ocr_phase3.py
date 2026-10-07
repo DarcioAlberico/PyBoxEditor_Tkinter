@@ -781,7 +781,7 @@ class Phase3Processor:
         except ImportError:
             return []
         try:
-            from core.ocr_layout import LayoutAnalyzer
+            from core.biblioteca.ocr_layout import LayoutAnalyzer
             raster = np.asarray(evidence.raster)
             if raster.size == 0:
                 return []

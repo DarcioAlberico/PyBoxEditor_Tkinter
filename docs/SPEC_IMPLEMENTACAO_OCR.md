@@ -8,7 +8,7 @@ Implementação atual: as Fases 0, 1, 2, 3 e 4 desta spec estão disponíveis em
 `core/ocr_corpus.py`, `core/editorial_model.py` e
 `core/editorial_adapters.py`, com a fachada de produção em
 `core/editorial_pipeline.py` e o módulo de reconhecimento/fusão em
-`core/ocr_phase3.py`; diagramas são tratados por `core/ocr_phase4.py`. O caminho histórico pode ser usado pela opção
+`core/biblioteca/ocr_phase3.py`; diagramas são tratados por `core/biblioteca/ocr_phase4.py`. O caminho histórico pode ser usado pela opção
 `legacy_extractor` durante a migração.
 
 ## 1. Contrato externo
