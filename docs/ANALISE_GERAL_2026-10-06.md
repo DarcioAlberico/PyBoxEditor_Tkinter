@@ -316,5 +316,33 @@ corpus, do holdout, do benchmark, do pacote e da codificação passam.
 Lição para o item 2 em geral: um hash sobre bytes de arquivo de texto é também um hash
 sobre o fim de linha; o que está congelado por hash não se normaliza.
 
-Sem push: os itens 2 e 3 ficam em `27b32c2..3f24462` no `master` local, para a CI rodar
-quando o usuário quiser.
+Push feito a pedido (`3932c92..5947aa4`); CI verde nas três versões (run 37556667777).
+
+## Fechamento do item 4 (2026-10-06, à noite)
+
+**A biblioteca tem um lugar com nome.** `core/biblioteca/` recebe `ocr_phase3`,
+`ocr_phase4`, `ocr_layout` e `abbyy_ocr`; o docstring do pacote diz o que cada um é e por
+que não é produção. O `abbyy_ocr` foi movido em vez de apagado — a §4.11 da revisão o
+manteve de propósito, por ser integração com um programa instalado — e o `ocr_structure`,
+que só o seu teste alcançava, saiu com o teste. Vinte e sete trocas de import em código,
+testes e documentos, `core.biblioteca` na lista de pacotes do `pyproject.toml`, nenhuma
+referência antiga sobrando, suíte 3512 verdes (`e6f9ec2`).
+
+**O escritor canônico: a recomendação da análise ficou superada por uma decisão medida.**
+A ED-12 (registro de 2026-09-21) já tinha medido os dois escritores e decidido
+**convive**, com razão: `core/exportar.py` é a primeira saída do OCR, direto das
+`PaginaExtraida`, e é o que a fila de revisão regrava; `core/editor/` faz o que o histórico
+não faz. A medição de hoje (`medir_editor_vs_exportar.py --sintetico --paginas 30
+--repeticoes 3`) repete a dela: EPUB em 15 ms e 172 KB pelo histórico contra 30 ms e 48 KB
+pelo editor; DOCX em 260 ms contra 745 ms. O que sobra é o terceiro escritor,
+`editorial_export._epub`/`_docx`, que só a biblioteca usa e é o único com o sinal "não
+revisado" do diagrama que a §4.6 pinou como aceite; dobrá-lo sobre o `exportar.py` pela
+volta sem perdas do IR é a simplificação certa, mas só depois que esse sinal chegar lá.
+Ficou registrado como **PD-21** em `docs/ROADMAP_PENDENCIAS.md`, com a medição, a ordem
+das entregas e o aceite; `docs/ARCHITECTURE.md` e `CLAUDE.md` dizem quem é dono de quê.
+
+Duas lições de ferramenta, anotadas no `CLAUDE.md`: um script Python que regrava texto no
+Windows abre com `newline="\n"`, senão o modo texto devolve CRLF e desfaz a normalização;
+e a normalização de fim de linha da árvore não pode passar pelo que está `-text` no
+`.gitattributes` — as predições do corpus voltaram do commit depois de um passe
+descuidado.

@@ -32,7 +32,7 @@ fase cita a origem (fase e linha do documento de origem, em 2026-09-29).
 | 0 | PD-00 | Trazer para a árvore o que já está pronto em worktrees | — |
 | 1 | PD-01, PD-02 | Robustez da interface (nada trava a thread do Tk) | — |
 | 2 | PD-03, PD-04, PD-05 | Tabela e layout | — |
-| 3 | PD-06, PD-07, PD-08, PD-09 | Exportação e tipografia | — |
+| 3 | PD-06, PD-07, PD-08, PD-09, PD-21 | Exportação e tipografia | PD-21: o sinal "não revisado" no `exportar.py` |
 | 4 | PD-10, PD-11, PD-12 | Texto corrido | — |
 | 5 | PD-13, PD-14 | Medidas que podem virar produção | medição |
 | 6 | PD-15 … PD-19 | Bloqueadas | rótulo, retreino, material externo |
@@ -132,6 +132,51 @@ Origem: F59 (~8438), F122 (~14115).
 - a SkakNew ganha rótulo de coordenada em glifo, e o DOCX deixa de cair para imagem;
 - o escape do `"` igual no exportador e no editor.
 
+### PD-21 — Dois escritores, não três
+
+Origem: análise geral de 2026-10-06 (item 4), ED-12 (registro de 2026-09-21),
+`docs/REVISAO_MODOS_OCR.md` §4.6.
+
+Há três escritores de EPUB e DOCX: `core/exportar.py`, a primeira saída do OCR, que sai
+direto das `PaginaExtraida` sem editor e é o que a fila de revisão regrava;
+`core/editor/epub.py` e `docx_io.py`, os do editor de livros; e `editorial_export._epub`
+e `_docx`, que escrevem o IR só na biblioteca (a fachada sem leitor e o `--biblioteca` do
+`processar_editorial.py`), porque com páginas do leitor a fachada já desvia para o
+`exportar.py` (`_export_legacy`).
+
+**Decisão sobre os dois primeiros: convive** (ED-12), confirmada pela medição de
+2026-10-06 (`scripts/medir_editor_vs_exportar.py --sintetico --paginas 30 --repeticoes 3`,
+mediana):
+
+| Formato | Quem escreve | Tempo | Tamanho | O que saiu |
+|---|---|---|---|---|
+| epub | histórico (`exportar.exportar`) | 15 ms | 172 KB | 31 capítulos, 210 parágrafos, 30 imagens |
+| epub | editor (`epub.escrever`) | 30 ms | 48 KB | 31 capítulos, 210 parágrafos, 30 diagramas, 1 imagem |
+| docx | histórico (`exportar.exportar`) | 260 ms | 42 KB | 30 capítulos, 539 parágrafos, 30 diagramas |
+| docx | editor (`docx_io.escrever`) | 745 ms | 53 KB | 30 capítulos, 601 parágrafos, 30 diagramas |
+| pdf | editor (`pdf_io.escrever`) — o histórico não faz | 912 ms | 879 KB | 90 páginas |
+
+Cada um tem o seu dono, e nenhum é reescrito (§16 do editor).
+
+**O terceiro é a pendência.** Dobrá-lo sobre o `exportar.py` pela volta sem perdas do IR
+(`editorial_adapters.pagina_editorial_para_extraida`) é a simplificação certa, mas ele é
+o único que carrega o sinal "não revisado" do diagrama que a §4.6 pinou como aceite
+("sinal de não revisado mesmo em modo limpo"), e `core/exportar.py` não o tem — a dobra
+apagaria um aceite. Na ordem:
+
+- o `exportar.py` passa a levar o estado de revisão do diagrama ao `alt`/`figcaption` do
+  EPUB e à legenda do DOCX, como já leva o lado a jogar lido ou assumido (§4.6);
+- `tests/test_editorial_export_phase6.py`, `test_lado_a_jogar.py` (o EPUB e o DOCX do IR) e
+  `test_adapter_sem_perdas.py` passam a conferir a semântica do escritor de produção —
+  mimetype primeiro, o texto e o diagrama no XHTML do capítulo, o negrito em `run` — e
+  não os nomes de arquivo do escritor do IR;
+- `_epub` e `_docx` viram `pagina_editorial_para_extraida` + `exportar.exportar`, e
+  `_export_legacy` deixa de ser um caminho à parte.
+
+Aceite: o EPUB do IR de um diagrama `review_required` traz o sinal no `alt` e na
+`figcaption`; `tests/test_aceitacao_formatos.py` passa sem mudar (a mesma sequência de
+blocos); `core/` tem dois escritores de EPUB, e não três.
+
 ---
 
 ## Onda 4 — texto corrido
@@ -220,4 +265,5 @@ F9.2 (lista de palavras sem frequência — precisa de uma fonte de frequências
 | PD-16 (recorte encaixado) | **medida, recusada com a base de hoje** | 2026-10-05 | **Antes de retreinar, duas premissas caíram.** (1) 56% da base (356.209 de 630.909 PNGs) foi gravada já esticada em 32×32, antes da F107, com nome UUID e sem rastro de página: a proporção não é recuperável, e as letras são justamente as mais esticadas (`s` 95%, `o` 95%, `S`/`0`/`W`/`g`/`k` 98–99%, `x` 100%); 76 das 316 classes só existem esticadas. (2) O +2,8 da F107 foi do braço encaixado **com** tamanho; o só-imagem não tinha sido medido. `medir_tamanho.py` ganhou `--so-imagem` e `--misto`; 7 turnos, um livro de fora, 15 épocas: esticado (produção) 93,70% (família de caixa 92,53%); encaixado com a base toda original **95,55%** (94,20%); **misto — cada amostra esticada com a fração real da classe dela, lido encaixado, que é o que o retreino daria — 93,36% (90,06%)**, quebrando 538 acertos da família e consertando 369 (`W` 0%, `c` 78,7%). O ganho existe, mas só com a base regravada em tamanho original, e o que falta regravar é a rotulagem feita na tela: vai para a Onda 6 como dado do usuário. O modelo de produção não mudou. |
 | PD-16 (F1.3, base inteira) | **medida, empate — produção mantida** | 2026-10-06 | `NeuralTrainer.train(base_inteira=True)`: 100% das amostras (630.909, 316 classes, já com o que foi rotulado depois de 25/08) por 24 epochs fixas — a melhor epoch do último treino com validação — e grava a última; sem relatório, porque a validação mediria o que o modelo viu (`tests/test_pd16_base_inteira.py`). 150 min de CPU, T = 1,926. **Comparado com a produção:** corpus de referência, CER total 1,59% contra 1,59% (prosa 1,44% → 1,29%, notação 1,88% → 2,16%, Aagaard p. 30 1,30% → 1,71%, além da tolerância da rodada); páginas rotuladas por caractere 94,46% contra 94,46%, com 10 consertos e 11 quebras em 11.597. Os 20% a mais de amostras são dos mesmos livros, e o erro que sobra é o de livro novo (93,7% com um livro de fora, na medida da PD-16 encaixado). Não troca o modelo. O modo fica para o próximo retreino que tiver base nova de verdade. |
 | PD-19 (F9, poda por frequência) | **medida, recusada** | 2026-10-06 | O bloqueio era a falta de frequência, e ela existe desde a PD-20 (`wordfreq`). `medir_troca.py --poda` tira da parte de idioma as palavras abaixo de um `zipf` e mantém os nomes inteiros, rodando o OCR de verdade nas páginas rotuladas: de zipf 0,5 a 2,5 o recall fica em 35,0% (35 erros pegos em todos os cortes) e o alarme falso sobe de 4,0% para 5,0%. Nenhum erro de OCR desta amostra cai numa palavra rara da lista — a hipótese `glans`-por-`plans` não aparece —, então a poda só custa. **Achado de passagem:** os "erros escondidos" que o arnês lista são quase todos erro da **verdade rotulada**: no `Kasparov…_page-0020.box`, `Nirst` (y≈162), `prospectt` (y≈412), `diagonaL` (y≈464), `seCond` e `whiTe` (y≈1760); no `_page-0108.box`, `frst` (y≈928); e `theoy`, `Opn`, que a busca por linha não localizou. É dado do usuário (Onda 6): corrigidos, sobem o recall medido do léxico. |
+| PD-21 (nova) | **registrada** — decisão: convive; a dobra do terceiro fica pendente | 2026-10-06 | A análise geral recomendava eleger o escritor do editor; a ED-12 já tinha medido e decidido "convive", e a medição de hoje repete a dela (EPUB 15 ms/172 KB pelo histórico contra 30 ms/48 KB pelo editor; DOCX 260 ms contra 745 ms). O que sobra é o terceiro escritor, `editorial_export._epub`/`_docx`, que só a biblioteca usa e é o único com o sinal "não revisado" do diagrama (§4.6); dobrá-lo sobre o `exportar.py` pede esse sinal lá antes. No mesmo dia a biblioteca de inspeção virou o pacote `core/biblioteca/` e o `ocr_structure` saiu. |
 | PD-19 (F1.7) | **encerrada pela medida da F7** | 2026-10-06 | Linha principal × variante por tipografia já foi medida e refutada (AUROC 0,55–0,67 nas páginas rotuladas); a regra que vale é a do número de jogada que retrocede, e ela já está no analisador. Nada a fazer. |
