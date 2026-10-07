@@ -346,3 +346,37 @@ Windows abre com `newline="\n"`, senão o modo texto devolve CRLF e desfaz a nor
 e a normalização de fim de linha da árvore não pode passar pelo que está `-text` no
 `.gitattributes` — as predições do corpus voltaram do commit depois de um passe
 descuidado.
+
+Push a pedido (`5947aa4..7a3f451`); CI verde nas três versões (run 37559150682).
+
+## Fechamento dos itens 5 e 6 (2026-10-06, à noite)
+
+**Item 5, o log.** `core/log.py` é o tronco `pyboxeditor`: `logger(__name__)` dá o logger
+do módulo, e os do editor (`core.editor.*`, `ui.editor.*`) entram sob `pyboxeditor.editor`,
+que o painel Mensagens ecoa; `configurar()` pendura o arquivo rotativo `pyboxeditor.log` na
+pasta de dados, e o `appy.main` o chama antes de abrir a janela ou o editor, registrando
+também a exceção de callback do Tk e o erro fatal. Dos 302 `except` de `core`, 27 com
+`pass` e 75 amplos, os 46 que engoliam em silêncio — e não reportavam por relatório, fila
+ou retorno — ganharam a linha no nível certo: WARNING quando a saída mudou sem o usuário
+saber, INFO para a degradação esperada, DEBUG para quem depura; `uma_vez` para o aviso que
+sairia a cada parágrafo. Os cinco `print` de `core` viraram log. `tests/test_log.py` pina
+a convenção e recusa `print` e logger fora do tronco em `core`. Suíte: 3518 verdes
+(`cea30d6`).
+
+**Item 6, a forma.** O modelo da página saiu de `livro.py` para `core/pagina.py` (seis
+trechos, 267 linhas), com `livro` re-exportando e `pdf_nativo` tomando o modelo de lá (38
+usos pelo nome) — a metade do maior ciclo (`54cfcc5`). O fluxo de exportar saiu da janela
+para `ui/exportacao.py`: a classe `Exportacao`, oito métodos, 644 linhas, delegados com o
+mesmo nome; a janela foi de 5.703 para 5.105 linhas, e o único teste que mudou lê a fonte
+pela classe nova (commit seguinte). O que falta — boxes e reconhecimento, documento e
+navegação, treino, o menu em tabela, a outra metade do ciclo — está na **PD-22** com o
+tamanho de cada parte e o padrão a seguir.
+
+Três lições do script de extração, que viraram regra do padrão na PD-22: a regex de `self.`
+não cobre `getattr(self, …)` nem o `self` passado como pai de um diálogo, e os quatro casos
+derrubaram a fila de revisão nos testes até virarem `self.janela`; a troca em bloco não pode
+entrar numa classe aninhada no método, cujo `self` é dela — o `Token` de cancelamento ficou
+com `self.janela.cancelled` e derrubou três testes do documento editorial; e um detector de
+globais por nome confundiu a variável local `fontes` com o módulo `ui.fontes` — o `ruff`
+acusou. A suíte inteira com os dois movimentos: 3515 verdes e as três do `Token`, que
+passam depois do conserto; a confirmação em exportação limpa fica para antes do push.

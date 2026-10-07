@@ -36,6 +36,7 @@ fase cita a origem (fase e linha do documento de origem, em 2026-09-29).
 | 4 | PD-10, PD-11, PD-12 | Texto corrido | — |
 | 5 | PD-13, PD-14 | Medidas que podem virar produção | medição |
 | 6 | PD-15 … PD-19 | Bloqueadas | rótulo, retreino, material externo |
+| 7 | PD-22 | A forma do código: a janela principal por fluxos, e a outra metade do ciclo do leitor | — |
 
 ---
 
@@ -241,6 +242,59 @@ F9.2 (lista de palavras sem frequência — precisa de uma fonte de frequências
 
 ---
 
+## Onda 7 — a forma do código (da análise geral de 2026-10-06)
+
+### PD-22 — A janela principal por fluxos, e a outra metade do ciclo do leitor
+
+Origem: `docs/ANALISE_GERAL_2026-10-06.md`, item 6.
+
+**O que já saiu (2026-10-06).** O modelo da página — `Paragrafo`, `Figura`, `Tabela`,
+`Bloco`, `PaginaExtraida` — tem módulo próprio, `core/pagina.py`; `livro.py` o re-exporta
+e `pdf_nativo.py` o toma de lá, e não do leitor inteiro. O primeiro fluxo da janela
+principal saiu para `ui/exportacao.py`: a classe `Exportacao`, com os oito métodos de
+exportar (644 linhas), que a janela cria no `__init__` e para a qual delega com o mesmo
+nome. É o padrão para o que falta, e a `MainWindow` foi de 5.703 para 5.105 linhas.
+
+**O que falta, na ordem, com o tamanho medido pelo AST da análise:**
+
+- **boxes e reconhecimento** — 32 métodos, 996 linhas (`generate_boxes_opencv`,
+  `generate_and_fill_neural`, `generate_and_fill_combined`, `_preencher_por_linha`,
+  `extrair_diagramas`, `train_line_ocr`, `_acao_ocr_pdf`, `split_selected_box`,
+  `aplicar_aos_semelhantes`…) → `ui/reconhecimento.py`;
+- **documento e navegação** — 30 métodos, 568 linhas (`open_pdf`, `open_image`,
+  `save_all_pages`, `_load_pdf_page`, `ir_para_pagina`, `abrir_documento`,
+  `abrir_editor_de_livro`, `_on_close`…) → `ui/documento.py`;
+- **treino e modelo** — 16 métodos, 530 linhas (`_treinar_rede`, `corrigir_base_treino`,
+  `verificar_base_treino`, `avaliar_modelo_linhas`, `validar_dataset_linhas`…) →
+  `ui/treino.py`;
+- **o menu numa tabela declarativa**, como `ui/editor/menus.py`: `_build_menu` (199
+  linhas), `_build_menu_notacao` e `_build_context_menu`; `tests/test_menu_por_fluxo.py`
+  é a rede;
+- **a outra metade do ciclo `livro` ↔ `pdf_nativo`**: `pdf_nativo` ainda chama de volta
+  `livro.extrair_pagina` (a página de imagem), `retirar_cabecalhos`, `_coluna_de`,
+  `_candidato_a_cabecalho`, `_assinatura`, `_imagens_do_pdf`, `_figura_do_diagrama`, e lê
+  `MARGEM_DE_PAGINA`, `DPI_FIGURA`, `PAGINAS_DE_CABECALHO`, `MODOS_DE_DIAGRAMA`,
+  `COMO_NO_LIVRO` e `_TRACOS_DO_MOTOR`. O caminho é: as constantes e os auxiliares de
+  página para `core/pagina.py` (ou um `core/leitura_comum.py`), e a leitura da página de
+  imagem como parâmetro (`ler_imagem=`) que `livro.extrair` passa ao chamar `pdf_nativo`,
+  em vez do import de volta; depois conferir `livro` ↔ `negrito`.
+
+**O padrão de cada fluxo** (o de `ui/exportacao.py`): uma classe com `janela`; os métodos
+verbatim, com todo `self` — o `self.`, o `getattr(self, …)` e o `self` passado como pai de
+diálogo — virando `self.janela`, **salvo dentro de uma classe aninhada no método**, cujo
+`self` é dela (o `Token` de cancelamento do processamento editorial); as chamadas internas
+pelo delegado da janela, para quem
+troca um método dela num teste continuar sendo ouvido; um delegado de uma linha por
+método, com o mesmo nome; e os testes que leem a fonte pela classe (`inspect.getsource`
+em `test_f117`, `test_f123`, `test_detectar_e_preencher_neural`) passam a ler pela classe
+nova. Os imports que só o fluxo usava saem da janela (`ruff --fix --select F401`).
+
+Aceite: `ui/main_window.py` abaixo de 2.000 linhas, sem corpo de método de fluxo — só o
+estado, a composição e os delegados; `test_menu_por_fluxo` e os testes de fonte verdes; o
+ciclo `livro` ↔ `pdf_nativo` ausente do grafo de importações (o script da análise).
+
+---
+
 ## Registro de execução
 
 | Fase | Status | Data | O que divergiu |
@@ -266,4 +320,5 @@ F9.2 (lista de palavras sem frequência — precisa de uma fonte de frequências
 | PD-16 (F1.3, base inteira) | **medida, empate — produção mantida** | 2026-10-06 | `NeuralTrainer.train(base_inteira=True)`: 100% das amostras (630.909, 316 classes, já com o que foi rotulado depois de 25/08) por 24 epochs fixas — a melhor epoch do último treino com validação — e grava a última; sem relatório, porque a validação mediria o que o modelo viu (`tests/test_pd16_base_inteira.py`). 150 min de CPU, T = 1,926. **Comparado com a produção:** corpus de referência, CER total 1,59% contra 1,59% (prosa 1,44% → 1,29%, notação 1,88% → 2,16%, Aagaard p. 30 1,30% → 1,71%, além da tolerância da rodada); páginas rotuladas por caractere 94,46% contra 94,46%, com 10 consertos e 11 quebras em 11.597. Os 20% a mais de amostras são dos mesmos livros, e o erro que sobra é o de livro novo (93,7% com um livro de fora, na medida da PD-16 encaixado). Não troca o modelo. O modo fica para o próximo retreino que tiver base nova de verdade. |
 | PD-19 (F9, poda por frequência) | **medida, recusada** | 2026-10-06 | O bloqueio era a falta de frequência, e ela existe desde a PD-20 (`wordfreq`). `medir_troca.py --poda` tira da parte de idioma as palavras abaixo de um `zipf` e mantém os nomes inteiros, rodando o OCR de verdade nas páginas rotuladas: de zipf 0,5 a 2,5 o recall fica em 35,0% (35 erros pegos em todos os cortes) e o alarme falso sobe de 4,0% para 5,0%. Nenhum erro de OCR desta amostra cai numa palavra rara da lista — a hipótese `glans`-por-`plans` não aparece —, então a poda só custa. **Achado de passagem:** os "erros escondidos" que o arnês lista são quase todos erro da **verdade rotulada**: no `Kasparov…_page-0020.box`, `Nirst` (y≈162), `prospectt` (y≈412), `diagonaL` (y≈464), `seCond` e `whiTe` (y≈1760); no `_page-0108.box`, `frst` (y≈928); e `theoy`, `Opn`, que a busca por linha não localizou. É dado do usuário (Onda 6): corrigidos, sobem o recall medido do léxico. |
 | PD-21 (nova) | **registrada** — decisão: convive; a dobra do terceiro fica pendente | 2026-10-06 | A análise geral recomendava eleger o escritor do editor; a ED-12 já tinha medido e decidido "convive", e a medição de hoje repete a dela (EPUB 15 ms/172 KB pelo histórico contra 30 ms/48 KB pelo editor; DOCX 260 ms contra 745 ms). O que sobra é o terceiro escritor, `editorial_export._epub`/`_docx`, que só a biblioteca usa e é o único com o sinal "não revisado" do diagrama (§4.6); dobrá-lo sobre o `exportar.py` pede esse sinal lá antes. No mesmo dia a biblioteca de inspeção virou o pacote `core/biblioteca/` e o `ocr_structure` saiu. |
+| PD-22 (nova) | **registrada** — a primeira metade feita | 2026-10-06 | `core/pagina.py` recebe o modelo da página (seis trechos, 267 linhas) e `pdf_nativo` passa a tomá-lo de lá (38 usos); `ui/exportacao.py` recebe o fluxo de exportar da janela (oito métodos, 644 linhas) por composição, com delegados do mesmo nome; a janela cai de 5.703 para 5.105 linhas. Dois tropeços do script de extração que viraram regra do padrão: a regex de `self.` não cobre `getattr(self, …)` nem o `self` passado como pai de diálogo, e um detector de globais por nome confunde a variável local `fontes` com o módulo `ui.fontes` — o `ruff` acusa. O que falta está na seção. |
 | PD-19 (F1.7) | **encerrada pela medida da F7** | 2026-10-06 | Linha principal × variante por tipografia já foi medida e refutada (AUROC 0,55–0,67 nas páginas rotuladas); a regra que vale é a do número de jogada que retrocede, e ela já está no analisador. Nada a fazer. |
