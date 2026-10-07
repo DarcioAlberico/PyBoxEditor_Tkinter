@@ -1,8 +1,8 @@
 """Todo arquivo de texto rastreado é UTF-8 sem BOM e sem mojibake (item 2 da análise de 2026-10-06).
 
 A porta por onde o mojibake entrou duas vezes — uma ferramenta gravando em cp1252 o que
-já era UTF-8 — fica fechada aqui: a suíte falha se um `Ã£` voltar a algum arquivo, e diz
-em qual linha. O verificador é `scripts/conferir_codificacao.py`, que também corrige
+já era UTF-8 — fica fechada aqui: a suíte falha se um `Ã` seguido de `£` (o `ã` em dupla
+codificação) voltar a algum arquivo, e diz em qual linha. O verificador é `scripts/conferir_codificacao.py`, que também corrige
 (`--corrigir`); os testes de baixo provam que ele pega cada um dos três defeitos.
 """
 from pathlib import Path
@@ -13,6 +13,10 @@ from scripts.conferir_codificacao import (arquivos_de_texto, corrigir,
                                            desfazer_mojibake, problemas, relatorio)
 
 RAIZ = Path(__file__).resolve().parents[1]
+
+#: O `á` em dupla codificação, construído em vez de escrito: este arquivo também passa pelo
+#: crivo que define, e o par literal o reprovaria.
+A_ESTRAGADO = "á".encode("utf-8").decode("cp1252")
 
 
 def test_todo_arquivo_de_texto_rastreado_e_utf8_sem_bom_e_sem_mojibake():
@@ -47,7 +51,7 @@ def test_o_mojibake_e_apontado_e_a_correcao_devolve_o_original(tmp_path):
     arquivo = tmp_path / "moji.md"
     arquivo.write_text(estragado, encoding="utf-8")
     [achado] = problemas(arquivo)
-    assert achado.startswith("linha 1: mojibake 'Ã¡'")
+    assert achado.startswith(f"linha 1: mojibake {A_ESTRAGADO!r}")
     assert corrigir(arquivo) is True
     assert arquivo.read_text(encoding="utf-8") == original
     assert problemas(arquivo) == []
@@ -55,11 +59,13 @@ def test_o_mojibake_e_apontado_e_a_correcao_devolve_o_original(tmp_path):
 
 def test_a_linha_marcada_como_intencional_fica_fora_da_conferencia_e_da_correcao(tmp_path):
     arquivo = tmp_path / "relatorio.py"
-    conteudo = 'EXEMPLO = "pÃ¡gina"  # mojibake intencional: o relatório detecta isto\nOUTRO = "pÃ¡gina"\n'
+    conteudo = (f'EXEMPLO = "p{A_ESTRAGADO}gina"  # mojibake intencional: o relatório detecta isto\n'
+                f'OUTRO = "p{A_ESTRAGADO}gina"\n')
     arquivo.write_text(conteudo, encoding="utf-8")
-    assert problemas(arquivo) == ["linha 2: mojibake 'Ã¡'"]
+    assert problemas(arquivo) == [f"linha 2: mojibake {A_ESTRAGADO!r}"]
     assert corrigir(arquivo) is True
-    assert arquivo.read_text(encoding="utf-8") == conteudo.replace('OUTRO = "pÃ¡gina"', 'OUTRO = "página"')
+    assert arquivo.read_text(encoding="utf-8") == conteudo.replace(
+        f'OUTRO = "p{A_ESTRAGADO}gina"', 'OUTRO = "página"')
 
 
 @pytest.mark.parametrize("texto", [

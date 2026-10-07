@@ -7,9 +7,10 @@ O que este verificador pega, e por quê:
   seja a que o gravou.
 - **BOM.** O marcador `EF BB BF` no começo do arquivo é UTF-8 válido, mas ferramentas que
   leem byte a byte (o pip, o Tcl, um `grep`) o veem como lixo na primeira linha.
-- **Mojibake.** A ferramenta que grava em cp1252 um texto que já era UTF-8 produz
-  `Ã£` onde havia `ã` — cada byte da sequência UTF-8 lido como um caractere cp1252 e
-  gravado de novo em UTF-8. Isso aconteceu em 2026-09-18 e voltou em 2026-09-26, em
+- **Mojibake.** A ferramenta que grava em cp1252 um texto que já era UTF-8 produz, onde
+  havia `ã`, o `Ã` seguido de `£` — cada byte da sequência UTF-8 lido como um caractere
+  cp1252 e gravado de novo em UTF-8. (Este docstring descreve o par em vez de escrevê-lo
+  junto, porque o verificador lê o próprio arquivo.) Isso aconteceu em 2026-09-18 e voltou em 2026-09-26, em
   dezenove arquivos (`docs/ANALISE_GERAL_2026-10-06.md`, item 2). A dupla codificação
   é reversível: `texto.encode("cp1252").decode("utf-8")` devolve o original, e é o que
   `desfazer_mojibake` faz, trecho a trecho, sem tocar no que já estava certo.
