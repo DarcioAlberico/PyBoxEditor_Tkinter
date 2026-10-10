@@ -24,7 +24,12 @@ appy.py ──┬── ui/main_window.py ──── core/services/* ───
    dos boxes), `OCRService` (a rede de glifos, o Tesseract, o EasyOCR, o leitor de linha),
    `LearningService` (modelos e bases de treino), `PDFService` (páginas por PyMuPDF),
    `DocumentService` e `HistoryService` (o documento aberto e o desfazer), `TaskService`
-   (trabalho fora da thread do Tk).
+   (trabalho fora da thread do Tk). A janela é a composição — o estado, os controladores,
+   o layout, as teclas e a lista —, e os fluxos moram em módulos próprios, cada um uma
+   classe com `janela` para a qual ela delega com o mesmo nome (PD-22): `ui/documento.py`
+   (abrir, navegar, salvar, rascunho), `ui/reconhecimento.py` (boxes, OCR, diagramas,
+   PDF), `ui/treino.py` (bases, modelos, relatórios), `ui/exportacao.py` (livro, documento
+   editorial, PGN) e `ui/menu_principal.py` (a barra numa tabela declarativa).
 2. **O documento editorial** é a representação do livro reconstruído, independente do
    formato de saída: `core/editorial_model.py` (IR versionado, eventos de revisão imutáveis),
    `editorial_adapters.py` (a ida `PaginaExtraida → IR` e a volta, sem perdas),
@@ -125,9 +130,11 @@ importam módulos opcionais de OCR, Torch ou EasyOCR.
 ## Dívidas conhecidas
 
 Medidas em `docs/ANALISE_GERAL_2026-10-06.md`: `MainWindow` com 170 métodos e 53
-importações do projeto, `TextoRico` com 202 e `JanelaDoEditor` com 175; dezessete ciclos
-diretos de importação (`livro` ↔ `pdf_nativo`, `editorial_legacy` ↔ `editorial_pipeline`,
-`ui/editor/dialogos` ↔ seis vizinhos). A ordem do que fazer está no mesmo documento. O
+importações do projeto (desde a PD-22, 1.961 linhas e 115 delegados, com os fluxos em
+módulos próprios), `TextoRico` com 202 e `JanelaDoEditor` com 175; dezessete ciclos
+diretos de importação (`livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram na PD-22;
+ficam `editorial_legacy` ↔ `editorial_pipeline`, `ui/editor/dialogos` ↔ seis vizinhos e
+os outros do grafo — 16, entre eles o `editorial_export` ↔ `editorial_legacy` que a PD-21 abriu por import tardio, e os de `core/services/box_service` com `leitura_de_linha` e `vertical`). A ordem do que fazer está no mesmo documento. O
 `core` sem logging foi resolvido no item 5: `core/log.py` é o tronco `pyboxeditor`, o
 arquivo `pyboxeditor.log` fica na pasta de dados, e os módulos do editor entram sob
 `pyboxeditor.editor`, que o painel Mensagens ecoa.

@@ -328,6 +328,29 @@ Aceite: `ui/main_window.py` abaixo de 2.000 linhas, sem corpo de método de flux
 estado, a composição e os delegados; `test_menu_por_fluxo` e os testes de fonte verdes; o
 ciclo `livro` ↔ `pdf_nativo` ausente do grafo de importações (o script da análise).
 
+**Feita em 2026-10-10, na ordem.** (1) Os três fluxos saíram com um extrator geral
+dirigido por tabela, no padrão da `Exportacao`: `ui/reconhecimento.py`
+(`Reconhecimento`, 42 métodos, 1.394 linhas de corpo, com os limiares da cadeia e a
+medição de cada um — a janela os reexporta para `scripts/medidas/medir_cadeia.py` e os
+testes), `ui/documento.py` (`Documento`, 39 métodos, 771 linhas) e `ui/treino.py`
+(`Treino`, 20 métodos, 799 linhas, com o `_validar_dataset_adicional_linhas`). O
+`@staticmethod` delega à classe; o `ruff --fix F401` tira o import que só o fluxo usava
+e o nome local que parecia módulo (`fontes`); um `noqa: F401` de reexporte multilinha
+só vale para a sua linha — cada reexporte vai numa linha própria. (2) O menu virou a
+tabela de `ui/menu_principal.py` (`BARRA`: dez menus, 73 itens com rótulo, nome do
+método da janela, acelerador e mnemônico, conferidos um a um contra o `_build_menu`
+de 199 linhas; o comando resolve na hora do clique), com o Notação, o de contexto e os
+diálogos do Ajuda em código; `tests/test_menu_por_fluxo.py` passou sem mudar. A
+`MainWindow` ficou com o estado, os controladores, o layout, as teclas, a lista e
+115 delegados: **5.105 → 1.961 linhas**. Os nove testes que liam a fonte pela
+janela ou trocavam globais dela leem e trocam no módulo do fluxo. (3) O ciclo: as
+constantes de página e de figura e o `_coluna_de` foram para `core/pagina.py`;
+`_assinatura`, `_candidato_a_cabecalho` e `_lance_limpo` para `core/leitura_comum.py`
+(precisam de `notacao`); `idioma_do_pdf` e as suas constantes para o `pdf_nativo`; o
+`livro` reexporta tudo com o nome de sempre, e o `negrito` toma o `Paragrafo` de
+`core/pagina.py`. Ciclos diretos do grafo da análise: 18 antes, 16 depois — `livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram; restam 16, entre eles o `editorial_export` ↔ `editorial_legacy` que a PD-21 abriu por import tardio, e os de `core/services/box_service` com `leitura_de_linha` e `vertical`.
+Suíte: 3535 verdes.
+
 ---
 
 ## Registro de execução
@@ -358,3 +381,4 @@ ciclo `livro` ↔ `pdf_nativo` ausente do grafo de importações (o script da an
 | PD-22 (nova) | **registrada** — a primeira metade feita | 2026-10-06 | `core/pagina.py` recebe o modelo da página (seis trechos, 267 linhas) e `pdf_nativo` passa a tomá-lo de lá (38 usos); `ui/exportacao.py` recebe o fluxo de exportar da janela (oito métodos, 644 linhas) por composição, com delegados do mesmo nome; a janela cai de 5.703 para 5.105 linhas. Dois tropeços do script de extração que viraram regra do padrão: a regex de `self.` não cobre `getattr(self, …)` nem o `self` passado como pai de diálogo, e um detector de globais por nome confunde a variável local `fontes` com o módulo `ui.fontes` — o `ruff` acusa. O que falta está na seção. |
 | PD-19 (F1.7) | **encerrada pela medida da F7** | 2026-10-06 | Linha principal × variante por tipografia já foi medida e refutada (AUROC 0,55–0,67 nas páginas rotuladas); a regra que vale é a do número de jogada que retrocede, e ela já está no analisador. Nada a fazer. |
 | PD-21 | **feita** | 2026-10-10 | O carimbo "não revisado" foi para a `Figura` (`revisao_pendente`) e para o `exportar.py` (`alt`, `figcaption`, legenda do DOCX, só quando `True`); EPUB e DOCX do documento editorial saem do escritor de produção pela fachada, sobre as páginas lidas com a revisão aplicada ou de volta do IR, e o `_export_legacy` e o terceiro escritor sumiram. A volta reconhece o diagrama da Fase 4 e o desenha do FEN; o ramo "de volta do IR" só redesenha o que veio sem desenho ou cujo FEN a revisão trocou. Medido em 30 páginas sintéticas: EPUB 17 ms/172 KB e DOCX 280 ms/42 KB pelo IR, byte a byte iguais ao direto (13 e 254 ms); redesenhar tudo custava 333 KB/761 ms. |
+| PD-22 | **feita** | 2026-10-10 | A janela por fluxos (`reconhecimento`, `documento`, `treino`, mais a `exportacao` de 10-06) e o menu numa tabela (`ui/menu_principal.py`, 73 itens conferidos contra o `_build_menu`): `MainWindow` 5.105 → 1.961 linhas, com 115 delegados, e nenhum fluxo importa a janela. O ciclo `livro` ↔ `pdf_nativo` (e `livro` ↔ `negrito`) desfeito: constantes e `_coluna_de` em `core/pagina.py`, auxiliares de cabeçalho em `core/leitura_comum.py`, `idioma_do_pdf` no `pdf_nativo`, o `livro` reexportando. Ciclos diretos: 18 antes, 16 depois — `livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram. |

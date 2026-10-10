@@ -77,5 +77,5 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
 | mudar a exportação EPUB/DOCX do OCR | `core/exportar.py` (o escritor de produção) |
 | mudar o documento editorial ou a fila | `core/editorial_model.py`, `editorial_adapters.py`, `editorial_review.py`, `editorial_suspeitas.py` |
 | mudar o editor de livros | `core/editor/` (sem Tk) e `ui/editor/` (a janela) |
-| mudar a janela principal | `ui/main_window.py`; diálogos em `ui/dialogo_*.py` |
+| mudar a janela principal | `ui/main_window.py` (estado, layout, teclas); os fluxos em `ui/documento.py`, `ui/reconhecimento.py`, `ui/treino.py`, `ui/exportacao.py`; o menu em `ui/menu_principal.py`; diálogos em `ui/dialogo_*.py` |
 | medir | `scripts/` e `scripts/medidas/` (os `medir_*.py` de cada fase, rodados da raiz) |
