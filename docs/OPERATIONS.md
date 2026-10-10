@@ -83,6 +83,26 @@ python scripts/processar_editorial.py livro.pdf -o saida.json \
   --validar-qualidade --exigir-resolvido
 ```
 
+## Cobertura
+
+Medida por item da análise, e não no gate: a instrumentação deixa a suíte uns 50% mais
+lenta, e o número só muda quando entra ou sai teste.
+
+```text
+python -m pytest -q -m "not slow" -p no:cacheprovider --cov=core --cov=ui --cov=config --cov=appy \
+  --cov-report=term:skip-covered --cov-report=json:cobertura.json
+```
+
+Em 2026-10-06 (item 7 da análise geral): **87,5%** no total — 47.351 de 54.087 linhas —,
+`core` 91,7%, `core/editor` 91,8%, `core/services` 87,9%, `core/biblioteca` 86,4%,
+`ui/editor` 83,6%, `ui` 77,5%. Os menos cobertos com mais de 40 linhas: `appy.py` 23% (o
+`main` não roda na suíte), `ui/editor/dialogos.py` 26% (as caixas reais, que a suíte troca
+por falsas — `tests/test_editor_dialogos_reais.py` entrou por isso, e sozinho cobre 81% do
+módulo),
+`core/calibracao_de_pagina.py` 48%, `ui/dialogo_rotulagem.py` 50%, `ui/canvas_view.py` 63%,
+`core/biblioteca/abbyy_ocr.py` 67%, `core/services/ocr_service.py` 71%. O `pytest-cov` vem
+com `pip install -e ".[dev]"`; o `cobertura.json` e o `.coverage` ficam fora do git.
+
 ## Editor de livro
 
 O editor (`appy.py --editor [arquivo] [--fechar-apos N] [--diagnostico-modulos]`, ou

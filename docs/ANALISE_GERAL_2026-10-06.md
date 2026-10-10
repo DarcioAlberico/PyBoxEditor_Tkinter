@@ -379,4 +379,57 @@ entrar numa classe aninhada no método, cujo `self` é dela — o `Token` de can
 com `self.janela.cancelled` e derrubou três testes do documento editorial; e um detector de
 globais por nome confundiu a variável local `fontes` com o módulo `ui.fontes` — o `ruff`
 acusou. A suíte inteira com os dois movimentos: 3515 verdes e as três do `Token`, que
-passam depois do conserto; a confirmação em exportação limpa fica para antes do push.
+passam depois do conserto; exportação limpa de `c222917` verde (3496 verdes, 22 pulados;
+lentos 10 e 8), push a pedido e CI verde nas três versões (run 37561670883).
+
+## Fechamento dos itens 7 e 8 (2026-10-06, madrugada)
+
+**Item 7, a cobertura.** Medida com o `pytest-cov` sobre a suíte inteira menos os lentos
+(3518 verdes em 6 min 36 s): **87,5%**, 47.351 de 54.087 linhas.
+
+| Pacote | Cobertura |
+|---|---|
+| `core` | 91,7% |
+| `core/editor` | 91,8% |
+| `core/services` | 87,9% |
+| `core/biblioteca` | 86,4% |
+| `ui/editor` | 83,6% |
+| `ui` | 77,5% |
+| total | 87,5% |
+
+A medida corrigiu a hipótese da análise. Os "oito módulos do editor que nenhum teste
+cita" estão cobertos em 74 a 88% pelos testes da janela, que os exercitam pelos menus sem
+citá-los — menos um: `ui/editor/dialogos.py`, com 26%, porque a suíte troca as caixas por
+falsas para nunca esperar um clique, e as reais nunca abriam. `tests/test_editor_dialogos_reais.py`
+as abre como foram feitas para isto, sem `mostrar()`, e sozinho cobre 81% do módulo. Os
+menos cobertos que ficam para depois, com mais de 40 linhas: `appy.py` 23% (o `main` não
+roda na suíte), `core/calibracao_de_pagina.py` 48%, `ui/dialogo_rotulagem.py` 50%,
+`ui/canvas_view.py` 63%, `core/biblioteca/abbyy_ocr.py` 67%, `core/services/ocr_service.py`
+71%. O comando e os números estão em `docs/OPERATIONS.md`, "Cobertura"; o `pytest-cov` entrou
+no extra `[dev]`.
+
+**Item 8, a raiz.** Os 42 scripts de medida saíram para `scripts/medidas/`, com a raiz do
+projeto dois níveis acima e os imports entre eles, nos doze testes que os usam e no
+`scripts/medir_prosa_da_camada.py` por `scripts.medidas`; os catorze comandos literais
+que comentários e mensagens de erro davam para reproduzir uma medida ganharam o caminho
+novo; passam a ser lidos pelo `ruff` da CI, com as três regras de estilo
+relaxadas só ali (`E741`, `E702`, `E731`) e as de erro valendo. O `.gitignore` aprendeu o
+lixo da raiz (PNGs de análise, logs de pytest, saída do treino de linhas, a pasta sintética,
+os artefatos de cobertura), e o `git status` ficou com quatro entradas sem rastreio, todas
+decisão do usuário. O `ROADMAP.md` foi de 14.553 para 274 linhas: as 105 fases concluídas
+(14.397 linhas) estão em `docs/historico/`, em três faixas, e o arquivo vivo ficou com o
+sumário, a ordem de execução, o índice fase → arquivo e o "Fora de escopo". Nenhum teste ou
+documento lia o roadmap por âncora.
+
+Uma lição de ferramenta: uma regex de import ancorada na coluna zero não vê o `import`
+dentro de função — oito arquivos escaparam na primeira passada e os testes acusaram. E a
+segunda passada, que só varreu `tests/` e `scripts/medidas/`, deixou passar o
+`import medir_prosa` dentro de uma função de `scripts/medir_prosa_da_camada.py`, que só o
+`git grep` pelos 42 nomes antigos achou, junto com os catorze comandos literais
+(`python calibrar_modelo.py --gravar` e parecidos) de comentários e mensagens de erro.
+A varredura que fecha uma mudança de lugar é pelo nome, no repositório inteiro, e não
+pelas pastas de quem se sabe que importa.
+
+Com isto, os oito itens da ordem do que fazer estão feitos ou registrados: o que resta de
+código está na PD-21 (o terceiro escritor) e na PD-22 (a janela por fluxos e o ciclo do
+leitor), e o que resta de dado, na Onda 6.

@@ -8,6 +8,8 @@
 
 -e .[dev,tools,docx,ocr,ml]
 
+pytest-cov>=5.0        # cobertura, medida uma vez por item (docs/OPERATIONS.md)
+
 pytest>=8.0            # a suíte inteira; `pytest` na raiz, ver pytest.ini
 
 fonttools>=4.50        # só o `gerar_fonte_de_simbolos.py` (F62), que recorta a

@@ -29,7 +29,7 @@ ocr = ["pytesseract>=0.3.10", "opencv-python-headless>=4.8,<5",
        "wordfreq>=3.1", "rapidfuzz>=3.0"]
 ml = ["torch>=2.0", "easyocr>=1.7"]
 paddle = ["paddlepaddle>=3.0", "paddleocr>=3.0"]
-dev = ["pytest>=8.0", "ruff>=0.6", "build>=1.2"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "build>=1.2"]
 tools = ["fonttools>=4.50"]
 # O editor de livros (ED-08): a validação com o epubcheck (precisa de Java) e, opcional, um
 # navegador embutido para a prévia — a prévia própria (TextoRico) não depende dele.
