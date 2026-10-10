@@ -106,3 +106,19 @@ benchmarks/corpus_v2/source/
 
 # A base sintetica de linhas e gerada por core/linha_sintetica.py a partir das fontes.
 training_data_linhas_sintetico/
+
+# O que uma sessao deixa na raiz e nao e fonte nem base conferida (item 8 da analise de
+# 2026-10-06): as imagens de analise, os logs do pytest em segundo plano, a pasta sintetica
+# temporaria, e a saida do treino de linhas, que acompanha um .pth que ja fica fora.
+/_*.png
+/pytest_*.out
+/pytest_*.err
+/_tmp_sintetico/
+/text_line_model*.json
+/text_line_training_report.*
+/text_line_evaluation.json
+/ocr_language_model.json
+/ocr_training_state.json
+/.coverage
+/htmlcov/
+/coverage.xml
