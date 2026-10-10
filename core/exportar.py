@@ -73,6 +73,27 @@ _CONTAINER = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+def _ressalva(figura: Figura) -> str:
+    """
+    O que o `alt` e a legenda dizem além do FEN: de quem é a vez e de onde isso
+    veio, e se a posição ainda espera revisão (PD-21).
+
+    As duas são **carimbo, e não diagnóstico**, e saem sempre. O modo limpo do
+    documento editorial tira a proveniência e as hipóteses, que são para quem
+    revisa; um diagrama cuja posição ninguém conferiu continua sendo isso no
+    arquivo entregue — esconder a ressalva é o que transformaria uma leitura de
+    94,5% de casas certas em afirmação (§4.6 da revisão de 2026-09-18). Até a
+    PD-21 só o escritor do IR a carimbava; a `Figura.revisao_pendente` é o que
+    a traz até aqui, e `None` — a exportação direta da leitura — não diz nada.
+    """
+    partes = []
+    if figura.fen:
+        partes.append(lado_jogar.marca(lado_jogar.do_fen(figura.fen), figura.lado_origem))
+    if figura.revisao_pendente:
+        partes.append(lado_jogar.NAO_REVISADO)
+    return "; ".join(partes)
+
+
 def _alternativo(figura: Figura) -> str:
     """
     O texto alternativo da figura — o FEN, quando ele existe, e de onde é a vez.
@@ -87,14 +108,18 @@ def _alternativo(figura: Figura) -> str:
     outro, e o `alt` é justamente onde o leitor de tela e a busca do arquivo
     veriam a convenção passar por leitura. O FEN continua **na frente**, e
     inteiro: quem procura por ele acha o mesmo de antes.
+
+    **E o "não revisado" vai atrás** (PD-21), pelo mesmo motivo: o diagrama que
+    a fila de revisão não conferiu não pode chegar ao leitor de tela como
+    posição afirmada. O separador é o mesmo, e `lado_a_jogar.do_alt` lê o FEN e
+    o lado como antes.
     """
     if figura.origem == "faixa":
         return "Cabeçalho do diagrama"
+    ressalva = _ressalva(figura)
     if not figura.fen:
-        return "Diagrama"
-    lado = lado_jogar.do_fen(figura.fen)
-    return (figura.fen + lado_jogar.SEPARADOR_DO_ALT
-            + lado_jogar.marca(lado, figura.lado_origem))
+        return "Diagrama" + (lado_jogar.SEPARADOR_DO_ALT + ressalva if ressalva else "")
+    return figura.fen + lado_jogar.SEPARADOR_DO_ALT + ressalva
 
 
 def em_fonte(figura: Figura) -> bool:
@@ -449,8 +474,9 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             corpo.append("<table>\n" + "\n".join(filas) + "\n</table>")
             primeiro = True
         elif isinstance(bloco, Figura):
-            if diagramas == "fonte" and em_fonte(bloco):
-                corpo.append(_diagrama_em_texto(bloco))
+            em_texto = diagramas == "fonte" and em_fonte(bloco)
+            if em_texto:
+                miolo = _diagrama_em_texto(bloco)
             else:
                 # A largura vai no próprio `img`, e não na CSS: o corpo por casa
                 # é do livro, mas quantas casas a figura tem é de cada figura
@@ -458,8 +484,19 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                 # estreita.
                 pt = largura_em_pt(bloco, corpo_pt)
                 estilo = f' style="width:{pt:g}pt"' if pt else ""
-                corpo.append(f'<figure><img src="{imagens[i]}"{estilo} '
-                             f'alt="{html.escape(_alternativo(bloco))}"/></figure>')
+                miolo = (f'<img src="{imagens[i]}"{estilo} '
+                         f'alt="{html.escape(_alternativo(bloco))}"/>')
+            if bloco.revisao_pendente:
+                # O diagrama que ninguém conferiu leva a ressalva **visível**, e
+                # não só no `alt` (PD-21). O `<figure>` com `<figcaption>` é o
+                # que o editor de livros lê de volta como legenda, nos dois
+                # modos (`core/editor/xhtml.py`, `_figura`).
+                corpo.append(f"<figure>{miolo}<figcaption>"
+                             f"{html.escape(_ressalva(bloco))}</figcaption></figure>")
+            elif em_texto:
+                corpo.append(miolo)
+            else:
+                corpo.append(f"<figure>{miolo}</figure>")
             i += 1
             primeiro = True
         else:
@@ -1218,6 +1255,21 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         vao.paragraph_format.line_spacing = Pt(1)
         vao.paragraph_format.first_line_indent = Pt(0)
 
+    def legenda_da_figura(bloco: Figura) -> None:
+        """
+        A ressalva visível sob o diagrama que ninguém conferiu (PD-21): o mesmo
+        texto do `descr` da figura, que é onde o leitor de tela e a busca do
+        Word a acham. Só sai quando `revisao_pendente` é verdadeiro — o livro
+        exportado direto da leitura não ganha legenda nenhuma.
+        """
+        p = escrever_paragrafo(_ressalva(bloco))
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.first_line_indent = Pt(0)
+        try:
+            p.style = doc.styles["Caption"]
+        except KeyError:
+            log.debug("DOCX: o modelo não tem o estilo Caption; a ressalva sai no estilo normal")
+
     # A casa é o quadrado do em, então o corpo da fonte **é** a casa: o que o
     # usuário pediu em pontos entra aqui sem conta nenhuma (F97). Era derivado
     # de uma largura em centímetros, e o arredondamento dessa conta é justamente
@@ -1271,6 +1323,8 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     # primeiro caractere que julgue não-ASCII.
                     familia_do_run(run, bloco.fonte)
                 separador()
+                if bloco.revisao_pendente:
+                    legenda_da_figura(bloco)
             elif isinstance(bloco, Figura):
                 primeiro = True
                 pt = largura_em_pt(bloco, corpo_pt)
@@ -1283,6 +1337,8 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 # que a busca do Word encontra.
                 forma._inline.docPr.set("descr", _alternativo(bloco))
                 doc.paragraphs[-1].alignment = 1   # centralizado
+                if bloco.revisao_pendente:
+                    legenda_da_figura(bloco)
             elif isinstance(bloco, Tabela):
                 # `Table Grid` é o único estilo de grade que o template padrão
                 # do Word traz; sem estilo nenhum a tabela sai sem fio e o

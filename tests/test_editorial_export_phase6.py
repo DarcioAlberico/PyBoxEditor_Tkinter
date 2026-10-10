@@ -1,3 +1,9 @@
+"""
+A exportação do documento editorial (Fase 6). Desde a PD-21 (2026-10-10) o EPUB e
+o DOCX do IR saem do escritor de produção (`core/exportar.py`), e os testes
+conferem a semântica dele; HTML, TXT e PDF pesquisável continuam do IR.
+"""
+
 from __future__ import annotations
 
 import zipfile
@@ -39,21 +45,37 @@ def test_html_semantico_preserva_ordem_fen_alt_e_modo(tmp_path):
     assert "hybrid" in html
 
 
-def test_epub3_tem_mimetype_nav_xhtml_css_e_ordem_de_blocos(tmp_path):
+def test_o_epub_sai_do_escritor_de_producao_com_mimetype_nav_css_e_os_blocos(tmp_path):
+    """
+    O EPUB do IR é o do `exportar.py` (PD-21): o `mimetype` primeiro e sem
+    compressão, o `content.opf`, o `nav.xhtml` e o `estilo.css`, uma página por
+    arquivo XHTML, o diagrama desenhado do FEN como PNG no zip — e não o
+    `content.xhtml` único com a imagem em base64 que o escritor do IR fazia.
+    """
     destino = tmp_path / "livro.epub"
     report = EditorialExporter().export(_document(), destino, ExportOptions(format="epub"))
 
     assert report.files == (str(destino),)
+    assert report.metadata["escritor"] == "exportar" and report.metadata["paginas"] == "ir"
     with zipfile.ZipFile(destino) as arquivo:
-        assert arquivo.namelist()[0] == "mimetype"
+        nomes = arquivo.namelist()
+        assert nomes[0] == "mimetype"
+        assert arquivo.getinfo("mimetype").compress_type == zipfile.ZIP_STORED
         assert arquivo.read("mimetype") == b"application/epub+zip"
-        xhtml = arquivo.read("OEBPS/content.xhtml").decode("utf-8")
-        assert "Capítulo 1" in xhtml and "Texto editorial" in xhtml
-        assert "OEBPS/nav.xhtml" in arquivo.namelist()
-        assert "OEBPS/styles.css" in arquivo.namelist()
+        assert {"OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/estilo.css",
+                "OEBPS/imagens/fig-0001-1.png"} <= set(nomes)
+        assert "OEBPS/content.xhtml" not in nomes
+        xhtml = arquivo.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+    assert (xhtml.index("Capítulo 1") < xhtml.index("Texto editorial")
+            < xhtml.index("1. e4 e5") < xhtml.index("<figure>"))
+    assert 'alt="8/8/8/8/8/8/8/4K2k w - - 0 1 — brancas a jogar (assumido: a página não diz)"' in xhtml
+    assert "não revisado" not in xhtml, "o diagrama revisado não leva ressalva"
 
 
 def test_docx_mapeia_heading_notacao_e_diagrama(tmp_path):
+    """O DOCX também é o de produção: o título em estilo de título, o lance no
+    texto, o diagrama como figura com o FEN no texto alternativo (`descr`), que
+    é onde o leitor de tela o lê e a busca do Word o acha."""
     pytest.importorskip("docx")
     destino = tmp_path / "livro.docx"
     EditorialExporter().export(_document(), destino, ExportOptions(format="docx"))
@@ -62,7 +84,10 @@ def test_docx_mapeia_heading_notacao_e_diagrama(tmp_path):
     texto = "\n".join(par.text for par in doc.paragraphs)
     assert "Capítulo 1" in texto
     assert "1. e4 e5" in texto
-    assert "4K2k" in texto
+    assert doc.paragraphs[0].style.name.startswith("Heading")
+    [forma] = doc.inline_shapes
+    assert "4K2k" in forma._inline.docPr.get("descr")
+    assert "não revisado" not in texto
 
 
 def test_pdf_semantico_e_pesquisavel_tem_relatorio_de_itens(tmp_path):

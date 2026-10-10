@@ -292,14 +292,44 @@ def test_o_lado_lido_da_legenda_nao_e_chamado_de_assumido():
 
 
 def test_o_epub_leva_a_figura_do_diagrama(tmp_path):
+    """A Fase 4 não traz pixels, e o EPUB — o de produção, desde a PD-21 — sai
+    com o diagrama desenhado do FEN como PNG dentro do zip."""
     import zipfile
 
     documento = _documento({"fen": "8/8/8/8/8/8/8/4K2k w - - 0 1"})
     destino = tmp_path / "livro.epub"
     EditorialExporter().export(documento, destino, ExportOptions(format="epub"))
     with zipfile.ZipFile(destino) as arquivo:
-        xhtml = arquivo.read("OEBPS/content.xhtml").decode("utf-8")
-    assert "data:image/png;base64," in xhtml
+        nomes = arquivo.namelist()
+        xhtml = arquivo.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+        png = arquivo.read("OEBPS/imagens/fig-0001-1.png")
+    assert 'src="imagens/fig-0001-1.png"' in xhtml and "OEBPS/content.xhtml" not in nomes
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_o_epub_do_ir_carimba_o_nao_revisado_no_alt_e_na_figcaption(tmp_path):
+    """
+    O aceite da PD-21: o escritor do IR era o único a carimbar "não revisado",
+    e a dobra sobre o `exportar.py` não podia apagar o aceite da §4.6. O
+    diagrama `review_required` sai com a ressalva no `alt` — atrás do FEN e do
+    lado a jogar, pelo mesmo separador que `do_alt` lê — e na `figcaption`
+    visível, mesmo no modo limpo.
+    """
+    import zipfile
+
+    documento = _documento({"fen": "8/8/8/8/8/8/8/4K2k w - - 0 1",
+                            "review_status": "review_required"})
+    destino = tmp_path / "livro.epub"
+    relatorio = EditorialExporter().export(
+        documento, destino, ExportOptions(format="epub", mode="clean"))
+    with zipfile.ZipFile(destino) as arquivo:
+        xhtml = arquivo.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+    ressalva = "brancas a jogar (assumido: a página não diz); não revisado"
+    assert f'alt="8/8/8/8/8/8/8/4K2k w - - 0 1 — {ressalva}"' in xhtml
+    assert f"<figcaption>{ressalva}</figcaption>" in xhtml
+    assert lado_a_jogar.do_alt(f"8/8/8/8/8/8/8/4K2k w - - 0 1 — {ressalva}") == (
+        "8/8/8/8/8/8/8/4K2k w - - 0 1", "")
+    assert relatorio.warnings == ("1 diagrama(s) exportados sem revisão",)
 
 
 def test_o_docx_leva_a_figura_e_a_ressalva(tmp_path):

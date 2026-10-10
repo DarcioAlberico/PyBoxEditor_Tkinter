@@ -10,6 +10,8 @@ exportação por esse caminho, que é o que o item 2 da lista pediu.
 """
 
 import time
+import zipfile
+from pathlib import Path
 from tkinter import messagebox
 
 import pytest
@@ -140,6 +142,12 @@ def test_a_acao_liga_a_pagina_o_diagrama_e_a_exportacao(tmp_path, monkeypatch):
 
 
 def test_exportar_com_as_correcoes_regrava_o_arquivo_com_o_fen_revisado(tmp_path):
+    """
+    O arquivo regravado é o de produção, escrito pela fachada sobre cópias das
+    páginas do leitor com a revisão aplicada (PD-21): o parágrafo editado, o FEN
+    revisado no `alt` do diagrama redesenhado, a tabela rejeitada fora — e as
+    páginas do leitor intactas para a próxima revisão.
+    """
     with _App() as app:
         documento, paginas = _preparar(app, tmp_path, formato="epub")
         from core.editorial_review import ReviewSession
@@ -148,25 +156,19 @@ def test_exportar_com_as_correcoes_regrava_o_arquivo_com_o_fen_revisado(tmp_path
         sessao.edit("block-livro-p0001-b0000", "Parágrafo revisado à mão.")
         sessao.reject("block-livro-p0001-b0002")
 
-        escritos = []
-
-        def escrever(pipeline, doc, paginas_escritas, opcoes, origem):
-            escritos.append((doc, paginas_escritas, opcoes.formato))
-            return (opcoes.saida,)
-
-        app.win._escrever_documento_editorial = escrever
         app.win._exportar_documento_revisado(sessao.document)
-        limite = time.time() + 10
+        limite = time.time() + 15
         while (app.win.task.is_running() or not app.avisos) and time.time() < limite:
             app.root.update()
             time.sleep(0.01)
-        assert escritos, "a exportação revisada não escreveu"
-        doc, paginas_escritas, formato = escritos[0]
-        assert doc is sessao.document and formato == "epub"
-        blocos = paginas_escritas[0].blocos
-        assert blocos[0].texto == "Parágrafo revisado à mão."
-        assert [type(b).__name__ for b in blocos] == ["Paragrafo", "Paragrafo", "Figura", "Figura"]
-        assert blocos[2].fen == "8/8/8/8/8/8/4k3/4K3 w - - 0 1" and blocos[2].origem == "render"
+        saida = Path(app.win.exportacao_editorial["opcoes"].saida)
+        assert saida.exists(), f"a exportação revisada não escreveu: {app.avisos}"
+        with zipfile.ZipFile(saida) as arquivo:
+            xhtml = arquivo.read("OEBPS/pagina-0001.xhtml").decode("utf-8")
+        assert "Parágrafo revisado à mão." in xhtml
+        assert 'alt="8/8/8/8/8/8/4k3/4K3 w - - 0 1 — ' in xhtml, "o FEN revisado não chegou ao arquivo"
+        assert "B♖h2" not in xhtml, "a tabela rejeitada continuou no livro"
+        assert "White won on move 68" in xhtml
         # As páginas do leitor não foram mexidas: a próxima revisão parte delas.
         assert paginas[0].blocos[3].fen is None and len(paginas[0].blocos) == 5
         assert app.win.documento_editorial is sessao.document

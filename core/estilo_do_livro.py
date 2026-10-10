@@ -18,6 +18,7 @@ body { font-family: serif; line-height: 1.45; margin: 0 6%; }
 p { margin: 0 0 0.35em; text-indent: 1.2em; text-align: justify; }
 p.primeira { text-indent: 0; }
 figure { margin: 1.2em 0; text-align: center; page-break-inside: avoid; }
+figcaption { font-size: 0.85em; font-style: italic; }
 img { max-width: 88%; height: auto; }
 hr.pagina { border: 0; border-top: 1px solid #ccc; margin: 1.6em 0 1em; }
 table { border-collapse: collapse; margin: 1.2em auto; width: 100%; }

@@ -29,7 +29,8 @@ appy.py ──┬── ui/main_window.py ──── core/services/* ───
    formato de saída: `core/editorial_model.py` (IR versionado, eventos de revisão imutáveis),
    `editorial_adapters.py` (a ida `PaginaExtraida → IR` e a volta, sem perdas),
    `editorial_review.py` e `editorial_suspeitas.py` (a fila com evidência e o diário),
-   `editorial_export.py` (HTML, TXT e PDF pesquisável do IR) e `editorial_quality_gate.py`
+   `editorial_export.py` (HTML, TXT e PDF pesquisável do IR; EPUB e DOCX dele saem pelo
+   `exportar.py`, sobre as páginas de volta — PD-21) e `editorial_quality_gate.py`
    (o gate estrutural de release). A fachada `editorial_pipeline.EditorialPipeline` é
    montada por `editorial_legacy.pipeline_de_producao` com o leitor de `livro.py`.
 3. **O editor de livros**: `core/editor/` é o núcleo sem Tk — `modelo.py`, o dialeto
@@ -57,7 +58,7 @@ A tabela completa, com quem chama cada etapa e o número medido, está em
 | A caixa de cada letra | `core/geometria_da_linha.py` (F112), ligada nas exportações e na poda da janela (F123) |
 | A fachada e o IR | `editorial_legacy.pipeline_de_producao` → `EditorialPipeline` → `editorial_adapters` |
 | A revisão | `editorial_review`, `editorial_suspeitas`, `ui/dialogo_revisao_editorial.py`; o FEN revisado volta ao livro por `editorial_legacy.aplicar_revisao` |
-| Escrever | EPUB e DOCX por `core/exportar.py` (embute a fonte dos símbolos, redesenha os diagramas); HTML, TXT e PDF pesquisável por `editorial_export.py`; o PDF pesquisável do menu por `searchable_pdf.py` |
+| Escrever | EPUB e DOCX por `core/exportar.py` (embute a fonte dos símbolos, redesenha os diagramas, carimba no `alt` e na legenda o lado a jogar e o "não revisado" — e é por ele que o documento editorial sai nos dois formatos, pela fachada, desde a PD-21); HTML, TXT e PDF pesquisável por `editorial_export.py`; o PDF pesquisável do menu por `searchable_pdf.py` |
 | O editor | `core/editor/importar_ir.py` leva o documento editorial ao modelo do editor, com a origem de cada bloco |
 | Treino | `ocr_phase7.CorrectionDataset`, `ocr_training.treinar_pacote`, o portão `linha_trainer.modelo_utilizavel` |
 
@@ -135,7 +136,8 @@ arquivo `pyboxeditor.log` fica na pasta de dados, e os módulos do editor entram
 em 2026-10-06): `core/exportar.py` é a primeira saída do OCR — sai direto das
 `PaginaExtraida`, sem editor, e é o que a fila de revisão regrava — e `core/editor/` é o
 escritor do editor de livros, que faz o que o histórico não faz (PDF, PGN, proveniência,
-fontes pelo mapa). O terceiro, `editorial_export._epub`/`_docx`, escreve o IR só na
-biblioteca e é o único que carrega o sinal "não revisado" do diagrama (§4.6); dobrá-lo
-sobre o `exportar.py` pede que esse sinal chegue lá antes (PD-21 em
-`docs/ROADMAP_PENDENCIAS.md`).
+fontes pelo mapa). O terceiro, `editorial_export._epub`/`_docx`, não existe mais (PD-21,
+2026-10-10): EPUB e DOCX do documento editorial saem do `exportar.py` pela fachada —
+sobre as páginas lidas com a revisão aplicada, ou de volta do IR —, e o sinal "não
+revisado" do diagrama (§4.6) mora em `Figura.revisao_pendente`, que o escritor carimba
+no `alt`, na `figcaption` e na legenda do DOCX.

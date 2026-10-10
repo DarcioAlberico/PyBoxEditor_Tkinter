@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import base64
 import re
+import struct
 from typing import Any, Iterable, Mapping, Sequence
 
 from core import lado_a_jogar as lado_jogar
+from core.log import logger
 from core.editorial_model import (
     Decision,
     EditorialBlock,
@@ -33,6 +35,9 @@ from core.editorial_suspeitas import (
 )
 
 _RE_CELULA = re.compile(r"^t(\d+)c(\d+)l(\d+)$")
+
+
+log = logger(__name__)
 
 
 def _kind(region_type: str) -> str:
@@ -500,8 +505,31 @@ def pagina_extraida_para_documento(pagina, *, document_id: str = "document",
 # descarta pela mesma razão quando o texto muda.
 
 
-def _figura_do_valor(valor: Mapping[str, Any]) -> Any:
-    """Uma `livro.Figura` de volta do IR, com tudo que o escritor lê dela."""
+#: De onde o IR diz que o lado veio → o que a `Figura` chama disso. O que não
+#: está aqui é convenção, e volta sem lado (DEC-06).
+_ORIGEM_DO_LADO = {"legend": "legenda", "legenda": "legenda", "legalidade": "legalidade",
+                   "manual": "usuario", "explicit": "usuario", "usuario": "usuario",
+                   "explícito": "usuario"}
+
+
+def _dimensoes_do_png(png: bytes) -> tuple[int, int]:
+    """`(largura, altura)` do cabeçalho IHDR — os bytes 16 a 24 de todo PNG."""
+    if len(png) < 24 or png[:8] != b"\x89PNG\r\n\x1a\n":
+        return 0, 0
+    largura, altura = struct.unpack(">II", png[16:24])
+    return int(largura), int(altura)
+
+
+def _figura_do_valor(valor: Mapping[str, Any], block: EditorialBlock | None = None) -> Any:
+    """Uma `livro.Figura` de volta do IR, com tudo que o escritor lê dela.
+
+    O diagrama que chega **sem desenho** — o da Fase 4, que guarda a posição e
+    o hash do recorte, não os pixels — volta desenhado do FEN
+    (`editorial_export.imagem_do_diagrama`, PD-21): o escritor de produção
+    escreve a figura, e nenhum diagrama sai sem imagem (§4.6). Sai `origem`
+    `render`, e `aplicar_revisao` o redesenha depois no tamanho e na fonte do
+    livro. Sem posição nem imagem não há figura a devolver: `None`.
+    """
     from core import livro
 
     png = b""
@@ -511,43 +539,69 @@ def _figura_do_valor(valor: Mapping[str, Any]) -> Any:
             png = base64.b64decode(str(codificado), validate=True)
         except (ValueError, TypeError):
             png = b""
+    largura, altura = int(valor.get("width") or 0), int(valor.get("height") or 0)
+    origem = str(valor.get("origin") or "recorte")
+    casas = (float(valor["squares_wide"])
+             if valor.get("squares_wide") is not None else None)
+    if not png and block is not None:
+        from core.editorial_export import LADO_DO_DIAGRAMA_PX, imagem_do_diagrama
+        from core.render_diagrama import lado_efetivo
+
+        codificado, de_onde = imagem_do_diagrama(block)
+        if de_onde == "nenhuma":
+            log.info("bloco %s sem imagem nem posição: fica fora das páginas de volta",
+                     block.id)
+            return None
+        png = base64.b64decode(codificado)
+        largura, altura = _dimensoes_do_png(png)
+        origem = "render"
+        casas = largura * 8.0 / lado_efetivo(LADO_DO_DIAGRAMA_PX)
     lado = str(valor.get("side_to_move") or "")
     origem_do_lado = str(valor.get("side_to_move_source") or "assumed")
     caixa = _caixa(valor.get("bbox"))
     return livro.Figura(
-        png=png, largura=int(valor.get("width") or 0),
-        altura=int(valor.get("height") or 0),
+        png=png, largura=largura, altura=altura,
         fen=str(valor.get("fen") or "") or None,
-        origem=str(valor.get("origin") or "recorte"),
+        origem=origem,
         aviso=str(valor.get("warning") or "") or None,
         linhas=list(valor.get("lines") or []) or None,
         fonte=str(valor.get("font") or "") or None,
         coordenadas=bool(valor.get("coordinates")),
         orientacao=str(valor.get("orientation") or "branca"),
-        casas_de_largura=(float(valor["squares_wide"])
-                          if valor.get("squares_wide") is not None else None),
+        casas_de_largura=casas,
         linhas_emolduradas=bool(valor.get("framed_lines")),
         caixa=caixa,
         # O lado só volta como leitura quando foi lido: o que o adapter
         # declarou convenção não pode voltar afirmado (DEC-06).
         lado_a_jogar=(lado if lado in ("w", "b") and origem_do_lado != "assumed"
                       else None),
-        lado_origem=("legenda" if origem_do_lado in ("legend", "legenda")
-                     else origem_do_lado if origem_do_lado == "legalidade"
-                     else "convencao"),
+        lado_origem=_ORIGEM_DO_LADO.get(origem_do_lado, "convencao"),
         marcas=[str(casa) for casa in valor.get("marks") or []],
     )
 
 
-def _bloco_de_volta(block: EditorialBlock) -> Any:
-    """O bloco legado que este bloco do IR era — ou `None` se não era nenhum."""
+def _bloco_de_volta(block: EditorialBlock, *, estado_da_revisao: bool = False) -> Any:
+    """O bloco legado que este bloco do IR era — ou `None` quando não há o que
+    devolver (a figura sem imagem nem posição).
+
+    A figura é reconhecida pelo `legacy_type` da ida ou, num IR que não veio do
+    leitor, pelo `kind` (`diagram`, `figure`, `caption`) e pelo `png_base64` do
+    valor. Com `estado_da_revisao`, o diagrama volta sabendo se ainda espera
+    olho humano (`Figura.revisao_pendente`, PD-21).
+    """
     from core import livro
 
     valor = block.decision.value
     tipo = str(block.metadata.get("legacy_type") or "")
-    if tipo == "Figura" or (isinstance(valor, Mapping)
-                            and "png_base64" in valor and not tipo):
-        return _figura_do_valor(valor if isinstance(valor, Mapping) else {})
+    e_figura = tipo == "Figura" or (
+        isinstance(valor, Mapping) and not tipo
+        and ("png_base64" in valor or block.kind in ("diagram", "figure", "caption")))
+    if e_figura:
+        figura = _figura_do_valor(valor if isinstance(valor, Mapping) else {}, block)
+        if figura is not None and estado_da_revisao and block.kind == "diagram":
+            from core.editorial_export import revisao_pendente
+            figura.revisao_pendente = revisao_pendente(block)
+        return figura
     if tipo == "Tabela" or (not tipo and block.kind == "table"):
         filas = (valor.get("rows") if isinstance(valor, Mapping) else None) or []
         return livro.Tabela([[str(celula) for celula in fila] for fila in filas])
@@ -580,26 +634,28 @@ def _texto_do_valor(valor: Any) -> str:
     return "" if valor is None else str(valor)
 
 
-def pagina_editorial_para_extraida(page: EditorialPage, *,
-                                   incluir_rejeitados: bool = False) -> Any:
-    """A `PaginaExtraida` de volta de uma `EditorialPage`.
+def blocos_de_volta(page: EditorialPage, *, incluir_rejeitados: bool = False,
+                    estado_da_revisao: bool = False) -> list[tuple[EditorialBlock, Any]]:
+    """`(bloco do IR, bloco legado)` na ordem da página — o legado é `None` quando
+    não há o que devolver (a figura sem imagem nem posição).
 
-    A página histórica é remontada de `observations["legacy_page"]` — o que a
-    ida guardou inteiro — e os blocos, de `metadata["legacy_type"]`; um IR que
-    não veio do leitor medido (a Fase 4, um JSON de fora) também volta, pelo
-    `kind` e pelo formato do valor, e aí só se recupera o que ele tinha.
-
-    O bloco **rejeitado na revisão fica de fora** por padrão: é o que
-    `aplicar_revisao` faz, e é o que quem exporta o documento revisado espera.
+    É o que `editorial_legacy.aplicar_revisao` percorre para saber **de que
+    bloco** cada figura veio (PD-21): o diagrama cujo FEN a revisão trocou é
+    redesenhado, e o que ninguém tocou fica com o desenho que tinha.
     """
+    return [(block, _bloco_de_volta(block, estado_da_revisao=estado_da_revisao))
+            for block in sorted(page.blocks, key=lambda item: item.order)
+            if incluir_rejeitados or block.decision.status != "rejected"]
+
+
+def montar_pagina_extraida(page: EditorialPage, blocos: Sequence[Any]) -> Any:
+    """A `PaginaExtraida` remontada de `observations["legacy_page"]` — o que a
+    ida guardou inteiro — com estes blocos dentro."""
     from core import livro
 
     legado = dict(page.observations.get("legacy_page") or {})
-    blocos = [_bloco_de_volta(block)
-              for block in sorted(page.blocks, key=lambda item: item.order)
-              if incluir_rejeitados or block.decision.status != "rejected"]
     pagina = livro.PaginaExtraida(
-        numero=int(legado.get("numero", page.page_index)), blocos=blocos)
+        numero=int(legado.get("numero", page.page_index)), blocos=list(blocos))
     for campo in ("caracteres", "descartados_por_confianca",
                   "respingos_descartados", "diagramas", "diagramas_desenhados",
                   "colunas", "reparos", "cortes", "altura", "largura", "dpi"):
@@ -619,8 +675,35 @@ def pagina_editorial_para_extraida(page: EditorialPage, *,
     return pagina
 
 
+def pagina_editorial_para_extraida(page: EditorialPage, *,
+                                   incluir_rejeitados: bool = False,
+                                   estado_da_revisao: bool = False) -> Any:
+    """A `PaginaExtraida` de volta de uma `EditorialPage`.
+
+    A página histórica é remontada de `observations["legacy_page"]` — o que a
+    ida guardou inteiro — e os blocos, de `metadata["legacy_type"]`; um IR que
+    não veio do leitor medido (a Fase 4, um JSON de fora) também volta, pelo
+    `kind` e pelo formato do valor, e aí só se recupera o que ele tinha — o
+    diagrama sem desenho volta desenhado do FEN (PD-21).
+
+    O bloco **rejeitado na revisão fica de fora** por padrão: é o que
+    `aplicar_revisao` faz, e é o que quem exporta o documento revisado espera.
+
+    `estado_da_revisao` carimba em cada diagrama se ele ainda espera revisão
+    (`Figura.revisao_pendente`, do estado do bloco — PD-21): é o que o escritor
+    de produção põe no `alt` e na legenda. Desligado por padrão, para a volta
+    continuar sendo o inverso exato da ida (o round-trip igual do item 4).
+    """
+    return montar_pagina_extraida(page, [
+        bloco for _block, bloco in blocos_de_volta(
+            page, incluir_rejeitados=incluir_rejeitados,
+            estado_da_revisao=estado_da_revisao)
+        if bloco is not None])
+
+
 def documento_para_paginas_extraidas(documento: EditorialDocument, *,
-                                     incluir_rejeitados: bool = False) -> list[Any]:
+                                     incluir_rejeitados: bool = False,
+                                     estado_da_revisao: bool = False) -> list[Any]:
     """As páginas do documento **na ordem em que ele as traz**.
 
     Não ordenada por `page_index`, e é o que a volta exige: quem exporta uma
@@ -629,5 +712,6 @@ def documento_para_paginas_extraidas(documento: EditorialDocument, *,
     round-trip — e o `page_index` continua sendo o número impresso, que é
     outra coisa.
     """
-    return [pagina_editorial_para_extraida(page, incluir_rejeitados=incluir_rejeitados)
+    return [pagina_editorial_para_extraida(page, incluir_rejeitados=incluir_rejeitados,
+                                           estado_da_revisao=estado_da_revisao)
             for page in documento.pages]

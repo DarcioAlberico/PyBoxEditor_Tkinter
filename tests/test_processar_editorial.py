@@ -148,7 +148,8 @@ def test_a_exportacao_de_producao_tambem_passa_pela_fachada(tmp_path):
         documento, saida, processar_editorial.ExportOptions(format="epub")
     )
 
-    assert relatorio.metadata["adapter"] == "legacy_export"
+    assert relatorio.metadata["escritor"] == "exportar"
+    assert relatorio.metadata["paginas"] == "leitor", "as páginas lidas é que foram escritas"
     assert relatorio.files == (str(saida),)
     with zipfile.ZipFile(saida) as epub:
         xhtml = " ".join(

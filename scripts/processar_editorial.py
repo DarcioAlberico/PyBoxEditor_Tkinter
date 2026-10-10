@@ -110,11 +110,12 @@ def montar_pipeline(args: argparse.Namespace, *, servicos=None):
 
 def escrever(pipeline, documento, extrator, destino: Path, formato: str,
              args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """`(arquivos, avisos)` — o mesmo desvio de `MainWindow._escrever_documento_editorial`.
+    """`(arquivos, avisos)` — o mesmo caminho de `MainWindow._escrever_documento_editorial`.
 
-    Com o leitor de produção, EPUB e DOCX saem de `exportar.exportar` sobre as
-    `PaginaExtraida` lidas: é o escritor que embute a fonte dos símbolos e
-    redesenha os diagramas.
+    EPUB e DOCX saem de `exportar.exportar` pela fachada (PD-21): sobre as
+    `PaginaExtraida` lidas quando há leitor de produção, e de volta do IR na
+    biblioteca — é o escritor que embute a fonte dos símbolos e redesenha os
+    diagramas.
     """
     relatorio = pipeline.export(documento, destino,
                                 ExportOptions(format=formato, mode=args.modo))

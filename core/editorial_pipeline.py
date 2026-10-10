@@ -457,6 +457,18 @@ class ExportOptions:
     format: str = "json"
     include_diagnostics: bool = True
     mode: str = "clean"
+    #: As `PaginaExtraida` da leitura, **cruas**, quando quem exporta as tem à
+    #: mão (a janela passa as do seu extrator). EPUB e DOCX saem delas, com a
+    #: revisão do documento aplicada pela fachada
+    #: (`editorial_legacy.aplicar_revisao`); vazio, valem as do próprio
+    #: `legacy_extractor`, e sem nenhuma as páginas voltam do IR (PD-21).
+    paginas: Sequence[Any] = ()
+    #: Como redesenhar o diagrama cujo FEN a revisão mudou
+    #: (`editorial_legacy.OpcoesDeFigura`); `None` é o padrão do livro.
+    figura: Any = None
+    #: O que `exportar.exportar` recebe além das páginas: `titulo`, `autor`,
+    #: `diagramas`, `corpo_pt`, `moldura`, `cantos`, `idioma`.
+    escritor: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         formato = str(self.format).casefold().lstrip(".")
@@ -467,6 +479,8 @@ class ExportOptions:
             raise ValueError(f"modo editorial não suportado: {modo!r}")
         object.__setattr__(self, "format", formato)
         object.__setattr__(self, "mode", modo)
+        object.__setattr__(self, "paginas", tuple(self.paginas))
+        object.__setattr__(self, "escritor", dict(self.escritor))
 
 
 @dataclass(frozen=True)
@@ -912,59 +926,43 @@ class EditorialPipeline:
         if formato not in SUPPORTED_EXPORTS:
             raise ValueError(f"formato editorial não suportado: {formato!r}")
         caminho.parent.mkdir(parents=True, exist_ok=True)
-        if formato in {"epub", "docx"}:
-            legado = self._export_legacy(document, caminho, formato)
-            if legado is not None:
-                return legado
         if formato != "json":
             # Um escritor por formato, e o TXT é o do `EditorialExporter`
             # também: o daqui escrevia o `json.dumps` do valor, e a tabela e a
-            # figura saíam como JSON, com o PNG em base64 (item 10).
+            # figura saíam como JSON, com o PNG em base64 (item 10). EPUB e DOCX
+            # saem dele também, pelo escritor de produção (PD-21): o que a
+            # fachada acrescenta são as páginas da leitura, quando as tem, com a
+            # revisão do documento aplicada — era o `_export_legacy`, um caminho
+            # à parte.
             from core.editorial_export import EditorialExporter, ExportOptions as EditorialExportOptions
+            paginas: list[Any] = []
+            if formato in {"epub", "docx"}:
+                paginas = self._paginas_da_leitura(document, options)
             report = EditorialExporter().export(
                 document, caminho,
                 EditorialExportOptions(
                     format=formato, mode=options.mode,
                     include_diagnostics=options.include_diagnostics,
                     source_pdf=document.metadata.get("source_path") or None,
+                    paginas=paginas, figura=options.figura, escritor=options.escritor,
                 ),
             )
             return ExportReport(report.format, report.files, report.warnings, report.metadata)
         document.save_json(caminho)
         return ExportReport(formato, (str(caminho),), metadata={"schema": document.schema})
 
-    def _export_legacy(self, document: EditorialDocument, caminho: Path,
-                       formato: str) -> ExportReport | None:
-        """Escreve EPUB/DOCX de produção pela fachada, preservando o legado.
-
-        O leitor de produção ainda carrega medidas tipográficas e artefatos de
-        diagrama que o escritor histórico sabe preservar. A decisão continua
-        sendo a do IR: antes de escrever, as revisões do documento voltam para
-        cópias das páginas legadas. Um documento genérico ou reaberto sem as
-        páginas do leitor cai no exportador editorial comum.
-        """
-        if self.legacy_extractor is None:
-            return None
-        paginas = list(getattr(self.legacy_extractor, "ultimas_paginas", ()) or ())
-        if not paginas:
-            return None
-        from core import exportar, livro
+    def _paginas_da_leitura(self, document: EditorialDocument,
+                            options: ExportOptions) -> list[Any]:
+        """As `PaginaExtraida` em que EPUB e DOCX se escrevem, com a revisão do
+        documento aplicada — as de `options.paginas` ou as da última leitura do
+        `legacy_extractor`; vazio quando não há leitura (o IR de outra sessão,
+        a biblioteca), e aí o exportador as traz de volta do IR (PD-21)."""
+        lidas = list(options.paginas) or list(
+            getattr(self.legacy_extractor, "ultimas_paginas", ()) or ())
+        if not lidas:
+            return []
         from core.editorial_legacy import aplicar_revisao
-
-        paginas = aplicar_revisao(paginas, document)
-        origem = str(document.metadata.get("source_path") or "")
-        titulo, autor = document.title, ""
-        if origem.lower().endswith(".pdf"):
-            try:
-                titulo, autor = livro.titulo_e_autor(origem)
-            except (OSError, RuntimeError, ValueError):
-                pass
-        exportar.exportar(paginas, str(caminho), formato=formato,
-                          titulo=titulo, autor=autor, idioma=document.language)
-        return ExportReport(
-            formato, (str(caminho),),
-            metadata={"adapter": "legacy_export", "source": "editorial_document"},
-        )
+        return aplicar_revisao(lidas, document, opcoes=options.figura)
 
     def _process_page(self, evidence: PageEvidence, options: ProcessOptions,
                       token: CancellationToken) -> PageResult:

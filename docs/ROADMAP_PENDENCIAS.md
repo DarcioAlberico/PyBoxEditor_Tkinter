@@ -32,7 +32,7 @@ fase cita a origem (fase e linha do documento de origem, em 2026-09-29).
 | 0 | PD-00 | Trazer para a árvore o que já está pronto em worktrees | — |
 | 1 | PD-01, PD-02 | Robustez da interface (nada trava a thread do Tk) | — |
 | 2 | PD-03, PD-04, PD-05 | Tabela e layout | — |
-| 3 | PD-06, PD-07, PD-08, PD-09, PD-21 | Exportação e tipografia | PD-21: o sinal "não revisado" no `exportar.py` |
+| 3 | PD-06, PD-07, PD-08, PD-09, PD-21 | Exportação e tipografia | — |
 | 4 | PD-10, PD-11, PD-12 | Texto corrido | — |
 | 5 | PD-13, PD-14 | Medidas que podem virar produção | medição |
 | 6 | PD-15 … PD-19 | Bloqueadas | rótulo, retreino, material externo |
@@ -178,6 +178,41 @@ Aceite: o EPUB do IR de um diagrama `review_required` traz o sinal no `alt` e na
 `figcaption`; `tests/test_aceitacao_formatos.py` passa sem mudar (a mesma sequência de
 blocos); `core/` tem dois escritores de EPUB, e não três.
 
+**Feita em 2026-10-10, na ordem do plano.** (1) A `Figura` ganhou `revisao_pendente`
+(`None`, `True`, `False`), que `aplicar_revisao` preenche do estado do bloco
+(`editorial_export.revisao_pendente`) — na cópia que vai ao escritor, nunca na página
+do leitor, e só copia o que muda —, e o `exportar.py` carimba "não revisado" atrás do
+lado a jogar no `alt` do EPUB e no `descr` do DOCX, e visível numa `<figcaption>` (nos
+dois modos de diagrama, dentro de um `<figure>` que o editor de livros lê de volta como
+legenda) e numa legenda do DOCX — só quando é `True`: o livro exportado direto da
+leitura não muda um byte, e a ressalva sai em todos os modos, inclusive no limpo. (2)
+`tests/test_editorial_export_phase6.py` e `test_lado_a_jogar.py` passaram a conferir o
+escritor de produção: `mimetype` primeiro e sem compressão, `content.opf`, uma página
+por XHTML, o PNG no zip, o FEN no `descr` da figura do DOCX. (3)
+`EditorialExporter._epub`/`_docx` viraram `_pelo_escritor_de_producao` —
+`aplicar_revisao` + `exportar.exportar` — e `EditorialPipeline._export_legacy` sumiu: a
+fachada entrega ao exportador as páginas da leitura (as do seu extrator, ou as que a
+janela lhe passa, cruas) com a revisão aplicada, e a janela deixou de aplicá-la por
+conta própria. De quebra, a volta do IR reconhece o diagrama da Fase 4 (pelo `kind`,
+sem PNG) e o desenha do FEN, e o ramo "de volta do IR" só redesenha o que veio sem
+desenho ou cujo FEN difere do `original_value` da decisão (o diálogo da fila grava o
+valor inteiro, com o FEN novo e o desenho velho): redesenhar todo `render` no tamanho
+padrão, como fazia, trocava o livro — 333 KB e 761 ms contra 172 KB e 17 ms.
+
+Medido nas 30 páginas sintéticas de `scripts/medir_editor_vs_exportar.py` (mediana de
+3): antes, o escritor do IR fazia o EPUB em 5 ms e 288 KB (um `content.xhtml` só, 30
+imagens em base64, sem PNG nem fonte) e o DOCX em 220 ms e 44 KB; depois, pelo
+`EditorialExporter`, o EPUB sai em 17 ms e 172 KB e o DOCX em 280 ms e 42 KB — **byte a
+byte iguais** ao `exportar.exportar` direto das mesmas páginas (13 ms e 254 ms), e
+iguais entre a fachada com leitor, a fachada sem leitor e o exportador sozinho
+(`test_a_fachada_escreve_o_mesmo_epub_das_paginas_do_leitor_e_de_volta_do_ir`).
+`core/editorial_export.py` caiu de 651 para 608 linhas, e quem grava `mimetype`
+de EPUB em `core/` são dois arquivos (`test_o_core_tem_dois_escritores_de_epub`). O
+que a dobra tirou: o `[auditoria: status]` dos modos `faithful`/`hybrid` no DOCX, que
+só o HTML mantém. Aceite: `test_o_epub_do_ir_carimba_o_nao_revisado_no_alt_e_na_figcaption`,
+`tests/test_aceitacao_formatos.py` sem mudar, `tests/test_pd21_dois_escritores.py`;
+suíte 3535 verdes.
+
 ---
 
 ## Onda 4 — texto corrido
@@ -322,3 +357,4 @@ ciclo `livro` ↔ `pdf_nativo` ausente do grafo de importações (o script da an
 | PD-21 (nova) | **registrada** — decisão: convive; a dobra do terceiro fica pendente | 2026-10-06 | A análise geral recomendava eleger o escritor do editor; a ED-12 já tinha medido e decidido "convive", e a medição de hoje repete a dela (EPUB 15 ms/172 KB pelo histórico contra 30 ms/48 KB pelo editor; DOCX 260 ms contra 745 ms). O que sobra é o terceiro escritor, `editorial_export._epub`/`_docx`, que só a biblioteca usa e é o único com o sinal "não revisado" do diagrama (§4.6); dobrá-lo sobre o `exportar.py` pede esse sinal lá antes. No mesmo dia a biblioteca de inspeção virou o pacote `core/biblioteca/` e o `ocr_structure` saiu. |
 | PD-22 (nova) | **registrada** — a primeira metade feita | 2026-10-06 | `core/pagina.py` recebe o modelo da página (seis trechos, 267 linhas) e `pdf_nativo` passa a tomá-lo de lá (38 usos); `ui/exportacao.py` recebe o fluxo de exportar da janela (oito métodos, 644 linhas) por composição, com delegados do mesmo nome; a janela cai de 5.703 para 5.105 linhas. Dois tropeços do script de extração que viraram regra do padrão: a regex de `self.` não cobre `getattr(self, …)` nem o `self` passado como pai de diálogo, e um detector de globais por nome confunde a variável local `fontes` com o módulo `ui.fontes` — o `ruff` acusa. O que falta está na seção. |
 | PD-19 (F1.7) | **encerrada pela medida da F7** | 2026-10-06 | Linha principal × variante por tipografia já foi medida e refutada (AUROC 0,55–0,67 nas páginas rotuladas); a regra que vale é a do número de jogada que retrocede, e ela já está no analisador. Nada a fazer. |
+| PD-21 | **feita** | 2026-10-10 | O carimbo "não revisado" foi para a `Figura` (`revisao_pendente`) e para o `exportar.py` (`alt`, `figcaption`, legenda do DOCX, só quando `True`); EPUB e DOCX do documento editorial saem do escritor de produção pela fachada, sobre as páginas lidas com a revisão aplicada ou de volta do IR, e o `_export_legacy` e o terceiro escritor sumiram. A volta reconhece o diagrama da Fase 4 e o desenha do FEN; o ramo "de volta do IR" só redesenha o que veio sem desenho ou cujo FEN a revisão trocou. Medido em 30 páginas sintéticas: EPUB 17 ms/172 KB e DOCX 280 ms/42 KB pelo IR, byte a byte iguais ao direto (13 e 254 ms); redesenhar tudo custava 333 KB/761 ms. |

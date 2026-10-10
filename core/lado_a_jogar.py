@@ -235,6 +235,13 @@ SEPARADOR_DO_ALT = " — "
 #: entre quem escreve o `alt` e quem o lê de volta.
 ASSUMIDO = "assumido"
 
+#: A ressalva do diagrama cuja posição ninguém conferiu (PD-21), atrás do lado
+#: a jogar no mesmo `alt` e na mesma legenda — `<FEN> — brancas a jogar
+#: (assumido: a página não diz); não revisado`. Sai em todos os modos, inclusive
+#: no limpo: a ressalva é para quem lê, e não para quem revisa (§4.6 da revisão
+#: de 2026-09-18). `do_alt` não a lê: ela não muda o FEN nem o lado.
+NAO_REVISADO = "não revisado"
+
 _PROCEDENCIA = {
     "legenda": "da legenda", "legend": "da legenda",
     "legalidade": "inferido pela legalidade da posição",

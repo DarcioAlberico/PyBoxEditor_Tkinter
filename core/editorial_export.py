@@ -1,15 +1,24 @@
-"""Exportação editorial semântica para HTML, EPUB3, DOCX e PDF pesquisável."""
+"""
+A exportação do documento editorial: HTML, TXT, JSON e PDF pesquisável saem daqui,
+do IR; EPUB e DOCX saem do escritor de produção (`core/exportar.py`) sobre as
+páginas de volta do IR (PD-21, 2026-10-10).
+
+Até a PD-21 este módulo era o terceiro escritor de EPUB e DOCX — um `content.xhtml`
+só, as imagens em base64, sem a fonte dos símbolos nem o diagrama redesenhado —, e
+o único a carimbar "não revisado" no diagrama. O carimbo passou à `Figura`
+(`revisao_pendente`) e ao `exportar.py`; o que ficou aqui é o HTML semântico com os
+modos e a auditoria, o TXT, o JSON e a camada de texto do PDF pesquisável.
+"""
 
 from __future__ import annotations
 
 import base64
 import html
-import io
 import json
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import fitz
 
@@ -32,6 +41,19 @@ class ExportOptions:
     include_review_report: bool = False
     source_pdf: str | Path | None = None
     title: str = ""
+    #: As `PaginaExtraida` em que EPUB e DOCX se escrevem, **já com a revisão do
+    #: documento aplicada** (`editorial_legacy.aplicar_revisao`): quem tem as
+    #: páginas do leitor à mão é a fachada, e é ela que aplica. Vazio, as páginas
+    #: voltam do próprio IR (PD-21) — o mesmo arquivo, byte a byte, quando o IR
+    #: veio do leitor.
+    paginas: Sequence[Any] = ()
+    #: Como redesenhar o diagrama cujo FEN mudou ou que veio sem desenho
+    #: (`editorial_legacy.OpcoesDeFigura`); `None` é o padrão do livro.
+    figura: Any = None
+    #: O que `exportar.exportar` recebe além das páginas: `titulo`, `autor`,
+    #: `diagramas`, `corpo_pt`, `moldura`, `cantos`, `idioma`. Sem `titulo`, vale
+    #: o do PDF de origem, e sem PDF o do documento.
+    escritor: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         formato = str(self.format).casefold().lstrip(".")
@@ -42,6 +64,8 @@ class ExportOptions:
             raise ValueError(f"modo editorial não suportado: {modo!r}")
         object.__setattr__(self, "format", formato)
         object.__setattr__(self, "mode", modo)
+        object.__setattr__(self, "paginas", tuple(self.paginas))
+        object.__setattr__(self, "escritor", dict(self.escritor))
 
 
 @dataclass(frozen=True)
@@ -171,7 +195,7 @@ def legenda_do_diagrama(block: EditorialBlock) -> str:
     fen = _fen(block.decision.value)
     partes = [lado_jogar.marca(lado_jogar.do_fen(fen), origem_do_lado(block))]
     if revisao_pendente(block):
-        partes.append("não revisado")
+        partes.append(lado_jogar.NAO_REVISADO)
     return "; ".join(partes)
 
 
@@ -404,117 +428,48 @@ class EditorialExporter:
         if options.format == "json":
             document.save_json(caminho)
             return ExportReport("json", (str(caminho),), metadata={"schema": document.schema})
-        if options.format == "epub":
-            return self._epub(document, caminho, options)
-        if options.format == "docx":
-            return self._docx(document, caminho, options)
+        if options.format in ("epub", "docx"):
+            return self._pelo_escritor_de_producao(document, caminho, options)
         return self._pdf(document, caminho, options)
 
-    def _epub(self, document: EditorialDocument, target: Path,
-               options: ExportOptions) -> ExportReport:
-        body = _html_body(document, options).replace(
-            '<html lang=', '<html xmlns="http://www.w3.org/1999/xhtml" lang=', 1)
-        nav_links = "".join(
-            f'<li><a href="content.xhtml#page-{page.page_index + 1}">Página {page.page_index + 1}</a></li>'
-            for page in sorted(document.pages, key=lambda item: item.page_index))
-        nav = (f'<?xml version="1.0" encoding="utf-8"?><!doctype html><html xmlns="http://www.w3.org/1999/xhtml" '
-               'xmlns:epub="http://www.idpf.org/2007/ops" '
-               f'lang="{html.escape(document.language)}"><head><title>{html.escape(document.title)}</title></head>'
-               f"<body><nav epub:type=\"toc\" id=\"toc\"><ol>{nav_links}</ol></nav></body></html>")
-        opf = (f'<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" '
-               'version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-               f'<dc:identifier id="book-id">{html.escape(document.document_id)}</dc:identifier>'
-               f'<dc:title>{html.escape(document.title)}</dc:title><dc:language>{html.escape(document.language)}</dc:language>'
-               '</metadata><manifest><item id="content" href="content.xhtml" media-type="application/xhtml+xml"/>'
-               '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
-               '<item id="css" href="styles.css" media-type="text/css"/></manifest>'
-               '<spine><itemref idref="content"/></spine></package>')
-        container = ('<?xml version="1.0" encoding="UTF-8"?><container version="1.0" '
-                     'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
-                     '<rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/>'
-                     '</rootfiles></container>')
-        with zipfile.ZipFile(target, "w") as archive:
-            archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
-            archive.writestr("META-INF/container.xml", container)
-            archive.writestr("OEBPS/content.xhtml", body)
-            archive.writestr("OEBPS/nav.xhtml", nav)
-            archive.writestr("OEBPS/package.opf", opf)
-            archive.writestr(
-                "OEBPS/styles.css",
-                "body{font-family:serif} figure{break-inside:avoid}.chess-sequence{"
-                "font-family:monospace}",
-            )
-        return ExportReport("epub", (str(target),),
-                            warnings=avisos_dos_diagramas(document),
-                            metadata={"mode": options.mode})
+    def _pelo_escritor_de_producao(self, document: EditorialDocument, target: Path,
+                                   options: ExportOptions) -> ExportReport:
+        """
+        EPUB e DOCX pelo escritor de produção, `exportar.exportar` (PD-21).
 
-    def _docx(self, document: EditorialDocument, target: Path,
-              options: ExportOptions) -> ExportReport:
-        try:
-            from docx import Document
-        except ImportError as error:
-            raise RuntimeError("DOCX requer a dependência opcional python-docx") from error
-        word = Document()
-        word.core_properties.title = options.title or document.title
-        for page in sorted(document.pages, key=lambda item: item.page_index):
-            for block in sorted(page.blocks, key=lambda item: item.order):
-                text = _text(block.decision.value)
-                if block.kind == "heading":
-                    word.add_heading(text, level=1)
-                elif block.kind == "chess_sequence":
-                    paragraph = word.add_paragraph(style="Quote")
-                    paragraph.add_run(text)
-                elif block.kind == "diagram":
-                    # A figura entra como **imagem**, e não como a linha de
-                    # texto de antes: um DOCX de livro de xadrez sem tabuleiro
-                    # nenhum é a mesma perda que o EPUB tinha (item 3 da
-                    # revisão de 2026-09-18). O FEN e a ressalva ficam na
-                    # legenda, que é onde se procura por eles.
-                    encoded, _origem = imagem_do_diagrama(block)
-                    if encoded:
-                        from docx.shared import Pt as _Pt
-                        word.add_picture(io.BytesIO(base64.b64decode(encoded)),
-                                         width=_Pt(8 * 16))
-                        word.paragraphs[-1].alignment = 1
-                    paragraph = word.add_paragraph()
-                    paragraph.add_run(
-                        f"Diagrama de xadrez — FEN: {_fen(block.decision.value) or text}"
-                        f" ({legenda_do_diagrama(block)})")
-                elif (block.kind in ("figure", "caption")
-                      and isinstance(block.decision.value, Mapping)):
-                    encoded, _origem = imagem_do_diagrama(block)
-                    if encoded:
-                        word.add_picture(io.BytesIO(base64.b64decode(encoded)))
-                        word.paragraphs[-1].alignment = 1
-                    else:
-                        word.add_paragraph(str(block.decision.value.get("warning")
-                                               or "Figura"))
-                elif block.kind == "table" and isinstance(block.decision.value, Mapping):
-                    rows = list(block.decision.value.get("rows", ()) or ())
-                    columns = max((len(row) for row in rows), default=0)
-                    if columns:
-                        table = word.add_table(rows=len(rows), cols=columns)
-                        table.style = "Table Grid"
-                        for row_index, row in enumerate(rows):
-                            for column_index, cell in enumerate(row):
-                                table.cell(row_index, column_index).text = _text(cell)
-                else:
-                    # O negrito do livro vira `run` em negrito, e não some: o
-                    # adapter o guarda em `style["bold_spans"]` desde a Fase 1
-                    # e este escritor o ignorava (item 4 da revisão de
-                    # 2026-09-18).
-                    paragraph = word.add_paragraph()
-                    for trecho, forte, inclinado in (trechos_com_estilo(text, block)
-                                                     or [(text, False, False)]):
-                        run = paragraph.add_run(trecho)
-                        run.bold = forte or None
-                        run.italic = inclinado or None
-                if options.mode != "clean":
-                    word.add_paragraph(f"[auditoria: {block.decision.status}]")
-        word.save(target)
-        return ExportReport("docx", (str(target),),
+        As páginas vêm de `options.paginas` — as do leitor, com a revisão do
+        documento já aplicada pela fachada — ou de volta do IR
+        (`aplicar_revisao` sem páginas: a volta sem perdas do adapter, mais o
+        redesenho do diagrama cujo FEN a revisão trocou ou que chegou sem
+        desenho), que é o caminho do documento gravado noutra sessão e do IR que
+        não veio do leitor. É o mesmo escritor da exportação de livro: embute a
+        fonte dos símbolos, redesenha os diagramas, numera as páginas em
+        arquivos próprios e carimba no `alt` e na legenda o lado a jogar e o
+        "não revisado" (`Figura.revisao_pendente`). O título e o autor saem do
+        PDF de origem quando `escritor` não os traz.
+        """
+        from core import exportar, livro
+        from core.editorial_legacy import aplicar_revisao
+
+        paginas = list(options.paginas) or aplicar_revisao([], document, opcoes=options.figura)
+        escritor = dict(options.escritor)
+        if "titulo" not in escritor:
+            titulo, autor = options.title or document.title, ""
+            origem = str(document.metadata.get("source_path") or "")
+            if origem.lower().endswith(".pdf"):
+                try:
+                    titulo, autor = livro.titulo_e_autor(origem)
+                except (OSError, RuntimeError, ValueError) as erro:
+                    log.info("título e autor não lidos de %s (%s); fica o do documento",
+                             origem, erro)
+            escritor["titulo"] = titulo
+            escritor.setdefault("autor", autor)
+        escritor.setdefault("idioma", document.language)
+        exportar.exportar(paginas, str(target), formato=options.format, **escritor)
+        return ExportReport(options.format, (str(target),),
                             warnings=avisos_dos_diagramas(document),
-                            metadata={"mode": options.mode})
+                            metadata={"mode": options.mode, "escritor": "exportar",
+                                      "paginas": "leitor" if options.paginas else "ir"})
 
     def _pdf(self, document: EditorialDocument, target: Path,
              options: ExportOptions) -> ExportReport:
@@ -636,8 +591,10 @@ class EditorialExporter:
                 with zipfile.ZipFile(target) as archive:
                     if archive.namelist()[0] != "mimetype":
                         errors.append("EPUB deve iniciar com mimetype")
-                    if "OEBPS/content.xhtml" not in archive.namelist():
-                        errors.append("EPUB sem content.xhtml")
+                    nomes = archive.namelist()
+                    if "OEBPS/content.opf" not in nomes or not any(
+                            nome.endswith(".xhtml") for nome in nomes):
+                        errors.append("EPUB sem content.opf ou sem página XHTML")
             except zipfile.BadZipFile:
                 errors.append("EPUB inválido")
         elif formato == "pdf":

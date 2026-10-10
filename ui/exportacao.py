@@ -116,9 +116,9 @@ class Exportacao:
         2,4% de CER pelo leitor de produção.
 
         JSON, HTML, TXT e PDF pesquisável saem do IR; EPUB e DOCX saem do
-        escritor histórico (`exportar.exportar`), que é o que embute a fonte de
-        símbolos e redesenha os diagramas — o do IR ainda não faz nenhuma das
-        duas coisas. A caixa é a mesma da exportação de livro
+        escritor de produção (`exportar.exportar`), que é o que embute a fonte
+        de símbolos e redesenha os diagramas — pela mesma fachada, sobre as
+        páginas lidas (PD-21). A caixa é a mesma da exportação de livro
         (`DialogoDeExportacao`), com mais formatos.
         """
         if self.janela._busy("O processamento editorial"):
@@ -248,23 +248,28 @@ class Exportacao:
                                       origem: str):
         """Grava o documento editorial em `opcoes.saida`, no formato pedido.
 
-        EPUB e DOCX saem do escritor histórico (`exportar.exportar`) a partir
-        das `PaginaExtraida`; os outros formatos saem do IR pela fachada. É
-        o mesmo caminho da primeira gravação e da regravação depois da
-        revisão — o que muda entre as duas é o documento e as páginas.
+        Um caminho só, a fachada (PD-21): EPUB e DOCX saem do escritor de
+        produção (`exportar.exportar`) sobre as `PaginaExtraida` da leitura —
+        `paginas`, cruas —, com a revisão do documento aplicada pela própria
+        fachada e as opções da caixa (fonte do diagrama, corpo, moldura); os
+        outros formatos saem do IR. É o mesmo caminho da primeira gravação e da
+        regravação depois da revisão — o que muda entre as duas é o documento.
         Roda fora da thread da interface.
         """
+        from core.editorial_legacy import OpcoesDeFigura
+
         saida, formato, idioma = opcoes.saida, opcoes.formato, opcoes.idioma
-        if formato in ("epub", "docx"):
-            e_pdf = origem.lower().endswith(".pdf")
-            titulo, autor = (livro.titulo_e_autor(origem) if e_pdf
-                             else (os.path.splitext(os.path.basename(origem))[0], ""))
-            exportar.exportar(paginas, saida, formato=formato, titulo=titulo,
-                              autor=autor, diagramas=opcoes.diagramas_no_arquivo,
-                              corpo_pt=opcoes.corpo_pt, moldura=opcoes.moldura,
-                              cantos=opcoes.cantos, idioma=idioma)
-            return (saida,)
-        return pipeline.export(documento, saida, ExportOptions(format=formato)).files
+        e_pdf = origem.lower().endswith(".pdf")
+        titulo, autor = (livro.titulo_e_autor(origem) if e_pdf
+                         else (os.path.splitext(os.path.basename(origem))[0], ""))
+        return pipeline.export(documento, saida, ExportOptions(
+            format=formato, paginas=paginas,
+            figura=OpcoesDeFigura(fonte=opcoes.fonte, moldura=opcoes.moldura,
+                                  cantos=opcoes.cantos),
+            escritor={"titulo": titulo, "autor": autor,
+                      "diagramas": opcoes.diagramas_no_arquivo, "corpo_pt": opcoes.corpo_pt,
+                      "moldura": opcoes.moldura, "cantos": opcoes.cantos,
+                      "idioma": idioma})).files
 
     def revisar_documento_editorial_action(self):
         """Abre a fila de suspeitas do último documento processado.
@@ -328,10 +333,11 @@ class Exportacao:
     def _exportar_documento_revisado(self, documento):
         """Regrava o último arquivo exportado com as decisões da revisão.
 
-        O documento revisado substitui o da sessão; as páginas do leitor
-        recebem as decisões (`aplicar_revisao`: texto, filas, FEN redesenhado,
-        bloco rejeitado fora) e o arquivo sai pelo mesmo caminho da primeira
-        vez, no mesmo lugar — depois de perguntar, porque sobrescreve.
+        O documento revisado substitui o da sessão; a fachada aplica as
+        decisões a cópias das páginas do leitor (`aplicar_revisao`: texto,
+        filas, FEN redesenhado, bloco rejeitado fora, o diagrama não conferido
+        carimbado — PD-21) e o arquivo sai pelo mesmo caminho da primeira vez,
+        no mesmo lugar — depois de perguntar, porque sobrescreve.
         """
         contexto = getattr(self.janela, "exportacao_editorial", None)
         if not contexto:
@@ -346,18 +352,15 @@ class Exportacao:
                 f"Gravar de novo, com as correções da revisão, em:\n{opcoes.saida}\n\n"
                 "O arquivo atual será substituído."):
             return
-        from core.editorial_legacy import OpcoesDeFigura, aplicar_revisao
         self.janela.documento_editorial = documento
         pipeline, extrator = contexto["pipeline"], contexto["extrator"]
-        figura = OpcoesDeFigura(fonte=opcoes.fonte, moldura=opcoes.moldura,
-                                cantos=opcoes.cantos)
 
         def trabalho(handle):
-            handle.log("Aplicando as correções...")
-            paginas = aplicar_revisao(extrator.ultimas_paginas, documento, opcoes=figura)
-            handle.log("Escrevendo o arquivo...")
-            return self.janela._escrever_documento_editorial(pipeline, documento, paginas,
-                                                      opcoes, origem)
+            # A revisão é aplicada pela fachada, sobre cópias das páginas do
+            # leitor (PD-21): as originais ficam como estão para a próxima.
+            handle.log("Escrevendo o arquivo com as correções...")
+            return self.janela._escrever_documento_editorial(
+                pipeline, documento, extrator.ultimas_paginas, opcoes, origem)
 
         def concluir(arquivos):
             eventos = len(documento.review_events)

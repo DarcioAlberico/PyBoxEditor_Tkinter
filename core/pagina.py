@@ -183,6 +183,15 @@ class Figura:
     #: e é daqui que quem redesenha a figura as tira — sem isto, redesenhar
     #: para pôr o indicador de lado apagaria a marca.
     marcas: List[str] = field(default_factory=list)
+    #: Se a posição ainda espera olho humano (PD-21). `None` é a figura que não
+    #: passou pelo documento editorial — a exportação direta da leitura, que não
+    #: sabe o que foi conferido; `True`, o diagrama que a fila marcou
+    #: `review_required` ou `unresolved`; `False`, o que alguém conferiu ou nada
+    #: acusou. Quem o preenche é `editorial_legacy.aplicar_revisao`, do estado do
+    #: bloco, na cópia que vai ao escritor — nunca na página do leitor —, e o
+    #: escritor carimba "não revisado" no `alt`, na `figcaption` e na legenda do
+    #: DOCX quando é `True`, em todos os modos: a ressalva é para quem lê (§4.6).
+    revisao_pendente: Optional[bool] = None
 
 
 @dataclass

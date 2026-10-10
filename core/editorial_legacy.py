@@ -32,7 +32,8 @@ import numpy as np
 
 from core import livro, render_diagrama
 from core.diagrama import Casa, Leitura
-from core.editorial_adapters import pagina_editorial_para_extraida
+from core.editorial_adapters import blocos_de_volta, montar_pagina_extraida
+from core.editorial_export import revisao_pendente
 
 
 @dataclass
@@ -411,6 +412,12 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
     (`pagina_editorial_para_extraida`), e é o que permite exportar o EPUB ou o
     DOCX de um IR gravado noutra sessão: antes, sem a lista de páginas do
     leitor ao lado, a exportação revisada não tinha de onde sair.
+
+    **E cada diagrama sai sabendo se ainda espera revisão** (PD-21):
+    `Figura.revisao_pendente` recebe, na cópia, o estado do bloco
+    (`editorial_export.revisao_pendente`), e é o que o escritor de produção
+    carimba no `alt`, na `figcaption` e na legenda do DOCX. Nos dois ramos —
+    as páginas do leitor e as de volta do IR — o mesmo estado chega ao arquivo.
     """
     opcoes = opcoes or OpcoesDeFigura()
     por_numero = {int(p.numero): p for p in paginas}
@@ -424,12 +431,21 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
             # A página que o leitor desta sessão não leu — um IR gravado e
             # reaberto depois, ou uma exportação de páginas soltas — volta do
             # próprio documento (item 4 da revisão de 2026-09-18). Ali o valor
-            # do bloco **já é** o revisado, então só falta redesenhar o
-            # diagrama cujo FEN mudou, que é o que o laço abaixo não vê.
-            destino = pagina_editorial_para_extraida(page)
-            for i, bloco in enumerate(destino.blocos):
-                if isinstance(bloco, livro.Figura) and bloco.origem == "render"                         and bloco.fen:
-                    destino.blocos[i] = _redesenhar(bloco, bloco.fen, opcoes)
+            # do bloco **já é** o revisado; o que falta é redesenhar o diagrama
+            # cujo FEN a revisão trocou — o diálogo da fila grava o valor
+            # inteiro, com o FEN novo e o desenho velho — e o que chegou sem
+            # desenho (a Fase 4, o valor só com o FEN). O que ninguém tocou
+            # fica com o desenho que tinha: redesenhar tudo no tamanho padrão
+            # trocava o livro e custava 30 desenhos por 30 páginas (PD-21).
+            blocos = []
+            for block, bloco in blocos_de_volta(page, estado_da_revisao=True):
+                if bloco is None:
+                    continue
+                if (isinstance(bloco, livro.Figura) and bloco.origem == "render"
+                        and bloco.fen and (not bloco.linhas or _fen_revisado(block))):
+                    bloco = _redesenhar(bloco, bloco.fen, opcoes)
+                blocos.append(bloco)
+            destino = montar_pagina_extraida(page, blocos)
             saida[int(page.page_index)] = destino
             ordem_das_paginas.append(int(page.page_index))
             continue
@@ -438,6 +454,17 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
             ordem = _ordem_do_bloco(block.id)
             if ordem is None or not 0 <= ordem < len(destino.blocos):
                 continue
+            legado = destino.blocos[ordem]
+            if isinstance(legado, livro.Figura) and block.kind == "diagram":
+                # O estado da revisão vai na cópia, nunca na página do leitor
+                # (PD-21): é o que o escritor carimba no `alt` e na legenda. O
+                # diagrama que nada acusa fica como o leitor o deixou — o mesmo
+                # objeto, sem estado —, porque `None` e `False` escrevem o mesmo.
+                pendente = revisao_pendente(block)
+                if bool(legado.revisao_pendente) != pendente:
+                    legado = copy.copy(legado)
+                    legado.revisao_pendente = pendente
+                    destino.blocos[ordem] = legado
             status = block.decision.status
             if status == "rejected":
                 remover.append(ordem)
@@ -449,6 +476,17 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
         for ordem in sorted(set(remover), reverse=True):
             del destino.blocos[ordem]
     return [saida[numero] for numero in ordem_das_paginas]
+
+
+def _fen_revisado(block: Any) -> bool:
+    """O revisor trocou a posição deste diagrama? O IR guarda em
+    `decision.original_value` o valor de antes da primeira revisão (PD-21)."""
+    decisao = block.decision
+    valor, original = decisao.value, decisao.original_value
+    if (decisao.status != "reviewed" or not isinstance(valor, Mapping)
+            or not isinstance(original, Mapping)):
+        return False
+    return str(original.get("fen") or "") != str(valor.get("fen") or "")
 
 
 def _ordem_do_bloco(block_id: str) -> Optional[int]:
