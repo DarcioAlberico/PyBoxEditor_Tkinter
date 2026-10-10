@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-import medir_cadeia as mc
+from scripts.medidas import medir_cadeia as mc
 from ui.confidence import LIMIAR_ALTO
 
 

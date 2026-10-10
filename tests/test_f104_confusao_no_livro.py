@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-import medir_confusao_no_livro as mcl
+from scripts.medidas import medir_confusao_no_livro as mcl
 from core import lexico
 
 

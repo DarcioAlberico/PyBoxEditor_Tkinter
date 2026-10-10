@@ -346,7 +346,7 @@ def test_o_instrumento_varre_o_voto_de_verdade():
     """
     import inspect
 
-    import medir_cadeia
+    from scripts.medidas import medir_cadeia
 
     fonte = inspect.getsource(medir_cadeia)
     assert "_MemoComVoto" in fonte

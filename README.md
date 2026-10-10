@@ -85,7 +85,7 @@ cada número foi obtido, e com que script, está em
 | `tests/` | A suíte; `conftest.py` cria uma raiz Tk para todos e isola a pasta de dados |
 | `assets/`, `fonts/`, `pieces/`, `core/dados/` | Fontes de xadrez e símbolos, léxicos, figuras das peças, os dois modelos pequenos de diagrama |
 | `benchmarks/`, `Box/`, `training_data_*` | O corpus de referência, as páginas rotuladas à mão, as bases de treino conferidas |
-| `medir_*.py` na raiz | Medições de uma fase cada, rodadas à mão |
+| `scripts/medidas/` | Medições de uma fase cada, rodadas à mão da raiz do projeto (`python scripts/medidas/medir_cadeia.py --regua`) |
 
 ## Documentos
 

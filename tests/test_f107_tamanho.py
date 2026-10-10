@@ -256,7 +256,7 @@ def test_a_regra_do_instrumento_e_a_de_producao():
     avaliar pares já medidos sem as caixas à mão. O preço disso é este teste:
     as duas respondem igual sobre a mesma linha, ou uma delas mudou sozinha.
     """
-    import medir_vao
+    from scripts.medidas import medir_vao
 
     for pares in ([(0, 7), (12, 19), (24, 31), (36, 43)],
                   [(0, 10), (12, 22), (42, 52), (54, 64)],

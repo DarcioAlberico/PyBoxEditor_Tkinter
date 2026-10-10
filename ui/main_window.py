@@ -257,7 +257,7 @@ FONTES_SEM_TRAVA = frozenset({"easyocr"})
 #: da rede sozinha (ver `CharacterLearner`). A 0,40 a segunda opinião some quase
 #: inteira e o acerto cai junto.
 #:
-#: Reproduzir: `python medir_cadeia.py --neural --rede 0.4 0.6 0.7 0.8 0.9`.
+#: Reproduzir: `python scripts/medidas/medir_cadeia.py --neural --rede 0.4 0.6 0.7 0.8 0.9`.
 NEURAL_THRESHOLD = 0.80
 
 #: Confiança mínima para o k-NN responder sozinho **no caminho com a rede**, e
@@ -297,7 +297,7 @@ NEURAL_THRESHOLD = 0.80
 #: justificavam um pelo outro e nenhum pela página.
 #:
 #: Reproduzir:
-#: `python medir_cadeia.py --neural --learner 0.0 0.15 0.2 0.3 0.5 0.7 0.9`.
+#: `python scripts/medidas/medir_cadeia.py --neural --learner 0.0 0.15 0.2 0.3 0.5 0.7 0.9`.
 LEARNER_THRESHOLD_NEURAL = 0.30
 
 

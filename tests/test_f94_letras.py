@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-import importar_letras as il
+from scripts.medidas import importar_letras as il
 
 
 def _glifo(lado=24, marca=0):

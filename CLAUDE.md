@@ -78,4 +78,4 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
 | mudar o documento editorial ou a fila | `core/editorial_model.py`, `editorial_adapters.py`, `editorial_review.py`, `editorial_suspeitas.py` |
 | mudar o editor de livros | `core/editor/` (sem Tk) e `ui/editor/` (a janela) |
 | mudar a janela principal | `ui/main_window.py`; diálogos em `ui/dialogo_*.py` |
-| medir | `scripts/` e os `medir_*.py` da raiz |
+| medir | `scripts/` e `scripts/medidas/` (os `medir_*.py` de cada fase, rodados da raiz) |

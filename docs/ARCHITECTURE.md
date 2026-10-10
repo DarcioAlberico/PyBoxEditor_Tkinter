@@ -41,8 +41,8 @@ appy.py ──┬── ui/main_window.py ──── core/services/* ───
 
 `config/paths.py` resolve todo caminho de dado (pasta do usuário, modelos, bases de linhas,
 raízes de um wheel instalado) e `config/settings.py` guarda as preferências; nenhum módulo
-usa nome solto resolvido no cwd. `scripts/` são os instrumentos e `medir_*.py` na raiz, as
-medições de uma fase cada.
+usa nome solto resolvido no cwd. `scripts/` são os instrumentos e `scripts/medidas/`, as
+medições de uma fase cada, rodadas da raiz do projeto.
 
 ## O caminho de produção do OCR
 

@@ -30,7 +30,7 @@ import pytest
 from PIL import Image
 
 from core import render_diagrama as rd
-from medir_fonte_diagrama import conferir_avanco, conferir_fechamento, conferir_tinta
+from scripts.medidas.medir_fonte_diagrama import conferir_avanco, conferir_fechamento, conferir_tinta
 
 INICIAL = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1"
 

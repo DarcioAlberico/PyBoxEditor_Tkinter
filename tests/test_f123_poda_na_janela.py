@@ -237,7 +237,7 @@ def test_o_instrumento_mede_a_acao_por_omissao():
     desta fase, o caminho neural dele poda como a ação poda, e o híbrido não.
     `None` explícito é a cadeia sem a poda — a ponta de `--geometria`.
     """
-    import medir_cadeia as mc
+    from scripts.medidas import medir_cadeia as mc
 
     assert inspect.signature(mc.rodar).parameters["podar"].default is mc.DA_ACAO
 

@@ -20,14 +20,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 from core import exportar
-from gerar_fonte_de_simbolos import (ARCO, DESENHADOS, EMPRESTADOS, ORIGEM,
+from scripts.medidas.gerar_fonte_de_simbolos import (ARCO, DESENHADOS, EMPRESTADOS, ORIGEM,
                                      cobertura, simbolos_do_modelo)
 
 
 def test_o_recorte_cobre_o_que_a_fonte_inteira_cobre():
     """
     Se o modelo aprender um símbolo que só a fonte inteira desenha, este teste
-    acusa e o remédio é uma linha: `python gerar_fonte_de_simbolos.py`.
+    acusa e o remédio é uma linha: `python scripts/medidas/gerar_fonte_de_simbolos.py`.
     """
     if not os.path.exists(exportar.SUBSET_DOS_SIMBOLOS):
         pytest.skip("recorte não gerado (rode gerar_fonte_de_simbolos.py)")
@@ -39,7 +39,7 @@ def test_o_recorte_cobre_o_que_a_fonte_inteira_cobre():
 
     assert not faltando, (
         f"o recorte não desenha {' '.join(faltando)} — rode "
-        f"`python gerar_fonte_de_simbolos.py`")
+        f"`python scripts/medidas/gerar_fonte_de_simbolos.py`")
 
 
 def test_o_recorte_e_muito_menor_que_a_fonte_inteira():
@@ -75,7 +75,7 @@ def test_os_emprestados_estao_no_recorte():
 
     assert not faltando, (
         f"o recorte não desenha {' '.join(faltando)} — rode "
-        f"`python gerar_fonte_de_simbolos.py`")
+        f"`python scripts/medidas/gerar_fonte_de_simbolos.py`")
 
 
 def test_os_desenhados_estao_no_recorte():
@@ -95,7 +95,7 @@ def test_os_desenhados_estao_no_recorte():
 
     assert not faltando, (
         f"o recorte não desenha {' '.join(faltando)} — rode "
-        f"`python gerar_fonte_de_simbolos.py`")
+        f"`python scripts/medidas/gerar_fonte_de_simbolos.py`")
 
 
 def test_o_arco_do_recorte_tem_a_proporcao_do_livro():

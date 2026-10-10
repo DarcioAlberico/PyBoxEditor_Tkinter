@@ -1237,7 +1237,7 @@ def _carregar(caminho):
     """(rede, símbolos, temperatura) — o carregamento seguro, num lugar só."""
     if not os.path.isfile(caminho):
         raise ModeloAusente(
-            f"{caminho} não existe. Rode `python treinar_diagrama.py`.")
+            f"{caminho} não existe. Rode `python scripts/medidas/treinar_diagrama.py`.")
     import torch
     from core.neural_model import RedeDiagrama
 

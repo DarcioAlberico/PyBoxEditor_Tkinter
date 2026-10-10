@@ -14,7 +14,7 @@ são os de produção, e quem os cobre são `test_f16_easyocr.py` e
 
 import numpy as np
 
-import medir_cadeia as mc
+from scripts.medidas import medir_cadeia as mc
 from core.services.ocr_service import OCRService
 
 
@@ -270,7 +270,7 @@ def test_o_instrumento_nao_copia_a_regra_da_fila():
     import ast
     import inspect
 
-    import medir_cadeia
+    from scripts.medidas import medir_cadeia
 
     arvore = ast.parse(inspect.getsource(medir_cadeia))
     ofensas = []
@@ -296,7 +296,7 @@ def test_o_box_falso_responde_o_que_a_regra_pergunta():
     """
     from ui import confidence as conf_ui
 
-    import medir_cadeia
+    from scripts.medidas import medir_cadeia
 
     # (fonte, confiança, lido, verdade, página, id)
     alto = medir_cadeia._BoxFalso(("neural", 0.99, "a", "a", "p", 1))

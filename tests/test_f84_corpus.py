@@ -25,7 +25,7 @@ import cv2
 import numpy as np
 import pytest
 
-import importar_diagramas as imp
+from scripts.medidas import importar_diagramas as imp
 from core import treino_diagrama
 
 

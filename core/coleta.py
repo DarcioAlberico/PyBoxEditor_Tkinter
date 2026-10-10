@@ -146,7 +146,7 @@ SEM_TETO = {"-", "ilimitado", "sem limite", "sem teto", "tudo", "todos", "nenhum
 # Fica ligável (`Coletor(filtrar=True)`) e fica medido: é a mesma decisão da F47
 # com a margem, e o que mudaria a conclusão é uma pilha em que o espúrio de
 # verdade sobreviva à exclusão de diagrama — um scan sujo, uma página com trama.
-# Reproduzir: `python medir_coleta.py --varrer`.
+# Reproduzir: `python scripts/medidas/medir_coleta.py --varrer`.
 
 #: Lado mínimo do recorte, em pixels.
 LADO_MINIMO = 4

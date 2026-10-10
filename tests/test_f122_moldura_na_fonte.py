@@ -108,7 +108,7 @@ def test_sem_moldura_e_na_skaknew_com_coordenada_sai_o_de_sempre():
 
 def test_a_skaknew_do_projeto_e_a_original_mais_a_moldura():
     pytest.importorskip("fontTools")
-    import gerar_moldura_da_skaknew as gerador
+    from scripts.medidas import gerar_moldura_da_skaknew as gerador
 
     assert gerador.conferir(gerador.DESTINO, gerador.ORIGEM) == []
     import hashlib
@@ -120,7 +120,7 @@ def test_a_skaknew_do_projeto_e_a_original_mais_a_moldura():
 def test_a_skaknew_regerada_sai_igual(tmp_path):
     """O gerador é reprodutível: o `head` leva a data da F122, e não a hora de rodar."""
     pytest.importorskip("fontTools")
-    import gerar_moldura_da_skaknew as gerador
+    from scripts.medidas import gerar_moldura_da_skaknew as gerador
 
     destino = str(tmp_path / "SkakNew-Diagram.otf")
     gerador.acrescentar(gerador.ORIGEM, destino, gerador.teclas_do_mapa())

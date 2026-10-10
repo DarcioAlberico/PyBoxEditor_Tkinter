@@ -457,7 +457,7 @@ def test_a_porta_esta_desligada_e_o_instrumento_continua_medindo():
     texto que o rotulador não rotulou.
 
     É a mesma decisão da F47 com a margem: o instrumento fica, a conclusão é
-    não. Reproduzir: `python medir_coleta.py --varrer`.
+    não. Reproduzir: `python scripts/medidas/medir_coleta.py --varrer`.
     """
     assert coleta.Coletor().filtrar is False, (
         "a porta voltou a ligada sem medição nova — ver F93")
@@ -513,7 +513,7 @@ def test_o_instrumento_do_livro_inteiro_nao_reescreve_a_regra_do_teto():
     Se este teste quebrar, ou o `Coletor` mudou e o instrumento ficou para
     trás, ou o contrário — e a tabela da F93 passou a descrever outra coisa.
     """
-    import medir_coleta
+    from scripts.medidas import medir_coleta
 
     teto = 7
     with tempfile.TemporaryDirectory() as tmp:

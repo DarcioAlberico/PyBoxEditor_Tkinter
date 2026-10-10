@@ -1,0 +1,2852 @@
+"""
+A cadeia de preenchimento medida na página real: quem responde, e quanto acerta.
+
+    python medir_cadeia.py                        # o híbrido como está em produção
+    python medir_cadeia.py --neural               # o outro caminho, para comparar
+    python medir_cadeia.py --learner 0.5 0.7 0.85 0.95   # varre o roteamento
+    python medir_cadeia.py --trava 0.6 0.7 0.85          # varre a trava da F18
+    python medir_cadeia.py --paginas 3            # limita a amostra (a F21 usou ~3)
+
+**Por que este arquivo existe.** As tabelas da F18, F20, F21 e F22 saíram de
+script que não ficou: nada em `medir_*.py` chama `fallback_chain`, e refazer
+qualquer uma delas hoje é reescrever o instrumento antes de medir. Os três
+limiares que roteiam a leitura — `NEURAL_THRESHOLD` e as duas travas — carregam
+no comentário a tabela que os produziu, e não o meio de produzi-la de novo. É a
+mesma lacuna que `medir_paginas.py` fechou para a segmentação.
+
+## O que ele mede que as tabelas anteriores não diziam
+
+Elas dão o acerto da cadeia inteira. O que falta para decidir onde mexer é a
+**composição**: quantos boxes cada elo responde e quanto cada elo acerta nos
+boxes que pegou. Uma cadeia a 95% pode ser k-NN a 96% em tudo, ou k-NN a 99% em
+90% dos boxes e EasyOCR a 70% no resto — e o remédio é outro em cada caso.
+
+E, principalmente, a **tabela de roteamento**: o k-NN e o EasyOCR respondendo os
+*mesmos* boxes, separados por faixa de confiança do k-NN. É ela que diz onde o
+`learner_threshold` deve cortar, que é a pergunta que a F21 e a F22 deixaram sem
+instrumento — a F21 varreu a trava da linha, a F22 varreu o `neural_threshold`, e
+o limiar do k-NN nunca foi varrido por ninguém.
+
+## Os modelos rodam uma vez; o roteamento roda a cada ponto da varredura
+
+Uma varredura ingênua reexecutaria a rede, o k-NN e o EasyOCR a cada limiar, e
+o EasyOCR sozinho custa ~16 ms por caractere. Aqui cada modelo é consultado uma
+vez por recorte e memorizado pelos bytes da imagem; **o `fallback_chain` e o
+`ler_pagina` continuam sendo os de produção**, chamados de verdade a cada ponto,
+só que sobre respostas já calculadas. O que varia entre dois pontos da tabela é
+o roteamento, que é o que está sendo medido — e não uma reimplementação dele,
+que foi o erro que a F1.5 registrou.
+
+**Custo.** O k-NN e o EasyOCR são consultados em **todos** os boxes, e não só nos
+que a cadeia mandaria para eles: é o que a tabela de roteamento exige. São
+~16 ms por caractere, então uma página sai em ~30 s e as onze em poucos minutos.
+`--paginas` limita.
+
+## Os dois laços
+
+A cadeia é a mesma; os laços que a chamam são dois. O da janela é o `ler_pagina`
+de `leitura_de_linha`, e é o padrão deste arquivo. O do PDF pesquisável é o
+`_ler_boxes` de `searchable_pdf`, com `--pdf` (F40) — ele não passa `contexto`
+ao reconhecedor, tem trava própria e não devolve a fonte de quem respondeu.
+Medir só um deixava o outro com uma tabela de 2.278 caracteres tirada de script
+que não ficou, que é a lacuna que este arquivo veio fechar.
+
+## O que ele não mede
+
+Segmentação — box espúrio ou perdido é assunto de `medir_paginas.py`, e a conta
+aqui é sobre os boxes que casaram com um rótulo, como na F14. E não mede a
+**renderização** do PDF: o caminho real rasteriza a 300 dpi e segmenta o que sai
+dali, enquanto aqui as páginas são as rotuladas, para as tabelas serem
+comparáveis entre si.
+"""
+
+import argparse
+import os
+import sys
+from dataclasses import replace
+
+import numpy as np
+from PIL import Image
+
+from core import geometria_da_linha as gl
+from core import learner as core_learner
+from core import leitura_de_linha as ldl
+from core import proporcao, vertical
+from core.avaliacao_pagina import (EQUIVALENTES, carregar_box, comparar,
+                                   normalizar)
+from core.services.box_service import faixas_de_linha
+from core.services.learning_service import LearningService
+from core.services.ocr_service import OCRService
+from ui import confidence as conf_ui
+from scripts.medidas.medir_paginas import MIN_ROTULADOS, paginas_rotuladas, segmentar
+from scripts.medidas.medir_tamanho import livro_de
+from ui.main_window import (CONF_MAXIMA_PARA_A_LINHA,
+                            CONF_MAXIMA_PARA_A_LINHA_HIBRIDO, FONTES_SEM_TRAVA,
+                            LEARNER_THRESHOLD_HIBRIDO,
+                            LEARNER_THRESHOLD_NEURAL, NEURAL_THRESHOLD)
+
+
+#: As faixas da tabela de roteamento. Apertadas em cima de propósito: é lá que
+#: o k-NN vive. A base de referência foi colhida destes mesmos livros, então o
+#: vizinho mais próximo costuma ser quase o mesmo PNG e a confiança encosta em 1.
+FAIXAS = (0.0, 0.50, 0.70, 0.80, 0.85, 0.90, 0.95, 0.99, 1.01)
+
+#: As figurinas, para separar a causa da exclusão na tabela do alfabeto (F36).
+#: Sai do mapa da avaliação em vez de ser reescrita: é lá que a lista mora.
+FIGURINAS = frozenset(EQUIVALENTES)
+
+
+def _console_em_utf8():
+    """O console do Windows é cp1252, e este relatório tem `♗` e `½` dentro."""
+    for fluxo in (sys.stdout, sys.stderr):
+        try:
+            fluxo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+# ----------------------------------------------------------------------
+# Memória dos modelos
+# ----------------------------------------------------------------------
+
+class _Memo:
+    """
+    Envelope que consulta o modelo uma vez por recorte e guarda a resposta.
+
+    A chave são os bytes da imagem, e não o `id` do box: o mesmo box é
+    consultado com dois recortes diferentes (justo e faixa da linha), e dois
+    boxes distintos nunca produzem o mesmo recorte.
+    """
+
+    def __init__(self, alvo, loaded=True):
+        self._alvo = alvo
+        self._cache = {}
+        self.loaded = loaded        # o `fallback_chain` pergunta isto ao preditor
+
+    def predict(self, crop):
+        chave = crop.tobytes()
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.predict(crop)
+        return self._cache[chave]
+
+    def vizinhos(self, crop, k=1):
+        """Só o k-NN tem isto; a rede não é consultada por aqui."""
+        chave = (k, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.vizinhos(crop, k=k)
+        return self._cache[chave]
+
+    def margem(self, crop):
+        """
+        A razão de Lowe do modelo envolvido.
+
+        Serve o k-NN desde a F24 e a rede desde a F47 — as duas a implementam
+        com o mesmo nome e o mesmo significado, e o memo não precisa saber qual
+        das duas está segurando.
+        """
+        chave = ("margem", crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.margem_de_confianca(crop)
+        return self._cache[chave]
+
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
+
+    def voto(self, crop, k):
+        """A outra alternativa da F24. Memorizada por `k`, como `vizinhos`."""
+        chave = ("voto", k, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.voto(crop, k=k)
+        return self._cache[chave]
+
+    # As duas abaixo são o que o veto geométrico da F106 pede ao elo quando a
+    # primeira leitura não cabe no recorte. **Sem elas o instrumento morria
+    # com `AttributeError` na primeira página em que o veto disparasse** — e
+    # ele dispara em ~2 de 10.641 recortes, o bastante para toda rodada cair.
+    # O veto entrou em produção sem que ninguém rodasse isto depois.
+
+    def candidatas(self, crop, n=5):
+        """Só o k-NN tem isto."""
+        chave = ("candidatas", n, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.candidatas(crop, n=n)
+        return self._cache[chave]
+
+    def predict_topk(self, crop, k=5):
+        """Só a rede tem isto."""
+        chave = ("topk", k, crop.tobytes())
+        if chave not in self._cache:
+            self._cache[chave] = self._alvo.predict_topk(crop, k=k)
+        return self._cache[chave]
+
+
+class _MemoCombinado:
+    """
+    `min(confiança de produção, margem)` — a ideia que a F24 deixou aberta.
+
+    Se a absoluta detecta novidade e a margem detecta ambiguidade, o mínimo das
+    duas acende nos dois casos. Envolve o memo em vez do k-NN: as duas metades
+    já foram calculadas no aquecimento, então a varredura inteira não custa
+    consulta nova nenhuma.
+    """
+
+    def __init__(self, memo):
+        self._memo = memo
+        self.loaded = True
+
+    def predict(self, crop):
+        char, conf = self._memo.predict(crop)
+        return char, min(conf, self._memo.margem(crop))
+
+    def vizinhos(self, crop, k=1):
+        return self._memo.vizinhos(crop, k=k)
+
+    def candidatas(self, crop, n=5):
+        return self._memo.candidatas(crop, n=n)
+
+    def margem(self, crop):
+        return self._memo.margem(crop)
+
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
+
+
+class _MemoComDistancia:
+    """
+    O k-NN com outro `DISTANCIA_MAXIMA`, sem tocar em produção (F35).
+
+    A confiança é `1 - d/D`, e `d` já está no cache do aquecimento — trocar `D`
+    é recontar, não reconsultar, e é isso que torna a varredura barata.
+
+    **A razão mudou na F38.** Na F35 este envelope era obrigatório: o `D` de
+    produção era valor padrão de argumento, ligado em tempo de `def`, então
+    trocar o global do módulo não teria efeito nenhum. Hoje `predict` lê o global
+    na chamada e trocá-lo funcionaria — só que as respostas já estão memorizadas
+    por bytes da imagem, e trocar o global não as invalidaria. O envelope fica
+    por ser o jeito certo, e não por ser o único.
+    """
+
+    def __init__(self, memo, distancia_maxima):
+        self._memo = memo
+        self._D = float(distancia_maxima)
+        self.loaded = True
+
+    def predict(self, crop):
+        char, _conf = self._memo.predict(crop)
+        perto = self._memo.vizinhos(crop, k=1)
+        d = perto[0][1] if perto else float("inf")
+        return char, max(0.0, 1.0 - d / self._D) if d < self._D else 0.0
+
+    def vizinhos(self, crop, k=1):
+        return self._memo.vizinhos(crop, k=k)
+
+    def candidatas(self, crop, n=5):
+        # A confiança das candidatas sai na escala de produção, e não na de
+        # `D`: o veto só usa a ordem delas, e a confiança da escolhida só
+        # importa nos ~2 recortes em 10 mil em que ele dispara.
+        return self._memo.candidatas(crop, n=n)
+
+    def margem(self, crop):
+        return self._memo.margem(crop)
+
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
+
+
+class _MemoComVoto:
+    """
+    O k-NN respondendo por **voto entre os k**, e não pelo mais próximo (F24).
+
+    A confiança continua a do 1-NN: o voto muda quem vence, não o quanto o
+    recorte se parece com a base, e trocar as duas coisas de uma vez mediria
+    duas mudanças numa tabela só.
+
+    **Precisa existir porque `predict` é 1-NN e não tem `k`.** O `--k` mexia em
+    `core_learner.K_VIZINHOS`, que era valor padrão de argumento de `voto` e de
+    `vizinhos` — ligado em tempo de `def` — e além disso nada no instrumento
+    chamava `voto`. A F38 achou o botão desligado dos dois jeitos.
+    """
+
+    def __init__(self, memo, k):
+        self._memo = memo
+        self._k = int(k)
+        self.loaded = True
+
+    def predict(self, crop):
+        _char, conf = self._memo.predict(crop)
+        return self._memo.voto(crop, self._k), conf
+
+    def vizinhos(self, crop, k=1):
+        return self._memo.vizinhos(crop, k=k)
+
+    def candidatas(self, crop, n=5):
+        return self._memo.candidatas(crop, n=n)
+
+    def margem(self, crop):
+        return self._memo.margem(crop)
+
+    def predict_e_margem(self, crop):
+        """O que a cadeia chama desde a F44. Sai do cache, não custa busca."""
+        char, conf = self.predict(crop)
+        return char, conf, self.margem(crop)
+
+
+class ServicoMemorizado(OCRService):
+    """
+    O serviço de produção, com o EasyOCR consultado uma vez por recorte.
+
+    `_ler_easyocr` é `classmethod` no original e vira método de instância aqui —
+    as duas chamadas do serviço passam por `self`, então a substituição pega.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._cache_char = {}
+        self._cache_faixa = {}
+
+    def _ler_easyocr(self, reader, imagem):
+        chave = imagem.tobytes()
+        if chave not in self._cache_char:
+            self._cache_char[chave] = OCRService._ler_easyocr(reader, imagem)
+        return self._cache_char[chave]
+
+    def easyocr_linha_conf(self, faixa_np, *args, **kwargs):
+        chave = faixa_np.tobytes()
+        if chave not in self._cache_faixa:
+            self._cache_faixa[chave] = super().easyocr_linha_conf(
+                faixa_np, *args, **kwargs)
+        return self._cache_faixa[chave]
+
+
+# ----------------------------------------------------------------------
+# A página, preparada como a ação prepara
+# ----------------------------------------------------------------------
+
+def _recortes_do_box(pagina, b, faixas):
+    """
+    `(justo, com a faixa da linha)` — espelha `MainWindow._recortes_do_box`.
+
+    São seis linhas copiadas de dentro da classe da janela, e é a única cópia
+    deste arquivo: importar a UI para medir traria o Tk junto. O resto — a
+    cadeia, o laço por linha, os limiares — é o código de produção chamado.
+    """
+    justo = vertical.recorte_de_pe(pagina, b)
+    topo, base = faixas[id(b)]
+    if (topo, base) == (b.y1, b.y2):
+        return justo, justo
+    return justo, vertical.recorte_de_pe(pagina, replace(b, y1=topo, y2=base))
+
+
+class Pagina:
+    """Uma página rotulada, já segmentada e cortada em linhas."""
+
+    def __init__(self, caminho_img, caminho_box, arbitro):
+        img = Image.open(caminho_img).convert("L")
+        self.nome = os.path.basename(caminho_img)
+        # A obra, para a tabela da geometria (F123) medir cada livro com a
+        # tabela estimada nos outros — ver `tabelas_de_fora`.
+        self.obra = livro_de(caminho_box)
+        self.caminho_box = caminho_box
+        self.rotulados = carregar_box(caminho_box, img.size[1])
+        self.arr = np.array(img)
+
+        # O modo de produção: separador com árbitro (F1.5b). O híbrido não usa a
+        # rede para ler, mas usa para cortar — `_arbitro_de_corte` é o mesmo nas
+        # duas ações, e medir com outra segmentação mediria outra população.
+        _, self.boxes = segmentar(img, "arbitrado", arbitro=arbitro)
+
+        self.linhas = ldl.linhas_da_pagina(self.boxes)
+        self.faixas = {id(b): faixa
+                       for uma in self.linhas
+                       for b, faixa in zip(uma, faixas_de_linha(uma))}
+
+        r = comparar(self.boxes, self.rotulados)
+        self.verdade = {id(self.boxes[i]): self.rotulados[j].char
+                        for i, j in r.pares}
+
+    @property
+    def medidos(self):
+        return len(self.verdade)
+
+    def recortes(self, b):
+        return _recortes_do_box(self.arr, b, self.faixas)
+
+
+# ----------------------------------------------------------------------
+# Os dois caminhos, como as duas ações os montam
+# ----------------------------------------------------------------------
+
+#: "O idioma que a cadeia carrega" — o padrão de `rodar` e de `Cadeia.leitor`,
+#: para `None` poder significar "sem máscara" quando alguém o passa de
+#: propósito.
+DA_CADEIA = object()
+
+
+class Cadeia:
+    """Os modelos carregados e memorizados, e as duas leituras por caractere."""
+
+    def __init__(self, com_rede, idioma=None):
+        self.ocr = ServicoMemorizado()
+        svc = LearningService()
+        self.learner = _Memo(svc._get_learner())
+        self.predictor = None
+        if com_rede:
+            if not svc.load_predictor():
+                raise SystemExit("sem modelo treinado — o caminho neural precisa dele")
+            self.predictor = _Memo(svc._predictor)
+        # O idioma das páginas medidas (F117). Mora na cadeia, e não em cada
+        # chamada, porque é parte de como as ações a montam: toda tabela mede
+        # com ele, e só `tabela_mascara` o desliga de propósito.
+        self.idioma = idioma
+
+    def leitor(self, pagina, caminho, learner_threshold, neural_threshold=None,
+               idioma=DA_CADEIA):
+        """
+        `ler_caractere(box)` da ação pedida, com os limiares que ela usa.
+
+        Espelha o `preparar` de `generate_and_fill_combined` e o de
+        `generate_and_fill_neural`, inclusive o zeramento do híbrido: fonte que
+        não é `learner` nem `easyocr` vira box vazio com confiança 0,0 — que é o
+        que a F21 registrou como o lugar onde a linha mais tem a dizer.
+
+        `altura_de_referencia` vai junto porque as duas ações a passam desde a
+        F106: sem ela o veto de tamanho (ponto contra quadrado) fica desligado
+        aqui e ligado na janela, e o instrumento deixa de medir produção.
+
+        `idioma` é a máscara de alfabeto (F117), que as duas ações passam desde
+        que a tela pergunta o idioma do livro. Por omissão é o da cadeia;
+        `None` explícito é a cadeia sem máscara.
+        """
+        referencia = proporcao.altura_de_referencia(pagina.boxes)
+        if idioma is DA_CADEIA:
+            idioma = self.idioma
+
+        def hibrido(b):
+            justo, contexto = pagina.recortes(b)
+            char, fonte, c = self.ocr.fallback_chain(
+                justo, learner=self.learner, contexto=contexto,
+                neural_threshold=learner_threshold,
+                learner_threshold=learner_threshold,
+                altura_de_referencia=referencia,
+                idioma=idioma,
+            )
+            if fonte not in ("learner", "easyocr"):
+                return ("", 0.0, "vazio")
+            return (char, c, fonte)
+
+        def neural(b):
+            justo, contexto = pagina.recortes(b)
+            char, fonte, c = self.ocr.fallback_chain(
+                justo, predictor=self.predictor, learner=self.learner,
+                contexto=contexto,
+                neural_threshold=(NEURAL_THRESHOLD if neural_threshold is None
+                                  else neural_threshold),
+                learner_threshold=learner_threshold,
+                altura_de_referencia=referencia,
+                idioma=idioma,
+            )
+            return (char, c, fonte)
+
+        return hibrido if caminho == "hibrido" else neural
+
+    def aquecer(self, pagina, com_rede, com_ocr=True):
+        """
+        Consulta cada modelo em cada box uma vez, antes de qualquer varredura.
+
+        Não é só cache: a tabela de roteamento precisa da resposta do k-NN e da
+        do EasyOCR **no mesmo box**, inclusive nos que a cadeia jamais mandaria
+        para o segundo. Devolve `[(id, conf_knn, char_knn, char_ocr, dist)]`.
+
+        `dist` é a distância ao vizinho mais próximo, crua. Ela existe porque a
+        F24 trocou a confiança por margem e a coluna "já na base" da F23 estava
+        definida como `conf >= 0,99` — na escala nova isso mede outra coisa
+        ("o vencedor está 100x mais perto"), e não o que a coluna promete. Com a
+        distância a definição é direta: zero é cópia exata da base.
+
+        `com_ocr=False` pula o EasyOCR, que é 16 ms por caractere contra os 12
+        do k-NN inteiro. É o que torna a varredura de `k` viável.
+        """
+        saida = []
+        for b in pagina.boxes:
+            justo, contexto = pagina.recortes(b)
+            ck, fk = self.learner.predict(justo)
+            perto = self.learner.vizinhos(justo, k=1)
+            dist = perto[0][1] if perto else float("inf")
+            co = ""
+            if com_ocr:
+                co, _ = self.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            mr = None
+            if com_rede:
+                self.predictor.predict(justo)
+                mr = self.predictor.margem(justo)
+            saida.append((id(b), fk, ck, co, dist,
+                          self.learner.margem(justo), mr))
+        if com_ocr:
+            for uma in pagina.linhas:
+                if ldl.em_bloco(uma):
+                    tira = ldl.faixa_da_linha(pagina.arr, uma)
+                    if tira is not None:
+                        self.ocr.easyocr_linha_conf(tira)
+        return saida
+
+
+#: "A poda que a ação faz" — o padrão de `rodar`, para `None` poder significar
+#: "sem poda" quando alguém o passa de propósito. Ver `poda_da_acao`.
+DA_ACAO = object()
+
+
+def poda_da_acao(cadeia, caminho):
+    """
+    O `podar` de `rodar` que espelha a ação: `(página) -> gancho`, ou `None`.
+
+    A ação neural poda a âncora pela geometria da linha desde a F123, com a
+    tabela gravada e as candidatas da rede; o «Híbrido» não carrega a rede e
+    não poda. Sem isto o caminho neural do instrumento mediria a cadeia de
+    antes com o nome da de hoje — o defeito que o padrão de `fontes_sem_trava`
+    já guarda para a trava.
+    """
+    if caminho != "neural" or cadeia.predictor is None:
+        return None
+
+    def topk(recorte, k):
+        return cadeia.predictor.predict_topk(recorte, k=k)
+
+    return lambda p: gl.poda_da_ancora(p.arr, topk)
+
+
+def rodar(cadeia, paginas, caminho, learner_threshold, trava,
+          neural_threshold=None, deslocam=None,
+          fontes_sem_trava=FONTES_SEM_TRAVA, idioma=DA_CADEIA, podar=DA_ACAO):
+    """
+    `[(fonte, conf, lido, verdade, página)]` para cada box que casou com rótulo.
+
+    `trava` segue `ler_pagina`: `None` é "a linha manda sempre" e `0.0` é "a
+    linha não encosta em nada" — toda confiança é >= 0, então todo box fica
+    travado e o resultado é idêntico a não ler linha nenhuma.
+
+    `deslocam` é o filtro da F36, e o padrão `None` reproduz o que a ação fazia
+    antes dela — que é o que as tabelas da F18 à F35 mediram.
+
+    `fontes_sem_trava` são as fontes da âncora que a trava não protege — ver
+    `ler_pagina`. O padrão é o de produção (F116); `frozenset()` é a trava de
+    antes, que segurava toda fonte.
+
+    `idioma` liga a máscara de alfabeto (F117). O padrão é o da cadeia, que
+    `--idioma` fixa para todas as tabelas; `None` explícito desliga a máscara,
+    e é o que `tabela_mascara` usa como ponta de comparação.
+
+    `podar(página) -> gancho` monta o `podar` de `ler_pagina` para cada página
+    (F123) — a poda da geometria da linha. O padrão é o da ação
+    (`poda_da_acao`); `None` explícito é a cadeia sem ela, e é o que
+    `tabela_geometria` usa como ponta de comparação.
+    """
+    if podar is DA_ACAO:
+        podar = poda_da_acao(cadeia, caminho)
+    saida = []
+    for p in paginas:
+        lidos = ldl.ler_pagina(
+            p.arr, p.linhas,
+            ler_faixa=cadeia.ocr.easyocr_linha_conf,
+            ler_caractere=cadeia.leitor(p, caminho, learner_threshold,
+                                        neural_threshold, idioma=idioma),
+            deslocam=deslocam,
+            conf_maxima_para_trocar=trava,
+            fontes_sem_trava=fontes_sem_trava,
+            podar=None if podar is None else podar(p),
+        )
+        for b, char, conf, fonte in lidos:
+            verdade = p.verdade.get(id(b))
+            if verdade is not None:
+                saida.append((fonte, conf, char, verdade, p.nome, id(b)))
+    return saida
+
+
+def _padrao_de(funcao, parametro):
+    """
+    O valor padrão que a assinatura declara, lido em vez de copiado.
+
+    A UI não passa `conf_linha_maxima` — ela chama `gerar_pdf_pesquisavel` sem
+    o argumento —, então o número de produção é o padrão da assinatura. Copiá-lo
+    para cá criaria a terceira cópia de um limiar neste projeto, que é como o
+    0,85 da F23 e o 0,9 da F39 chegaram onde chegaram.
+    """
+    import inspect
+
+    return inspect.signature(funcao).parameters[parametro].default
+
+
+def rodar_pdf(cadeia, paginas, learner_threshold, trava, com_contexto=False):
+    """
+    O **outro laço**: o do PDF pesquisável, nas mesmas páginas (F40).
+
+    `searchable_pdf._ler_boxes` é código de produção e é chamado de verdade,
+    como o `ler_pagina` do laço da janela. Ele não é o mesmo laço com outro
+    nome, e as diferenças são o motivo desta função existir:
+
+    - **não passa `contexto`.** A janela manda o recorte justo *e* o mesmo box
+      esticado até a faixa da linha, e a F14 mediu que isso leva o elo do
+      EasyOCR de 66,9% para 74,2% — é o que devolve a altura relativa que a
+      normalização apaga. Aqui só vai o justo;
+    - **a trava é independente.** `conf_linha_maxima` é 0,70 e não acompanha o
+      `learner_threshold`, ao contrário do híbrido;
+    - **a fonte não sai do laço.** `_ler_boxes` devolve `(box, char, conf)` sem
+      dizer quem respondeu, então quem quiser a composição precisa espiar o
+      `reconhecer` — é o que o `fontes` faz aqui.
+
+    **O que isto não reproduz** é a página. O caminho real renderiza o PDF a 300
+    dpi e segmenta o que sai dali; aqui as páginas são as rotuladas, para a
+    tabela ser comparável às outras deste arquivo. O que se mede é a leitura,
+    não a renderização.
+    """
+    from core.searchable_pdf import _ler_boxes
+
+    saida = []
+    for p in paginas:
+        # `(fonte, char)` da cadeia, por bytes do recorte. O `char` entra junto
+        # porque é ele que denuncia a troca: `_ler_boxes` devolve o caractere
+        # final sem dizer se veio da linha, e comparar com o que a cadeia
+        # respondeu é o que separa `easyocr_linha` de quem só foi confirmado —
+        # a mesma regra de fonte que o `ler_pagina` aplica no outro laço.
+        cadeia_disse = {}
+
+        # **O `contexto` simulado, sem tocar em `searchable_pdf` (F42).** O laço
+        # do PDF chama `reconhecer(recorte)` e só; quem monta esse `reconhecer`
+        # aqui sou eu, e a faixa da linha é recuperável pelos bytes do recorte
+        # justo — `_ler_boxes` o calcula com o mesmo `recorte_de_pe` que este
+        # laço. Medir primeiro, mexer depois: trocar a assinatura de
+        # `reconhecer` em produção para depois descobrir que não paga é a ordem
+        # errada.
+        faixa_de = {}
+        if com_contexto:
+            for caixa in p.boxes:
+                justo, contexto = p.recortes(caixa)
+                if justo.size:
+                    faixa_de[justo.tobytes()] = contexto
+
+        def reconhecer(recorte):
+            char, fonte, c = cadeia.ocr.fallback_chain(
+                recorte, predictor=cadeia.predictor, learner=cadeia.learner,
+                contexto=faixa_de.get(recorte.tobytes()),
+                neural_threshold=NEURAL_THRESHOLD,
+                learner_threshold=learner_threshold,
+            )
+            cadeia_disse[recorte.tobytes()] = (fonte, char)
+            return char, c
+
+        resumo = {"corrigidos_pela_linha": 0}
+        lidos = _ler_boxes(p.arr, p.boxes, reconhecer,
+                           cadeia.ocr.easyocr_linha_conf, trava, resumo)
+
+        for b, char, conf in lidos:
+            verdade = p.verdade.get(id(b))
+            if verdade is None:
+                continue
+            fonte, antes = cadeia_disse.get(
+                vertical.recorte_de_pe(p.arr, b).tobytes(), ("none", char))
+            if char != antes:
+                fonte = "easyocr_linha"
+            saida.append((fonte, conf, char, verdade, p.nome, id(b)))
+    return saida
+
+
+def acerto(linhas):
+    """A fração de `[(fonte, conf, lido, verdade, página)]` lida certo."""
+    if not linhas:
+        return 0.0
+    certos = sum(1 for reg in linhas
+                 if normalizar(reg[2]) == normalizar(reg[3]))
+    return 100.0 * certos / len(linhas)
+
+
+# ----------------------------------------------------------------------
+# As tabelas
+# ----------------------------------------------------------------------
+
+def tabela_composicao(linhas):
+    """Quem respondeu quantos boxes, e quanto acertou nos que pegou."""
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    print(f"\n{'fonte':<16}{'boxes':>8}{'':>4}{'%':>7}{'acerto':>10}")
+    for fonte in sorted(por_fonte, key=lambda f: -len(por_fonte[f])):
+        parte = por_fonte[fonte]
+        pct = 100.0 * len(parte) / len(linhas)
+        a = f"{acerto(parte):>9.2f}%" if fonte != "vazio" else f"{'—':>10}"
+        print(f"{fonte:<16}{len(parte):>8}{'':>4}{pct:>6.1f}%{a}")
+
+
+def tabela_por_pagina(linhas, na_base):
+    """
+    O acerto página a página, e o quanto de cada uma o k-NN já tem na base.
+
+    **A coluna da direita é o aviso, e ela não é decoração.** `na_base` são os
+    boxes cujo vizinho mais próximo está a distância **zero** — o recorte já
+    está em `training_data`, byte a byte. Ali o k-NN não generaliza, consulta a
+    própria cópia, e o acerto medido não vale como previsão para página nova.
+
+    É o que separa esta medição de uma boa notícia falsa: `training_data` foi
+    colhida com "Aprender com Página Atual", e nada impede que as páginas
+    rotuladas — que são as mesmas em que se aprendeu — estejam lá dentro.
+
+    **A definição mudou na F24, e a mudança é o próprio assunto.** Na F23 esta
+    coluna era `conf >= 0,99`, que valia enquanto a confiança fosse
+    `1 - distância/2000`. Com a margem, 0,99 passou a querer dizer "o vencedor
+    está 100x mais perto que a segunda classe" — verdadeiro em box fácil que a
+    base nunca viu. O número não teria mudado de nome, só de significado.
+    """
+    por_pagina = {}
+    for reg in linhas:
+        por_pagina.setdefault(reg[4], []).append(reg)
+
+    print(f"\n{'página':<52}{'boxes':>7}{'acerto':>9}{'já na base':>12}")
+    for nome, parte in por_pagina.items():
+        copias = sum(1 for reg in parte if reg[5] in na_base)
+        curto = nome if len(nome) <= 50 else nome[:47] + "..."
+        print(f"{curto:<52}{len(parte):>7}{acerto(parte):>8.2f}%"
+              f"{100.0 * copias / len(parte):>11.1f}%")
+
+
+class _BoxFalso:
+    """O mínimo que `ui.confidence` olha num box, para não copiar a regra."""
+
+    __slots__ = ("char", "source", "confidence")
+
+    def __init__(self, reg):
+        self.char = reg[2]
+        self.source = reg[0] if reg[2] else ""
+        self.confidence = reg[1]
+
+
+def tabela_fila_e_linha(ancora, producao):
+    """
+    O que a corroboração da linha faz com a **fila de revisão**.
+
+    Um box abaixo da trava numa linha lida não fica com a própria confiança:
+    recebe `confianca(concordam, conf_linha, cf)`, que é o **máximo** dos dois
+    quando as duas leituras concordam (F17). Uma leitura a 0,30 corroborada
+    sobe para a confiança da linha e **sai da fila**.
+
+    O desenho se sustenta — corroboração é informação, e foi medida como tal —,
+    mas ele nunca foi olhado do lado da revisão. As duas perguntas são:
+
+    - dos boxes que a linha tirou da fila, quantos estavam **errados**? Cada um
+      é um erro que o revisor deixou de ver por causa de uma segunda leitura que
+      errou junto;
+    - e a conta líquida, porque a linha também **empurra** box para a fila:
+      quando as duas leituras divergem vale a menor, e aí a confiança cai.
+
+    `ancora` tem de vir de uma corrida com `trava=0.0`, que é o que faz
+    `ler_pagina` devolver a confiança crua de cada box.
+    """
+    saiu = saiu_errado = entrou = entrou_errado = 0
+    for a, p in zip(ancora, producao):
+        antes = conf_ui.precisa_revisao(_BoxFalso(a))
+        depois = conf_ui.precisa_revisao(_BoxFalso(p))
+        if antes == depois:
+            continue
+        errado = normalizar(p[2]) != normalizar(p[3])
+        if antes and not depois:
+            saiu += 1
+            saiu_errado += errado
+        else:
+            entrou += 1
+            entrou_errado += errado
+
+    print(f"\nA linha e a fila de revisão (corte em "
+          f"{conf_ui.LIMIAR_ALTO:.2f}):")
+    print(f"  saíram da fila por corroboração: {saiu:>5}"
+          f"   dos quais errados: {saiu_errado}")
+    print(f"  entraram na fila por divergência:{entrou:>5}"
+          f"   dos quais errados: {entrou_errado}")
+    print(f"  saldo de erros visíveis ao revisor: "
+          f"{entrou_errado - saiu_errado:+d}")
+
+
+def tabela_revisao(linhas, margem_de=None):
+    """
+    A fila de revisão (F3.2) medida **como fila**: custo para achar os erros.
+
+    O outro uso da confiança, e o que nunca foi medido em separado. A F14 mediu
+    os cortes contra a rede sozinha; aqui a página vem da cadeia, e a cadeia
+    mistura fontes cuja confiança **não está na mesma régua** — softmax
+    calibrado a T = 2,19 na rede (F22), `1 - distância/2000` no k-NN, a do CRNN
+    no EasyOCR. `ui/confidence.py` aplica o mesmo 0,90 às três.
+
+    A segunda tabela é o teste dessa suspeita. Se a régua fosse comum, ordenar
+    a fila pela confiança crua e ordená-la pelo **percentil dentro da própria
+    fonte** dariam curvas parecidas. Se a do percentil for melhor, as fontes
+    estão descalibradas entre si e o número único está custando revisão.
+
+    `margem_de` acrescenta as duas linhas que fecham o item aberto da F24 (F43):
+    **um número serve dois usos, e eles pedem coisas diferentes.** O roteamento
+    quer detectar *novidade* — "isto se parece com o que já vi?" —, e a fila
+    quer as duas coisas, novidade e *ambiguidade*. A F24 mediu a margem contra a
+    absoluta no **elo do k-NN isolado**; a fila de verdade mistura fontes, e é
+    ela que está aqui. Onde não há margem — rede, EasyOCR, linha — vale a
+    confiança crua, que é o que "trocar o critério só onde dá" quer dizer.
+    """
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    print(f"\n{'fonte':<16}{'boxes':>7}{'erros':>7}{'mediana':>19}"
+          f"{'':>4}{'abaixo de 0,90':>16}{'erros pegos':>13}")
+    print(f"{'':<16}{'':>7}{'':>7}{'erro':>9}{'acerto':>10}")
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        erros = [r for r in parte if normalizar(r[2]) != normalizar(r[3])]
+        acertos = [r for r in parte if normalizar(r[2]) == normalizar(r[3])]
+        abaixo = [r for r in parte if conf_ui.precisa_revisao(_BoxFalso(r))]
+        pegos = sum(1 for r in abaixo
+                    if normalizar(r[2]) != normalizar(r[3]))
+        me = float(np.median([r[1] for r in erros])) if erros else float("nan")
+        ma = (float(np.median([r[1] for r in acertos]))
+              if acertos else float("nan"))
+        print(f"{fonte:<16}{len(parte):>7}{len(erros):>7}{me:>9.4f}{ma:>10.4f}"
+              f"{'':>4}{len(abaixo):>16}{pegos:>13}")
+
+    # A fila ordenada de dois jeitos. `certos` acompanha para o custo sair em
+    # "acertos revisados à toa", que é o que o revisor paga.
+    def custo(ordenados):
+        total_erros = sum(1 for ok in ordenados if not ok)
+        if not total_erros:
+            return [None, None, None]
+        saida, pegos, toa, restantes = [], 0, 0, [0.25, 0.50, 0.75]
+        for ok in ordenados:
+            if ok:
+                toa += 1
+            else:
+                pegos += 1
+            while restantes and pegos >= restantes[0] * total_erros:
+                saida.append(toa)
+                restantes.pop(0)
+        return saida + [None] * len(restantes)
+
+    def ok(reg):
+        return normalizar(reg[2]) == normalizar(reg[3])
+
+    crua = [ok(r) for r in sorted(linhas, key=lambda r: r[1])]
+
+    # Percentil dentro da fonte: a posição relativa do box entre os da mesma
+    # origem. Tira a régua de cada uma e deixa só a ordem.
+    percentil = {}
+    for parte in por_fonte.values():
+        ordenada = sorted(parte, key=lambda r: r[1])
+        for i, reg in enumerate(ordenada):
+            percentil[reg[5]] = i / max(1, len(ordenada) - 1)
+    por_percentil = [ok(r)
+                     for r in sorted(linhas, key=lambda r: percentil[r[5]])]
+
+    ordenacoes = [("confiança crua (hoje)", crua),
+                  ("percentil por fonte", por_percentil)]
+
+    if margem_de:
+        # **Só onde o k-NN respondeu**, e essa condição faltava na F43 — ver o
+        # mesmo conserto em `tabela_corte_da_revisao`. O `margem_de` tem entrada
+        # para todo box, porque o aquecimento consulta o k-NN em todos; usá-la
+        # onde outro elo respondeu ordena a fila por um número que não fala
+        # daquela leitura. Onde não há margem, a chave é a confiança crua e o
+        # box não sai do lugar.
+        def com_margem(reg):
+            if reg[0] != "learner":
+                return reg[1]
+            return margem_de.get(reg[5], reg[1])
+
+        ordenacoes.append(
+            ("margem onde há", [ok(r) for r in sorted(linhas, key=com_margem)]))
+        ordenacoes.append(
+            ("mín. das duas",
+             [ok(r) for r in sorted(linhas,
+                                    key=lambda r: min(r[1], com_margem(r)))]))
+
+    print(f"\n{'ordenação da fila':<22}" + "".join(
+        f"{f'{p}% dos erros':>18}" for p in (25, 50, 75)))
+    for nome, ordenados in ordenacoes:
+        celulas = "".join(f"{('—' if c is None else f'{c} à toa'):>18}"
+                          for c in custo(ordenados))
+        print(f"{nome:<22}{celulas}")
+
+
+def tabela_ponto_cego(linhas, char_knn):
+    """
+    Os boxes que o EasyOCR respondeu, e por que a fila não os vê (F45).
+
+    A F43 achou o pior ponto cego da revisão: nesses boxes a mediana de
+    confiança é a **mesma no erro e no acerto** — a do CRNN não separa nada — e
+    nenhuma ordenação por confiança conserta, porque para eles não existe margem.
+
+    O sinal que sobra é o que o `ler_pagina` já usa para a linha (F17):
+    **concordância**. O k-NN respondeu esses mesmos boxes no aquecimento, mesmo
+    tendo sido recusado pelo roteamento — foi por confiança baixa, não por
+    silêncio. Duas leituras independentes que dizem o mesmo se corroboram, e
+    onde divergem é onde o erro se concentra. A pergunta desta tabela é se isso
+    vale aqui, onde a confiança falhou.
+    """
+    doOCR = [r for r in linhas if r[0] == "easyocr"]
+    if not doOCR:
+        return
+
+    def certo(r):
+        return normalizar(r[2]) == normalizar(r[3])
+
+    concordam = [r for r in doOCR
+                 if normalizar(char_knn.get(r[5], "")) == normalizar(r[2])]
+    divergem = [r for r in doOCR if r not in concordam]
+    erros = sum(1 for r in doOCR if not certo(r))
+
+    print(f"\n--- o ponto cego do EasyOCR (F45), {len(doOCR)} boxes, "
+          f"{erros} erros ---")
+    print(f"{'':<24}{'boxes':>8}{'acerto':>10}{'erros':>8}")
+    for nome, parte in (("o k-NN concorda", concordam),
+                        ("o k-NN diverge", divergem)):
+        if not parte:
+            continue
+        n_erros = sum(1 for r in parte if not certo(r))
+        print(f"{nome:<24}{len(parte):>8}{acerto(parte):>9.1f}%{n_erros:>8}")
+
+    # **A regra nova contra a antiga varrida, e não contra um ponto dela.** É a
+    # lição da F47: cinco cortes de uma régua contra o 0,90 fixo da outra não é
+    # comparação, é escolher o pior lugar da curva alheia. Aqui a régua antiga é
+    # a confiança **restrita a estes boxes**, que é o que a fila faz com eles
+    # hoje.
+    print(f"\n{'regra':<24}{'marcados':>10}{'pegos':>8}"
+          f"{'à toa':>8}{'escapam':>9}")
+
+    def compara(nome, marcados):
+        pegos = sum(1 for r in marcados if not certo(r))
+        print(f"{nome:<24}{len(marcados):>10}{pegos:>8}"
+              f"{len(marcados) - pegos:>8}{erros - pegos:>9}")
+
+    for corte in (0.50, 0.70, 0.90, 0.99):
+        compara(f"conf < {corte:.2f}", [r for r in doOCR if r[1] < corte])
+    compara("o k-NN diverge", divergem)
+    for corte in (0.70, 0.90):
+        compara(f"diverge e conf < {corte:.2f}",
+                [r for r in divergem if r[1] < corte])
+
+
+def _separacao(erros, acertos):
+    """
+    A U de Mann-Whitney normalizada entre dois conjuntos de notas (F51).
+
+    Dado um erro e um acerto ao acaso, com que frequência a régua os põe na
+    ordem certa. 1,00 é régua perfeita, 0,50 é moeda, 0,00 é invertida — e é a
+    mesma coisa que a área sob a curva ROC. `nan` quando um dos lados está
+    vazio, que é "não dá para perguntar" e não "não separa".
+    """
+    if not erros or not acertos:
+        return float("nan")
+    # Pares (erro, acerto): quantas vezes o erro vem antes. Empate vale meio,
+    # que é o que torna a conta a U de Mann-Whitney.
+    ganhos = sum((1.0 if e < a else 0.5 if e == a else 0.0)
+                 for e in erros for a in acertos)
+    return ganhos / (len(erros) * len(acertos))
+
+
+def _fora_de_ordem(pares):
+    """
+    Quantas vezes a segunda régua discorda da primeira sobre quem vem antes.
+
+    **É o que separa achado de bug numa tabela de réguas** (F54). Duas réguas
+    que ordenam igual têm, por construção, a mesma separação — ela não se move
+    por reescala monótona. Se duas colunas saírem iguais e esta vier zero, são a
+    mesma régua com outra roupa; se vierem iguais com esta alta, é coincidência
+    e precisa de mais casas.
+
+    Ordenar e olhar vizinhos basta: uma sequência é monótona se, e só se, todo
+    par adjacente é — e é O(n log n) em vez dos 10^8 pares da conta direta.
+    """
+    ordenados = sorted(pares)
+    return sum(1 for (c1, m1), (c2, m2) in zip(ordenados, ordenados[1:])
+               if c2 > c1 and m2 < m1)
+
+
+def tabela_regua_por_fonte(linhas):
+    """
+    A régua de cada fonte **separa** erro de acerto? (F51)
+
+    A F48 pôs o EasyOCR em `FONTES_SEMPRE_REVISADAS` porque ali a mediana de
+    confiança é a mesma no erro e no acerto — a régua é plana e nenhum corte
+    funciona. Mas aquela fase tratou **um caso**, não a classe: `easyocr_linha`
+    acerta 33% e ninguém perguntou se a régua dele separa.
+
+    A medida é a **separação**: a fração de pares (erro, acerto) da mesma fonte
+    em que o erro tem confiança menor que o acerto. É a estatística U de
+    Mann-Whitney normalizada, que é o mesmo que a área sob a curva ROC, e ela
+    responde exatamente a pergunta certa — "dado um erro e um acerto ao acaso,
+    a régua os põe na ordem certa?".
+
+        1,00   régua perfeita: todo erro abaixo de todo acerto
+        0,50   moeda: a régua não sabe nada
+        0,00   invertida
+
+    Não é acerto e não é confiança média: uma fonte pode acertar pouco e ainda
+    assim **saber** quando errou, e é essa a que a fila consegue usar. A que não
+    sabe entra inteira, que é o que a F48 fez com o EasyOCR.
+    """
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    print("\n--- a régua de cada fonte (F51) ---")
+    print(f"{'fonte':<16}{'boxes':>7}{'erros':>7}{'acerto':>9}"
+          f"{'separação':>12}{'':>3}{'na fila hoje':>13}")
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        if fonte == "vazio":
+            continue
+        erros = [r[1] for r in parte if normalizar(r[2]) != normalizar(r[3])]
+        acertos = [r[1] for r in parte if normalizar(r[2]) == normalizar(r[3])]
+        sep = _separacao(erros, acertos)
+        na_fila = sum(1 for r in parte
+                      if conf_ui.precisa_revisao(_BoxFalso(r)))
+        print(f"{fonte:<16}{len(parte):>7}{len(erros):>7}"
+              f"{acerto(parte):>8.1f}%{sep:>12.3f}{'':>3}"
+              f"{100.0 * na_fila / len(parte):>12.0f}%")
+    print("  separação 0,50 é moeda: a régua daquela fonte não sabe quando errou")
+
+
+def tabela_regua_alternativa(linhas, margem_knn, margem_rede=None):
+    """
+    A régua alternativa de cada fonte, na mesma escala da F51 (F54).
+
+    A F51 mediu que a rede tem separação 0,634 e governa 96,6% da página, e
+    deixou a pergunta: **existe régua melhor para ela?** A F47 já tinha medido a
+    candidata natural — a razão de Lowe, `1 - p2/p1` — mas em quatro pontos de
+    corte, e a conclusão de lá ("empata no ponto de operação") é sobre o ponto,
+    não sobre a régua. Separação é a curva inteira num número, e é o que permite
+    comparar as duas na mesma pergunta.
+
+    `mín. das duas` é a ideia da F24: se a absoluta detecta novidade e a margem
+    detecta ambiguidade, o mínimo acende nos dois casos. Aqui ela não custa
+    consulta nenhuma — as duas metades já vieram do aquecimento.
+
+    **A margem vale só para quem respondeu**, que é o conserto que a F47 fez na
+    F43 e na F44: a margem do k-NN num box que o roteamento mandou ao EasyOCR
+    mede a ambiguidade de um classificador recusado por estar longe de tudo.
+    Fonte sem régua alternativa própria sai com `—`, e não com um número
+    emprestado de outro elo.
+    """
+    def alternativa(reg):
+        if reg[0] == "learner":
+            return margem_knn.get(reg[5])
+        if reg[0] == "neural" and margem_rede:
+            return margem_rede.get(reg[5])
+        return None
+
+    por_fonte = {}
+    for reg in linhas:
+        por_fonte.setdefault(reg[0], []).append(reg)
+
+    print("\n--- as réguas da mesma fonte, comparadas (F54) ---")
+    print(f"{'fonte':<16}{'boxes':>7}{'erros':>7}"
+          f"{'confiança':>12}{'margem':>10}{'mín. das duas':>15}"
+          f"{'discordam':>11}")
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        if fonte == "vazio":
+            continue
+        # Só os boxes em que a alternativa existe entram nas três colunas. Medir
+        # a confiança em toda a fonte e a margem só em parte dela poria duas
+        # populações na mesma linha, que é a torta que a F47 desfez.
+        com_margem = [(r, m) for r in parte
+                      if (m := alternativa(r)) is not None]
+        if not com_margem:
+            print(f"{fonte:<16}{len(parte):>7}{'':>7}"
+                  f"{'—':>12}{'—':>10}{'—':>15}{'—':>11}"
+                  f"   este elo não produz margem")
+            continue
+
+        erram = [(r, m) for r, m in com_margem
+                 if normalizar(r[2]) != normalizar(r[3])]
+        acertam = [(r, m) for r, m in com_margem
+                   if normalizar(r[2]) == normalizar(r[3])]
+        colunas = [
+            _separacao([r[1] for r, _m in erram], [r[1] for r, _m in acertam]),
+            _separacao([m for _r, m in erram], [m for _r, m in acertam]),
+            _separacao([min(r[1], m) for r, m in erram],
+                       [min(r[1], m) for r, m in acertam]),
+        ]
+        discordam = _fora_de_ordem([(r[1], m) for r, m in com_margem])
+        print(f"{fonte:<16}{len(com_margem):>7}{len(erram):>7}"
+              f"{colunas[0]:>12.4f}{colunas[1]:>10.4f}{colunas[2]:>15.4f}"
+              f"{100.0 * discordam / max(1, len(com_margem) - 1):>10.1f}%")
+    print("  a coluna 'boxes' é a dos que têm margem própria, e não a da fonte inteira")
+    print("  'discordam' é o quanto a margem inverte a ordem da confiança: "
+          "zero é a mesma régua com outra roupa")
+
+
+#: As candidatas a régua de `easyocr_so`, e o que cada uma pergunta (F57).
+#:
+#: Cada uma devolve a nota do box — **menor é mais suspeito**, na convenção da
+#: confiança e do `conf < t` da fila —, ou `None` quando o sinal não existe
+#: naquele box, e aí ele fica fora da linha inteira em vez de entrar com um
+#: número inventado (o conserto que a F47 fez na F43).
+def _reguas_candidatas():
+    def hoje(reg, s):
+        return reg[1]
+
+    def concorda_knn(reg, s):
+        """O k-NN leu a mesma coisa? Régua binária, e é a ideia da F45."""
+        if s is None:
+            return None
+        return 1.0 if normalizar(s["knn_char"]) == normalizar(reg[2]) else 0.0
+
+    def concorda_e_confianca(reg, s):
+        """
+        Concordância manda, e a confiança do EasyOCR desempata dentro dela.
+
+        A binária acima só tem dois degraus: dentro de cada um a ordem é
+        arbitrária, e uma régua de dois degraus não consegue gastar um orçamento
+        que caia no meio de um deles. Somar a confiança preserva a ordem de hoje
+        *dentro* de cada grupo sem nunca cruzar os grupos, porque a confiança
+        vive em [0, 1].
+        """
+        c = concorda_knn(reg, s)
+        return None if c is None else c + reg[1]
+
+    def discorda_ou_hoje(reg, s):
+        """
+        A regra que produção consegue embarcar (PD-13): marca quando o k-NN
+        discorda do EasyOCR **ou** quando a regra de hoje já marca — nota 0
+        para marcado, 1 para não. Não tem corte a ajustar: ela é o que a fila
+        faria, e a coluna `marcados` diz o custo dela em vez de gastar o de hoje.
+        """
+        c = concorda_knn(reg, s)
+        if c is None:
+            return None
+        hoje_marca = conf_ui.precisa_revisao(_BoxFalso(reg))
+        return 0.0 if (c == 0.0 or hoje_marca) else 1.0
+
+    def confianca_knn(reg, s):
+        """
+        O número do outro elo, que a F47 proibiu de **emprestar** calado.
+
+        Aqui ele não está sendo emprestado: está sendo medido, que é a única
+        forma de saber se a proibição custa recall. Se separar melhor que a
+        régua de casa, a regra da F47 volta à mesa com dado; se não, ela ganha
+        uma medição em vez de só uma justificativa.
+        """
+        return None if s is None else s["knn_conf"]
+
+    def minimo(reg, s):
+        """A ideia da F24: duas perguntas diferentes, e o mínimo acende nas duas."""
+        return None if s is None else min(reg[1], s["knn_conf"])
+
+    def proximidade(reg, s):
+        """Detector de novidade: perto da base é bom, então a nota é `-dist`."""
+        if s is None or s["dist"] == float("inf"):
+            return None
+        return -s["dist"]
+
+    def margem_knn(reg, s):
+        return None if s is None else s["knn_margem"]
+
+    def confianca_rede(reg, s):
+        return None if s is None else s["rede_conf"]
+
+
+
+    def margem_rede(reg, s):
+        if s is None or s["rede_margem"] is None:
+            return None
+        return s["rede_margem"]
+
+    return [
+        ("hoje (confiança do EasyOCR)", hoje),
+        ("concorda com o k-NN", concorda_knn),
+        ("concorda, e a confiança dentro", concorda_e_confianca),
+        ("discorda, ou hoje marca (PD-13)", discorda_ou_hoje),
+        ("confiança do k-NN", confianca_knn),
+        ("mín. das duas confianças", minimo),
+        ("proximidade da base (-dist)", proximidade),
+        ("margem do k-NN", margem_knn),
+        ("confiança da rede", confianca_rede),
+        ("margem da rede", margem_rede),
+    ]
+
+
+def tabela_regua_do_easyocr(linhas, sinais):
+    """
+    Existe régua melhor para `easyocr_so`? (F57)
+
+    A F56 fechou trocando a pergunta. Ela mediu que, com os mesmos 4.368 boxes
+    marcados, uma régua perfeita pegaria os 2.810 erros da ação «OCR (EasyOCR)»
+    — o orçamento já basta, e os 803 que escapam são a **separação** de 0,776,
+    não o ponto de corte. Sobrou "que régua", que é o que esta tabela mede, na
+    escala da F51 e com o método da F54.
+
+    As candidatas vêm dos elos que o roteamento **já consultou e recusou** neste
+    mesmo box. É material de graça no sentido que importa: nenhuma delas pede
+    modelo novo nem rótulo novo.
+
+    Três colunas, e cada uma responde uma coisa diferente:
+
+    - **separação** é a curva inteira num número — dado um erro e um acerto ao
+      acaso, a régua os põe na ordem certa?;
+    - **discordam** é a trava da F54: duas réguas que ordenam igual têm a mesma
+      separação por construção, então coluna igual com discordância zero é a
+      mesma régua com outra roupa, e não um empate interessante;
+    - **pegos ao orçamento de hoje** é a consequência, pela regra da F47 — as
+      réguas comparadas no mesmo custo. É a coluna que diz se a separação a mais
+      vira erro a mais na fila, que é a única pergunta que o revisor faz.
+    """
+    todos = [r for r in linhas if r[0] == "easyocr_so"]
+    if not todos:
+        return
+
+    def errou(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    # **A trava desta fase, e ela pode anular a tabela inteira.** A base do k-NN
+    # contém cópia byte a byte destas páginas (F37), e num box desses o k-NN não
+    # está classificando — está lembrando do rótulo. "Concorda com o k-NN" ali é
+    # "concorda com o gabarito", e uma separação alta mediria a contaminação, não
+    # a régua. `dist == 0` é a definição direta de cópia exata, a mesma que a
+    # coluna "já na base" usa desde a F23.
+    fora_da_base = [r for r in todos
+                    if (s := sinais.get(r[5])) is not None and s["dist"] > 0.0]
+
+    for titulo, parte in (("todos os boxes", todos),
+                          ("só os que a base do k-NN não tem", fora_da_base)):
+        if not parte:
+            continue
+        _bloco_de_reguas(titulo, parte, sinais, errou)
+
+
+def _regua_fora_da_amostra(notados, errou):
+    """
+    `(marcados, pegos)` da régua com o corte **ajustado fora da página medida**
+    (PD-13), ou `None` com uma página só.
+
+    A F57 deixou dito o que faltava para a régua embarcar: a coluna `marcados`
+    escolhe o corte da candidata na mesma amostra em que mede, e o `LIMIAR_ALTO`
+    de hoje não foi ajustado em lugar nenhum. É a assimetria que a F56 desfez
+    para o limiar por fonte, e aqui pelo mesmo método: para cada página, a curva
+    das outras dá o maior corte que cabe no orçamento **delas** (o que a regra
+    de hoje marca nelas), e esse corte é aplicado à página que ficou de fora. O
+    que atravessa é o limiar, e nada da página medida entra na escolha dele.
+
+    `notados` são os pares `(registro, nota da candidata)`, com a página na
+    posição 4 do registro. O orçamento de cada lado é contado com a régua de
+    hoje, no registro original.
+    """
+    paginas = sorted({r[4] for r, _n in notados})
+    if len(paginas) < 2:
+        return None
+    marcados = pegos = 0
+    for pagina in paginas:
+        treino = [(r, n) for r, n in notados if r[4] != pagina]
+        orcamento = sum(1 for r, _n in treino
+                        if conf_ui.precisa_revisao(_BoxFalso(r)))
+        curva = _cortes_possiveis([(r[0], n) + tuple(r[2:]) for r, n in treino],
+                                  errou)
+        alcancavel = [p for p in curva if p[0] <= orcamento] or [curva[0]]
+        corte = alcancavel[-1][2]
+        for r, n in notados:
+            if r[4] == pagina and n < corte:
+                marcados += 1
+                pegos += errou(r)
+    return marcados, pegos
+
+
+def _bloco_de_reguas(titulo, parte, sinais, errou):
+    """Uma passada da tabela da F57 sobre uma população."""
+    total_erros = sum(1 for r in parte if errou(r))
+    orcamento = sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+    pegos_hoje = sum(1 for r in parte
+                     if conf_ui.precisa_revisao(_BoxFalso(r)) and errou(r))
+
+    print(f"\n--- as réguas candidatas de `easyocr_so` (F57) — {titulo}: "
+          f"{len(parte)} boxes com {total_erros} erros ---")
+    print(f"o orçamento de hoje é {orcamento} marcados, que pegam {pegos_hoje}")
+    print(f"\n{'régua':<32}{'boxes':>7}{'separação':>11}{'discordam':>11}"
+          f"{'marcados':>10}{'pegos':>7}{'escapam':>9}{'fora da amostra':>18}")
+
+    for nome, regua in _reguas_candidatas():
+        notados = [(r, n) for r in parte
+                   if (n := regua(r, sinais.get(r[5]))) is not None]
+        if not notados:
+            print(f"{nome:<32}{0:>7}{'—':>11}{'—':>11}"
+                  f"{'—':>10}{'—':>7}{'—':>9}   sem sinal nesta amostra")
+            continue
+
+        erram = [n for r, n in notados if errou(r)]
+        acertam = [n for r, n in notados if not errou(r)]
+        sep = _separacao(erram, acertam)
+        discordam = _fora_de_ordem([(r[1], n) for r, n in notados])
+
+        # O ponto de operação que gasta o mesmo orçamento nesta régua. A curva
+        # é a de `_cortes_possiveis`, com a nota da candidata no lugar da
+        # confiança — só nota distinta fecha um ponto, então nada aqui promete
+        # corte que limiar nenhum alcança.
+        reescritos = [(r[0], n) + tuple(r[2:]) for r, n in notados]
+        curva = _cortes_possiveis(reescritos, errou)
+        alcancavel = [p for p in curva if p[0] <= orcamento] or [curva[0]]
+        marcados, pegos, _t = alcancavel[-1]
+        fora = _regua_fora_da_amostra(notados, errou)
+
+        print(f"{nome:<32}{len(notados):>7}{sep:>11.4f}"
+              f"{100.0 * discordam / max(1, len(notados) - 1):>10.1f}%"
+              f"{marcados:>10}{pegos:>7}{total_erros - pegos:>9}"
+              f"{f'{fora[1]} em {fora[0]}' if fora else '—':>18}")
+
+    # A regra que produção embarcaria não tem corte: o custo é o dela.
+    com_knn = [r for r in parte if sinais.get(r[5]) is not None]
+    marca = [r for r in com_knn
+             if conf_ui.precisa_revisao(_BoxFalso(r))
+             or normalizar(sinais[r[5]]["knn_char"]) != normalizar(r[2])]
+    print(f"  a regra 'o k-NN discorda, ou hoje marca' (PD-13): marca "
+          f"{len(marca)} de {len(com_knn)}, pega "
+          f"{sum(1 for r in marca if errou(r))} dos "
+          f"{sum(1 for r in com_knn if errou(r))} erros")
+    print("  'fora da amostra' é 'erros pegos em marcados' com o corte de cada "
+          "página ajustado nas outras, ao orçamento de hoje delas (PD-13)")
+    print("  'discordam' é o quanto a candidata inverte a ordem da régua de "
+          "hoje: zero é a mesma régua com outra roupa")
+    print("  'marcados' é o maior ponto da curva que cabe no orçamento — "
+          "régua de poucos degraus não consegue gastá-lo inteiro")
+
+
+def tabela_leitor(cadeia, paginas, com_sinais=False):
+    """
+    As duas ações em que o EasyOCR é o **leitor**, e não o último recurso (F55).
+
+    A F53 deu nome próprio a essa população — `easyocr_so` — e a manteve fora de
+    `FONTES_SEMPRE_REVISADAS` porque "nesta o mesmo elo acerta 89,5%". Esse
+    número é da leitura **por linha** (F17). Quem grava `easyocr_so` são duas
+    ações, e a outra é a por caractere, que a F16 mediu em 74,9%.
+
+    E acerto não é a pergunta, como a F51 estabeleceu: o que decide se a fila
+    consegue filtrar aquela fonte é a **separação**. Esta tabela mede as duas
+    coisas nas duas ações, com os módulos de produção que elas chamam —
+    `easyocr_ocr_conf` com a faixa da linha, e `ler_pagina` sem trava, que é o
+    que `_preencher_por_linha` passa em «OCR (EasyOCR por linha)».
+    """
+    por_caractere, por_linha, sinais = [], [], {}
+    for p in paginas:
+        for b in p.boxes:
+            verdade = p.verdade.get(id(b))
+            if verdade is None:
+                continue
+            justo, contexto = p.recortes(b)
+            ch, c = cadeia.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            # A fonte que a ação grava, e não uma inventada aqui: box sem
+            # leitura fica `vazio`, como em `auto_fill_characters_easyocr`.
+            por_caractere.append(("easyocr_so" if ch else "vazio", c, ch,
+                                  verdade, p.nome, id(b)))
+            if com_sinais:
+                # O que os outros elos diriam **deste mesmo box**, que é o
+                # material das réguas candidatas da F57. Custa 12 ms por box e
+                # é por isso que fica atrás de uma opção: o `--leitor` sozinho
+                # não consulta o k-NN nem a rede, e não deve passar a consultar.
+                # `predict` devolve `(char, confiança)` — nesta ordem. O
+                # `aquecer` aqui do lado nomeia o par ao contrário e monta a
+                # tupla certa mesmo assim; escrever os nomes por extenso é o
+                # que impede a próxima leitura de herdar a confusão.
+                char_knn, conf_knn = cadeia.learner.predict(justo)
+                perto = cadeia.learner.vizinhos(justo, k=1)
+                sinais[id(b)] = {
+                    "knn_char": char_knn,
+                    "knn_conf": conf_knn,
+                    "knn_margem": cadeia.learner.margem(justo),
+                    "dist": perto[0][1] if perto else float("inf"),
+                    "rede_conf": (cadeia.predictor.predict(justo)[1]
+                                  if cadeia.predictor else None),
+                    "rede_margem": (cadeia.predictor.margem(justo)
+                                    if cadeia.predictor else None),
+                }
+
+        def ler_caractere(b, _p=p):
+            justo, contexto = _p.recortes(b)
+            ch, cf = cadeia.ocr.easyocr_ocr_conf(justo, contexto=contexto)
+            return ch, cf, "easyocr_so"
+
+        # `conf_maxima_para_trocar=None` é "a linha manda sempre", e é o que a
+        # ação passa — ela não tem trava, ao contrário do híbrido e do neural.
+        for b, char, conf, fonte in ldl.ler_pagina(
+                p.arr, p.linhas,
+                ler_faixa=cadeia.ocr.easyocr_linha_conf,
+                ler_caractere=ler_caractere,
+                conf_maxima_para_trocar=None):
+            verdade = p.verdade.get(id(b))
+            if verdade is not None:
+                por_linha.append((fonte, conf, char, verdade, p.nome, id(b)))
+
+    def errou(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    print("\n--- as ações em que o EasyOCR é o leitor (F55) ---")
+    print(f"{'ação':<26}{'fonte':<15}{'boxes':>7}{'erros':>7}{'acerto':>9}"
+          f"{'separação':>11}{'na fila':>9}{'pegos':>7}{'escapam':>9}")
+    for titulo, linhas in (("OCR (EasyOCR)", por_caractere),
+                           ("OCR (EasyOCR por linha)", por_linha)):
+        por_fonte = {}
+        for reg in linhas:
+            por_fonte.setdefault(reg[0], []).append(reg)
+        primeira = titulo
+        for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+            erros = [r[1] for r in parte if errou(r)]
+            acertos = [r[1] for r in parte if not errou(r)]
+            # **`precisa_revisao`, e não uma cópia dele** — a trava da F52. Se
+            # esta fase mudar a regra, esta coluna tem de mudar junto.
+            na_fila = [r for r in parte
+                       if conf_ui.precisa_revisao(_BoxFalso(r))]
+            pegos = sum(1 for r in na_fila if errou(r))
+            print(f"{primeira:<26}{fonte:<15}{len(parte):>7}{len(erros):>7}"
+                  f"{acerto(parte):>8.1f}%{_separacao(erros, acertos):>11.3f}"
+                  f"{len(na_fila):>9}{pegos:>7}{len(erros) - pegos:>9}")
+            primeira = ""
+        na_fila = [r for r in linhas if conf_ui.precisa_revisao(_BoxFalso(r))]
+        pegos = sum(1 for r in na_fila if errou(r))
+        erros = sum(1 for r in linhas if errou(r))
+        print(f"{'':<26}{'a ação inteira':<15}{len(linhas):>7}{erros:>7}"
+              f"{acerto(linhas):>8.1f}%{'':>11}"
+              f"{len(na_fila):>9}{pegos:>7}{erros - pegos:>9}")
+    print("  a fila de hoje só conhece a confiança: `easyocr_so` não está em "
+          "FONTES_SEMPRE_REVISADAS")
+
+    # **O ponto de operação de cada ação, medido na ação** (F56). É aqui que a
+    # pergunta da F55 mora: ela mediu que o mesmo 0,90 marca 42% desta ação
+    # contra 6% do caminho neural, e que 803 erros escapam por causa do ponto de
+    # operação, não da régua. A tabela precifica o corte na curva de quem
+    # governa cada uma das duas ações.
+    for titulo, linhas in (("OCR (EasyOCR)", por_caractere),
+                           ("OCR (EasyOCR por linha)", por_linha)):
+        print(f"\n=== «{titulo}» ===")
+        tabela_ponto_de_operacao(linhas)
+
+    # **O que a linha troca, e como estava o box antes dela.** A F17 mediu o
+    # efeito na página inteira — 72,9% para 89,5% — e o efeito na página é a
+    # soma de duas populações muito diferentes. Cruzar as duas leituras pelo
+    # mesmo box separa as duas, e é o que diz se o alinhamento escolhe bem
+    # **onde** agir, que é a parte da F17 que nunca foi medida sozinha.
+    antes_de = {reg[5]: reg for reg in por_caractere}
+    trocados = [reg for reg in por_linha if reg[0] == "easyocr_linha"]
+    parados = [reg for reg in por_linha if reg[0] != "easyocr_linha"]
+    if trocados and antes_de:
+        antes_dos_trocados = [antes_de[reg[5]] for reg in trocados
+                              if reg[5] in antes_de]
+        print("\n--- onde a linha age, e o que ela pega (F55) ---")
+        print(f"{'':<34}{'boxes':>7}{'a âncora acertava':>20}"
+              f"{'e depois da linha':>20}")
+        print(f"{'a linha trocou':<34}{len(trocados):>7}"
+              f"{acerto(antes_dos_trocados):>19.1f}%{acerto(trocados):>19.1f}%")
+        print(f"{'a linha não encostou':<34}{len(parados):>7}"
+              f"{acerto(parados):>19.1f}%{acerto(parados):>19.1f}%")
+
+    if com_sinais:
+        tabela_regua_do_easyocr(por_caractere, sinais)
+
+
+def tabela_lexico(paginas, producao):
+    """
+    O léxico é **aditivo** à fila, ou pega o que ela já pegava? (F50)
+
+    `ui/main_window.py` justifica o filtro do léxico duas vezes com a mesma
+    frase — "um sinal **independente da confiança**" — e independência é
+    justamente o que a F9.1 não mediu. Ela mediu a fatia alcançável (quanto do
+    erro cai dentro de palavra de prosa) e o custo (quantas palavras certas
+    acendem). A sobreposição com `precisa_revisao` ficou de fora.
+
+    É a mesma pergunta que a F47 obrigou a fazer da margem: um sinal só vale
+    contra a alternativa, não contra o vazio. Um léxico que acendesse exatamente
+    nos boxes que a fila já mostra em vermelho não acrescentaria nada, e a
+    medição da F9.1 não distinguiria esse caso do bom.
+
+    A população é a de produção: o mesmo `suspeitas_da_pagina` que a UI consome,
+    sobre os boxes com a leitura que a cadeia deu.
+    """
+    from core import lexico as core_lexico
+
+    lex = core_lexico.carregar()
+    if not getattr(lex, "sinaliza", False):
+        print("\n(sem dicionário carregado — o léxico não é medido)")
+        return
+
+    por_id = {reg[5]: reg for reg in producao}
+    marcados_lex, erros_lex, na_fila = 0, 0, 0
+    erros_lex_fora_da_fila = 0
+    total_erros = sum(1 for reg in producao
+                      if normalizar(reg[2]) != normalizar(reg[3]))
+
+    for p in paginas:
+        # Os boxes da página com a leitura da cadeia, que é o que a UI tem na
+        # mão quando o usuário liga o filtro.
+        for b in p.boxes:
+            reg = por_id.get(id(b))
+            if reg is None:
+                continue
+            b.char, b.confidence, b.source = reg[2], reg[1], reg[0]
+
+        for suspeita in core_lexico.suspeitas_da_pagina(p.boxes, lex):
+            for i in suspeita.indices:
+                if i >= len(p.boxes):
+                    continue
+                reg = por_id.get(id(p.boxes[i]))
+                if reg is None:
+                    continue
+                marcados_lex += 1
+                errado = normalizar(reg[2]) != normalizar(reg[3])
+                pendente = conf_ui.precisa_revisao(_BoxFalso(reg))
+                erros_lex += errado
+                na_fila += pendente
+                erros_lex_fora_da_fila += errado and not pendente
+
+    print(f"\n--- o léxico contra a fila (F50), {total_erros} erros ---")
+    novos = marcados_lex - na_fila
+    print(f"boxes que o léxico acende{'':<10}{marcados_lex:>8}")
+    print(f"  destes, a fila já mostrava{'':<8}{na_fila:>8}")
+    print(f"  destes, novos para o revisor{'':<6}{novos:>8}")
+    print(f"erros dentro do que ele acende{'':<5}{erros_lex:>8}")
+    print(f"**erros que só o léxico pega**{'':<6}{erros_lex_fora_da_fila:>8}"
+          f"   ({100.0 * erros_lex_fora_da_fila / total_erros if total_erros else 0:.1f}% "
+          f"dos erros da página)")
+    if novos:
+        print(f"  precisão do que ele acrescenta{'':<4}"
+              f"{100.0 * erros_lex_fora_da_fila / novos:>7.1f}%")
+
+
+def tabela_corte_da_revisao(linhas, margem_knn, margem_rede=None):
+    """
+    O **corte** da revisão, e não a ordem dela (F44).
+
+    A F43 mediu a fila como curva de recall, e escreveu "ordenação". O código
+    não ordena nada: `ui/confidence.precisa_revisao` é um corte — `confidence <
+    LIMIAR_ALTO` —, e o revisor navega os marcados. A pergunta prática é
+    portanto um ponto da curva, não a curva: **trocando a régua, quantos erros
+    a mais aparecem e quantos acertos a mais são abertos à toa?**
+
+    A regra candidata usa a margem onde ela existe e cai na regra de hoje onde
+    não existe — rede, EasyOCR e linha não têm margem, e para eles nada muda.
+    É o que torna a troca implementável sem mexer no que a F25 mediu: a
+    `b.confidence` continua sendo a absoluta, e é ela que colore o box.
+    """
+    # **`precisa_revisao`, e não uma cópia da regra dele.** A linha "hoje" tem
+    # de ser a de produção mesmo quando produção muda: a F48 acrescentou uma
+    # fonte que entra na fila inteira, e uma cópia de `conf < LIMIAR_ALTO` teria
+    # continuado medindo a regra velha, calada. `_BoxFalso` existe desde a F23
+    # com o docstring "para não copiar a regra"; a ferramenta estava aqui.
+    marcados_hoje = [r for r in linhas
+                     if conf_ui.precisa_revisao(_BoxFalso(r))]
+
+    def conta(marcados):
+        erros = sum(1 for r in marcados if normalizar(r[2]) != normalizar(r[3]))
+        return len(marcados), erros, len(marcados) - erros
+
+    total_erros = sum(1 for r in linhas
+                      if normalizar(r[2]) != normalizar(r[3]))
+
+    print(f"\n--- o corte da revisão (F44), em {len(linhas)} boxes com "
+          f"{total_erros} erros ---")
+    print(f"{'regra':<26}{'marcados':>10}{'erros pegos':>13}"
+          f"{'à toa':>9}{'escapam':>10}")
+
+    def linha(nome, marcados):
+        n, pegos, toa = conta(marcados)
+        print(f"{nome:<26}{n:>10}{pegos:>13}{toa:>9}{total_erros - pegos:>10}")
+
+    linha(f"hoje (conf < {conf_ui.LIMIAR_ALTO})", marcados_hoje)
+
+    # **A régua velha também tem dial, e varrer só a nova era comparação torta.**
+    # A primeira versão desta tabela punha cinco cortes de margem contra **um**
+    # ponto da confiança, o 0,90 que está em `LIMIAR_ALTO`. Duas curvas só se
+    # comparam em recall igual ou em custo igual, e para isso as duas precisam
+    # de curva. Ver F47.
+    for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
+        linha(f"conf < {corte:.2f}",
+              [r for r in linhas if r[1] < corte])
+    # **A margem vale para quem respondeu, e essa condição é o conserto de um
+    # defeito da F44.** A primeira versão aplicava a do k-NN a todo box que
+    # tivesse uma no aquecimento — o que é todo box, porque o aquecimento
+    # consulta o k-NN em todos. Produção não faz isso, e tem de não fazer: a
+    # margem de um box que o roteamento mandou ao EasyOCR mede a ambiguidade de
+    # um classificador recusado por estar longe de tudo, e a F24 já dissera o
+    # que ela vale ali — recorte-lixo pode estar duas vezes mais perto de `a`
+    # que de `b` e tirar margem alta.
+    def margem_de(reg, com_rede):
+        if reg[0] == "learner":
+            return margem_knn.get(reg[5])
+        if com_rede and reg[0] == "neural" and margem_rede:
+            return margem_rede.get(reg[5])
+        return None
+
+    def marca(corte, com_rede):
+        return [r for r in linhas
+                if ((m < corte) if (m := margem_de(r, com_rede)) is not None
+                    else conf_ui.precisa_revisao(_BoxFalso(r)))]
+
+    fontes = [("k-NN", False)]
+    if margem_rede:
+        fontes.append(("k-NN e rede", True))
+    for nome, com_rede in fontes:
+        for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
+            linha(f"margem < {corte:.2f} ({nome})", marca(corte, com_rede))
+
+
+#: Os alvos de recall da F56, na mesma escala em que a F14 e a F47 pediram o
+#: custo — "para pegar esta fração dos erros, quantos acertos vão à toa".
+ALVOS_DE_RECALL = (0.25, 0.50, 0.75)
+
+
+def _cortes_possiveis(parte, errou):
+    """
+    Os pontos de operação que um corte `conf < t` alcança **nesta** fonte.
+
+    Do menos confiante para o mais, que é a ordem em que o revisor os veria
+    (F3.2). Cada ponto é `(marcados, erros, t)`, e o `t` é o limiar que
+    *realiza* aquele ponto — é ele que produção embarcaria, e não a posição.
+
+    **Só nota distinta fecha um ponto**, e isto não é detalhe de implementação:
+    o k-NN devolve 1,0 em milhares de boxes, porque a base tem cópia byte a
+    byte destas páginas (F37). Um corte não sabe separar dois boxes com a mesma
+    nota, e uma curva indexada por posição prometeria pontos de operação que
+    limiar nenhum alcança. Prometer ponto inalcançável é a forma que o erro da
+    F47 tomaria aqui.
+    """
+    ordenada = sorted(parte, key=lambda r: r[1])
+    pontos = [(0, 0, 0.0)]
+    erros = 0
+    for i, reg in enumerate(ordenada):
+        erros += errou(reg)
+        proxima = ordenada[i + 1][1] if i + 1 < len(ordenada) else None
+        if proxima is None or proxima > reg[1]:
+            # `conf < t` marca tudo até aqui quando `t` é a nota de cima. No fim
+            # da fonte não há nota de cima, e 1,01 é "marca todos" na mesma
+            # convenção de `FAIXAS`.
+            pontos.append((i + 1, erros,
+                           proxima if proxima is not None else 1.01))
+    return pontos
+
+
+def _melhor_ao_orcamento(curvas, orcamento):
+    """
+    O corte por fonte que pega **o máximo de erro** sem passar do orçamento.
+
+    É o teto de verdade da família "um limiar por fonte", e por isso a linha de
+    hoje nunca pode ficar acima dele: a regra de hoje é o caso particular em que
+    todos os cortes são o mesmo número. Se ela aparecer acima, é bug aqui — e é
+    o que o teste trava.
+
+    **Por que não o multiplicador de Lagrange.** A primeira versão desta fase
+    escolhia por `max(erros - λ·marcados)` e varria o λ. Aquilo percorre a
+    *envoltória concava* e só enxerga os vértices dela: num orçamento de 799 o
+    multiplicador devolveu (420 marcados, 87 erros) enquanto a regra de hoje —
+    que é membro da família, com o mesmo corte em toda fonte — fazia (799, 97).
+    Uma tabela assim declara pior uma família que **contém** a linha de
+    comparação, e isso teria virado a conclusão da fase. É o defeito da F47 em
+    roupa nova: comparar duas réguas em pontos que não são o mesmo ponto.
+
+    A mochila não tem esse buraco — enxerga todo ponto alcançável — e cabe no
+    tempo: cada ponto é um `np.maximum` deslocado sobre o vetor inteiro.
+
+    Ela **olha o rótulo** para escolher, então só vale como teto. A pergunta
+    "isto se sustenta num limiar embarcado?" é a coluna de fora da amostra.
+    """
+    orcamento = int(orcamento)
+    if orcamento <= 0:
+        return {f: p[0] for f, p in curvas.items()}
+
+    melhor = np.full(orcamento + 1, -1, dtype=np.int64)
+    melhor[0] = 0
+    estagios = []
+    for fonte, pontos in curvas.items():
+        uteis = [p for p in pontos if p[0] <= orcamento] or [pontos[0]]
+        novo = np.full(orcamento + 1, -1, dtype=np.int64)
+        escolhido = np.zeros(orcamento + 1, dtype=np.int64)
+        for i, (marcados, erros, _t) in enumerate(uteis):
+            vindo = melhor[:orcamento + 1 - marcados]
+            cand = np.where(vindo >= 0, vindo + erros, -1)
+            alvo = novo[marcados:]
+            troca = cand > alvo
+            alvo[troca] = cand[troca]
+            escolhido[marcados:][troca] = i
+        melhor = novo
+        estagios.append((fonte, uteis, escolhido))
+
+    cortes = {}
+    posicao = int(np.argmax(melhor))
+    for fonte, uteis, escolhido in reversed(estagios):
+        ponto = uteis[escolhido[posicao]]
+        cortes[fonte] = ponto
+        posicao -= ponto[0]
+    return cortes
+
+
+def _melhor_ao_recall(curvas, alvo):
+    """
+    O corte por fonte **mais barato** que ainda pega `alvo` erros.
+
+    A outra metade da regra da F47. Aqui o eixo é o erro pego e o que se
+    minimiza é o custo, então a mochila roda com os papéis trocados e o ganho
+    entra negativo — maximizar `-custo` é minimizar custo.
+
+    Erro além do alvo não vale mais nada, e é por isso que o eixo satura: quem
+    pega 300 erros num alvo de 200 entra como 200. Sem isso a mochila pagaria
+    por recall que ninguém pediu.
+    """
+    alvo = int(alvo)
+    if alvo <= 0:
+        return {f: p[0] for f, p in curvas.items()}
+    melhor = np.full(alvo + 1, np.iinfo(np.int64).min, dtype=np.int64)
+    melhor[0] = 0
+    estagios = []
+    posicoes = np.arange(alvo + 1)
+    for fonte, todos in curvas.items():
+        # **Só o ponto mais barato de cada contagem de erro entra.** A curva é
+        # monótona nos dois eixos, então marcar mais box sem pegar mais erro é
+        # sempre pior — e são a maioria dos pontos numa fonte que acerta muito.
+        # Sem esta poda a fonte de 10.502 boxes entra com 10.502 pontos em vez
+        # de 2.809, e o laço de fora da amostra roda isso onze vezes.
+        pontos, visto = [], set()
+        for ponto in todos:
+            if ponto[1] not in visto:
+                visto.add(ponto[1])
+                pontos.append(ponto)
+        novo = np.full(alvo + 1, np.iinfo(np.int64).min, dtype=np.int64)
+        escolhido = np.zeros(alvo + 1, dtype=np.int64)
+        for i, (marcados, erros, _t) in enumerate(pontos):
+            # A saturação: precisar de `E` erros e ter uma fonte que dá `erros`
+            # deixa `max(E - erros, 0)` para as outras.
+            vindo = melhor[np.maximum(posicoes - erros, 0)]
+            cand = np.where(vindo > np.iinfo(np.int64).min,
+                            vindo - marcados, np.iinfo(np.int64).min)
+            troca = cand > novo
+            novo[troca] = cand[troca]
+            escolhido[troca] = i
+        melhor = novo
+        estagios.append((fonte, pontos, escolhido))
+
+    cortes = {}
+    posicao = alvo
+    for fonte, pontos, escolhido in reversed(estagios):
+        ponto = pontos[escolhido[posicao]]
+        cortes[fonte] = ponto
+        posicao = max(posicao - ponto[1], 0)
+    return cortes
+
+
+def _escolha_por_percentil(curvas, fracao):
+    """
+    O mesmo percentil em toda fonte: marca a fração mais baixa de cada uma.
+
+    É a regra de **um parâmetro só**, como a de hoje, e responde direto ao
+    diagnóstico da F55 — o 0,90 não é um ponto de operação, é um número que cai
+    em 6% de uma curva e em 42% de outra. Igualar a fração marcada é a correção
+    mais barata que existe para isso, e ela não tem como decorar a amostra:
+    não há nada por fonte para ajustar.
+    """
+    escolha = {}
+    for fonte, pontos in curvas.items():
+        alvo = fracao * pontos[-1][0]
+        escolha[fonte] = max((p for p in pontos if p[0] <= alvo + 1e-9),
+                             key=lambda p: p[0], default=pontos[0])
+    return escolha
+
+
+def _percentil_ao_orcamento(curvas, orcamento):
+    """
+    O maior percentil, igual em toda fonte, que ainda cabe no orçamento.
+
+    Busca binária, e ela é legítima porque o custo é monótono na fração: subir
+    o percentil nunca faz uma fonte marcar menos.
+    """
+    baixo, alto = 0.0, 1.0
+    melhor = _escolha_por_percentil(curvas, baixo)
+    for _ in range(60):
+        meio = (baixo + alto) / 2
+        escolha = _escolha_por_percentil(curvas, meio)
+        if sum(p[0] for p in escolha.values()) > orcamento:
+            alto = meio
+        else:
+            melhor, baixo = escolha, meio
+    return melhor
+
+
+def _percentil_ao_recall(curvas, alvo_erros):
+    """O menor percentil, igual em toda fonte, que ainda pega `alvo_erros`."""
+    baixo, alto = 0.0, 1.0
+    melhor = _escolha_por_percentil(curvas, alto)
+    for _ in range(60):
+        meio = (baixo + alto) / 2
+        escolha = _escolha_por_percentil(curvas, meio)
+        if sum(p[1] for p in escolha.values()) >= alvo_erros:
+            melhor, alto = escolha, meio
+        else:
+            baixo = meio
+    return melhor
+
+
+def _aplicar_cortes(cortes, linhas, errou):
+    """
+    `(marcados, erros)` de um corte por fonte, aplicado a estes boxes.
+
+    Fonte que não está em `cortes` cai na **regra de produção**, e não em
+    "marca nada": é a trava da F52 outra vez. Com 11 páginas toda fonte
+    aparece nos dois lados da divisão, mas uma amostra menor (`--paginas 2`)
+    pode não ter, e aí a linha tem de continuar medindo a fila que existe.
+    """
+    marcados = [r for r in linhas
+                if (r[1] < cortes[r[0]][2] if r[0] in cortes
+                    else conf_ui.precisa_revisao(_BoxFalso(r)))]
+    return len(marcados), sum(1 for r in marcados if errou(r))
+
+
+def tabela_ponto_de_operacao(linhas):
+    """
+    O corte **por fonte**, contra o número único de hoje (F56).
+
+    A F55 fechou apontando isto: `LIMIAR_ALTO` é um número só para o programa
+    inteiro, e ele cai em lugares muito diferentes de cada curva — 6% da página
+    no caminho neural, 42% na ação «OCR (EasyOCR)», onde 803 erros escapam. A
+    régua de lá é boa (0,776); o que está errado é o **ponto de operação**.
+
+    Duas coisas já medidas delimitam esta tabela:
+
+    - a F43 mediu a fila como *ordenação* e a F44 corrigiu: o código é um
+      **corte**. `tabela_revisao` já compara a ordenação por percentil de fonte
+      contra a crua; o corte por fonte é o que ninguém mediu;
+    - a F47 fixou a regra de comparação — **duas réguas só se comparam a custo
+      igual ou a recall igual**. As duas metades estão aqui, e as duas são
+      necessárias: uma regra por fonte pode não conseguir *gastar* o orçamento
+      de hoje (marcar box que não acrescenta erro não compra nada), e aí a
+      comparação a custo igual não existe e a de recall igual é a que responde.
+
+    O que **não** entra na conta: quem já entra na fila por outro motivo — box
+    vazio e as `FONTES_SEMPRE_REVISADAS`. Aqueles boxes são marcados em toda
+    linha da tabela, e mexer neles é a decisão da F48, que esta fase não
+    reabre. O orçamento distribuído é o que sobra depois deles.
+
+    **A segunda metade é a que decide.** Um corte por fonte ajustado na mesma
+    amostra em que é medido decora a amostra, e com 5 fontes e 11 páginas decora
+    bastante. `uma página de cada vez` ajusta nas outras dez e mede na que
+    sobrou, somando as onze — é o mesmo cuidado que a F37 tomou com a
+    contaminação da base, aplicado ao limiar em vez de ao vizinho.
+    """
+    def errou(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    def fixo(reg):
+        """Quem entra na fila por regra que esta fase não mexe (F48)."""
+        return not reg[2] or reg[0] in conf_ui.FONTES_SEMPRE_REVISADAS
+
+    fixos = [r for r in linhas if fixo(r)]
+    filtraveis = [r for r in linhas if not fixo(r)]
+    if not filtraveis:
+        return
+
+    custo_fixo = len(fixos)
+    pegos_fixo = sum(1 for r in fixos if errou(r))
+    total_erros = sum(1 for r in linhas if errou(r))
+
+    # A regra de produção, chamada e não copiada (F52).
+    marcados_hoje = [r for r in linhas if conf_ui.precisa_revisao(_BoxFalso(r))]
+    custo_hoje = len(marcados_hoje)
+    pegos_hoje = sum(1 for r in marcados_hoje if errou(r))
+    orcamento = custo_hoje - custo_fixo
+
+    por_fonte = {}
+    for reg in filtraveis:
+        por_fonte.setdefault(reg[0], []).append(reg)
+    curvas = {f: _cortes_possiveis(p, errou) for f, p in por_fonte.items()}
+
+    # Cada regra com o seu ajuste nas duas direções da F47.
+    regras = [("um percentil por fonte",
+               _percentil_ao_orcamento, _percentil_ao_recall),
+              ("um limiar por fonte (teto)",
+               _melhor_ao_orcamento, _melhor_ao_recall)]
+
+    paginas = sorted({r[4] for r in filtraveis})
+
+    def fora_da_amostra(ajustar, alvo_de):
+        """
+        Ajusta em dez páginas, mede na décima primeira, soma as onze.
+
+        O que atravessa da amostra de ajuste para a medida é o **corte**, e não
+        o orçamento: nada da página medida entrou na escolha do limiar dela. É
+        o cuidado que a F37 tomou com a contaminação da base, aplicado ao
+        limiar em vez de ao vizinho.
+        """
+        custo = pegos = 0
+        for pagina in paginas:
+            treino = [r for r in filtraveis if r[4] != pagina]
+            teste = [r for r in filtraveis if r[4] == pagina]
+            if not treino or not teste:
+                continue
+            por_f = {}
+            for reg in treino:
+                por_f.setdefault(reg[0], []).append(reg)
+            cur = {f: _cortes_possiveis(p, errou) for f, p in por_f.items()}
+            cortes = ajustar(cur, alvo_de(treino))
+            c, p = _aplicar_cortes(cortes, teste, errou)
+            custo += c
+            pegos += p
+        return custo + custo_fixo, pegos + pegos_fixo
+
+    print(f"\n--- o ponto de operação, por fonte (F56), em {len(linhas)} boxes "
+          f"com {total_erros} erros ---")
+    print(f"{custo_hoje} marcados hoje, dos quais {custo_fixo} por regra fixa "
+          f"(vazio e F48) — o orçamento distribuído é {orcamento}")
+    print(f"\n{'a custo igual':<30}{'marcados':>10}{'erros pegos':>13}"
+          f"{'à toa':>9}{'escapam':>10}{'':>4}{'fora da amostra':>17}")
+
+    def linha(nome, custo, pegos, fora=None):
+        cauda = ""
+        if fora is not None:
+            cauda = f"{'':>4}{f'{fora[1]} em {fora[0]}':>17}"
+        print(f"{nome:<30}{custo:>10}{pegos:>13}{custo - pegos:>9}"
+              f"{total_erros - pegos:>10}{cauda}")
+
+    linha("hoje (um limiar para todos)", custo_hoje, pegos_hoje)
+
+    def custo_de_hoje(parte):
+        return sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+
+    def recall_de_hoje(parte):
+        return sum(1 for r in parte
+                   if conf_ui.precisa_revisao(_BoxFalso(r)) and errou(r))
+
+    escolhas = {}
+    for nome, ao_orcamento, _ao_recall in regras:
+        cortes = ao_orcamento(curvas, orcamento)
+        escolhas[nome] = cortes
+        custo, pegos = _aplicar_cortes(cortes, filtraveis, errou)
+        linha(nome, custo + custo_fixo, pegos + pegos_fixo,
+              fora=fora_da_amostra(ao_orcamento, custo_de_hoje))
+
+    # O teto que regra nenhuma alcança: gastar o orçamento inteiro em erro. Ele
+    # não é atingível — separa por rótulo —, e está aqui para dizer se a
+    # distância entre as linhas de cima é o que sobra ou o que já foi tirado.
+    linha("oráculo (gasta tudo em erro)",
+          custo_hoje,
+          min(orcamento, sum(1 for r in filtraveis if errou(r))) + pegos_fixo)
+
+    # ------------------------------------------------------------------
+    # A outra metade da regra da F47: mesmo erro pego, quanto cada uma cobra.
+    # ------------------------------------------------------------------
+    print(f"\n{'a recall igual':<30}{'marcados':>10}{'erros pegos':>13}"
+          f"{'à toa':>9}{'escapam':>10}{'':>4}{'fora da amostra':>17}")
+    linha("hoje (um limiar para todos)", custo_hoje, pegos_hoje)
+    alvo = pegos_hoje - pegos_fixo
+    for nome, _ao_orcamento, ao_recall in regras:
+        cortes = ao_recall(curvas, alvo)
+        custo, pegos = _aplicar_cortes(cortes, filtraveis, errou)
+        linha(nome, custo + custo_fixo, pegos + pegos_fixo,
+              fora=fora_da_amostra(ao_recall, recall_de_hoje))
+    print("  'fora da amostra' é 'erros pegos em marcados', com o corte "
+          "ajustado nas outras dez páginas")
+
+    # Os cortes que produção embarcaria, e a coluna que a F55 pediu: onde o
+    # número único cai em cada curva, contra onde a regra de um parâmetro cai.
+    print(f"\n{'fonte':<16}{'boxes':>7}{'erros':>7}{'hoje marca':>12}"
+          f"{'':>4}{'corte do percentil':>20}{'marcaria':>10}")
+    cortes = escolhas["um percentil por fonte"]
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        hoje = sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+        marcados, _erros_do_corte, t = cortes[fonte]
+        print(f"{fonte:<16}{len(parte):>7}"
+              f"{sum(1 for r in parte if errou(r)):>7}"
+              f"{100.0 * hoje / len(parte):>11.0f}%{'':>4}{t:>20.4f}"
+              f"{100.0 * marcados / len(parte):>9.0f}%")
+    print("  'hoje marca' é a coluna da F55: o mesmo limiar em lugares "
+          "diferentes de cada curva")
+
+    # ------------------------------------------------------------------
+    # O limiar de cada fonte, precificado na curva dela.
+    # ------------------------------------------------------------------
+    # **É o bloco que sobrevive mesmo se a redistribuição não pagar**, e o que
+    # a F55 pediu com todas as letras: ela registrou que o `LIMIAR_ALTO` cai em
+    # 6% de uma curva e em 42% de outra, e não tinha como dizer *que número*
+    # cada fonte pediria. Sem esta tabela o 0,90 de cada ação continua sendo
+    # herdado; com ela, escolhido — o que não é a mesma coisa mesmo quando o
+    # número escolhido é o mesmo.
+    print(f"\n{'a curva de cada fonte':<16}{'':>10}"
+          + "".join(f"{f'{int(a * 100)}% dos erros':>22}"
+                    for a in ALVOS_DE_RECALL))
+    print(f"{'fonte':<16}{'hoje':>10}"
+          + "".join(f"{'corte':>10}{'à toa':>12}" for _a in ALVOS_DE_RECALL))
+    for fonte, parte in sorted(por_fonte.items(), key=lambda kv: -len(kv[1])):
+        pontos = curvas[fonte]
+        erros_da_fonte = pontos[-1][1]
+        hoje = sum(1 for r in parte if conf_ui.precisa_revisao(_BoxFalso(r)))
+        pegos_hoje_fonte = sum(1 for r in parte
+                               if conf_ui.precisa_revisao(_BoxFalso(r))
+                               and errou(r))
+        celulas = ""
+        for alvo in ALVOS_DE_RECALL:
+            # O ponto mais barato que alcança o alvo. `None` quando a fonte não
+            # tem erro suficiente para a pergunta fazer sentido.
+            alcanca = [p for p in pontos if p[1] >= alvo * erros_da_fonte]
+            if not erros_da_fonte or not alcanca:
+                celulas += f"{'—':>10}{'—':>12}"
+                continue
+            marcados, pegos, t = min(alcanca, key=lambda p: p[0])
+            celulas += f"{t:>10.4f}{marcados - pegos:>12}"
+        print(f"{fonte:<16}{f'{pegos_hoje_fonte}/{hoje}':>10}{celulas}")
+    print("  'hoje' é 'erros pegos/boxes marcados' pela regra de hoje nesta "
+          "fonte; 'à toa' é o acerto aberto para alcançar o alvo")
+
+
+def tabela_do_knn(aquecidos, verdade):
+    """
+    O elo do k-NN sozinho: acerto, e o quanto a confiança denuncia o erro.
+
+    A segunda metade é a tabela da F14 aplicada a este elo, e ela mede o outro
+    uso da confiança — a fila de revisão da F3.2, que ordena por ela. As duas
+    colunas comparam a de produção (distância absoluta) com a margem, que a F24
+    mediu e devolveu.
+    """
+    medidos = [(fk, ck, margem, verdade[chave])
+               for chave, fk, ck, _co, _d, margem, _mr in aquecidos
+               if chave in verdade]
+    if not medidos:
+        return
+    certos = [normalizar(ck) == normalizar(vd) for _fk, ck, _m, vd in medidos]
+    print(f"\nO k-NN sozinho, em {len(medidos)} boxes: "
+          f"**{100.0 * sum(certos) / len(medidos):.2f}%**")
+
+    print(f"\n{'corte':>8}{'':>4}{'produção (distância)':>26}{'':>4}"
+          f"{'margem (F24, fora)':>26}")
+    print(f"{'':>8}{'':>4}{'pega':>8}{'à toa':>9}{'escapa':>9}{'':>4}"
+          f"{'pega':>8}{'à toa':>9}{'escapa':>9}")
+    for corte in (0.30, 0.50, 0.70, 0.90, 0.99):
+        celulas = []
+        for conf_de in (lambda r: r[0], lambda r: r[2]):
+            pega = toa = escapa = 0
+            for reg, ok in zip(medidos, certos):
+                abaixo = conf_de(reg) < corte
+                if not ok and abaixo:
+                    pega += 1
+                elif not ok:
+                    escapa += 1
+                elif abaixo:
+                    toa += 1
+            celulas.append(f"{pega:>8}{toa:>9}{escapa:>9}")
+        print(f"{corte:>8.2f}{'':>4}{celulas[0]}{'':>4}{celulas[1]}")
+
+    # A tabela de cortes acima serve para escolher um limiar, **não** para
+    # comparar as duas fórmulas: as escalas são outras, e o mesmo 0,70 corta em
+    # lugares diferentes da distribuição. A comparação justa é a recall igual —
+    # para pegar a mesma fração dos erros, quantos acertos vão para a revisão à
+    # toa. É a única forma de o número não depender de onde se corta.
+    alvos = (0.25, 0.50, 0.75)
+    print(f"\n{'para pegar':<14}" + "".join(f"{f'{int(a*100)}% dos erros':>18}"
+                                           for a in alvos))
+    for nome, conf_de in (("produção", lambda r: r[0]),
+                          ("margem", lambda r: r[2]),
+                          ("mín. das duas", lambda r: min(r[0], r[2]))):
+        custos = _custo_por_recall(medidos, certos, conf_de, alvos)
+        celulas = "".join(f"{('—' if c is None else f'{c} à toa'):>18}"
+                          for c in custos)
+        print(f"{nome:<14}{celulas}")
+
+    for nome, conf_de in (("produção", lambda r: r[0]),
+                          ("margem", lambda r: r[2])):
+        erros = [conf_de(r) for r, ok in zip(medidos, certos) if not ok]
+        acertos = [conf_de(r) for r, ok in zip(medidos, certos) if ok]
+        me = float(np.median(erros)) if erros else float("nan")
+        ma = float(np.median(acertos)) if acertos else float("nan")
+        print(f"  {nome:<16} mediana de um erro {me:.4f}, de um acerto {ma:.4f}")
+
+
+def _custo_por_recall(medidos, certos, conf_de, alvos):
+    """
+    Quantos acertos entram na revisão até pegar cada fração dos erros.
+
+    Percorre os boxes do menos confiante para o mais confiante — que é a ordem
+    em que o revisor os veria (F3.2) — e anota o custo acumulado ao cruzar cada
+    alvo. `None` quando o alvo não é alcançável.
+    """
+    pares = sorted((conf_de(r), ok) for r, ok in zip(medidos, certos))
+    total_erros = sum(1 for _c, ok in pares if not ok)
+    if not total_erros:
+        return [None] * len(alvos)
+
+    saida, pegos, toa = [], 0, 0
+    restantes = list(alvos)
+    for _c, ok in pares:
+        if ok:
+            toa += 1
+        else:
+            pegos += 1
+        while restantes and pegos >= restantes[0] * total_erros:
+            saida.append(toa)
+            restantes.pop(0)
+    return saida + [None] * len(restantes)
+
+
+#: Faixas de distância crua do vizinho mais próximo (F35).
+#:
+#: É a tabela de roteamento **sem escala**: quem decide o corte é a distância, e
+#: `DISTANCIA_MAXIMA` com o `learner_threshold` são só uma parametrização dela —
+#: `conf > t` é `d < D(1-t)`, então os dois limiares têm um grau de liberdade só.
+#: Em unidade de distância a pergunta fica direta: **até onde o k-NN ainda ganha
+#: do EasyOCR?**
+DISTANCIAS = (0, 200, 500, 800, 1000, 1200, 1400, 1700, 2000, 2500, 3000,
+              float("inf"))
+
+
+def tabela_por_distancia(aquecidos, verdade):
+    """O k-NN contra o EasyOCR nos mesmos boxes, por distância crua."""
+    print(f"\n{'distância ao vizinho':<24}{'boxes':>8}{'k-NN':>9}{'EasyOCR':>10}"
+          f"{'':>4}{'quem ganha':<12}")
+    for lo, hi in zip(DISTANCIAS, DISTANCIAS[1:]):
+        parte = [(ck, co, verdade[chave])
+                 for chave, _fk, ck, co, dist, _m, _mr in aquecidos
+                 if lo <= dist < hi and chave in verdade]
+        if not parte:
+            continue
+        knn = 100.0 * sum(1 for c, _o, v in parte
+                          if normalizar(c) == normalizar(v)) / len(parte)
+        ocr = 100.0 * sum(1 for _c, o, v in parte
+                          if normalizar(o) == normalizar(v)) / len(parte)
+        ganha = "k-NN" if knn > ocr else ("EasyOCR" if ocr > knn else "empate")
+        rotulo = f"{lo} – {'∞' if hi == float('inf') else int(hi)}"
+        print(f"{rotulo:<24}{len(parte):>8}{knn:>8.1f}%{ocr:>9.1f}%"
+              f"{'':>4}{ganha:<12}")
+
+
+def tabela_roteamento(aquecidos, verdade):
+    """
+    O k-NN e o EasyOCR nos **mesmos** boxes, por faixa de confiança do k-NN.
+
+    É a tabela que decide o `learner_threshold`: onde a coluna do k-NN cai
+    abaixo da do EasyOCR, mandar o box para o EasyOCR compra acerto; acima
+    dela, custa. O limiar de hoje (0,85 no híbrido) nunca foi conferido contra
+    isto — veio de ser o mesmo número da trava da linha.
+    """
+    print(f"\n{'confiança do k-NN':<20}{'boxes':>8}{'k-NN':>10}{'EasyOCR':>10}"
+          f"{'':>4}{'quem ganha':<12}")
+    for lo, hi in zip(FAIXAS, FAIXAS[1:]):
+        parte = [(ck, co, verdade[chave])
+                 for chave, fk, ck, co, _d, _m, _mr in aquecidos
+                 if lo <= fk < hi and chave in verdade]
+        if not parte:
+            continue
+        knn = 100.0 * sum(1 for c, _o, v in parte
+                          if normalizar(c) == normalizar(v)) / len(parte)
+        ocr = 100.0 * sum(1 for _c, o, v in parte
+                          if normalizar(o) == normalizar(v)) / len(parte)
+        ganha = "k-NN" if knn > ocr else ("EasyOCR" if ocr > knn else "empate")
+        rotulo = f"{lo:.2f} – {min(hi, 1.0):.2f}"
+        print(f"{rotulo:<20}{len(parte):>8}{knn:>9.1f}%{ocr:>9.1f}%"
+              f"{'':>4}{ganha:<12}")
+
+
+def tabela_linha(sem_linha, com_linha, quem="A linha"):
+    """
+    O que a linha trocou, e se cada troca foi conserto ou quebra.
+
+    A F21 reportou o saldo (+0,44 ponto) e a contagem de trocas (42). O que
+    falta para saber se dá para melhorar é a razão entre as duas metades: 42
+    trocas com 42 consertos e 0 quebras é um teto; 60 consertos e 18 quebras é
+    um alvo.
+
+    `quem` é o sujeito da frase: a mesma conta serve à máscara de alfabeto
+    (F117), que também troca caractere por caractere.
+    """
+    consertos = quebras = neutras = 0
+    for reg0, reg1 in zip(sem_linha, com_linha):
+        antes, vd, depois = reg0[2], reg0[3], reg1[2]
+        if normalizar(antes) == normalizar(depois):
+            continue
+        certo_antes = normalizar(antes) == normalizar(vd)
+        certo_depois = normalizar(depois) == normalizar(vd)
+        if certo_depois and not certo_antes:
+            consertos += 1
+        elif certo_antes and not certo_depois:
+            quebras += 1
+        else:
+            neutras += 1
+
+    total = consertos + quebras + neutras
+    print(f"\n{quem} trocou {total} boxes: {consertos} conserto(s), "
+          f"{quebras} quebra(s), {neutras} errado antes e depois.")
+    if total:
+        print(f"Saldo: {consertos - quebras:+d} caractere(s).")
+
+
+class _ForaDoAlfabeto:
+    """
+    `ch in isto` é "o `english_g2` não escreve `ch`" — o filtro **largo** da F36.
+
+    Existe para `em_bloco` ter uma polaridade só: ele pergunta "este glifo
+    desloca?", e o filtro largo responde por complemento. Sem isto o parâmetro
+    teria de aceitar as duas leituras, que é como se escreve um `if` invertido
+    seis meses depois.
+    """
+
+    def __init__(self, alfabeto):
+        self._alfabeto = set(alfabeto)
+
+    def __contains__(self, ch):
+        return bool(ch) and ch not in self._alfabeto
+
+
+def tabela_alfabeto(cadeia, paginas, caminho, learner_threshold, trava):
+    """
+    Os dois filtros contra nenhum, nos mesmos boxes (F36).
+
+    O filtro tira do modo bloco a linha cuja **âncora** leu um glifo que o
+    reconhecedor de linha não escreve casa a casa. A linha que sai do bloco não
+    fica sem leitura: cai no modo por caractere, que é a âncora sozinha.
+
+    **São dois filtros e não um, e a diferença entre eles é a fase inteira.**
+
+    - **largo** — tudo que está fora do alfabeto do `english_g2`. Foi a primeira
+      tentativa, e é o que o cabeçalho da F17 sugere ao falar em "alfabeto".
+    - **estreito** — só o que gasta um número de casas diferente de um: figurina
+      e ligadura. Um `±` ou uma aspa curva estão fora do alfabeto e saem como
+      **um** caractere errado, que é o erro comum — o alinhamento absorve e a
+      trava filtra.
+
+    As três contas que decidem:
+
+    - **quantas linhas cada um tira**, com a causa separada. A F17 estimou 19%
+      das linhas por causa de figurina; o que passar muito disso é o filtro
+      pegando outra coisa;
+    - **o saldo em caracteres**, separado em melhorou e piorou. Um filtro que
+      conserta 30 e quebra 28 tem saldo 2 e não é o mesmo que um que conserta 2
+      e não quebra nenhum;
+    - **o acerto**, que é o que decide, mas só depois das duas de cima — em
+      10.484 caracteres, um ponto decimal é uma dúzia de casos.
+    """
+    largo = _ForaDoAlfabeto(ldl.ALFABETO_EASYOCR)
+    estreito = ldl.GLIFOS_QUE_DESLOCAM
+    filtros = [("sem filtro", None), ("estreito (F36)", estreito),
+               ("largo (alfabeto)", largo)]
+
+    corridas = {nome: rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                            deslocam=d)
+                for nome, d in filtros}
+
+    # As linhas, contadas sobre a mesma âncora que a cadeia leu. Tudo aqui já
+    # está memorizado pelo aquecimento, então a contagem não custa consulta.
+    dentro = 0
+    fora = {nome: 0 for nome, _d in filtros[1:]}
+    causas = {"ligadura": 0, "figurina": 0, "outro símbolo": 0}
+    for p in paginas:
+        leitor = cadeia.leitor(p, caminho, learner_threshold)
+        for uma in p.linhas:
+            chars = [leitor(b)[0] for b in uma]
+            if not ldl.em_bloco(uma, None, chars):
+                continue
+            dentro += 1
+            for nome, d in filtros[1:]:
+                if not ldl.em_bloco(uma, d, chars):
+                    fora[nome] += 1
+            if ldl.em_bloco(uma, largo, chars):
+                continue
+            # A causa é do **largo**, que é o que tira mais: é a decomposição
+            # dele que mostra o que o estreito deixa de tirar, e por quê.
+            culpados = [c for c in chars if c and (len(c) > 1 or c in largo)]
+            if any(len(c) > 1 for c in culpados):
+                causas["ligadura"] += 1
+            elif any(c in FIGURINAS for c in culpados):
+                causas["figurina"] += 1
+            else:
+                causas["outro símbolo"] += 1
+
+    print("\n--- Os filtros da F36 ---")
+    print(f"linhas lidas em bloco, sem filtro{'':<6}{dentro:>8}")
+    for nome, _d in filtros[1:]:
+        pct = 100.0 * fora[nome] / dentro if dentro else 0.0
+        print(f"  que o {nome:<26}tira{fora[nome]:>8}   ({pct:.1f}%)")
+    print("a causa da exclusão, no largo:")
+    for causa, n in causas.items():
+        print(f"    {causa:<20}{n:>8}")
+
+    base = corridas["sem filtro"]
+    linhas_da_tabela = []
+    for nome, _d in filtros:
+        r = corridas[nome]
+        melhorou = piorou = mudou = 0
+        for a, b in zip(base, r):
+            if a[2] == b[2]:
+                continue
+            mudou += 1
+            antes = normalizar(a[2]) == normalizar(a[3])
+            depois = normalizar(b[2]) == normalizar(b[3])
+            if depois and not antes:
+                melhorou += 1
+            elif antes and not depois:
+                piorou += 1
+        trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
+        linhas_da_tabela.append(
+            (nome, [acerto(r), trocados, mudou, melhorou, piorou]))
+    tabela_varredura(
+        "o filtro da linha (F36), contra a corrida sem filtro",
+        ["acerto", "trocados", "mudaram", "consertos", "quebras"],
+        linhas_da_tabela)
+
+
+def tabela_sem_trava(cadeia, paginas, caminho, learner_threshold, trava,
+                     isentas, producao, deslocam=None):
+    """
+    A trava isentando `isentas`, contra a produção do mesmo processo.
+
+    A hipótese: a trava foi feita para a linha não passar por cima da rede
+    (F20), mas `cf >= trava` vale para toda fonte — inclusive o `easyocr`, cuja
+    confiança a F48 mediu como plana (mediana 0,97 no erro e no acerto). Esse
+    elo é o último da cadeia, acerta 46% no que lhe sobra, e é onde a linha
+    (89,5%) mais teria a dizer; se a trava o protege, protege o pior elo do
+    melhor conserto. Isentá-lo é deixar a linha mandar ali sempre, e a trava
+    seguir valendo para a rede e o k-NN.
+
+    A conta que decide não é o total — o elo responde ~1,5% dos boxes — e sim
+    o que muda nos boxes que ele respondeu: quantos estavam travados, quantos a
+    linha troca, e conserto contra quebra em cada troca.
+    """
+    def trocados(r):
+        return sum(1 for reg in r if reg[0] == "easyocr_linha")
+
+    # As duas pontas são calculadas aqui, e não herdadas de `producao`: desde a
+    # F116 produção **já** isenta o `easyocr`, e a tabela compara a trava que
+    # segura toda fonte com a que isenta `isentas` — que pode ser outro conjunto.
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, fontes_sem_trava=frozenset())
+    isento = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                   deslocam=deslocam, fontes_sem_trava=isentas)
+    nomes = ", ".join(sorted(isentas))
+    print(f"\n=== A trava ({trava}) isentando {nomes} ===")
+    tabela_varredura(f"trava {trava}, isentando {nomes}",
+                     ["acerto", "trocados"],
+                     [("sem isenção", [acerto(sem), trocados(sem)]),
+                      ("isentando", [acerto(isento), trocados(isento)]),
+                      ("produção", [acerto(producao), trocados(producao)])])
+    tabela_linha(sem, isento)
+
+    # A população que a mudança alcança: quem a âncora respondeu por uma das
+    # fontes isentas. `travados` são os que a trava segurava e a isenção solta.
+    pares = [(x, y) for x, y in zip(sem, isento) if x[0] in isentas]
+    if pares:
+        travados = [x for x, _y in pares if x[1] >= trava]
+        print(f"\nNos {len(pares)} boxes que a âncora respondeu por {nomes}: "
+              f"{acerto([x for x, _y in pares]):.2f}% sem isenção, "
+              f"{acerto([y for _x, y in pares]):.2f}% isentando. "
+              f"{len(travados)} estavam travados (conf >= {trava}), "
+              f"a {acerto(travados):.2f}%.")
+        tabela_linha([x for x, _y in pares], [y for _x, y in pares])
+
+    # E a trava do resto, com a isenção ligada: soltar o elo fraco pode mudar
+    # onde a trava dos elos fortes deve ficar.
+    linhas_da_tabela = []
+    for t in sorted({trava, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99}):
+        r = rodar(cadeia, paginas, caminho, learner_threshold, t,
+                  deslocam=deslocam, fontes_sem_trava=isentas)
+        linhas_da_tabela.append((f"{t:.2f}", [acerto(r), trocados(r)]))
+    tabela_varredura(f"a trava do resto, isentando {nomes}",
+                     ["acerto", "trocados"], linhas_da_tabela)
+
+
+def tabela_mascara(cadeia, paginas, caminho, learner_threshold, trava, idioma,
+                   deslocam=None):
+    """
+    A máscara de alfabeto (F117) contra a cadeia sem ela, no mesmo processo.
+
+    A F109 mediu a máscara no livro exportado — 1.112 letras acentuadas num
+    livro em inglês, nenhuma legítima. Aqui ela é medida onde as duas ações da
+    tela a passam: na cadeia inteira, com o k-NN também mascarado, e contra o
+    rótulo. A conta que importa é a dos boxes em que a leitura **mudou**: a
+    máscara só age onde a primeira resposta era uma letra que o idioma não
+    escreve, então tudo o que ela toca está nesta lista.
+    """
+    from core import alfabeto
+
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, idioma=None)
+    com = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, idioma=idioma)
+
+    def acentuadas(r):
+        return sum(1 for reg in r if not alfabeto.permitido(reg[2], idioma))
+
+    print(f"\n=== A máscara de alfabeto ({idioma}) ===")
+    tabela_varredura(f"máscara de alfabeto, idioma {idioma}",
+                     ["acerto", "fora do alf."],
+                     [("sem máscara", [acerto(sem), acentuadas(sem)]),
+                      ("com máscara", [acerto(com), acentuadas(com)])])
+    tabela_linha(sem, com, quem="A máscara")
+
+    mudou = [(x, y) for x, y in zip(sem, com)
+             if normalizar(x[2]) != normalizar(y[2])]
+    if mudou:
+        print(f"\n{'antes':>8}{'depois':>8}{'verdade':>9}{'fonte':>10}   página")
+        for x, y in mudou[:40]:
+            print(f"{x[2]:>8}{y[2]:>8}{x[3]:>9}{y[0]:>10}   {y[4]}")
+        if len(mudou) > 40:
+            print(f"  (+{len(mudou) - 40})")
+
+
+def tabelas_de_fora(paginas, arbitro=None):
+    """
+    `{obra: tabela}` — a da geometria (F112) estimada **nas outras obras**.
+
+    É a divisão de `medir_geometria.py`, e pela mesma razão: o livro que a
+    janela lê não está nas páginas rotuladas, e a tabela gravada foi estimada
+    nestas mesmas páginas. A verdade de cada box é o rótulo casado, e o glifo é
+    o corpo de tinta do recorte que a cadeia lê.
+
+    **As páginas que estimam são todas as rotuladas**, e não só as medidas:
+    oito das onze que este instrumento mede são do Kasparov, e a tabela dele
+    sairia das três páginas do Aagaard, curta demais para ter as classes. Com
+    o `arbitro`, as outras páginas de `medir_geometria.paginas()` entram só
+    para estimar, segmentadas como as medidas.
+    """
+    todas = list(paginas)
+    if arbitro is not None:
+        from scripts.medidas.medir_geometria import paginas as todas_as_rotuladas
+
+        medidas = {os.path.normcase(os.path.abspath(p.caminho_box))
+                   for p in paginas}
+        for caminho_img, caminho_box in todas_as_rotuladas():
+            if os.path.normcase(os.path.abspath(caminho_box)) in medidas:
+                continue
+            p = Pagina(caminho_img, caminho_box, arbitro)
+            if len(p.rotulados) >= MIN_ROTULADOS:
+                todas.append(p)
+    amostras = {}
+    for p in todas:
+        for linha in p.linhas:
+            amostras.setdefault(p.obra, []).append(
+                [(gl.medir(vertical.recorte_de_pe(p.arr, b), b), p.verdade[id(b)])
+                 for b in linha if id(b) in p.verdade])
+    return {obra: gl.estimar_tabela([l for outra, ls in amostras.items()
+                                     if outra != obra for l in ls])
+            for obra in {p.obra for p in paginas}}
+
+
+def tabela_geometria(cadeia, paginas, caminho, learner_threshold, trava,
+                     deslocam=None, arbitro=None):
+    """
+    A poda da geometria da linha (F112) na cadeia da janela (F123).
+
+    A F112 a mediu no caminho do livro, onde a âncora é só a rede; aqui a âncora
+    é a cadeia inteira e a linha do EasyOCR vem depois, com a trava. A conta é a
+    da máscara: o que mudou entre a cadeia sem a poda e com ela, no mesmo
+    processo e sobre as mesmas respostas memorizadas. A tabela de cada obra é a
+    estimada nas outras (`tabelas_de_fora`), porque o livro que a janela lê não
+    está nas páginas rotuladas; a gravada, que é a da ação e viu estas páginas,
+    entra na última linha só para comparar.
+    """
+    if caminho != "neural" or cadeia.predictor is None:
+        print("\n--geometria precisa de --neural: as candidatas da troca são "
+              "as da rede, e o híbrido não a carrega.")
+        return
+
+    def topk(recorte, k):
+        return cadeia.predictor.predict_topk(recorte, k=k)
+
+    fora = tabelas_de_fora(paginas, arbitro)
+    sem = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam, podar=None)
+    com = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                deslocam=deslocam,
+                podar=lambda p: gl.poda_da_ancora(p.arr, topk,
+                                                  tabela=fora[p.obra]))
+    gravada = rodar(cadeia, paginas, caminho, learner_threshold, trava,
+                    deslocam=deslocam)
+
+    def trocados(r):
+        return sum(1 for reg in r if reg[0] == gl.FONTE)
+
+    def errado(reg):
+        return normalizar(reg[2]) != normalizar(reg[3])
+
+    def colunas(r):
+        # Na janela o erro que conta é o que **escapa** da fila: o que entra
+        # nela o usuário vê. A troca da geometria entra sempre (F123).
+        fila = [reg for reg in r if conf_ui.precisa_revisao(_BoxFalso(reg))]
+        return [acerto(r), trocados(r), len(fila),
+                sum(1 for reg in r if errado(reg)
+                    and not conf_ui.precisa_revisao(_BoxFalso(reg)))]
+
+    print("\n=== A geometria da linha na janela (F123) ===")
+    tabela_varredura("poda da geometria (F112) na cadeia da janela",
+                     ["acerto", "trocados", "na fila", "erro sem fila"],
+                     [("sem poda", colunas(sem)),
+                      ("tabela de fora", colunas(com)),
+                      ("tabela gravada", colunas(gravada))])
+    tabela_linha(sem, com, quem="A geometria")
+
+    mudou = [(x, y) for x, y in zip(sem, com)
+             if normalizar(x[2]) != normalizar(y[2])]
+    if mudou:
+        print(f"\n{'antes':>8}{'depois':>8}{'verdade':>9}{'fonte':>12}   página")
+        for x, y in mudou[:60]:
+            print(f"{x[2]:>8}{y[2]:>8}{x[3]:>9}{y[0]:>12}   {y[4]}")
+        if len(mudou) > 60:
+            print(f"  (+{len(mudou) - 60})")
+
+
+def tabela_varredura(titulo, colunas, linhas_da_tabela):
+    print(f"\n--- {titulo} ---")
+    print(f"{'':<14}" + "".join(f"{c:>14}" for c in colunas))
+    for rotulo, valores in linhas_da_tabela:
+        celulas = "".join(f"{v:>13.2f}%" if isinstance(v, float)
+                          else f"{v:>14}" for v in valores)
+        print(f"{rotulo:<14}{celulas}")
+
+
+# ----------------------------------------------------------------------
+
+def main():
+    _console_em_utf8()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--neural", action="store_true",
+                    help="mede o caminho com a rede em vez do híbrido")
+    ap.add_argument("--learner", type=float, nargs="*", default=None,
+                    help="varre o learner_threshold (o roteamento do k-NN)")
+    ap.add_argument("--trava", type=float, nargs="*", default=None,
+                    help="varre a trava da linha (F18); 'sem linha' e 'sempre' "
+                         "entram sozinhas na tabela")
+    ap.add_argument("--paginas", type=int, default=None,
+                    help="mede só as N primeiras páginas rotuladas")
+    ap.add_argument("--so", nargs="*", default=None,
+                    help="mede só as páginas cujo nome contém um destes "
+                         "pedaços — é assim que se isola uma página limpa da "
+                         "base de referência (ver `tabela_por_pagina`)")
+    ap.add_argument("--limiar", type=float, default=None,
+                    help="troca o learner_threshold desta ação, para a rodada "
+                         "de produção e para a varredura da trava")
+    ap.add_argument("--k", type=int, default=None,
+                    help="quantos vizinhos votam no k-NN (F24); sem isto, o "
+                         "`K_VIZINHOS` de produção")
+    ap.add_argument("--leitor", action="store_true",
+                    help="mede as duas ações em que o EasyOCR é o leitor (F55) "
+                         "— é a rodada que não precisa da cadeia inteira")
+    ap.add_argument("--regua", action="store_true",
+                    help="as réguas candidatas de `easyocr_so` (F57) — a "
+                         "população do --leitor, mais o k-NN e a rede "
+                         "consultados no mesmo box (+12 ms por box)")
+    ap.add_argument("--knn", action="store_true",
+                    help="mede só o elo do k-NN, sem carregar o EasyOCR — é a "
+                         "rodada rápida, e é como se varre o --k")
+    ap.add_argument("--rede", type=float, nargs="*", default=None,
+                    help="varre o NEURAL_THRESHOLD (a tabela da F22), com a "
+                         "composição da cadeia em cada ponto")
+    ap.add_argument("--distancia", type=float, nargs="*", default=None,
+                    help="varre o DISTANCIA_MAXIMA do k-NN (F35), recontando a "
+                         "confiança a partir da distância já medida")
+    ap.add_argument("--alfabeto", action="store_true",
+                    help="mede os dois filtros da linha (F36) contra nenhum, "
+                         "nos mesmos boxes: o estreito de produção e o largo "
+                         "que foi tentado antes dele")
+    ap.add_argument("--com-filtro", action="store_true",
+                    help="liga o filtro de glifo da F36 em todas as tabelas; "
+                         "produção não o passa, então o padrão é sem")
+    ap.add_argument("--pdf", type=float, nargs="*", default=None,
+                    help="mede o laço do PDF pesquisável (F40) e varre a trava "
+                         "dele; sem valores, a tabela da F18")
+    ap.add_argument("--combinada", action="store_true",
+                    help="varre o roteamento com min(absoluta, margem) **e** com "
+                         "a de produção, no mesmo processo e na mesma base — a "
+                         "ideia aberta na F24")
+    ap.add_argument("--sem-trava-para", nargs="*", default=None,
+                    help="mede a trava da linha isentando estas fontes da "
+                         "âncora (sem valores: easyocr) — a linha manda sempre "
+                         "no box que elas responderam, e a trava segue valendo "
+                         "para o resto")
+    ap.add_argument("--idioma", default=None,
+                    help="o idioma das páginas rotuladas ('en', 'pt'): liga a "
+                         "máscara de alfabeto (F117) em todas as tabelas, como "
+                         "as ações da tela a ligam, e acrescenta a tabela da "
+                         "máscara contra a cadeia sem ela")
+    ap.add_argument("--geometria", action="store_true",
+                    help="com --neural: a poda da geometria da linha (F112) na "
+                         "cadeia da janela contra a cadeia sem ela (F123), com "
+                         "a tabela de cada obra estimada nas outras")
+    args = ap.parse_args()
+
+    caminho = "neural" if args.neural else "hibrido"
+    padrao_learner = (LEARNER_THRESHOLD_NEURAL if args.neural
+                      else LEARNER_THRESHOLD_HIBRIDO)
+    if args.limiar is not None:
+        padrao_learner = args.limiar
+    padrao_trava = (CONF_MAXIMA_PARA_A_LINHA if args.neural
+                    else CONF_MAXIMA_PARA_A_LINHA_HIBRIDO)
+
+    svc = LearningService()
+    if not svc.load_predictor():
+        print("sem modelo treinado — o árbitro do separador (F1.5b) precisa dele,\n"
+              "e sem ele a população de boxes não é a de produção.")
+        return 1
+    arbitro = svc._predictor.predict
+
+    achadas = paginas_rotuladas()
+    if args.so:
+        achadas = [(i, c) for i, c in achadas
+                   if any(pedaco in i for pedaco in args.so)]
+    if args.paginas:
+        achadas = achadas[:args.paginas]
+    if not achadas:
+        print("nenhuma página rotulada encontrada")
+        return 1
+
+    # `--regua` pede a rede porque duas das candidatas são dela. Sem isto o
+    # `predictor` fica `None` e as duas colunas sairiam achatadas em zero — que
+    # é pior que sair vazias, porque zero parece medida.
+    cadeia = Cadeia(com_rede=args.neural or args.regua, idioma=args.idioma)
+
+    # Guardado antes de envelopar: o cabeçalho precisa do tamanho da base, e a
+    # partir daqui `cadeia.learner` pode não ser mais o memo cru.
+    learner_cru = cadeia.learner._alvo
+
+    # O voto envolve o memo, e não o k-NN: as distâncias do aquecimento já estão
+    # no cache, então varrer `k` não custa consulta nova nenhuma. É a mesma forma
+    # de `_MemoComDistancia`, e pela mesma razão.
+    k_efetivo = core_learner.K_VIZINHOS if args.k is None else args.k
+    if args.k is not None:
+        cadeia.learner = _MemoComVoto(cadeia.learner, args.k)
+
+    print(f"Preparando {len(achadas)} página(s)...")
+    paginas, aquecidos = [], []
+    for caminho_img, caminho_box in achadas:
+        p = Pagina(caminho_img, caminho_box, arbitro)
+        if len(p.rotulados) < MIN_ROTULADOS:
+            continue
+        paginas.append(p)
+        # O `--leitor` não passa pela cadeia: as duas ações que ele mede não
+        # consultam o k-NN nem a rede, e aquecê-los custaria 12 ms por box para
+        # nada. As páginas continuam sendo montadas com o árbitro de produção,
+        # que é o que torna a população comparável à das outras tabelas.
+        if not args.leitor:
+            aquecidos.extend(cadeia.aquecer(p, com_rede=args.neural,
+                                            com_ocr=not args.knn))
+        print(f"  {p.nome}  {p.medidos} de {len(p.boxes)} boxes com rótulo",
+              flush=True)
+
+    if not paginas:
+        print("nenhuma página com rótulos suficientes")
+        return 1
+
+    verdade = {}
+    for p in paginas:
+        verdade.update(p.verdade)
+    total = sum(p.medidos for p in paginas)
+
+    na_base = {chave for chave, _fk, _ck, _co, dist, _m, _mr in aquecidos if dist == 0.0}
+
+    # O tamanho da base entra no cabeçalho porque **duas rodadas só são
+    # comparáveis se ele não mudou**, e ele muda sozinho: "Aprender com Página
+    # Atual" escreve em `training_data` enquanto a medição roda. Foi assim que a
+    # F24 quase concluiu que uma reversão fiel tinha mudado um caractere — a
+    # base tinha crescido de 70.755 para 73.900 entre uma rodada e a outra, e
+    # nada na saída dizia isso.
+    print(f"\n=========== {total} caracteres em {len(paginas)} página(s), "
+          f"caminho {caminho}, k = {k_efetivo}, "
+          f"{learner_cru.total} referências ===========")
+
+    if args.leitor or args.regua:
+        tabela_leitor(cadeia, paginas, com_sinais=args.regua)
+        return 0
+
+    if args.knn:
+        tabela_do_knn(aquecidos, verdade)
+        return 0
+
+    # O padrão espelha produção, que **não** passa filtro — a F36 mediu e
+    # desligou. `--com-filtro` liga em todas as tabelas, para quem quiser ver o
+    # efeito dele em outra coluna que não a do `--alfabeto`.
+    deslocam = ldl.GLIFOS_QUE_DESLOCAM if args.com_filtro else None
+    producao = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                     deslocam=deslocam)
+    ancora = rodar(cadeia, paginas, caminho, padrao_learner, 0.0,
+                   deslocam=deslocam)
+
+    print(f"\nComo está em produção "
+          f"(learner_threshold {padrao_learner}, trava {padrao_trava}): "
+          f"**{acerto(producao):.2f}%**")
+    print(f"Só a âncora, sem a leitura por linha: {acerto(ancora):.2f}%")
+
+    tabela_composicao(producao)
+    tabela_por_pagina(producao, na_base)
+    tabela_linha(ancora, producao)
+    margens = {chave: margem
+               for chave, _fk, _ck, _co, _d, margem, _mr in aquecidos}
+    margens_rede = {chave: mr
+                    for chave, _fk, _ck, _co, _d, _m, mr in aquecidos
+                    if mr is not None}
+    tabela_revisao(producao, margem_de=margens)
+    tabela_corte_da_revisao(producao, margens, margens_rede)
+    tabela_ponto_de_operacao(producao)
+    tabela_regua_por_fonte(producao)
+    tabela_regua_alternativa(producao, margens, margens_rede)
+    tabela_lexico(paginas, producao)
+    tabela_ponto_cego(producao,
+                      {chave: ck
+                       for chave, _fk, ck, _co, _d, _m, _mr in aquecidos})
+    tabela_fila_e_linha(ancora, producao)
+    tabela_do_knn(aquecidos, verdade)
+    tabela_roteamento(aquecidos, verdade)
+    tabela_por_distancia(aquecidos, verdade)
+
+    if args.alfabeto:
+        tabela_alfabeto(cadeia, paginas, caminho, padrao_learner, padrao_trava)
+
+    if args.learner is not None or args.combinada:
+        limiares = args.learner or [0.5, 0.7, 0.8, 0.85, 0.9, 0.95]
+        # Com `--combinada` as duas confianças são varridas na mesma base e no
+        # mesmo processo. É o cuidado que a F24 aprendeu à força: comparar com
+        # uma tabela de outra rodada é comparar com outra base.
+        confiancas = [("o roteamento do k-NN", cadeia.learner)]
+        if args.combinada:
+            confiancas.append(("min(absoluta, margem)",
+                               _MemoCombinado(cadeia.learner)))
+
+        original = cadeia.learner
+        for nome, memo in confiancas:
+            cadeia.learner = memo
+            linhas_da_tabela = []
+            for lt in limiares:
+                so_ancora = rodar(cadeia, paginas, caminho, lt, 0.0,
+                                  deslocam=deslocam)
+                # **A trava acompanha o limiar só no híbrido**, e a distinção é
+                # a F39. Lá os dois são o mesmo número por desenho: a trava
+                # existe para a linha agir exatamente onde o k-NN se recusou, e
+                # `CONF_MAXIMA_PARA_A_LINHA_HIBRIDO` é literalmente
+                # `LEARNER_THRESHOLD_HIBRIDO` (F21/F23). No caminho neural são
+                # independentes — a trava é 0,70 e o limiar do k-NN é outro
+                # número —, e amarrá-los aqui punha na tabela uma configuração
+                # que produção nunca roda.
+                trava_do_ponto = lt if caminho == "hibrido" else padrao_trava
+                com_linha = rodar(cadeia, paginas, caminho, lt, trava_do_ponto,
+                                  deslocam=deslocam)
+                linhas_da_tabela.append(
+                    (f"{lt:.2f}", [acerto(so_ancora), acerto(com_linha)]))
+            coluna = ("com a linha" if caminho == "hibrido"
+                      else f"linha @{padrao_trava:.2f}")
+            tabela_varredura(f"learner_threshold — {nome}",
+                             ["âncora", coluna], linhas_da_tabela)
+        cadeia.learner = original
+
+    if args.rede is not None:
+        if not args.neural:
+            print("\n--rede só faz sentido com --neural: o caminho híbrido não "
+                  "carrega a rede.")
+        else:
+            # A tabela da F22, com a composição junto: no platô o que muda é
+            # **quem responde**, não o acerto, e sem a composição o platô parece
+            # empate quando na verdade é o k-NN sendo desligado como segunda
+            # opinião.
+            linhas_da_tabela = []
+            for nt in (args.rede or [0.4, 0.6, 0.7, 0.8, 0.9]):
+                r = rodar(cadeia, paginas, caminho, padrao_learner,
+                          padrao_trava, neural_threshold=nt,
+                          deslocam=deslocam)
+                conta = {}
+                for reg in r:
+                    conta[reg[0]] = conta.get(reg[0], 0) + 1
+                linhas_da_tabela.append((f"{nt:.2f}", [
+                    acerto(r), conta.get("neural", 0), conta.get("learner", 0),
+                    conta.get("easyocr", 0)]))
+            tabela_varredura("NEURAL_THRESHOLD (F22, remedido)",
+                             ["acerto", "rede", "k-NN", "EasyOCR"],
+                             linhas_da_tabela)
+
+    if args.distancia is not None:
+        # O corte efetivo é `D * (1 - t)`, e é ele que roteia. A coluna existe
+        # para a tabela poder ser lida sem refazer a conta de cabeça.
+        linhas_da_tabela = []
+        for D in (args.distancia or [1000, 1500, 2000, 3000, 5000]):
+            memo = cadeia.learner
+            cadeia.learner = _MemoComDistancia(memo, D)
+            r = rodar(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                      deslocam=deslocam)
+            cadeia.learner = memo
+            conta = {}
+            for reg in r:
+                conta[reg[0]] = conta.get(reg[0], 0) + 1
+            linhas_da_tabela.append((f"{D:.0f}", [
+                acerto(r), int(round(D * (1 - padrao_learner))),
+                conta.get("learner", 0), conta.get("easyocr", 0)]))
+        tabela_varredura(
+            f"DISTANCIA_MAXIMA (F35), com learner_threshold {padrao_learner}",
+            ["acerto", "corte efetivo", "k-NN", "EasyOCR"], linhas_da_tabela)
+
+    if args.trava is not None:
+        valores = [("sem linha", 0.0)]
+        valores += [(f"{t:.2f}", t) for t in (args.trava or
+                                              [0.6, 0.7, 0.8, 0.85, 0.9, 0.95])]
+        valores.append(("sempre", None))
+        linhas_da_tabela = []
+        for rotulo, t in valores:
+            r = rodar(cadeia, paginas, caminho, padrao_learner, t,
+                      deslocam=deslocam)
+            trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
+            linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
+        tabela_varredura("trava da leitura por linha (F18)",
+                         ["acerto", "trocados"], linhas_da_tabela)
+
+    if args.sem_trava_para is not None:
+        tabela_sem_trava(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                         frozenset(args.sem_trava_para or ["easyocr"]),
+                         producao, deslocam=deslocam)
+
+    if args.idioma:
+        tabela_mascara(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                       args.idioma, deslocam=deslocam)
+
+    if args.geometria:
+        tabela_geometria(cadeia, paginas, caminho, padrao_learner, padrao_trava,
+                         deslocam=deslocam, arbitro=arbitro)
+
+    if args.pdf is not None:
+        if not args.neural:
+            print("\n--pdf precisa de --neural: o PDF pesquisável monta a cadeia"
+                  "\ncom a rede, e medi-lo sem ela mediria outro caminho.")
+        else:
+            from core.searchable_pdf import gerar_pdf_pesquisavel
+            padrao_pdf = _padrao_de(gerar_pdf_pesquisavel, "conf_linha_maxima")
+            print(f"\n=== O laço do PDF pesquisável (F40), trava {padrao_pdf} ===")
+            producao_pdf = rodar_pdf(cadeia, paginas, padrao_learner, padrao_pdf)
+            print(f"Como está em produção: **{acerto(producao_pdf):.2f}%**, "
+                  f"contra {acerto(producao):.2f}% do laço da janela")
+            tabela_composicao(producao_pdf)
+
+            # A diferença que a F40 achou entre os dois laços, medida (F42).
+            com_ctx = rodar_pdf(cadeia, paginas, padrao_learner, padrao_pdf,
+                                com_contexto=True)
+            tabela_varredura(
+                "o `contexto` no laço do PDF (F42)", ["acerto", "EasyOCR"],
+                [("sem (hoje)",
+                  [acerto(producao_pdf),
+                   sum(1 for r in producao_pdf if r[0] == "easyocr")]),
+                 ("com a faixa",
+                  [acerto(com_ctx),
+                   sum(1 for r in com_ctx if r[0] == "easyocr")])])
+            # O total esconde o efeito: o elo responde ~1,5% dos boxes. A conta
+            # que importa é sobre quem passou por ele em alguma das duas.
+            so_ocr = [(x, y) for x, y in zip(producao_pdf, com_ctx)
+                      if "easyocr" in (x[0], y[0])]
+            if so_ocr:
+                print(f"  nos {len(so_ocr)} boxes que passaram pelo EasyOCR em "
+                      f"alguma das duas: {acerto([x for x, _y in so_ocr]):.2f}% "
+                      f"sem contexto, {acerto([y for _x, y in so_ocr]):.2f}% com")
+
+            valores = [("sem linha", 0.0)]
+            valores += [(f"{t:.2f}", t) for t in (args.pdf or
+                                                  [0.70, 0.90, 0.99])]
+            # **`inf`, e não `None`.** O `--trava` usa `None` como "a linha manda
+            # sempre" porque é assim que `ler_pagina` lê o parâmetro; o
+            # `_ler_boxes` compara `conf < conf_linha_maxima` direto, e `None`
+            # ali é `TypeError`. Os dois laços têm o mesmo limiar com dois
+            # contratos, e copiar o sentinela de um para o outro quebra.
+            valores.append(("sempre", float("inf")))
+            linhas_da_tabela = []
+            for rotulo, t in valores:
+                r = rodar_pdf(cadeia, paginas, padrao_learner, t)
+                trocados = sum(1 for reg in r if reg[0] == "easyocr_linha")
+                linhas_da_tabela.append((rotulo, [acerto(r), trocados]))
+            tabela_varredura("conf_linha_maxima do PDF (a tabela da F18)",
+                             ["acerto", "trocados"], linhas_da_tabela)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

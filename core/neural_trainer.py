@@ -42,7 +42,7 @@ AVISO_SEM_CALIBRACAO = (
     "roteia a cadeia de reconhecimento. Medido nas 10 páginas rotuladas, sem "
     "calibração o filtro \"só pendentes\" mostra 11% dos erros da rede; com "
     "ela, 23%.\n\n"
-    "Para calibrar:    python calibrar_modelo.py --gravar")
+    "Para calibrar:    python scripts/medidas/calibrar_modelo.py --gravar")
 
 
 def impressao_do_modelo(caminho: str) -> str:
@@ -489,7 +489,7 @@ class NeuralTrainer:
                 # Volta a 1,0 de propósito: a temperatura da F1.9 é ajustada
                 # para UM modelo. Herdar a do modelo anterior aplicaria uma
                 # correção medida sobre outros pesos — pior que não calibrar.
-                # `python calibrar_modelo.py --gravar` reajusta.
+                # `python scripts/medidas/calibrar_modelo.py --gravar` reajusta.
                 "temperatura": 1.0,
                 # Amarra este metadado a ESTE arquivo de pesos. Ver
                 # `impressao_do_modelo` para o defeito que isto fecha.
@@ -680,12 +680,12 @@ class NeuralTrainer:
             if callback:
                 callback(f"Sem calibração: {e}. A confiança fica em softmax "
                          "cru — rotule uma página e rode "
-                         "`python calibrar_modelo.py --gravar`.")
+                         "`python scripts/medidas/calibrar_modelo.py --gravar`.")
             return
         except Exception as e:                      # noqa: BLE001
             if callback:
                 callback(f"A calibração falhou ({e}). O modelo está gravado e "
-                         "vale; rode `python calibrar_modelo.py --gravar`.")
+                         "vale; rode `python scripts/medidas/calibrar_modelo.py --gravar`.")
             return
 
         if cal.no_limite(T):
@@ -699,7 +699,7 @@ class NeuralTrainer:
                          f"{cal.LIMITES[0]}–{cal.LIMITES[1]}, o que quer dizer "
                          f"que o modelo e as páginas rotuladas não combinam. A "
                          f"confiança fica em softmax cru; rode "
-                         f"`python calibrar_modelo.py` para ver as tabelas.")
+                         f"`python scripts/medidas/calibrar_modelo.py` para ver as tabelas.")
             return
 
         cal.gravar_temperatura(self.meta_path, T)

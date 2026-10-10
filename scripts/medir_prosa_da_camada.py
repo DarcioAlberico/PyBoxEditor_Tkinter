@@ -108,8 +108,7 @@ def texto_da_camada(pdf: str, pagina: int) -> str:
 
 
 def texto_da_producao(pdf: str, pagina: int, idioma: str = "en") -> str:
-    sys.path.insert(0, RAIZ)
-    import medir_prosa
+    from scripts.medidas import medir_prosa
 
     [extraida] = medir_prosa.paginas_do_pdf(pdf, [pagina - 1], idioma=idioma)
     return extraida.texto
