@@ -230,12 +230,13 @@ def test_as_duas_acoes_e_a_exportacao_passam_o_mesmo_idioma():
     voltando a competir com o `É` num livro em inglês.
     """
     from ui.main_window import MainWindow
+    from ui.reconhecimento import Reconhecimento
 
     for acao in ("generate_and_fill_neural", "generate_and_fill_combined"):
-        fonte = inspect.getsource(getattr(MainWindow, acao))
+        fonte = inspect.getsource(getattr(Reconhecimento, acao))
         assert "idioma_da_sessao()" in fonte, acao
         assert "idioma=idioma" in fonte, acao
-    assert "_idioma_do_livro(" in inspect.getsource(MainWindow.idioma_da_sessao)
+    assert "_idioma_do_livro(" in inspect.getsource(Reconhecimento.idioma_da_sessao)
     # A exportação passa pela caixa única (2026-09-18): o idioma é detectado
     # por `_idioma_do_livro(..., perguntar=False)` em `_preparar_exportacao`
     # e chega a `livro.extrair` como `idioma_ocr=idioma`. O corpo mora em

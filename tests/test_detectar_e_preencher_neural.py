@@ -156,10 +156,11 @@ def test_as_duas_acoes_isentam_so_o_easyocr():
     """
     from core.searchable_pdf import _ler_boxes
     from ui.main_window import FONTES_SEM_TRAVA, MainWindow
+    from ui.reconhecimento import Reconhecimento
 
     assert FONTES_SEM_TRAVA == frozenset({"easyocr"})
     assert "fontes_sem_trava=FONTES_SEM_TRAVA" in inspect.getsource(
-        MainWindow._preencher_por_linha)
+        Reconhecimento._preencher_por_linha)
     assert "fontes_sem_trava" not in inspect.getsource(_ler_boxes)
 
 
@@ -218,8 +219,9 @@ def test_o_trabalho_tambem_recusa_um_modelo_que_sumiu_no_caminho():
     Ambas têm de estar na fonte — o caminho sem rede não pode existir.
     """
     from ui.main_window import MainWindow
+    from ui.reconhecimento import Reconhecimento
 
-    fonte = inspect.getsource(MainWindow.generate_and_fill_neural)
+    fonte = inspect.getsource(Reconhecimento.generate_and_fill_neural)
     assert fonte.count("load_predictor()") >= 2
     assert "motivo_do_modelo()" in fonte
     assert "raise RuntimeError" in fonte
@@ -275,9 +277,9 @@ def test_a_altura_de_referencia_nao_e_lida_dentro_de_preparar(acao):
     """
     import ast
 
-    from ui.main_window import MainWindow
+    from ui.reconhecimento import Reconhecimento
 
-    fonte = inspect.getsource(getattr(MainWindow, acao))
+    fonte = inspect.getsource(getattr(Reconhecimento, acao))
     tree = ast.parse(fonte.lstrip() if not fonte.startswith("def") else fonte)
     metodo = tree.body[0]
     preparar = next(n for n in ast.walk(metodo)

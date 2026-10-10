@@ -371,7 +371,7 @@ class _AppOCR:
     """
 
     def __init__(self, entrada, resposta):
-        import ui.main_window as mw
+        import ui.reconhecimento as mw  # e la que `gerar_pdf_pesquisavel` esta ligado (PD-22)
         from ui.main_window import MainWindow
 
         self.mw = mw

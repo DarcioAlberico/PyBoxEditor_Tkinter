@@ -110,13 +110,13 @@ def test_modelos_principais_sao_localizados_no_data_dir_do_wheel(tmp_path, monke
 
 
 def test_o_menu_abre_o_relatorio_que_o_treino_grava(projeto, monkeypatch):
-    from ui import main_window
+    from ui.treino import Treino
 
     relatorio = paths.relatorio_de_linhas()
     relatorio.write_text("Treinamento OCR sequencial\n", encoding="utf-8")
     abertos = []
     monkeypatch.setattr(os, "startfile", abertos.append, raising=False)
-    main_window.MainWindow.abrir_relatorio_ocr_linhas(SimpleNamespace())
+    Treino(SimpleNamespace()).abrir_relatorio_ocr_linhas()
     assert abertos == [str(relatorio)]
 
 

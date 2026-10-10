@@ -423,9 +423,14 @@ def test_todo_caminho_que_le_com_a_rede_confere_o_modelo():
     import ast
     import inspect
 
-    import ui.main_window as mw
+    import ui.documento
+    import ui.main_window
+    import ui.reconhecimento
+    import ui.treino
 
-    fonte = inspect.getsource(mw)
+    # Os fluxos da janela moram em quatro modulos desde a PD-22: a pergunta vale para todos.
+    fonte = "\n".join(inspect.getsource(m)
+                      for m in (ui.main_window, ui.reconhecimento, ui.documento, ui.treino))
     tree = ast.parse(fonte)
     metodos = {m.name: m for no in ast.walk(tree)
                if isinstance(no, ast.ClassDef)

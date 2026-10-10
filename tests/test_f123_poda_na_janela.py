@@ -216,15 +216,16 @@ def test_so_a_acao_neural_passa_a_poda():
     duas ações a entrega a `ler_pagina` depois de `preparar` carregar o modelo.
     """
     from ui.main_window import MainWindow
+    from ui.reconhecimento import Reconhecimento
 
-    neural = inspect.getsource(MainWindow.generate_and_fill_neural)
+    neural = inspect.getsource(Reconhecimento.generate_and_fill_neural)
     assert "poda_da_ancora(" in neural
-    assert "self.learning_service.candidatas" in neural
+    assert "self.janela.learning_service.candidatas" in neural
     assert "poda=poda" in neural
     assert "Corrigidos pela geometria" in neural
-    assert "poda" not in inspect.getsource(MainWindow.generate_and_fill_combined)
+    assert "poda" not in inspect.getsource(Reconhecimento.generate_and_fill_combined)
 
-    laco = inspect.getsource(MainWindow._preencher_por_linha)
+    laco = inspect.getsource(Reconhecimento._preencher_por_linha)
     montagem = "podar=None if poda is None else poda(pagina)"
     assert montagem in laco
     assert laco.index("= preparar(h, pagina, faixas, margens)") < laco.index(

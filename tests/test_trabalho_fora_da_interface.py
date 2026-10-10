@@ -34,7 +34,7 @@ def _dataset_de_linhas(caminho: Path, nome: str):
 
 
 def test_a_ui_exige_datasets_de_avaliacao_independentes_e_validos(tmp_path):
-    from ui.main_window import _validar_dataset_adicional_linhas
+    from ui.treino import _validar_dataset_adicional_linhas
 
     treino = tmp_path / "treino"
     holdout = tmp_path / "holdout"
@@ -57,7 +57,7 @@ def test_a_ui_exige_datasets_de_avaliacao_independentes_e_validos(tmp_path):
 
 def test_treino_da_ui_encaminha_holdout_para_a_fachada(monkeypatch, tmp_path):
     from tkinter import simpledialog
-    from ui import main_window
+    from ui import main_window, treino as fluxo_de_treino
     from core import ocr_training
 
     treino = tmp_path / "treino"
@@ -66,6 +66,7 @@ def test_treino_da_ui_encaminha_holdout_para_a_fachada(monkeypatch, tmp_path):
     _dataset_de_linhas(holdout, "holdout.png")
 
     janela = object.__new__(main_window.MainWindow)
+    janela.treino = fluxo_de_treino.Treino(janela)  # o fluxo, sem o __init__ da janela (PD-22)
     janela._busy = lambda *_args: False
     janela.status = SimpleNamespace(set=lambda *_args: None)
     janela.ocr_service = SimpleNamespace()
@@ -76,8 +77,8 @@ def test_treino_da_ui_encaminha_holdout_para_a_fachada(monkeypatch, tmp_path):
         return SimpleNamespace(production_eligible=False,
                                production_gate_reason="holdout ausente")
 
-    monkeypatch.setattr(main_window, "pasta_de_linhas", lambda: treino)
-    monkeypatch.setattr(main_window, "pasta_de_linhas_sinteticas",
+    monkeypatch.setattr(fluxo_de_treino, "pasta_de_linhas", lambda: treino)
+    monkeypatch.setattr(fluxo_de_treino, "pasta_de_linhas_sinteticas",
                         lambda: tmp_path / "sem-sintetico")
     respostas = iter((True, False))
     monkeypatch.setattr(messagebox, "askyesno",
@@ -249,7 +250,7 @@ def test_validar_e_avaliar_a_base_de_linhas_rodam_numa_tarefa(monkeypatch, tmp_p
         modelo, meta = tmp_path / "m.pth", tmp_path / "m.json"
         modelo.write_bytes(b"x")
         meta.write_text("{}", encoding="utf-8")
-        monkeypatch.setattr("ui.main_window.caminhos_modelo_linha", lambda: (modelo, meta))
+        monkeypatch.setattr("ui.treino.caminhos_modelo_linha", lambda: (modelo, meta))
 
         def avaliar(destino=None, meta=None, pasta=None):
             threads.append(threading.current_thread() is threading.main_thread())
