@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 
 #: O vão que abre parágrafo, em **passos de linha** além do passo (F103).
@@ -303,3 +303,83 @@ class PaginaExtraida:
                 partes.extend(" ".join(c.replace("\n", " ") for c in fila)
                               for fila in b.linhas)
         return "\n\n".join(partes)
+
+
+# ----------------------------------------------------------------------
+# O que a página de imagem e a camada do PDF leem do mesmo jeito (PD-22):
+# as constantes de página e de figura e a coluna de um x. Moravam em
+# `core/livro.py`, que as reexporta com o nome de sempre; o `pdf_nativo`
+# as toma daqui, e deixa de importar o leitor de volta.
+# ----------------------------------------------------------------------
+
+def _coluna_de(x: float, colunas: Sequence[Tuple[int, int]]) -> int:
+    """
+    Em qual faixa de coluna cai um x, e nunca `None`.
+
+    Quem cai na calha fica com a faixa mais próxima. É o caso do elemento que
+    atravessa — um título largo, uma linha de notação que transborda —, e pô-lo
+    numa coluna é melhor que abrir uma terceira: a ordem de leitura já resolveu
+    onde ele entra, e a coluna aqui só decide de quem ele é vizinho na hora de
+    virar parágrafo.
+    """
+    if not colunas:
+        return 0
+    for i, (a, z) in enumerate(colunas):
+        if a <= x <= z:
+            return i
+    return min(range(len(colunas)),
+               key=lambda i: min(abs(x - colunas[i][0]), abs(x - colunas[i][1])))
+
+#: Em quantas páginas o mesmo texto tem de aparecer na mesma margem para ser
+#: cabeçalho ou rodapé (F109 §5).
+#:
+#: Três, e não uma fração do livro: o cabeçalho de capítulo muda a cada
+#: capítulo, e um capítulo de dez páginas dá cinco ocorrências na página ímpar.
+#: Uma fração de um livro de 2.612 páginas o deixaria passar inteiro.
+PAGINAS_DE_CABECALHO = 3
+
+#: Fração da altura da página que é margem — de cima ou de baixo. O parágrafo
+#: que começa fora dela não é candidato, por mais que se repita.
+MARGEM_DE_PAGINA = 0.12
+
+#: Mais palavras que isto numa linha só não é cabeçalho, é prosa.
+PALAVRAS_DE_CABECALHO = 8
+
+#: Resolução com que o diagrama entra no livro exportado.
+#:
+#: A página é lida a 300 dpi porque é disso que a segmentação precisa, mas o
+#: tabuleiro não precisa entrar no arquivo nesse tamanho: a 300 dpi ele sai com
+#: 700 px e ~85 KB, e um livro de 264 páginas passaria de **50 MB** só de
+#: figura. A 150 dpi são 350 px — mais que suficiente para ler num tablet — e o
+#: arquivo cai para cerca de um quarto.
+DPI_FIGURA = 150
+
+#: Tons com que a figura é gravada.
+#:
+#: Um tabuleiro é desenho de linha: traço preto, casa branca, casa hachurada.
+#: Guardá-lo com 256 tons é pagar por gradiente que não existe. Medido nas 529
+#: figuras do Chess Evolution 1 — 33,3 MB em 8 bits:
+#:
+#:     16 tons   ~55% do tamanho
+#:      4 tons   ~25%, e visualmente indistinguível do original
+#:      1 bit     ~8%, mas escurece a hachura das casas
+#:
+#: Quatro é onde a conta para de valer a pena: o passo seguinte estraga o que
+#: se vê.
+TONS_DA_FIGURA = 4
+
+#: Os dois modos de pôr um diagrama no livro.
+#:
+#: **`render` é o padrão porque a medição da F58 o autorizou**, e não porque é
+#: mais bonito: o porteiro deixa escapar 2 leituras erradas em 346 (1 em 173,
+#: contra 1 em 14 sem ele), e o que ele barra cai para o recorte — que é
+#: exatamente o que este módulo exportava antes.
+MODOS_DE_DIAGRAMA = ("render", "recorte")
+
+#: O terceiro valor de `coordenadas`: as que o livro imprimiu (F95).
+#:
+#: Não é o padrão da API — quem chamava com `True` ou `False` continua tendo o
+#: livro inteiro de um jeito só —, mas é o que a janela de exportação oferece
+#: primeiro. Diagrama por diagrama, e não por livro: um mesmo volume imprime o
+#: exercício com coordenadas e o diagrama no meio da prosa sem.
+COMO_NO_LIVRO = "auto"

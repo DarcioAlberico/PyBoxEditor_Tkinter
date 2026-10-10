@@ -137,8 +137,17 @@ RECUO_DE_PARAGRAFO = 0.8
 
 # O modelo da página mora em `core/pagina.py` desde 2026-10-06 (item 6 da análise geral);
 # `livro.Paragrafo`, `livro.PaginaExtraida` e os outros continuam valendo por esta linha.
-from core.pagina import (SALTO_DE_PARAGRAFO, Bloco, Figura, PaginaExtraida,  # noqa: F401
-                         Paragrafo, Tabela)
+# O modelo da página, as constantes de página e de figura e os auxiliares que a
+# camada do PDF também usa moram em `core/pagina.py` e `core/leitura_comum.py`
+# (PD-22); o idioma pela camada, em `core/pdf_nativo.py`. Continuam importáveis
+# daqui com o nome de sempre.
+from core.pagina import (SALTO_DE_PARAGRAFO, Bloco, Figura, PaginaExtraida, Paragrafo,  # noqa: F401
+                         Tabela)
+from core.pagina import (COMO_NO_LIVRO, DPI_FIGURA, MARGEM_DE_PAGINA, MODOS_DE_DIAGRAMA,  # noqa: F401
+                         PAGINAS_DE_CABECALHO, PALAVRAS_DE_CABECALHO, TONS_DA_FIGURA, _coluna_de)
+from core.leitura_comum import _assinatura, _candidato_a_cabecalho, _lance_limpo  # noqa: F401
+from core.pdf_nativo import (OCORRENCIAS_DE_IDIOMA, PALAVRAS_DE_IDIOMA, VANTAGEM_DE_IDIOMA,  # noqa: F401
+                             idioma_do_pdf)
 
 #: Quantas alturas de glifo mede um passo de linha, quando não há passo medido.
 #:
@@ -738,25 +747,6 @@ def caixas_e_diagramas(img: np.ndarray, classificar: Callable
     # calha, e mantê-la na conta apagaria a calha da página inteira.
     return (BoxService.sort_boxes_reading_order(grandes), diagramas, escala,
             len(respingos), BoxService.detectar_colunas(grandes))
-
-
-def _coluna_de(x: float, colunas: Sequence[Tuple[int, int]]) -> int:
-    """
-    Em qual faixa de coluna cai um x, e nunca `None`.
-
-    Quem cai na calha fica com a faixa mais próxima. É o caso do elemento que
-    atravessa — um título largo, uma linha de notação que transborda —, e pô-lo
-    numa coluna é melhor que abrir uma terceira: a ordem de leitura já resolveu
-    onde ele entra, e a coluna aqui só decide de quem ele é vizinho na hora de
-    virar parágrafo.
-    """
-    if not colunas:
-        return 0
-    for i, (a, z) in enumerate(colunas):
-        if a <= x <= z:
-            return i
-    return min(range(len(colunas)),
-               key=lambda i: min(abs(x - colunas[i][0]), abs(x - colunas[i][1])))
 
 
 def _celula(b: BoxEntry, escala: float) -> Tuple[int, int]:
@@ -3187,67 +3177,6 @@ def partir_coladas(paginas: Sequence["PaginaExtraida"],
     return total
 
 
-#: Em quantas páginas o mesmo texto tem de aparecer na mesma margem para ser
-#: cabeçalho ou rodapé (F109 §5).
-#:
-#: Três, e não uma fração do livro: o cabeçalho de capítulo muda a cada
-#: capítulo, e um capítulo de dez páginas dá cinco ocorrências na página ímpar.
-#: Uma fração de um livro de 2.612 páginas o deixaria passar inteiro.
-PAGINAS_DE_CABECALHO = 3
-
-#: Fração da altura da página que é margem — de cima ou de baixo. O parágrafo
-#: que começa fora dela não é candidato, por mais que se repita.
-MARGEM_DE_PAGINA = 0.12
-
-#: Mais palavras que isto numa linha só não é cabeçalho, é prosa.
-PALAVRAS_DE_CABECALHO = 8
-
-
-def _assinatura(texto: str) -> str:
-    """
-    O que fica de um cabeçalho quando se tira o que muda de página para página.
-
-    O número sai — `Chapter 3 · 37` e `Chapter 3 · 38` são o mesmo cabeçalho —
-    e a pontuação vira espaço. O número de página sozinho vira a assinatura
-    vazia, que é a de todo número de página.
-    """
-    baixo = re.sub(r"\d+", "", texto.lower())
-    return " ".join(re.sub(r"[^\w\s]", " ", baixo).split())
-
-
-def _candidato_a_cabecalho(linha: str) -> bool:
-    """
-    Uma linha curta, com letra ou número, e sem lance: a régua que a
-    repetição ainda confirma.
-
-    A letra ou o número é o que separa o número de página do `=` que o
-    filete decorativo vira quando é lido: os dois têm a assinatura vazia, e
-    sem isto o filete sairia como rodapé. Ele não é cabeçalho, é ruído, e
-    ruído tem outro dono.
-    """
-    palavras = linha.split()
-    if not 0 < len(palavras) <= PALAVRAS_DE_CABECALHO:
-        return False
-    if not any(c.isalnum() for c in linha):
-        return False
-    # O parêntese é o outro dono: `(see page 43)` no alto de três páginas é
-    # remissão, e cabeçalho de página nunca vem entre parênteses.
-    if linha.startswith("(") and linha.endswith(")"):
-        return False
-    return not any(notacao.parece_lance(_lance_limpo(w)) for w in palavras)
-
-
-def _lance_limpo(palavra: str) -> str:
-    """
-    `20...♗d3!` como `parece_lance` o entende: sem o número do lance, com a
-    figurina em letra e o travessão do roque em hífen. Ele lê `Bd3!`, e não
-    o que o livro imprime — é a mesma tradução que `notacao.Simbolo` faz.
-    """
-    sem_numero = re.sub(r"^\d+\.(\.\.)?", "", palavra)
-    return "".join(notacao.FIGURINAS.get(c, "-" if c in "–—" else c)
-                   for c in sem_numero)
-
-
 def _linha_da_margem(p: Paragrafo, margem: str) -> Tuple[int, int]:
     """
     `(início, fim)` no `texto` da linha impressa que encosta na margem —
@@ -3450,29 +3379,6 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
 # A página inteira
 # ----------------------------------------------------------------------
 
-#: Resolução com que o diagrama entra no livro exportado.
-#:
-#: A página é lida a 300 dpi porque é disso que a segmentação precisa, mas o
-#: tabuleiro não precisa entrar no arquivo nesse tamanho: a 300 dpi ele sai com
-#: 700 px e ~85 KB, e um livro de 264 páginas passaria de **50 MB** só de
-#: figura. A 150 dpi são 350 px — mais que suficiente para ler num tablet — e o
-#: arquivo cai para cerca de um quarto.
-DPI_FIGURA = 150
-
-#: Tons com que a figura é gravada.
-#:
-#: Um tabuleiro é desenho de linha: traço preto, casa branca, casa hachurada.
-#: Guardá-lo com 256 tons é pagar por gradiente que não existe. Medido nas 529
-#: figuras do Chess Evolution 1 — 33,3 MB em 8 bits:
-#:
-#:     16 tons   ~55% do tamanho
-#:      4 tons   ~25%, e visualmente indistinguível do original
-#:      1 bit     ~8%, mas escurece a hachura das casas
-#:
-#: Quatro é onde a conta para de valer a pena: o passo seguinte estraga o que
-#: se vê.
-TONS_DA_FIGURA = 4
-
 
 def _png_do_recorte(img: np.ndarray, rect, dpi: int = 300,
                     dpi_figura: int = DPI_FIGURA,
@@ -3537,24 +3443,8 @@ def _faixa_em_texto(img: np.ndarray, d: Diagrama, classificar: Callable,
     return Paragrafo(" ".join(partes), titulo=True)
 
 
-#: Os dois modos de pôr um diagrama no livro.
-#:
-#: **`render` é o padrão porque a medição da F58 o autorizou**, e não porque é
-#: mais bonito: o porteiro deixa escapar 2 leituras erradas em 346 (1 em 173,
-#: contra 1 em 14 sem ele), e o que ele barra cai para o recorte — que é
-#: exatamente o que este módulo exportava antes.
-MODOS_DE_DIAGRAMA = ("render", "recorte")
-
 #: Como a leitura do motor contextual entra na linha. Ver `extrair_pagina`.
 MODOS_DE_FUSAO = ("palavra", "linha")
-
-#: O terceiro valor de `coordenadas`: as que o livro imprimiu (F95).
-#:
-#: Não é o padrão da API — quem chamava com `True` ou `False` continua tendo o
-#: livro inteiro de um jeito só —, mas é o que a janela de exportação oferece
-#: primeiro. Diagrama por diagrama, e não por livro: um mesmo volume imprime o
-#: exercício com coordenadas e o diagrama no meio da prosa sem.
-COMO_NO_LIVRO = "auto"
 
 
 def _quer_coordenadas(escolha, d: Diagrama) -> bool:
@@ -4290,26 +4180,6 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
     return resultado
 
 
-#: Palavras que só um dos dois idiomas escreve, para `idioma_do_pdf`.
-#:
-#: Curtas e frequentes, e **nenhuma dos dois lados**: `a` e `as` são artigo em
-#: português e palavra comum em inglês, e ficaram de fora por isso. Bastam
-#: porque a pergunta é grosseira — o livro é de um idioma só, e o texto de
-#: quarenta páginas responde por centenas de ocorrências.
-PALAVRAS_DE_IDIOMA = {
-    "en": frozenset("the and of to is with that this white black it on by "
-                    "after not for".split()),
-    "pt": frozenset("de que o e os com não para um uma das dos mais também "
-                    "ou brancas pretas".split()),
-}
-
-#: Ocorrências abaixo das quais `idioma_do_pdf` não responde.
-OCORRENCIAS_DE_IDIOMA = 50
-
-#: Quantas vezes o idioma vencedor tem de bater o outro.
-VANTAGEM_DE_IDIOMA = 3.0
-
-
 def titulo_e_autor(caminho: str) -> Tuple[str, str]:
     """
     `(título, autor)` do livro, para o `dc:title`/`dc:creator` e o DOCX (F111).
@@ -4344,44 +4214,6 @@ def titulo_e_autor(caminho: str) -> Tuple[str, str]:
         else:
             titulo = nome
     return titulo, autor
-
-
-def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:
-    """
-    `"en"`, `"pt"`, ou `None` quando a camada de texto do PDF não diz (F109).
-
-    **Lê a camada de texto, e não a imagem**, porque é barato e porque está lá
-    em 72% das páginas do corpus (F110). Onde não está — o Seirawan e o
-    Razuvaev, que são digitalizações de verdade — sai `None`, e quem chama
-    pergunta ao usuário. Nunca chuta: o idioma liga a máscara de alfabeto
-    (`core.alfabeto`), e a máscara errada apaga o `ç` de um livro inteiro.
-
-    As páginas são espalhadas pelo livro, e não as primeiras: as primeiras são
-    o frontispício e o sumário, que num livro traduzido ainda trazem o nome
-    original.
-    """
-    doc = fitz.open(caminho)
-    try:
-        total = len(doc)
-        passo = max(1, total // max(1, paginas))
-        conta: "collections.Counter" = collections.Counter()
-        for numero in range(0, total, passo):
-            texto = doc[numero].get_text().lower()
-            for palavra in re.findall(r"[a-záàâãéêíóôõúüç]+", texto):
-                for idioma, lista in PALAVRAS_DE_IDIOMA.items():
-                    if palavra in lista:
-                        conta[idioma] += 1
-    finally:
-        doc.close()
-    if sum(conta.values()) < OCORRENCIAS_DE_IDIOMA:
-        return None
-    # Um PDF escaneado pode não ter nenhuma palavra reconhecível. Ainda assim
-    # a detecção precisa devolver ``None`` para que a UI pergunte o idioma,
-    # em vez de tentar desempacotar uma lista curta e levantar IndexError.
-    (primeiro, n1), (_segundo, n2) = (
-        conta.most_common(2) + [("", 0), ("", 0)]
-    )[:2]
-    return primeiro if n1 >= VANTAGEM_DE_IDIOMA * max(1, n2) else None
 
 
 def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,

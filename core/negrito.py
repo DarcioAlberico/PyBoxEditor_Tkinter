@@ -308,7 +308,7 @@ def marcar(paginas, *, limiar: float = LIMIAR) -> int:
     saem marcados — 12 das 18 palavras que ela erra naquele livro. Distinguir os
     dois exigiria reconhecer a fonte, que é outra pergunta.
     """
-    from core.livro import Paragrafo
+    from core.pagina import Paragrafo
 
     alvos = [b for p in paginas for b in p.blocos
              if isinstance(b, Paragrafo) and not b.titulo

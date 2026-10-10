@@ -53,8 +53,11 @@ import fitz
 from PIL import Image
 
 from core import lado_a_jogar as lado_jogar
-from core import lexico, livro, render_diagrama
-from core.pagina import Figura, PaginaExtraida, Paragrafo, SALTO_DE_PARAGRAFO
+from core import lexico, render_diagrama
+from core.leitura_comum import _assinatura, _candidato_a_cabecalho
+from core.pagina import (COMO_NO_LIVRO, DPI_FIGURA, MARGEM_DE_PAGINA, MODOS_DE_DIAGRAMA,
+                         PAGINAS_DE_CABECALHO, SALTO_DE_PARAGRAFO, TONS_DA_FIGURA, Figura,
+                         PaginaExtraida, Paragrafo, _coluna_de)
 from core.box_model import BoxEntry
 
 
@@ -687,7 +690,7 @@ def amostrar(caminho: str, paginas: int = 40) -> Tuple[int, int]:
     `(aceitas, amostradas)`: a régua em páginas espalhadas pelo livro.
 
     É o que a caixa de exportação mostra antes de ler — a mesma amostra de
-    `livro.idioma_do_pdf`, e pelo mesmo motivo: as primeiras páginas são capa
+    `idioma_do_pdf`, e pelo mesmo motivo: as primeiras páginas são capa
     e rosto, e não dizem como é o livro.
     """
     with fitz.open(caminho) as doc:
@@ -1793,7 +1796,7 @@ def _lado(cabecalho: str, legendas: Sequence[str], idioma: str) -> Optional[str]
 # As figuras
 # ----------------------------------------------------------------------
 
-def _png(pix: fitz.Pixmap, tons: int = livro.TONS_DA_FIGURA) -> Tuple[bytes, int, int]:
+def _png(pix: fitz.Pixmap, tons: int = TONS_DA_FIGURA) -> Tuple[bytes, int, int]:
     modo = "L" if pix.n == 1 else "RGB"
     imagem = Image.frombytes(modo, (pix.width, pix.height), pix.samples)
     if tons and tons < 256:
@@ -1894,7 +1897,7 @@ def _figura_do_tabuleiro(page: fitz.Page, tabuleiro: _Tabuleiro, *,
                  "e o FEN supõe as brancas embaixo")
     fen = f"{_posicao(tabuleiro.impresso, orientacao)} {lado or 'w'} - - 0 1"
     marcas = [_nome_da_casa(lin, col, orientacao) for lin, col in tabuleiro.marcas]
-    quer = rotulado if o.coordenadas == livro.COMO_NO_LIVRO else bool(o.coordenadas)
+    quer = rotulado if o.coordenadas == COMO_NO_LIVRO else bool(o.coordenadas)
     caixa = o.em_pixels(tabuleiro.caixa)
     if o.diagramas == "render":
         try:
@@ -1995,7 +1998,7 @@ def _figura_da_imagem(page: fitz.Page, caixa: fitz.Rect, o: _Opcoes) -> "Figura"
 # ----------------------------------------------------------------------
 
 def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
-                   dpi: int = 300, dpi_figura: int = livro.DPI_FIGURA,
+                   dpi: int = 300, dpi_figura: int = DPI_FIGURA,
                    idioma: str = "en", lex=None, diagramas: str = "render",
                    coordenadas=False,
                    fonte: str = render_diagrama.FONTE_PADRAO,
@@ -2017,12 +2020,12 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     desenhá-lo, e o FEN vai junto; `idioma` decide a letra do lado a jogar
     (`MARCAS_DO_LADO`) e `lex` o hífen de fim de linha (`_juntar`).
     """
-    if diagramas not in livro.MODOS_DE_DIAGRAMA:
+    if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
-                         f"(use um de {livro.MODOS_DE_DIAGRAMA})")
-    if coordenadas not in (True, False, livro.COMO_NO_LIVRO):
+                         f"(use um de {MODOS_DE_DIAGRAMA})")
+    if coordenadas not in (True, False, COMO_NO_LIVRO):
         raise ValueError(f"coordenadas inválidas: {coordenadas!r} "
-                         f"(use True, False ou {livro.COMO_NO_LIVRO!r})")
+                         f"(use True, False ou {COMO_NO_LIVRO!r})")
     numero = page.number if numero is None else numero
     o = _Opcoes(dpi, dpi_figura, diagramas, coordenadas, fonte, lado_do_diagrama,
                 moldura, cantos, (idioma or "en").lower()[:2], lex)
@@ -2060,7 +2063,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
 
     colunas = _colunas(linhas, o.escala)
     for linha in linhas:
-        linha.coluna = livro._coluna_de(linha.cx * o.escala, colunas)
+        linha.coluna = _coluna_de(linha.cx * o.escala, colunas)
     m = _metricas(linhas)
 
     # A ordem de leitura: coluna por coluna, de cima para baixo — a mesma do
@@ -2070,7 +2073,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         elementos.append((linha.coluna, linha.y0, 1, linha))
 
     def coluna_de(x0: float, x1: float) -> int:
-        return livro._coluna_de((x0 + x1) / 2 * o.escala, colunas)
+        return _coluna_de((x0 + x1) / 2 * o.escala, colunas)
 
     for i, tabuleiro in enumerate(tabuleiros):
         x0, y0, x1, _y1 = tabuleiro.caixa
@@ -2281,7 +2284,7 @@ def retirar_mobilia(paginas: Sequence["PaginaExtraida"]) -> "collections.Counter
     um vão até o resto da página de pelo menos 0,8 da altura dela — e o `2019.`
     que fecha um parágrafo está colado nele. O número de página solto sai sem
     esperar repetição (é o que ele é); o texto solto sai quando se repete na
-    mesma margem em `livro.PAGINAS_DE_CABECALHO` páginas.
+    mesma margem em `PAGINAS_DE_CABECALHO` páginas.
     """
     candidatas = []
     vistos: "collections.Counter[Tuple[str, str]]" = collections.Counter()
@@ -2290,13 +2293,13 @@ def retirar_mobilia(paginas: Sequence["PaginaExtraida"]) -> "collections.Counter
             continue
         for margem, bloco in _soltos_na_margem(pagina):
             texto = bloco.texto.strip()
-            chave = (margem, livro._assinatura(texto))
+            chave = (margem, _assinatura(texto))
             vistos[chave] += 1
             candidatas.append((pagina, bloco, chave, texto))
     retirados: "collections.Counter[str]" = collections.Counter()
     for pagina, bloco, chave, texto in candidatas:
         if not (_FOLIO.match(texto) or (chave[1] and vistos[chave]
-                                          >= livro.PAGINAS_DE_CABECALHO)):
+                                          >= PAGINAS_DE_CABECALHO)):
             continue
         pagina.blocos = [b for b in pagina.blocos if b is not bloco]
         pagina.cabecalhos.append(texto)
@@ -2322,14 +2325,14 @@ def _soltos_na_margem(pagina: "PaginaExtraida"
     for margem, (topo, pe, bloco) in (("alto", alto), ("baixo", baixo)):
         if not (isinstance(bloco, Paragrafo) and not bloco.titulo
                 and len(bloco.inicios) == 1
-                and livro._candidato_a_cabecalho(bloco.texto.strip())):
+                and _candidato_a_cabecalho(bloco.texto.strip())):
             continue
         altura = max(1, pe - topo)
         if margem == "alto":
-            na_margem = topo <= pagina.altura * livro.MARGEM_DE_PAGINA
+            na_margem = topo <= pagina.altura * MARGEM_DE_PAGINA
             vao = min(t for t, _p, b in topos if b is not bloco) - pe
         else:
-            na_margem = pe >= pagina.altura * (1 - livro.MARGEM_DE_PAGINA)
+            na_margem = pe >= pagina.altura * (1 - MARGEM_DE_PAGINA)
             vao = topo - max(p for _t, p, b in topos if b is not bloco)
         if na_margem and vao >= 0.8 * altura:
             saida.append((margem, bloco))
@@ -2378,8 +2381,70 @@ class Extracao:
         return "\n".join(linhas)
 
 
+# ----------------------------------------------------------------------
+# O idioma pela camada de texto (F109). Morava em `core/livro.py`, que o
+# reexporta; é a camada que responde, e por isso mora aqui (PD-22).
+# ----------------------------------------------------------------------
+
+#: Palavras que só um dos dois idiomas escreve, para `idioma_do_pdf`.
+#:
+#: Curtas e frequentes, e **nenhuma dos dois lados**: `a` e `as` são artigo em
+#: português e palavra comum em inglês, e ficaram de fora por isso. Bastam
+#: porque a pergunta é grosseira — o livro é de um idioma só, e o texto de
+#: quarenta páginas responde por centenas de ocorrências.
+PALAVRAS_DE_IDIOMA = {
+    "en": frozenset("the and of to is with that this white black it on by "
+                    "after not for".split()),
+    "pt": frozenset("de que o e os com não para um uma das dos mais também "
+                    "ou brancas pretas".split()),
+}
+
+#: Ocorrências abaixo das quais `idioma_do_pdf` não responde.
+OCORRENCIAS_DE_IDIOMA = 50
+
+#: Quantas vezes o idioma vencedor tem de bater o outro.
+VANTAGEM_DE_IDIOMA = 3.0
+
+def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:
+    """
+    `"en"`, `"pt"`, ou `None` quando a camada de texto do PDF não diz (F109).
+
+    **Lê a camada de texto, e não a imagem**, porque é barato e porque está lá
+    em 72% das páginas do corpus (F110). Onde não está — o Seirawan e o
+    Razuvaev, que são digitalizações de verdade — sai `None`, e quem chama
+    pergunta ao usuário. Nunca chuta: o idioma liga a máscara de alfabeto
+    (`core.alfabeto`), e a máscara errada apaga o `ç` de um livro inteiro.
+
+    As páginas são espalhadas pelo livro, e não as primeiras: as primeiras são
+    o frontispício e o sumário, que num livro traduzido ainda trazem o nome
+    original.
+    """
+    doc = fitz.open(caminho)
+    try:
+        total = len(doc)
+        passo = max(1, total // max(1, paginas))
+        conta: "collections.Counter" = collections.Counter()
+        for numero in range(0, total, passo):
+            texto = doc[numero].get_text().lower()
+            for palavra in re.findall(r"[a-záàâãéêíóôõúüç]+", texto):
+                for idioma, lista in PALAVRAS_DE_IDIOMA.items():
+                    if palavra in lista:
+                        conta[idioma] += 1
+    finally:
+        doc.close()
+    if sum(conta.values()) < OCORRENCIAS_DE_IDIOMA:
+        return None
+    # Um PDF escaneado pode não ter nenhuma palavra reconhecível. Ainda assim
+    # a detecção precisa devolver ``None`` para que a UI pergunte o idioma,
+    # em vez de tentar desempacotar uma lista curta e levantar IndexError.
+    (primeiro, n1), (_segundo, n2) = (
+        conta.most_common(2) + [("", 0), ("", 0)]
+    )[:2]
+    return primeiro if n1 >= VANTAGEM_DE_IDIOMA * max(1, n2) else None
+
+
 def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
-            dpi: int = 300, dpi_figura: int = livro.DPI_FIGURA,
+            dpi: int = 300, dpi_figura: int = DPI_FIGURA,
             idioma: Optional[str] = None, lex=None, diagramas: str = "render",
             coordenadas=False,
             fonte: str = render_diagrama.FONTE_PADRAO,
@@ -2399,12 +2464,12 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
     coisas de uma vez). `forcar=True` lê da camada toda página que tem texto,
     inclusive a que a régua recusou — é a mão do usuário sobre a régua.
 
-    `idioma` `None` pergunta ao PDF (`livro.idioma_do_pdf`), e cai no inglês.
+    `idioma` `None` pergunta ao PDF (`idioma_do_pdf`), e cai no inglês.
     """
     if not os.path.exists(caminho):
         raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
     if idioma is None:
-        idioma = livro.idioma_do_pdf(caminho) or "en"
+        idioma = idioma_do_pdf(caminho) or "en"
     lidas: List[PaginaExtraida] = []
     vereditos: List[Veredito] = []
     with fitz.open(caminho) as doc:
