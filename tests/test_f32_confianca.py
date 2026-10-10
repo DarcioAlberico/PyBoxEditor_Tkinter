@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from conftest import esperar_ate, raiz_tk
 
 import numpy as np
-import tkinter as tk
 from tkinter import messagebox
 from PIL import Image
 
@@ -278,8 +277,6 @@ def test_a_ida_e_volta_preserva_a_revisao():
 
 def test_box_novo_nasce_vazio():
     """Era criado com char '?', que parecia um caractere reconhecido."""
-    from ui.canvas_view import CanvasView
-
     with _App() as app:
         w = app.win
         c = w.canvas

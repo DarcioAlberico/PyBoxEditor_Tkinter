@@ -101,7 +101,7 @@ _reapontar_a_pasta_de_dados()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core import diagrama, treino_diagrama
+from core import treino_diagrama
 
 
 _raiz = None
