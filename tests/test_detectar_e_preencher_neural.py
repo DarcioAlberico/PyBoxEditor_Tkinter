@@ -292,6 +292,7 @@ def test_a_altura_de_referencia_nao_e_lida_dentro_de_preparar(acao):
 # ----------------------------------------------------------------------
 
 def test_a_acao_por_linha_aplica_o_que_leu_mesmo_com_um_recorte_ruim(monkeypatch):
+    from conftest import esperar_ate
     from PIL import Image
 
     raiz, win = _janela()
@@ -317,10 +318,7 @@ def test_a_acao_por_linha_aplica_o_que_leu_mesmo_com_um_recorte_ruim(monkeypatch
         monkeypatch.setattr(win.ocr_service, "easyocr_ocr_conf", ocr)
 
         win.auto_fill_characters_linha()
-        for _ in range(200):
-            raiz.update()
-            if win.boxes[0].char:
-                break
+        esperar_ate(raiz, lambda: win.boxes[0].char)
 
         assert "".join(b.char for b in win.boxes) == "Fore", \
             "a linha preencheu inclusive o box cuja âncora falhou"

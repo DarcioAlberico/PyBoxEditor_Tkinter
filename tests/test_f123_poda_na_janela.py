@@ -262,6 +262,7 @@ def _janela():
 
 
 def test_a_janela_aplica_a_troca_com_a_fonte_e_conta_no_dialogo(monkeypatch):
+    from conftest import esperar_ate
     from tkinter import messagebox
     from PIL import Image
 
@@ -291,10 +292,7 @@ def test_a_janela_aplica_a_troca_com_a_fonte_e_conta_no_dialogo(monkeypatch):
             "teste", preparar,
             lambda fontes: f"Corrigidos pela geometria: {fontes.get(gl.FONTE, 0)}",
             conf_maxima_para_trocar=0.70, poda=poda)
-        for _ in range(300):
-            raiz.update()
-            if infos:
-                break
+        esperar_ate(raiz, lambda: infos)
 
         assert "".join(b.char for b in win.boxes) == "cou"
         assert win.boxes[1].source == gl.FONTE

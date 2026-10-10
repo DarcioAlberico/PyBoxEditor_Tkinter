@@ -113,6 +113,7 @@ def _fechar(raiz, win):
 def _preencher_com_tesseract(monkeypatch, raiz, win, respostas):
     """Roda «OCR (Tesseract)» em cinco boxes, com o motor respondendo pela
     fila `respostas` (um par `(char, conf)` ou `None` para "sem resposta")."""
+    from conftest import esperar_ate
     from tkinter import messagebox
     from PIL import Image
 
@@ -132,10 +133,7 @@ def _preencher_com_tesseract(monkeypatch, raiz, win, respostas):
 
     monkeypatch.setattr(win.ocr_service, "tesseract_ocr_conf", tesseract)
     win.auto_fill_characters()
-    for _ in range(500):
-        raiz.update()
-        if infos:
-            break
+    esperar_ate(raiz, lambda: infos)
     return infos, chamadas
 
 

@@ -11,11 +11,10 @@ Rodar sem pytest:      python tests/test_f32_confianca.py
 import os
 import sys
 import tempfile
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import raiz_tk
+from conftest import esperar_ate, raiz_tk
 
 import numpy as np
 import tkinter as tk
@@ -384,19 +383,6 @@ def test_o_manual_nao_e_arrastado_junto():
 # F55 — o nome da fonte do leitor, que nada prendia
 # ----------------------------------------------------------------------
 
-def _esperar(raiz, condicao, voltas=300):
-    """A ação roda fora da thread da UI; o resultado chega num `update`."""
-    for _ in range(voltas):
-        raiz.update()
-        if condicao():
-            return True
-        # `update()` não garante uma troca de thread. Sem esta pequena janela,
-        # o worker pode não executar antes de esgotarmos as iterações — uma
-        # corrida do teste, não do contrato assíncrono da aplicação.
-        time.sleep(0.001)
-    return False
-
-
 def test_as_duas_acoes_de_leitor_gravam_easyocr_so(monkeypatch):
     """
     A F53 separou `easyocr_so` de `easyocr` para a regra da F48 valer só onde
@@ -421,7 +407,7 @@ def test_as_duas_acoes_de_leitor_gravam_easyocr_so(monkeypatch):
         monkeypatch.setattr(w.learning_service, "predict_learner",
                             lambda crop: ("x", 0.9))
         w.auto_fill_characters_easyocr()
-        assert _esperar(app.root, lambda: all(b.char for b in w.boxes)), \
+        assert esperar_ate(app.root, lambda: all(b.char for b in w.boxes)), \
             "a ação por caractere não chegou aos boxes"
         assert {b.source for b in w.boxes} == {"easyocr_so"}
 
@@ -431,7 +417,7 @@ def test_as_duas_acoes_de_leitor_gravam_easyocr_so(monkeypatch):
         monkeypatch.setattr(w.ocr_service, "easyocr_linha_conf",
                             lambda faixa, *a, **k: ("xx", 0.9))
         w.auto_fill_characters_linha()
-        assert _esperar(app.root, lambda: all(b.char for b in w.boxes)), \
+        assert esperar_ate(app.root, lambda: all(b.char for b in w.boxes)), \
             "a ação por linha não chegou aos boxes"
         assert {b.source for b in w.boxes} == {"easyocr_so"}, \
             "quem a linha confirmou fica com a fonte de quem leu"

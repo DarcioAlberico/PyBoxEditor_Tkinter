@@ -415,7 +415,7 @@ def test_a_acao_da_ui_preenche_os_boxes(monkeypatch):
     `auto_fill_characters_linha`, que monta as faixas, roda na thread e escreve
     nos boxes.
     """
-    from conftest import raiz_tk
+    from conftest import esperar_ate, raiz_tk
     from tkinter import messagebox
     from PIL import Image
 
@@ -439,11 +439,9 @@ def test_a_acao_da_ui_preenche_os_boxes(monkeypatch):
 
         w.auto_fill_characters_linha()
         # A ação roda fora da thread da UI; o resultado só é aplicado no
-        # `update` seguinte.
-        for _ in range(200):
-            raiz.update()
-            if w.boxes[0].char:
-                break
+        # `update` seguinte — e a thread não tem hora para acabar: a espera é
+        # com prazo, não com contagem de voltas.
+        esperar_ate(raiz, lambda: w.boxes[0].char)
 
         assert "".join(b.char for b in w.boxes) == "Fore", \
             "a linha não chegou aos boxes"

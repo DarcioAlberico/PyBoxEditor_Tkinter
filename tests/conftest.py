@@ -33,6 +33,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import tkinter as tk
 
 import pytest
@@ -127,6 +128,31 @@ def raiz_tk():
         return None
     janela.withdraw()
     return janela
+
+
+def esperar_ate(janela, condicao, prazo=10.0, passo=0.01):
+    """
+    Bombeia o laço do Tk até `condicao()` valer ou `prazo` segundos passarem.
+
+    É a espera por uma ação que roda em thread (`BackgroundTask`, o `_run_task`
+    da janela): o resultado só chega ao widget quando o `after` drena a fila, e
+    fora do `mainloop` é o `update()` que o faz andar. Contar voltas de
+    `update()` não serve de prazo — a volta não cede a vez à thread, e na suíte
+    inteira, com a máquina dividida, 200 voltas acabam antes de ela terminar:
+    `test_f17_leitura_de_linha` caiu assim em 2026-10-10 e passou sozinho. Um
+    teste que só falha acompanhado é pior que um que nunca passa.
+
+    Devolve se a condição valeu dentro do prazo; a asserção fica com quem chama,
+    que sabe dizer o que não chegou.
+    """
+    fim = time.monotonic() + prazo
+    while True:
+        janela.update()
+        if condicao():
+            return True
+        if time.monotonic() >= fim:
+            return False
+        time.sleep(passo)
 
 
 @pytest.fixture(scope="session", autouse=True)

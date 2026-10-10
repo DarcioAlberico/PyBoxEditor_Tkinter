@@ -45,6 +45,7 @@ def _janela():
 
 
 def test_a_acao_consulta_o_knn_e_marca_a_discordancia(monkeypatch):
+    from conftest import esperar_ate
     from tkinter import messagebox
     from PIL import Image
 
@@ -63,10 +64,7 @@ def test_a_acao_consulta_o_knn_e_marca_a_discordancia(monkeypatch):
         monkeypatch.setattr(win.learning_service, "predict_learner",
                             lambda justo: knn.pop(0))
         win.auto_fill_characters_easyocr()
-        for _ in range(500):
-            raiz.update()
-            if infos:
-                break
+        esperar_ate(raiz, lambda: infos)
         assert [(b.char, b.source) for b in win.boxes] == [
             ("a", "easyocr_so"), ("b", "easyocr_discorda"), ("", "")]
         assert win.boxes[1].confidence == 0.40, "a confiança é a do EasyOCR"
