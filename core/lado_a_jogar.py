@@ -223,6 +223,115 @@ def do_fen(fen: str) -> Optional[str]:
     return campos[1] if len(campos) > 1 and campos[1] in LADOS else None
 
 
+# ----------------------------------------------------------------------
+# O lado pelo último lance do texto
+# ----------------------------------------------------------------------
+
+_LETRA_DA_FIGURINA = {"♔": "K", "♕": "Q", "♖": "R", "♗": "B", "♘": "N",
+                      "♚": "K", "♛": "Q", "♜": "R", "♝": "B", "♞": "N"}
+_PECAS_DO_LANCE = "KQRBN" + "".join(_LETRA_DA_FIGURINA)
+_ROQUE = r"[0O][-–—][0O](?:[-–—][0O])?"
+# A promoção só existe no lance de peão que chega à fila 1 ou 8: o `N` de
+# novidade colado ao lance (`16...d5N`) não é cavalo.
+_SAN = (rf"(?:{_ROQUE}|(?:[a-h][x:]?)?[a-h][18]=?[QRBN♕♖♗♘]"
+        rf"|[{_PECAS_DO_LANCE}]?[a-h]?[1-8]?[x:]?[a-h][1-8])")
+
+#: `10.e4 ♘b6`, `23.♘xd8,`, `16...♘e8!?N`: o número, o lance e, depois do das
+#: brancas, o das pretas quando vem colado. O que segue o lance sem espaço
+#: (`!?`, `†`, `⩲`, a vírgula) é anotação.
+_LANCE_NUMERADO = re.compile(
+    rf"(?<![\w.])(\d{{1,3}})\s?(\.\s?\.\.\.|\.\.\.|…|\.)\s?({_SAN})\S*"
+    rf"(?:\s+({_SAN})(?![\w.])\S*)?")
+
+#: Onde ficam o rei e a torre depois de cada roque, por cor.
+_DEPOIS_DO_ROQUE = {
+    ("w", False): {"g1": "K", "f1": "R"}, ("w", True): {"c1": "K", "d1": "R"},
+    ("b", False): {"g8": "k", "f8": "r"}, ("b", True): {"c8": "k", "d8": "r"},
+}
+
+
+def _casas(fen: str) -> dict[str, str]:
+    """`{casa: peça do FEN}` do campo das peças."""
+    casas: dict[str, str] = {}
+    campos = str(fen or "").split()
+    fileiras = campos[0].split("/") if campos else []
+    if len(fileiras) != 8:
+        return casas
+    for i, fileira in enumerate(fileiras):
+        coluna = 0
+        for c in fileira:
+            if c.isdigit():
+                coluna += int(c)
+            else:
+                if coluna < 8:
+                    casas["abcdefgh"[coluna] + str(8 - i)] = c
+                coluna += 1
+    return casas
+
+
+def _lance_confere(san: str, cor: str, casas: dict[str, str]) -> bool:
+    """A peça que fez `san` está na casa de chegada do tabuleiro?"""
+    if re.fullmatch(_ROQUE, san):
+        longo = san.count(san[1]) >= 2
+        esperado = _DEPOIS_DO_ROQUE[(cor, longo)]
+        return all(casas.get(casa) == peca for casa, peca in esperado.items())
+    destino = re.findall(r"[a-h][1-8]", san)[-1]
+    promocao = re.search(r"=?([QRBN♕♖♗♘])$", san)
+    if promocao:
+        letra = _LETRA_DA_FIGURINA.get(promocao.group(1), promocao.group(1))
+    else:
+        letra = _LETRA_DA_FIGURINA.get(san[0], san[0]) if san[0] in _PECAS_DO_LANCE else "P"
+    return casas.get(destino) == (letra if cor == "w" else letra.lower())
+
+
+def tem_lance(texto: Optional[str]) -> bool:
+    """O texto tem um lance numerado (`12.♕xc4`, `16...d3`)?"""
+    return bool(_LANCE_NUMERADO.search(str(texto or "")))
+
+
+def pelo_lance(texto: str, fen: str, seguinte: Optional[str] = None) -> Optional[str]:
+    """
+    O lado a jogar pelo último lance escrito antes do diagrama, **conferido nele**.
+
+    O livro de partidas comentadas põe o diagrama depois do lance que leva à
+    posição, e quase nunca diz de quem é a vez: `9.e4 ♕h5 10.♘xc4` em cima do
+    tabuleiro são as pretas a jogar; `8...♕h5 9.♘xc4 ♘bd5 10.e4 ♘b6`, as
+    brancas. Ler o lance não basta — o parágrafo antes do diagrama pode ser uma
+    variante que não chega a ele —, e por isso a peça que fez o último lance
+    tem de estar na casa de chegada (o rei e a torre, no roque). Não conferindo,
+    ou sem lance no texto, sai `None` e o diagrama segue com a convenção
+    declarada.
+
+    **E o texto depois do diagrama tem de continuar dali**, quando `seguinte`
+    é dado: depois de `10.♘xc4` o próximo lance numerado é `10...`, e depois
+    de `10...♘b6`, `11.`. A peça na casa de chegada confere por coincidência
+    — no Dvoretsky, um rei que voltou à casa de um exemplo anterior —, a
+    numeração que continua não: o exemplo novo recomeça em `1.`.
+    """
+    achados = list(_LANCE_NUMERADO.finditer(str(texto or "")))
+    casas = _casas(fen)
+    if not achados or not casas:
+        return None
+    ultimo = achados[-1]
+    numero = int(ultimo.group(1))
+    reticencias = ultimo.group(2) != "."
+    if reticencias or ultimo.group(4):
+        san, cor = (ultimo.group(3) if reticencias else ultimo.group(4)), "b"
+    else:
+        san, cor = ultimo.group(3), "w"
+    if not _lance_confere(san, cor, casas):
+        return None
+    lado = "w" if cor == "b" else "b"
+    if seguinte is not None:
+        proximo = _LANCE_NUMERADO.search(str(seguinte))
+        if proximo is None:
+            return None
+        esperado = (numero, True) if lado == "b" else (numero + 1, False)
+        if (int(proximo.group(1)), proximo.group(2) != ".") != esperado:
+            return None
+    return lado
+
+
 #: O que separa o FEN da ressalva no texto alternativo da figura.
 #:
 #: O `alt` é lido de volta: o editor de livros reconstrói o diagrama do EPUB
@@ -245,6 +354,7 @@ NAO_REVISADO = "não revisado"
 _PROCEDENCIA = {
     "legenda": "da legenda", "legend": "da legenda",
     "legalidade": "inferido pela legalidade da posição",
+    "lance": "pelo último lance do texto",
     "usuario": "informado na revisão", "manual": "informado na revisão",
     "explicit": "informado na revisão", "explícito": "informado na revisão",
     "ambigua": f"{ASSUMIDO}: a legenda fala dos dois lados",

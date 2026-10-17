@@ -358,7 +358,8 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
                 "side_to_move": (legado.lado_a_jogar
                                  or lado_jogar.do_fen(legado.fen or "") or "w"),
                 "side_to_move_source": {"legenda": "legend",
-                                         "legalidade": "legalidade"}.get(
+                                         "legalidade": "legalidade",
+                                         "lance": "lance"}.get(
                     legado.lado_origem, "assumed"),
                 # As casas que o livro marcou (F110): sem elas, o diagrama que
                 # ia e voltava perdia o `x` das casas-chave no redesenho.
@@ -508,6 +509,7 @@ def pagina_extraida_para_documento(pagina, *, document_id: str = "document",
 #: De onde o IR diz que o lado veio → o que a `Figura` chama disso. O que não
 #: está aqui é convenção, e volta sem lado (DEC-06).
 _ORIGEM_DO_LADO = {"legend": "legenda", "legenda": "legenda", "legalidade": "legalidade",
+                   "lance": "lance",
                    "manual": "usuario", "explicit": "usuario", "usuario": "usuario",
                    "explícito": "usuario"}
 

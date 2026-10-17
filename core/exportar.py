@@ -116,6 +116,11 @@ def _alternativo(figura: Figura) -> str:
     """
     if figura.origem == "faixa":
         return "Cabeçalho do diagrama"
+    if figura.origem == "pagina" and not figura.fen:
+        # A imagem que não é tabuleiro — o logo da editora, a capa de um livro
+        # anunciado, a página inteira em imagem — não é "Diagrama" para o leitor
+        # de tela (o Odds & Ends tem as duas primeiras numa página só).
+        return "Imagem"
     ressalva = _ressalva(figura)
     if not figura.fen:
         return "Diagrama" + (lado_jogar.SEPARADOR_DO_ALT + ressalva if ressalva else "")
@@ -769,8 +774,10 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
             f'<li><a href="{arquivo}#{alvo}">{html.escape(aspas_curvas(texto))}</a></li>'
             for arquivo, alvo, texto in capitulos_do_livro)
     else:
-        entradas = "".join(f'<li><a href="{n}">Página {i + 1}</a></li>'
-                           for i, n in enumerate(arquivos_de_pagina))
+        # O número impresso da página, o mesmo do `<title>` dela: exportando as
+        # páginas 1, 6 e 7, o sumário dizia "Página 1, 2, 3".
+        entradas = "".join(f'<li><a href="{n}">Página {pagina.numero + 1}</a></li>'
+                           for pagina, n in zip(paginas, arquivos_de_pagina))
     nav = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n'
            '<html xmlns="http://www.w3.org/1999/xhtml" '
            'xmlns:epub="http://www.idpf.org/2007/ops" '

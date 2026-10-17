@@ -46,6 +46,7 @@ import os
 import re
 import statistics
 import unicodedata
+from array import array
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -55,11 +56,13 @@ from PIL import Image
 from core import lado_a_jogar as lado_jogar
 from core import lexico, render_diagrama
 from core.leitura_comum import _assinatura, _candidato_a_cabecalho
+from core.log import logger
 from core.pagina import (COMO_NO_LIVRO, DPI_FIGURA, MARGEM_DE_PAGINA, MODOS_DE_DIAGRAMA,
                          PAGINAS_DE_CABECALHO, SALTO_DE_PARAGRAFO, TONS_DA_FIGURA, Figura,
                          PaginaExtraida, Paragrafo, _coluna_de)
 from core.box_model import BoxEntry
 
+log = logger(__name__)
 
 # ----------------------------------------------------------------------
 # O vocabulário
@@ -188,6 +191,23 @@ FIGURINAS_CHESSBASE = {
     "²": "⩲", "³": "⩱", "µ": "∓", "™": "□", "…": "Δ", "„": "⇄",
 }
 
+#: A codificação "SP" do ChessBase — `SPTimeFig`, `SPAriesFig`, `FigurineCB
+#: TimeSP`, `FigurineCB AriesSP` —, que a Quality Chess usa nos livros e nas
+#: newsletters: a peça mora em `¢£¤¥¦` (rei, dama, cavalo, bispo, torre) e não na
+#: letra. **Medida no Odds & Ends (2012)**, recortando a 300 dpi um exemplo de
+#: cada caractere que a fonte escreve no livro inteiro e lendo o desenho:
+#: `©` é o `=` sobre o `∞` (compensação), `¹` o segmento (melhor é), `÷` o
+#: infinito, `ƒ` a seta para cima (iniciativa), `‚` a seta (ataque), `‡` o
+#: círculo com ponto (zugzwang), `‘` a seta dupla (coluna) e `”` o quadrado
+#: partido (centro). O `μ` grego de uma página do `SPAriesFig` é o `µ`.
+#: Os pontos de chegada são os de `core/nags.py`, como no mapa de cima.
+FIGURINAS_CHESSBASE_SP = {
+    "¢": "♔", "£": "♕", "¦": "♖", "¥": "♗", "¤": "♘", "§": "♙",
+    "©": "⯹", "²": "⩲", "³": "⩱", "µ": "∓", "μ": "∓", "¹": "⌓", "÷": "∞",
+    "ƒ": "↑", "‚": "→", "„": "⇄", "…": "Δ", "‡": "⨀", "™": "□",
+    "‘": "⇔", "”": "⊞",
+}
+
 #: A fonte de figurina genérica: só as maiúsculas são peça (F2.3, o `Bb5` que
 #: virava `♗♝5`). É o que o perfil `10_figurina_unica` faz com as figurinas.
 FIGURINAS_SIMPLES = {"K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘", "P": "♙"}
@@ -200,8 +220,16 @@ FIGURINAS_SIMPLES = {"K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘",
 #: `diagram`), e aplicados ao texto corrido de um livro qualquer trocariam o
 #: `b` de uma fonte chamada `AlphaSans` por bispo preto. Aqui a lista é curta e
 #: cada linha foi vista num PDF.
+#:
+#: As `FigurineCB …SP` entram antes da `figurine` genérica, e **sem** as letras
+#: de peça: nas páginas que o ChessBase imprime, o texto corrido inteiro está
+#: nessa fonte — o `B` de `Black` é letra, e virava `♗lack`.
 FONTES_DE_FIGURINA: Tuple[Tuple[str, Dict[str, str]], ...] = (
     ("semfig", FIGURINAS_CHESSBASE),
+    ("sptimefig", FIGURINAS_CHESSBASE_SP),
+    ("spariesfig", FIGURINAS_CHESSBASE_SP),
+    ("figurinecbtimesp", FIGURINAS_CHESSBASE_SP),
+    ("figurinecbariessp", FIGURINAS_CHESSBASE_SP),
     ("figurine", FIGURINAS_SIMPLES),
 )
 
@@ -266,6 +294,13 @@ class MapaDeDiagrama:
     filas: Dict[str, int] = field(default_factory=dict)
     #: caractere de moldura que traz o rótulo da coluna → a coluna (0 = a)
     colunas: Dict[str, int] = field(default_factory=dict)
+    #: Os fundos de casa escura que a fonte **sobrepõe** à peça: no teclado
+    #: ChessBase TT a dama preta em casa escura é o `w` e o `q` no mesmo lugar.
+    #: `_grade` junta os dois num glifo só (`wq`) antes de montar a grade.
+    fundos: frozenset = frozenset()
+    #: O glifo solto da fonte é texto, e não pedaço de tabuleiro: a
+    #: DiagramTTFritz também escreve o `+-` da avaliação no meio da frase.
+    solto_e_texto: bool = False
 
     def de_casa(self, caractere: str) -> bool:
         return caractere in self.casas or caractere in self.marcas
@@ -299,6 +334,43 @@ _MARCAS = {"ChessMerida-Diagram": {"x": "clara", "X": "escura",
                                    ".": "clara", ":": "escura"}}
 
 _mapas: Dict[str, Optional[MapaDeDiagrama]] = {}
+
+
+def _mapa_chessbase_tt() -> MapaDeDiagrama:
+    """
+    O teclado das fontes de diagrama "TT" do ChessBase (`DiagramTTFritz`,
+    `DiagramTTHabsburg`), **lido nas páginas que o ChessBase imprime em PDF**
+    (p. 94 em diante do Odds & Ends): a peça é a mesma letra nas duas cores de
+    casa — `p n l r q k` as pretas, maiúsculas as brancas, com `l` o bispo — e
+    a casa escura leva por baixo um fundo próprio de cada peça (`z s v t w m`),
+    desenhado no mesmo lugar. `-` é a casa clara vazia, `+` a escura; `X I Y`,
+    `0` e `x y` são a moldura, com os números e as letras das coordenadas.
+    Conferido contra a partida da p. 100: `pzpnzppsn-+` é `ppnppn2`, a fila 6
+    da Ouriço depois de `12...♘c6`.
+
+    Não está no `fontes_de_diagrama.json` porque não desenhamos com ela; a
+    leitura só precisa saber o que cada glifo é, e a paridade das casas
+    (`_grade`) continua sendo a prova.
+    """
+    pecas = {"p": "p", "n": "n", "l": "b", "r": "r", "q": "q", "k": "k"}
+    fundos = {"z": "p", "s": "n", "v": "l", "t": "r", "w": "q", "m": "k"}
+    casas: Dict[str, Tuple[Optional[str], str]] = {"-": (None, "clara"), "+": (None, "escura")}
+    for letra, fen in pecas.items():
+        casas[letra] = (fen, "clara")
+        casas[letra.upper()] = (fen.upper(), "clara")
+    for fundo, letra in fundos.items():
+        casas[fundo + letra] = (pecas[letra], "escura")
+        casas[fundo + letra.upper()] = (pecas[letra].upper(), "escura")
+    filas = {str(i): i for i in range(1, 9)}
+    colunas = {c: i for i, c in enumerate("abcdefgh")}
+    return MapaDeDiagrama("ChessBase-DiagramTT", casas, {},
+                          frozenset("XIY0xy") | frozenset(filas) | frozenset(colunas),
+                          filas, colunas, fundos=frozenset(fundos), solto_e_texto=True)
+
+
+#: `(trecho do nome da fonte no PDF, construtor do mapa)` das fontes que só
+#: lemos — ver `_mapa_chessbase_tt`.
+FONTES_SO_DE_LEITURA = (("diagramtt", _mapa_chessbase_tt),)
 
 
 def _mapa_de_leitura(nome: str) -> MapaDeDiagrama:
@@ -335,6 +407,11 @@ def mapa_de_diagrama(nome_da_fonte: str) -> Optional[MapaDeDiagrama]:
             except (render_diagrama.FonteDesconhecida, KeyError, OSError, ValueError):
                 mapa = None
             break
+    else:
+        for trecho, construtor in FONTES_SO_DE_LEITURA:
+            if trecho in chave:
+                mapa = construtor()
+                break
     _mapas[chave] = mapa
     return mapa
 
@@ -573,6 +650,23 @@ class Veredito:
 _ESPACOS = frozenset({9, 10, 13, 32, 0xA0})
 
 
+def _fora_da_pagina(page: fitz.Page) -> Tuple[int, int]:
+    """`(letras com o centro fora da página, letras)` no `rawdict`."""
+    retangulo = page.rect
+    fora = lidas = 0
+    for bloco in page.get_text("rawdict", flags=FLAGS_DO_TEXTO).get("blocks", ()):
+        for linha in bloco.get("lines", ()):
+            for span in linha.get("spans", ()):
+                for ch in span.get("chars", ()):
+                    if (ch.get("c") or " ").isspace():
+                        continue
+                    lidas += 1
+                    x0, y0, x1, y1 = ch["bbox"]
+                    if not retangulo.contains(fitz.Point((x0 + x1) / 2, (y0 + y1) / 2)):
+                        fora += 1
+    return fora, lidas
+
+
 def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
                    produtor: str = "") -> Veredito:
     """
@@ -610,6 +704,7 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         direcao = traco.get("dir") or (1.0, 0.0)
         if abs(float(direcao[1])) > 0.1:
             girados += uteis
+
         if not _de_xadrez(nome):
             # O U+FFFD que o nome do glifo resolve (a ligadura do calibre) não
             # é letra perdida: `_glifos` o lê pelo nome.
@@ -672,6 +767,15 @@ def avaliar_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         return recusa(f"o PDF foi carimbado por um programa de OCR ({programa})")
     if girados > LIMITE_DE_GIRADOS * total:
         return recusa(f"texto fora da horizontal ({girados} de {total})")
+    # O ChessBase, nas páginas do Puzzle Section do Odds & Ends, escreve o
+    # texto com uma matriz que a camada não desfaz: as letras saem acima da
+    # página (y negativo), com corpo de 100 pt, e a página inteira viraria uma
+    # linha só. O `get_texttrace` nem as vê; o `rawdict`, que é o que
+    # `_glifos` lê, as põe fora da página.
+    fora, lidas = _fora_da_pagina(page)
+    if fora > LIMITE_DE_OCR * max(lidas, 1):
+        return recusa(f"texto fora da página na camada ({fora} de {lidas}): "
+                      "a posição das letras não é a impressa")
     if digitalizada:
         return recusa("texto sobre a imagem da página inteira: é digitalização")
     return Veredito(numero, True, "camada tipográfica", total, fontes, tipografica)
@@ -888,6 +992,55 @@ def _orientacao_dos_votos(votos: "collections.Counter[str]") -> Optional[str]:
     return None
 
 
+def _juntar_fundos(grupo: Sequence[_Glifo], mapa: MapaDeDiagrama) -> List[_Glifo]:
+    """
+    O fundo de casa escura e a peça desenhada em cima dele viram um glifo só.
+
+    O par está no mesmo lugar (a menos de um quarto de casa); o glifo junto
+    leva o texto `fundo + peça` (`wq`), que é a chave dele em `mapa.casas`, e a
+    caixa do fundo, que é a casa inteira. Fundo sem peça em cima fica de fora:
+    não é casa que o teclado conheça.
+    """
+    fundos = [g for g in grupo if g.c in mapa.fundos]
+    if not fundos:
+        return list(grupo)
+    usados: set = set()
+    juntos: List[_Glifo] = []
+    for fundo in fundos:
+        # O fundo tem largura zero na camada: a régua é o corpo da fonte.
+        tolerancia = 0.25 * max(fundo.tamanho, fundo.x1 - fundo.x0, 1e-6)
+        par = next((g for g in grupo
+                    if id(g) not in usados and g is not fundo and g.c not in mapa.fundos
+                    and (fundo.c + g.c) in mapa.casas
+                    and abs(g.x0 - fundo.x0) <= tolerancia
+                    and abs(g.y0 - fundo.y0) <= tolerancia), None)
+        usados.add(id(fundo))
+        if par is None:
+            continue
+        usados.add(id(par))
+        # O fundo do ChessBase tem largura zero na camada; a casa é a da peça.
+        juntos.append(_Glifo(fundo.c + par.c, min(fundo.x0, par.x0), min(fundo.y0, par.y0),
+                             max(fundo.x1, par.x1), max(fundo.y1, par.y1),
+                             fundo.base, fundo.tamanho, fundo.fonte, fundo.negrito,
+                             fundo.linha, fundo.italico))
+    return [g for g in grupo if id(g) not in usados] + juntos
+
+
+def _passo_das_filas(casas: Sequence[_Glifo], passo: float) -> float:
+    """
+    A distância entre duas filas do tabuleiro, medida, e não suposta igual à largura.
+
+    A Merida do Dvoretsky compõe casas quadradas; o ChessBase imprime as
+    filas com 19,5 pt de entrelinha e as casas com 18 de largura, e a grade
+    com o passo da largura saía 4,3 filas abaixo da quinta. É a mediana dos
+    saltos entre as alturas distintas das casas, entre meia e duas larguras;
+    sem saltos, a largura.
+    """
+    alturas = sorted({round(g.y0, 1) for g in casas})
+    saltos = [b - a for a, b in zip(alturas, alturas[1:]) if 0.5 * passo <= b - a <= 2 * passo]
+    return statistics.median(saltos) if saltos else passo
+
+
 def _grade(grupo: Sequence[_Glifo], mapa: MapaDeDiagrama) -> Optional[_Tabuleiro]:
     """
     Um grupo de glifos vira tabuleiro — ou `None`, se não fecha 8×8.
@@ -900,6 +1053,9 @@ def _grade(grupo: Sequence[_Glifo], mapa: MapaDeDiagrama) -> Optional[_Tabuleiro
     É o que impede o decodificador de afirmar uma posição lida com o teclado de
     outra fonte.
     """
+    original = list(grupo)
+    if mapa.fundos:
+        grupo = _juntar_fundos(grupo, mapa)
     casas = [g for g in grupo if mapa.de_casa(g.c)]
     if len(casas) < CASAS_MINIMAS:
         return None
@@ -908,14 +1064,15 @@ def _grade(grupo: Sequence[_Glifo], mapa: MapaDeDiagrama) -> Optional[_Tabuleiro
         return None
     x0 = min(g.x0 for g in casas)
     y0 = min(g.y0 for g in casas)
+    passo_y = _passo_das_filas(casas, passo)
     posicoes: Dict[Tuple[int, int], _Glifo] = {}
     for g in casas:
         coluna = round((g.x0 - x0) / passo)
-        linha = round((g.y0 - y0) / passo)
+        linha = round((g.y0 - y0) / passo_y)
         if not (0 <= coluna < 8 and 0 <= linha < 8):
             return None
         if (abs(g.x0 - x0 - coluna * passo) > 0.25 * passo
-                or abs(g.y0 - y0 - linha * passo) > 0.25 * passo):
+                or abs(g.y0 - y0 - linha * passo_y) > 0.25 * passo_y):
             return None
         if (linha, coluna) in posicoes:
             return None
@@ -938,7 +1095,7 @@ def _grade(grupo: Sequence[_Glifo], mapa: MapaDeDiagrama) -> Optional[_Tabuleiro
     votos: "collections.Counter[str]" = collections.Counter()
     for g in grupo:
         if g.c in mapa.filas:
-            linha = round((g.y0 - y0) / passo)
+            linha = round((g.y0 - y0) / passo_y)
             fila = mapa.filas[g.c]
             votos["branca" if fila == 8 - linha else
                   "preta" if fila == linha + 1 else "?"] += 1
@@ -948,8 +1105,17 @@ def _grade(grupo: Sequence[_Glifo], mapa: MapaDeDiagrama) -> Optional[_Tabuleiro
             votos["branca" if letra == coluna else
                   "preta" if letra == 7 - coluna else "?"] += 1
     caixa = (x0, y0, max(g.x1 for g in casas), max(g.y1 for g in casas))
+    # O que está a mais de uma casa e meia do tabuleiro não é dele, mesmo na
+    # fonte de diagrama: o `13.` que o ChessBase compõe embaixo, na mesma
+    # fonte, é o lance do texto, e não moldura.
+    folga = 1.5 * passo
+    # Os glifos do PDF, e não os juntados: é por eles que `extrair_pagina`
+    # sabe o que não volta ao texto.
+    dele = [g for g in original
+            if caixa[0] - folga <= g.cx <= caixa[2] + folga
+            and caixa[1] - folga <= g.cy <= caixa[3] + folga]
     return _Tabuleiro(caixa, (caixa[2] - caixa[0]) / 8.0, impresso, sorted(marcas),
-                      grupo[0].fonte, _orientacao_dos_votos(votos), list(grupo))
+                      grupo[0].fonte, _orientacao_dos_votos(votos), dele)
 
 
 def _tabuleiros(glifos: Sequence[_Glifo]
@@ -969,7 +1135,8 @@ def _tabuleiros(glifos: Sequence[_Glifo]
     por_fonte: Dict[Tuple[str, int], List[_Glifo]] = collections.defaultdict(list)
     for g in glifos:
         mapa = mapa_de_diagrama(g.fonte)
-        if mapa is None or not (mapa.de_casa(g.c) or g.c in mapa.moldura):
+        if mapa is None or not (mapa.de_casa(g.c) or g.c in mapa.moldura
+                                or g.c in mapa.fundos):
             continue
         por_fonte[(mapa.nome, round(g.tamanho))].append(g)
 
@@ -983,11 +1150,20 @@ def _tabuleiros(glifos: Sequence[_Glifo]
             tabuleiro = _grade(componente, mapa)
             if tabuleiro is not None:
                 tabuleiros.append(tabuleiro)
-            elif len(componente) >= 4:
+                # O que a grade deixou de fora (longe demais) volta ao texto.
+                dele = {id(g) for g in tabuleiro.glifos}
+                soltos.extend(g for g in componente if id(g) not in dele)
+            elif len(componente) >= 4 and not mapa.solto_e_texto:
                 pedacos.append(componente)
             else:
                 soltos.extend(componente)
     return tabuleiros, pedacos, soltos
+
+
+def _solto_e_texto(g: _Glifo) -> bool:
+    """O glifo solto é de uma fonte de diagrama que também escreve texto."""
+    mapa = mapa_de_diagrama(g.fonte)
+    return mapa is not None and mapa.solto_e_texto
 
 
 def _peca_solta(g: _Glifo) -> bool:
@@ -1089,6 +1265,11 @@ VAO_DE_ESPACO = 0.25
 #: mesma linha — é a calha entre duas colunas.
 VAO_DE_COLUNA = 2.0
 
+#: O vão mínimo, em corpos, para partir a linha **onde as colunas mudam**. A calha
+#: das newsletters da Quality Chess é 1,3 corpo; o espaço da linha justificada que
+#: atravessa a página raramente passa de 0,6, e cair no meio da calha não a parte.
+VAO_DA_CALHA = 0.9
+
 
 def _caractere(g: _Glifo) -> str:
     """O que o glifo quer dizer no texto corrido."""
@@ -1096,7 +1277,9 @@ def _caractere(g: _Glifo) -> str:
     if mapa is not None:
         return mapa.get(g.c, g.c)
     diagrama = mapa_de_diagrama(g.fonte)
-    if diagrama is not None and g.c in diagrama.casas:
+    # A fonte de diagrama que também escreve texto (o ChessBase põe `White to
+    # play` e o nome dos jogadores nela) fica com a letra: `play` saía `♙♗ay`.
+    if diagrama is not None and g.c in diagrama.casas and not diagrama.solto_e_texto:
         letra = diagrama.casas[g.c][0]
         return _FIGURINA_DA_LETRA.get((letra or "").upper(), g.c)
     return EQUIVALENTES.get(g.c, g.c)
@@ -1162,14 +1345,26 @@ def _montar(glifos: List[_Glifo]) -> _Linha:
                   italico=italico)
 
 
-def _linhas(glifos: Sequence[_Glifo]) -> List[_Linha]:
+def _linhas(glifos: Sequence[_Glifo], colunas: Sequence[Tuple[int, int]] = (),
+            escala: float = 1.0) -> List[_Linha]:
     """
     Os glifos de texto em linhas, e cada linha com o seu texto.
 
     Parte da linha do MuPDF, que já junta o que está na mesma altura, e corrige
     os dois defeitos dela: a linha que atravessa a calha (dois pedaços longe
     demais para serem a mesma frase) e a mesma linha impressa partida em duas.
+
+    **Com as `colunas` da página (em pixels a `escala`), a calha é a das
+    colunas, e não só a distância.** A calha das newsletters da Quality Chess é
+    de 14 pt num corpo de 11 — 1,3 corpo, abaixo do `VAO_DE_COLUNA` — e as duas
+    linhas na mesma altura viravam uma só: `However, at this point he
+    completely missed fantastic: the chance…`, com a palavra da outra coluna no
+    meio da frase. Dois pedaços de colunas diferentes não se juntam, e um
+    pedaço que passa de uma coluna à outra num vão maior que o espaço parte ali.
     """
+    def coluna(x: float) -> int:
+        return _coluna_de(x * escala, colunas) if colunas else 0
+
     por_linha: Dict[Tuple[int, int], List[_Glifo]] = collections.defaultdict(list)
     for g in glifos:
         por_linha[g.linha].append(g)
@@ -1179,7 +1374,10 @@ def _linhas(glifos: Sequence[_Glifo]) -> List[_Linha]:
         membros.sort(key=lambda o: o.x0)
         atual = [membros[0]]
         for g in membros[1:]:
-            if g.x0 - atual[-1].x1 > VAO_DE_COLUNA * max(g.tamanho, atual[-1].tamanho):
+            corpo = max(g.tamanho, atual[-1].tamanho)
+            vao = g.x0 - atual[-1].x1
+            if vao > VAO_DE_COLUNA * corpo or (
+                    vao > VAO_DA_CALHA * corpo and coluna(g.cx) != coluna(atual[-1].cx)):
                 pedacos.append(_montar(atual))
                 atual = []
             atual.append(g)
@@ -1191,7 +1389,8 @@ def _linhas(glifos: Sequence[_Glifo]) -> List[_Linha]:
         for alvo in reversed(juntos[-6:]):
             corpo = max(pedaco.tamanho, alvo.tamanho)
             if (abs(pedaco.base - alvo.base) <= 0.35 * corpo
-                    and 0 <= pedaco.x0 - alvo.x1 <= VAO_DE_COLUNA * corpo):
+                    and 0 <= pedaco.x0 - alvo.x1 <= VAO_DE_COLUNA * corpo
+                    and coluna(pedaco.cx) == coluna(alvo.cx)):
                 indice = juntos.index(alvo)
                 juntos[indice] = _montar(alvo.glifos + pedaco.glifos)
                 break
@@ -1201,27 +1400,115 @@ def _linhas(glifos: Sequence[_Glifo]) -> List[_Linha]:
 
 
 def _colunas(linhas: Sequence[_Linha], escala: float) -> List[Tuple[int, int]]:
+    """As colunas da página pelas linhas já montadas; ver `_colunas_dos_glifos`."""
+    return _colunas_dos_glifos([g for linha in linhas for g in linha.glifos], escala)
+
+
+def _colunas_dos_glifos(glifos: Sequence[_Glifo], escala: float) -> List[Tuple[int, int]]:
     """
     As colunas da página, em pixels, pela mesma régua que o OCR usa.
 
     `BoxService.detectar_colunas` projeta as caixas de caractere e procura a
     calha; aqui as caixas vêm da camada em vez da segmentação, e a pergunta é a
     mesma. Uma régua só para os dois caminhos é o que faz a página de duas
-    colunas sair em duas colunas pelos dois.
+    colunas sair em duas colunas pelos dois. Ela agrupa as caixas em linhas
+    por conta própria, e por isso responde antes de `_linhas` — que precisa da
+    resposta para não juntar as duas colunas.
     """
     from core.services.box_service import BoxService
 
     caixas = []
-    for linha in linhas:
-        for g in linha.glifos:
-            if g.c.isspace():
-                continue
-            x0, y0 = int(g.x0 * escala), int(g.y0 * escala)
-            caixas.append(BoxEntry(g.c, x0, y0, max(x0 + 1, int(g.x1 * escala)),
-                                   max(y0 + 1, int(g.y1 * escala))))
+    for g in glifos:
+        if g.c.isspace():
+            continue
+        x0, y0 = int(g.x0 * escala), int(g.y0 * escala)
+        caixas.append(BoxEntry(g.c, x0, y0, max(x0 + 1, int(g.x1 * escala)),
+                               max(y0 + 1, int(g.y1 * escala))))
     if not caixas:
         return []
     return BoxService.detectar_colunas(caixas)
+
+
+#: Quanto de uma coluna um elemento tem de cobrir para contar como dentro dela,
+#: ao decidir se ele atravessa a página. O título centrado "Games" das
+#: newsletters cobre 22% de cada coluna; o lance que transborda para a calha
+#: não chega à coluna vizinha.
+FRACAO_QUE_ATRAVESSA = 0.10
+
+
+def _faixas(elementos: Sequence[Tuple[int, float, int, object]],
+            caixas: Dict[int, Tuple[float, float, float, float]],
+            colunas: Sequence[Tuple[int, int]], escala: float,
+            altura: float = 0.0) -> Dict[int, int]:
+    """
+    A faixa horizontal de cada elemento: o que atravessa as colunas parte a página.
+
+    Coluna por coluna só é a ordem de leitura entre dois elementos que
+    atravessam a página. O título centrado em cima das duas colunas caía na
+    coluna do centro dele e saía no meio do texto — depois de toda a coluna da
+    esquerda —, e não antes dela. Aqui o elemento que cobre duas colunas ou
+    mais é uma faixa sozinho, e os outros ficam na faixa entre os dois que
+    atravessam acima e abaixo deles; a ordem é faixa, coluna, altura.
+
+    **A linha solta no alto também é uma faixa**, antes de tudo: o cabeçalho
+    corrente `Games` · `7` não atravessa nada — o título cai numa coluna e o
+    número na outra —, e no fluxo da coluna da direita ele ficava entre `But
+    this is not` e `easy to work out`, a frase que passa de uma coluna para a
+    outra. `retirar_mobilia` o tira depois; aqui ele só sai do meio do caminho.
+    """
+    if len(colunas) < 2:
+        return {id(e[3]): 0 for e in elementos}
+    margens = _soltos_nas_margens(elementos, caixas, altura)
+
+    def atravessa(item: object) -> bool:
+        x0, _y0, x1, _y1 = caixas.get(id(item), (0.0, 0.0, 0.0, 0.0))
+        a, z = x0 * escala, x1 * escala
+        cobertas = sum(1 for c0, c1 in colunas
+                       if min(z, c1) - max(a, c0) > FRACAO_QUE_ATRAVESSA * max(1, c1 - c0))
+        return cobertas >= 2
+
+    largos = sorted((e[1], id(e[3])) for e in elementos
+                    if id(e[3]) not in margens and atravessa(e[3]))
+    faixa: Dict[int, int] = {}
+    for _coluna, y, _tipo, item in elementos:
+        if id(item) in margens:
+            faixa[id(item)] = -1
+            continue
+        acima = sum(1 for y_largo, chave in largos if chave != id(item) and y_largo <= y)
+        faixa[id(item)] = 2 * acima + (1 if any(chave == id(item) for _y, chave in largos) else 0)
+    return faixa
+
+
+def _soltos_nas_margens(elementos: Sequence[Tuple[int, float, int, object]],
+                        caixas: Dict[int, Tuple[float, float, float, float]],
+                        altura: float) -> Dict[int, str]:
+    """
+    `{id do elemento: "alto"}` da primeira linha impressa, quando ela está na
+    margem de cima e solta do resto — a mesma régua de `_soltos_na_margem`,
+    sobre os elementos da página em vez dos parágrafos.
+
+    **Só linhas de texto, e só no alto.** No pé da página a última linha é,
+    muitas vezes, a legenda do diagrama de baixo (`1-40` no Dvoretsky), e
+    tirá-la do fluxo a separava do tabuleiro; e a linha de cima que fica logo
+    acima de um tabuleiro é o cabeçalho dele, e não o da página.
+    """
+    if not altura or len(elementos) < 2:
+        return {}
+    todos = [(caixas.get(id(e[3]), (0.0, e[1], 0.0, e[1])), id(e[3]), e[3]) for e in elementos]
+    ref = min(todos, key=lambda t: t[0][1])[0]
+    mesma = [t for t in todos if t[0][1] <= ref[3] and t[0][3] >= ref[1]]
+    resto = [t for t in todos if all(t[1] != m[1] for m in mesma)]
+    if not resto or not all(isinstance(t[2], _Linha) for t in mesma):
+        return {}
+    topo = min(t[0][1] for t in mesma)
+    pe = max(t[0][3] for t in mesma)
+    abaixo = min(resto, key=lambda t: t[0][1])
+    if isinstance(abaixo[2], tuple) and abaixo[2][0] == "t":
+        return {}
+    vao = abaixo[0][1] - pe
+    if pe <= altura * MARGEM_DE_PAGINA and vao >= 0.8 * max(1.0, pe - topo):
+        return {t[1]: "alto" for t in mesma}
+    return {}
 
 
 # ----------------------------------------------------------------------
@@ -1262,6 +1549,23 @@ class _Metricas:
     #: O recuo de parágrafo da coluna, quando ela tem um: a moda dos recuos
     #: pequenos (10,9 pt no Dvoretsky).
     recuo: Dict[int, float] = field(default_factory=dict)
+    #: A borda direita da coluna **justificada** — onde a maioria das linhas
+    #: acaba —, e só dela: no texto alinhado à esquerda (o Dvoretsky) a linha
+    #: curta não diz nada, e a coluna não entra aqui.
+    borda: Dict[int, float] = field(default_factory=dict)
+
+
+#: A fração das linhas compridas que tem de acabar na mesma borda (com 1 pt de
+#: folga) para a coluna ser justificada.
+FRACAO_JUSTIFICADA = 0.5
+
+#: Linhas compridas, em caracteres, para medir a justificação: a última linha
+#: de um parágrafo, curta, não conta.
+CARACTERES_DE_LINHA_CHEIA = 20
+
+#: Quanto antes da borda (em corpos) a linha de uma coluna justificada ainda é
+#: cheia. O espaço que a justificação não conseguiu esticar não passa disto.
+FOLGA_DA_LINHA_CHEIA = 0.6
 
 
 def _metricas(linhas: Sequence[_Linha]) -> _Metricas:
@@ -1295,11 +1599,56 @@ def _metricas(linhas: Sequence[_Linha]) -> _Metricas:
             < 3 * linha.tamanho)
         if recuos:
             recuo[coluna] = recuos.most_common(1)[0][0]
+    borda: Dict[int, float] = {}
+    for coluna, desta in por_coluna.items():
+        finais = collections.Counter(round(linha.x1) for linha in desta
+                                     if len(linha.texto) >= CARACTERES_DE_LINHA_CHEIA)
+        if not finais:
+            continue
+        moda = max(finais, key=lambda x: (finais[x], x))
+        cheias = sum(n for x, n in finais.items() if abs(x - moda) <= 1)
+        if cheias >= 3 and cheias >= FRACAO_JUSTIFICADA * sum(finais.values()):
+            borda[coluna] = float(moda)
     pesos: "collections.Counter[float]" = collections.Counter()
     for linha in linhas:
         pesos[round(linha.tamanho, 1)] += len(linha.texto)
     corpo = pesos.most_common(1)[0][0] if pesos else 10.0
-    return _Metricas(margem, direita, passo, corpo, recuo)
+    return _Metricas(margem, direita, passo, corpo, recuo, borda)
+
+
+def _peso(linha: _Linha) -> str:
+    """`negrito`, `normal` ou `misto`: o peso dos caracteres impressos da linha."""
+    cheios = [n for c, n in zip(linha.texto, linha.negrito) if not c.isspace()]
+    if not cheios:
+        return ""
+    if all(cheios):
+        return "negrito"
+    return "misto" if any(cheios) else "normal"
+
+
+def _continua_na_coluna(linha: _Linha, anterior: _Linha, m: _Metricas) -> bool:
+    """
+    A linha que abre uma coluna continua a frase que fechou a anterior?
+
+    Só na coluna justificada, onde a linha cheia diz que a frase não acabou: a
+    de cima tem de ir até a borda e não terminar em pontuação de fim, e a de
+    baixo tem de começar na margem, sem recuo, com minúscula, e no mesmo corpo,
+    e **mais alta** que a de cima (é o começo da coluna seguinte). O número de
+    página no canto também vai até a borda: sem a altura e o comprimento, o `9`
+    do cabeçalho grudava em `has read the GM Repertoire books`.
+    """
+    if (linha.base >= anterior.base
+            or len(anterior.texto.strip()) < CARACTERES_DE_LINHA_CHEIA):
+        return False
+    borda = m.borda.get(anterior.coluna)
+    if borda is None or anterior.x1 < borda - FOLGA_DA_LINHA_CHEIA * anterior.tamanho:
+        return False
+    if anterior.texto.rstrip()[-1:] in tuple(".!?:;") or not linha.texto[:1].islower():
+        return False
+    if abs(linha.tamanho - anterior.tamanho) > 0.15 * m.corpo:
+        return False
+    margem = m.margem.get(linha.coluna, linha.x0)
+    return linha.x0 - margem <= RECUO_DE_PARAGRAFO * linha.tamanho
 
 
 def _abre_paragrafo(linha: _Linha, anterior: Optional[_Linha], m: _Metricas) -> bool:
@@ -1307,8 +1656,30 @@ def _abre_paragrafo(linha: _Linha, anterior: Optional[_Linha], m: _Metricas) -> 
     Recuo, salto, troca de coluna ou de corpo — as regras do OCR, medidas aqui
     em pontos e sobre a linha que o arquivo diz, e não sobre a que a
     segmentação achou.
+
+    E três regras do livro de partidas comentadas (as newsletters e os livros
+    da Quality Chess), medidas no Odds & Ends:
+
+    - **A troca de peso abre parágrafo.** A linha principal é um parágrafo em
+      negrito e o comentário um parágrafo em redondo, sem salto nem recuo
+      entre os dois: `18.♕d4! would have won a piece.` e, na linha de baixo,
+      `15...♕xh3 16.♘f2` em negrito. Só a linha inteira de um peso depois da
+      linha inteira do outro conta — a prosa com um lance em negrito no meio
+      (`misto`) não parte nada.
+    - **Na coluna justificada, a linha curta fecha o parágrafo.** A variante
+      de uma linha só, recuada (`21...♔b8 22.e6 bxc6 23.e7±`), é seguida da
+      continuação do parágrafo de antes, na margem — sem recuo que a abra.
+    - **O bloco recuado continua.** A variante longa vem recuada inteira,
+      linha por linha; cada linha tinha recuo e virava um parágrafo de uma
+      linha. Depois de uma linha cheia, a linha com o mesmo recuo é a
+      continuação dela.
+    - **A frase que passa para a outra coluna continua.** `But this is not`
+      fecha a coluna da esquerda e `easy to work out.` abre a da direita, na
+      margem, em minúscula: é o mesmo parágrafo (`_continua_na_coluna`).
     """
-    if anterior is None or linha.coluna != anterior.coluna:
+    if anterior is not None and linha.coluna != anterior.coluna:
+        return not _continua_na_coluna(linha, anterior, m)
+    if anterior is None:
         return True
     if linha.base <= anterior.base:
         return True
@@ -1317,8 +1688,18 @@ def _abre_paragrafo(linha: _Linha, anterior: Optional[_Linha], m: _Metricas) -> 
     passo = m.passo.get(linha.coluna, 1.2 * m.corpo)
     if linha.base - anterior.base > passo * (1 + SALTO_DE_PARAGRAFO):
         return True
+    if {_peso(linha), _peso(anterior)} == {"negrito", "normal"}:
+        return True
     margem = m.margem.get(linha.coluna, linha.x0)
-    return linha.x0 - margem > RECUO_DE_PARAGRAFO * linha.tamanho
+    recuada = linha.x0 - margem > RECUO_DE_PARAGRAFO * linha.tamanho
+    borda = m.borda.get(linha.coluna)
+    if borda is not None:
+        if anterior.x1 < borda - FOLGA_DA_LINHA_CHEIA * anterior.tamanho:
+            return True
+        if (recuada and anterior.x0 - margem > RECUO_DE_PARAGRAFO * anterior.tamanho
+                and abs(linha.x0 - anterior.x0) <= 0.2 * linha.tamanho):
+            return False
+    return recuada
 
 
 def _forma_de_titulo(linha: _Linha, *, ultima: bool = True) -> bool:
@@ -2038,7 +2419,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     # livro compôs na fonte do diagrama. A casa vazia, a marca e o pedaço de
     # moldura soltos não dizem nada em prosa, e sairiam `*`, `+` ou `x` no meio
     # da frase.
-    consumidos |= {id(g) for g in soltos if not _peca_solta(g)}
+    consumidos |= {id(g) for g in soltos if not _peca_solta(g) and not _solto_e_texto(g)}
     restantes = [g for g in glifos if id(g) not in consumidos]
 
     # Os rótulos saem do texto, e dizem a orientação de cada tabuleiro.
@@ -2052,7 +2433,9 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         consumidos |= {id(g) for g in usados}
         orientacoes.append(tabuleiro.orientacao_da_moldura or pelos_rotulos)
         rotulados.append(bool(usados) or tabuleiro.orientacao_da_moldura is not None)
-    linhas = _linhas([g for g in restantes if id(g) not in consumidos])
+    texto = [g for g in restantes if id(g) not in consumidos]
+    colunas = _colunas_dos_glifos(texto, o.escala)
+    linhas = _linhas(texto, colunas, o.escala)
 
     area = abs(page.rect) or 1.0
     imagens = []
@@ -2061,7 +2444,6 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
         if abs(caixa) >= AREA_MINIMA_DE_IMAGEM * area:
             imagens.append(caixa)
 
-    colunas = _colunas(linhas, o.escala)
     for linha in linhas:
         linha.coluna = _coluna_de(linha.cx * o.escala, colunas)
     m = _metricas(linhas)
@@ -2069,25 +2451,34 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
     # A ordem de leitura: coluna por coluna, de cima para baixo — a mesma do
     # OCR. O que não é linha entra pela coluna do centro dele.
     elementos: List[Tuple[int, float, int, object]] = []
+    #: A caixa de cada elemento, para achar o que atravessa as colunas e o que
+    #: está solto na margem.
+    caixas: Dict[int, Tuple[float, float, float, float]] = {}
     for linha in linhas:
         elementos.append((linha.coluna, linha.y0, 1, linha))
+        caixas[id(linha)] = (linha.x0, linha.y0, linha.x1, linha.y1)
 
     def coluna_de(x0: float, x1: float) -> int:
         return _coluna_de((x0 + x1) / 2 * o.escala, colunas)
 
     for i, tabuleiro in enumerate(tabuleiros):
-        x0, y0, x1, _y1 = tabuleiro.caixa
+        x0, y0, x1, y1 = tabuleiro.caixa
         elementos.append((coluna_de(x0, x1), y0, 0, ("t", i, tabuleiro)))
+        caixas[id(elementos[-1][3])] = (x0, y0, x1, y1)
     for i, pedaco in enumerate(pedacos):
-        elementos.append((coluna_de(min(g.x0 for g in pedaco), max(g.x1 for g in pedaco)),
-                          min(g.y0 for g in pedaco), 0, ("p", i, None)))
+        x0, x1 = min(g.x0 for g in pedaco), max(g.x1 for g in pedaco)
+        y0, y1 = min(g.y0 for g in pedaco), max(g.y1 for g in pedaco)
+        elementos.append((coluna_de(x0, x1), y0, 0, ("p", i, None)))
+        caixas[id(elementos[-1][3])] = (x0, y0, x1, y1)
     for i, caixa in enumerate(imagens):
         # A imagem entra pelo **meio** da altura, e não pelo topo: a foto do
         # autor ao lado do título da p. 12 começa um ponto abaixo da primeira
         # linha dele, e pelo topo partia o título em dois.
         elementos.append((coluna_de(caixa.x0, caixa.x1), (caixa.y0 + caixa.y1) / 2, 0,
                           ("i", i, None)))
-    elementos.sort(key=lambda e: (e[0], e[1], e[2]))
+        caixas[id(elementos[-1][3])] = (caixa.x0, caixa.y0, caixa.x1, caixa.y1)
+    faixa = _faixas(elementos, caixas, colunas, o.escala, page.rect.height)
+    elementos.sort(key=lambda e: (faixa[id(e[3])], e[0], e[1], e[2]))
     fluxo = [e[3] for e in elementos]
 
     # Primeiro, de cada tabuleiro, o cabeçalho de cima e a legenda de baixo —
@@ -2257,7 +2648,7 @@ def ligar_legendas(paginas: Sequence["PaginaExtraida"], *, idioma: str = "en",
             atual.caracteres += len(novos)
         lado = _lado("", textos, idioma)
         if lado and lado != figura.lado_a_jogar:
-            _trocar_lado(figura, lado, lado_do_diagrama, moldura, cantos)
+            trocar_lado(figura, lado, lado_do_diagrama, moldura, cantos)
         religadas += 1
     return religadas
 
@@ -2285,9 +2676,15 @@ def retirar_mobilia(paginas: Sequence["PaginaExtraida"]) -> "collections.Counter
     que fecha um parágrafo está colado nele. O número de página solto sai sem
     esperar repetição (é o que ele é); o texto solto sai quando se repete na
     mesma margem em `PAGINAS_DE_CABECALHO` páginas.
+
+    **O texto que divide a linha com o número de página sai com ele**, sem
+    esperar repetição: `Games` e `7` no alto da p. 7 do Odds & Ends são um
+    cabeçalho só, impresso em dois pedaços — o título no meio e o número no
+    canto. Exportando quatro páginas, `Games` aparece uma vez e não se repetia.
     """
     candidatas = []
     vistos: "collections.Counter[Tuple[str, str]]" = collections.Counter()
+    com_folio: set = set()
     for pagina in paginas:
         if getattr(pagina, "leitura", "") != LEITURA_CAMADA or not pagina.altura:
             continue
@@ -2296,10 +2693,12 @@ def retirar_mobilia(paginas: Sequence["PaginaExtraida"]) -> "collections.Counter
             chave = (margem, _assinatura(texto))
             vistos[chave] += 1
             candidatas.append((pagina, bloco, chave, texto))
+            if _FOLIO.match(texto):
+                com_folio.add((id(pagina), margem))
     retirados: "collections.Counter[str]" = collections.Counter()
     for pagina, bloco, chave, texto in candidatas:
-        if not (_FOLIO.match(texto) or (chave[1] and vistos[chave]
-                                          >= PAGINAS_DE_CABECALHO)):
+        if not (_FOLIO.match(texto) or (id(pagina), chave[0]) in com_folio
+                or (chave[1] and vistos[chave] >= PAGINAS_DE_CABECALHO)):
             continue
         pagina.blocos = [b for b in pagina.blocos if b is not bloco]
         pagina.cabecalhos.append(texto)
@@ -2310,7 +2709,13 @@ def retirar_mobilia(paginas: Sequence["PaginaExtraida"]) -> "collections.Counter
 
 def _soltos_na_margem(pagina: "PaginaExtraida"
                       ) -> List[Tuple[str, "Paragrafo"]]:
-    """O parágrafo de uma linha que abre (ou fecha) a página, solto do resto."""
+    """
+    Os parágrafos de uma linha que abrem (ou fecham) a página, soltos do resto.
+
+    A primeira (ou a última) **linha impressa**, e não só o primeiro bloco: o
+    cabeçalho em dois pedaços na mesma altura — o título no meio e o número no
+    canto — são dois blocos, e os dois são candidatos.
+    """
     topos = []
     for bloco in pagina.blocos:
         if isinstance(bloco, Paragrafo) and bloco.topo is not None:
@@ -2320,30 +2725,150 @@ def _soltos_na_margem(pagina: "PaginaExtraida"
     if len(topos) < 2:
         return []
     saida = []
-    alto = min(topos, key=lambda t: t[0])
-    baixo = max(topos, key=lambda t: t[1])
-    for margem, (topo, pe, bloco) in (("alto", alto), ("baixo", baixo)):
-        if not (isinstance(bloco, Paragrafo) and not bloco.titulo
-                and len(bloco.inicios) == 1
-                and _candidato_a_cabecalho(bloco.texto.strip())):
+    for margem in ("alto", "baixo"):
+        if margem == "alto":
+            ref = min(topos, key=lambda t: t[0])
+        else:
+            ref = max(topos, key=lambda t: t[1])
+        # A linha da referência: o que se sobrepõe a ela na altura.
+        mesma = [t for t in topos if t[0] <= ref[1] and t[1] >= ref[0]]
+        resto = [t for t in topos if all(t[2] is not m[2] for m in mesma)]
+        if not resto:
             continue
+        topo, pe = min(t[0] for t in mesma), max(t[1] for t in mesma)
         altura = max(1, pe - topo)
         if margem == "alto":
             na_margem = topo <= pagina.altura * MARGEM_DE_PAGINA
-            vao = min(t for t, _p, b in topos if b is not bloco) - pe
+            vao = min(t for t, _p, _b in resto) - pe
         else:
             na_margem = pe >= pagina.altura * (1 - MARGEM_DE_PAGINA)
-            vao = topo - max(p for _t, p, b in topos if b is not bloco)
-        if na_margem and vao >= 0.8 * altura:
-            saida.append((margem, bloco))
+            vao = topo - max(p for _t, p, _b in resto)
+        if not (na_margem and vao >= 0.8 * altura):
+            continue
+        for _t, _p, bloco in mesma:
+            if (isinstance(bloco, Paragrafo) and not bloco.titulo
+                    and len(bloco.inicios) == 1
+                    and _candidato_a_cabecalho(bloco.texto.strip())):
+                saida.append((margem, bloco))
     return saida
 
 
-def _trocar_lado(figura: "Figura", lado: str, lado_do_diagrama: int,
-                 moldura, cantos: str) -> None:
-    """O lado que a legenda da página seguinte disse, no FEN e no desenho."""
+def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"]) -> int:
+    """
+    O parágrafo que a paginação partiu volta a ser um só, na página onde começa.
+
+    `here is a game by Dutch GM Reinderman, who clearly` fecha a p. 8 do Odds &
+    Ends e a frase continua no alto da p. 9; no EPUB, página por página, ela
+    saía em dois parágrafos, o segundo começando em minúscula. Junta quando o
+    último bloco de uma página é um parágrafo sem pontuação de fim e o
+    primeiro da seguinte começa em minúscula — nenhum dos dois título, as
+    páginas seguidas. A palavra partida por hífen no fim da página fica como
+    está: sem o dicionário, juntar `well-` com `known` ou tirar o hífen de
+    `counter-` seria chute. Vale para a camada e para o OCR, que montam o
+    mesmo `Paragrafo`. Devolve quantos parágrafos voltaram.
+    """
+    juntados = 0
+    for atual, seguinte in zip(paginas, paginas[1:]):
+        if seguinte.numero != atual.numero + 1 or not atual.blocos or not seguinte.blocos:
+            continue
+        antes, depois = atual.blocos[-1], seguinte.blocos[0]
+        if not (isinstance(antes, Paragrafo) and isinstance(depois, Paragrafo)
+                and not antes.titulo and not depois.titulo):
+            continue
+        fim, comeco = antes.texto.rstrip(), depois.texto.lstrip()
+        if not fim or not comeco[:1].islower() or fim[-1] in ".!?:;-":
+            continue
+        # As marcas de `depois` contam do texto dele com o espaço da esquerda.
+        deslocamento = len(fim) + 1 - (len(depois.texto) - len(comeco))
+        antes.negrito = list(antes.negrito) + [(a + deslocamento, z + deslocamento)
+                                               for a, z in depois.negrito]
+        antes.italico = list(antes.italico) + [(a + deslocamento, z + deslocamento)
+                                               for a, z in depois.italico]
+        if antes.inicios and depois.inicios:
+            antes.inicios = list(antes.inicios) + [i + deslocamento for i in depois.inicios]
+            antes.registros = list(antes.registros) + list(depois.registros)
+        for nome in ("pesos", "lacunas"):
+            a, b = getattr(antes, nome), getattr(depois, nome)
+            if (a is not None and b is not None and len(a) == len(antes.texto)
+                    and len(b) == len(depois.texto) and fim == antes.texto
+                    and comeco == depois.texto):
+                setattr(antes, nome, a + array(a.typecode, [float("nan")]) + b)
+            else:
+                setattr(antes, nome, None)
+        antes.texto = f"{fim} {comeco}"
+        seguinte.blocos = seguinte.blocos[1:]
+        atual.caracteres += len(comeco) + 1
+        seguinte.caracteres -= len(depois.texto)
+        juntados += 1
+    return juntados
+
+
+#: Quantos parágrafos de lances, antes do diagrama, `lados_pelos_lances` tenta.
+PARAGRAFOS_DE_LANCE = 3
+
+
+def lados_pelos_lances(paginas: Sequence["PaginaExtraida"], *,
+                       lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
+                       moldura=render_diagrama.MOLDURA_PADRAO,
+                       cantos: str = render_diagrama.CANTO_PADRAO) -> int:
+    """
+    O lado a jogar dos diagramas que a página não disse, pelo lance antes deles.
+
+    Passada de livro, e não de página: o diagrama que abre a p. 7 do Odds &
+    Ends mostra a posição depois de `13.♕b3 0–0–0`, o último parágrafo da p. 6.
+    Vale para os dois caminhos — a camada e o OCR — porque só pede o texto dos
+    parágrafos e o FEN da figura (`lado_a_jogar.pelo_lance`, que confere o
+    lance no tabuleiro). A figura cujo lado já foi lido (legenda, revisão) não
+    muda; a sequência recomeça quando as páginas não são seguidas. Devolve
+    quantos diagramas ganharam o lado.
+
+    O parágrafo de lances mais próximo nem sempre leva ao diagrama: a p. 8
+    abre com a posição depois de `24.♗e3`, e o último parágrafo da p. 7 é a
+    variante `24.♔h1 ♖xg2 …`. Por isso os `PARAGRAFOS_DE_LANCE` mais recentes
+    são tentados, do mais novo ao mais velho, e vale o primeiro cujo lance a
+    posição confirma **e o texto de depois continua** (`pelo_lance` com o
+    primeiro parágrafo de lances depois da figura). Sem lance depois, nada se
+    diz: medido no Dvoretsky, o lance de um exemplo anterior conferia por
+    coincidência num diagrama "White to move".
+    """
+    # Os blocos em sequência, partidos onde as páginas deixam de ser seguidas.
+    trechos: List[List[object]] = []
+    anterior: Optional[int] = None
+    for pagina in paginas:
+        if anterior is None or pagina.numero != anterior + 1:
+            trechos.append([])
+        anterior = pagina.numero
+        trechos[-1].extend(pagina.blocos)
+    achados = 0
+    for blocos in trechos:
+        recentes: List[str] = []
+        for posicao, bloco in enumerate(blocos):
+            if isinstance(bloco, Paragrafo):
+                if lado_jogar.tem_lance(bloco.texto):
+                    recentes = (recentes + [bloco.texto])[-PARAGRAFOS_DE_LANCE:]
+                continue
+            if not (isinstance(bloco, Figura) and bloco.fen and recentes
+                    and (bloco.lado_origem or "convencao") == "convencao"):
+                continue
+            seguinte = next((b.texto for b in blocos[posicao + 1:]
+                             if isinstance(b, Paragrafo) and lado_jogar.tem_lance(b.texto)),
+                            None)
+            if seguinte is None:
+                continue
+            lado = next((achado for achado in (lado_jogar.pelo_lance(texto, bloco.fen, seguinte)
+                                               for texto in reversed(recentes)) if achado),
+                        None)
+            if lado:
+                trocar_lado(bloco, lado, lado_do_diagrama, moldura, cantos, origem="lance")
+                achados += 1
+    return achados
+
+
+def trocar_lado(figura: "Figura", lado: str, lado_do_diagrama: int,
+                 moldura, cantos: str, origem: str = "legenda") -> None:
+    """O lado que a legenda da página seguinte (ou o lance) disse, no FEN e no desenho."""
     figura.fen = lado_jogar.com_lado(figura.fen, lado)
-    figura.lado_a_jogar, figura.lado_origem = lado, "legenda"
+    figura.lado_a_jogar, figura.lado_origem = lado, origem
     if figura.origem != "render":
         return
     try:
@@ -2480,14 +3005,23 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
                 progress_callback(i, len(numeros))
             page = doc[numero]
             veredito = avaliar_pagina(page, numero=numero, produtor=carimbo)
-            vereditos.append(veredito)
             if veredito.aceita or (forcar and veredito.tem_texto):
-                lidas.append(extrair_pagina(
-                    page, numero=numero, dpi=dpi, dpi_figura=dpi_figura,
-                    idioma=idioma, lex=lex, diagramas=diagramas,
-                    coordenadas=coordenadas, fonte=fonte,
-                    lado_do_diagrama=lado_do_diagrama, moldura=moldura,
-                    cantos=cantos))
+                try:
+                    lidas.append(extrair_pagina(
+                        page, numero=numero, dpi=dpi, dpi_figura=dpi_figura,
+                        idioma=idioma, lex=lex, diagramas=diagramas,
+                        coordenadas=coordenadas, fonte=fonte,
+                        lado_do_diagrama=lado_do_diagrama, moldura=moldura,
+                        cantos=cantos))
+                except Exception as erro:  # noqa: BLE001 — a página vai ao OCR, e não o livro
+                    # Uma página que a camada não monta não derruba o livro: ela
+                    # sai recusada, com o motivo, e quem chama a manda ao OCR.
+                    log.warning("Página %d: a leitura da camada falhou (%s: %s); vai ao OCR.",
+                                numero + 1, type(erro).__name__, erro)
+                    veredito = Veredito(numero, False, f"a leitura da camada falhou: {erro}",
+                                        veredito.caracteres, veredito.fontes,
+                                        veredito.tipografica)
+            vereditos.append(veredito)
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
     # As duas passadas do livro inteiro, nesta ordem (ver `ligar_legendas`): a
@@ -2497,6 +3031,9 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
     ligar_legendas(lidas, idioma=idioma, lado_do_diagrama=lado_do_diagrama,
                    moldura=moldura, cantos=cantos)
     retirar_mobilia(lidas)
+    juntar_entre_paginas(lidas)
+    lados_pelos_lances(lidas, lado_do_diagrama=lado_do_diagrama, moldura=moldura,
+                       cantos=cantos)
     return Extracao(lidas, vereditos)
 
 
