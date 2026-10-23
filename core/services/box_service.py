@@ -1399,6 +1399,16 @@ class BoxService:
         return BoxService._colunas_e_transversais(boxes, calha_minima)[0]
 
     @staticmethod
+    def detectar_colunas_e_transversais(boxes: List[BoxEntry]
+                                        ) -> Tuple[List[Tuple[int, int]],
+                                                   List[List[BoxEntry]]]:
+        """As faixas de coluna e os elementos transversais, a detecção que
+        `sort_boxes_reading_order` faz: quem já a fez passa o resultado
+        (`deteccao=`) e a ordenação dos mesmos boxes não a refaz. É a parte
+        mais cara da ordem de leitura (~20 ms numa página de 1.500 boxes)."""
+        return BoxService._colunas_e_transversais(boxes)
+
+    @staticmethod
     def _colunas_e_transversais(boxes: List[BoxEntry], calha_minima: int = None
                                 ) -> Tuple[List[Tuple[int, int]],
                                            List[List[BoxEntry]]]:
@@ -1684,7 +1694,9 @@ class BoxService:
         return saida
 
     @staticmethod
-    def sort_boxes_reading_order(boxes: List[BoxEntry]) -> List[BoxEntry]:
+    def sort_boxes_reading_order(boxes: List[BoxEntry], deteccao: Optional[
+            Tuple[List[Tuple[int, int]], List[List[BoxEntry]]]] = None
+            ) -> List[BoxEntry]:
         """
         Ordena boxes como um humano leria.
 
@@ -1703,6 +1715,10 @@ class BoxService:
         diagrama entra letra a letra no meio de seis linhas do parágrafo
         vizinho — foi o que a medição mostrou. A pilha entra na ordem pelo
         lugar da sua caixa, e por dentro segue o sentido do ângulo.
+
+        `deteccao` é a de `detectar_colunas_e_transversais` **destes mesmos
+        boxes** (os mesmos objetos: os transversais vêm por identidade), para
+        quem já a fez não pagá-la duas vezes.
         """
         if not boxes:
             return []
@@ -1711,7 +1727,8 @@ class BoxService:
         if pilhas:
             return BoxService._ordenar_com_pilhas(boxes, pilhas)
 
-        colunas, de_lado = BoxService._colunas_e_transversais(boxes)
+        colunas, de_lado = (deteccao if deteccao is not None
+                            else BoxService._colunas_e_transversais(boxes))
         if len(colunas) <= 1:
             return BoxService._agrupar_em_linhas(boxes)
 

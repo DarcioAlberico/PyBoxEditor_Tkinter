@@ -180,7 +180,8 @@ class Analise:
 # Dos boxes ao texto
 # ----------------------------------------------------------------------
 
-def _linhas_de_boxes(boxes: Sequence[BoxEntry]) -> List[List[Simbolo]]:
+def _linhas_de_boxes(boxes: Sequence[BoxEntry],
+                     deteccao=None) -> List[List[Simbolo]]:
     """Agrupa em linhas de texto, na ordem de leitura, preservando os índices."""
     if not boxes:
         return []
@@ -189,7 +190,7 @@ def _linhas_de_boxes(boxes: Sequence[BoxEntry]) -> List[List[Simbolo]]:
     # tratando páginas em duas colunas, F1.6), então dá para recuperar o índice
     # original por identidade em vez de reimplementar a ordenação aqui.
     posicao = {id(b): i for i, b in enumerate(boxes)}
-    ordenados = BoxService.sort_boxes_reading_order(list(boxes))
+    ordenados = BoxService.sort_boxes_reading_order(list(boxes), deteccao)
 
     linhas: List[List[BoxEntry]] = []
     atual: List[BoxEntry] = []
@@ -286,12 +287,14 @@ def _remontar_numeros(palavras: List[Palavra], boxes: Sequence[BoxEntry],
     return saida
 
 
-def palavras_da_pagina(boxes: Sequence[BoxEntry]) -> List[List[Palavra]]:
-    """Palavras por linha, na ordem de leitura."""
+def palavras_da_pagina(boxes: Sequence[BoxEntry],
+                       deteccao=None) -> List[List[Palavra]]:
+    """Palavras por linha, na ordem de leitura. `deteccao`: a das colunas destes
+    boxes, já feita (`BoxService.detectar_colunas_e_transversais`)."""
     largura = _largura_mediana(boxes)
     return [_remontar_numeros(_palavras_da_linha(linha, boxes, largura),
                               boxes, largura)
-            for linha in _linhas_de_boxes(boxes)]
+            for linha in _linhas_de_boxes(boxes, deteccao)]
 
 
 def texto_da_pagina(boxes: Sequence[BoxEntry]) -> str:
