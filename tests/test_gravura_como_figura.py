@@ -58,7 +58,9 @@ def _pagina(*imagens, texto=False):
         for y in range(40, 200, 14):
             p.insert_text((40, y), "The quick brown fox jumps over the lazy dog again.", fontsize=10)
     for rect, pix in imagens:
-        p.insert_image(fitz.Rect(*rect), pixmap=pix)
+        # `keep_proportion=False`: a imagem preenche o retangulo pedido. Era o
+        # padrao ate o PyMuPDF 1.27; o 2.x passou a manter a proporcao e centrar.
+        p.insert_image(fitz.Rect(*rect), pixmap=pix, keep_proportion=False)
     doc = fitz.open("pdf", doc.tobytes())
     return doc, doc[0]
 

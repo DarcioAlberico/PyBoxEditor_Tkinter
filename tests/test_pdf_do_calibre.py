@@ -299,7 +299,9 @@ def _pagina_com_imagens(*retangulos, texto=True):
     pix = fitz.Pixmap(fitz.csGRAY, fitz.IRect(0, 0, 60, 60), False)
     pix.clear_with(180)
     for r in retangulos:
-        p.insert_image(fitz.Rect(*r), pixmap=pix)
+        # `keep_proportion=False`: a imagem preenche o retangulo pedido. Era o
+        # padrao ate o PyMuPDF 1.27; o 2.x passou a manter a proporcao e centrar.
+        p.insert_image(fitz.Rect(*r), pixmap=pix, keep_proportion=False)
     doc = fitz.open("pdf", doc.tobytes())
     return doc, doc[0]
 
