@@ -318,6 +318,16 @@ class ReviewEvent:
     #: para a fila —, e não só ao valor. Vazio no evento gravado antes de
     #: existir (2026-09-19), que desfaz para `reviewed` como sempre desfez.
     before_status: str = ""
+    #: O que a revisão sabe do bloco **além do valor** (pedido registrado da ED-pré,
+    #: feito em 2026-11-07). A chave `style` é o estilo do bloco — `bold_spans` e
+    #: `italic_spans` do texto novo, como o adapter os grava —, e as outras vão
+    #: para `block.metadata`; `None` tira a chave. É o canal por onde o negrito e o
+    #: itálico editados no editor de livros chegam ao documento editorial e, dali,
+    #: ao EPUB e ao DOCX: até aqui a ponte transportava só o texto (DEC-10).
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    #: Os mesmos campos, com o valor que tinham **antes** deste evento (`None` para
+    #: o que não existia): é o que `undo` repõe junto com `before`.
+    before_metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in ("event_id", "document_id", "page_id", "target_id", "user", "created_at"):
@@ -330,6 +340,8 @@ class ReviewEvent:
         object.__setattr__(self, "before_status", str(self.before_status or ""))
         if self.before_status and self.before_status not in DECISION_STATUSES:
             raise ValueError(f"estado anterior inválido: {self.before_status!r}")
+        object.__setattr__(self, "metadata", copy.deepcopy(dict(self.metadata or {})))
+        object.__setattr__(self, "before_metadata", copy.deepcopy(dict(self.before_metadata or {})))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -340,6 +352,8 @@ class ReviewEvent:
             "created_at": self.created_at, "model_version": self.model_version,
             "source_refs": [item.to_dict() for item in self.source_refs],
             "before_status": self.before_status,
+            "metadata": copy.deepcopy(dict(self.metadata)),
+            "before_metadata": copy.deepcopy(dict(self.before_metadata)),
         }
 
     @classmethod
@@ -356,6 +370,8 @@ class ReviewEvent:
             source_refs=tuple(SourceRef.from_dict(item)
                              for item in data.get("source_refs", [])),
             before_status=str(data.get("before_status", "")),
+            metadata=dict(data.get("metadata") or {}),
+            before_metadata=dict(data.get("before_metadata") or {}),
         )
 
 
@@ -493,6 +509,39 @@ class EditorialDocument:
             reason_codes=list(event.reason_codes),
             original_value=original,
         )
+        _fundir_metadata(bloco, event)
         atualizado.review_events.append(event)
         atualizado.validate()
         return atualizado
+
+
+#: As chaves de `block.style` que andam caractere a caractere com o texto.
+FAIXAS_DO_TEXTO = ("bold_spans", "italic_spans")
+
+
+def _fundir_metadata(bloco: EditorialBlock, event: ReviewEvent) -> None:
+    """O que o evento sabe além do valor entra no bloco (pedido registrado da ED-pré).
+
+    `metadata["style"]` funde em `block.style`; o resto, em `block.metadata`;
+    `None` tira a chave. **O texto novo não herda as faixas do velho**: quando o
+    valor muda, `bold_spans` e `italic_spans` saem antes de entrar o que o evento
+    trouxe — eram índices do texto anterior, e aplicados ao novo marcavam em
+    negrito o que calhasse na posição (era o que o HTML do IR fazia com um
+    parágrafo editado na fila).
+    """
+    meta = dict(event.metadata)
+    estilo = meta.pop("style", None)
+    if event.after != event.before:
+        for chave in FAIXAS_DO_TEXTO:
+            bloco.style.pop(chave, None)
+    if isinstance(estilo, Mapping):
+        for chave, valor in estilo.items():
+            if valor is None:
+                bloco.style.pop(chave, None)
+            else:
+                bloco.style[chave] = copy.deepcopy(valor)
+    for chave, valor in meta.items():
+        if valor is None:
+            bloco.metadata.pop(chave, None)
+        else:
+            bloco.metadata[chave] = copy.deepcopy(valor)

@@ -102,10 +102,11 @@ xadrez como objetos, e **os formatos saem do mesmo livro editado** (invariante 6
   (ECMA-376 §17.8.1); a do EPUB é outra (IDPF, SHA-1 do identificador, 1040 bytes,
   `META-INF/encryption.xml`), nenhuma das fontes embutidas a exige, e o EPUB de hoje não
   ofusca. Sai do escopo.
-- **Negrito e formato na ponte com o documento editorial** — o `ReviewEvent` de
-  `core/editorial_model.py` não tem campo para estilo, e `editorial_legacy` zera o
-  negrito de todo parágrafo revisado; a ponte transporta só o texto (DEC-10, §10.7). Abrir
-  esse canal é pedido registrado na fase ED-pré, do usuário.
+- ~~**Negrito e formato na ponte com o documento editorial**~~ — o canal foi aberto em
+  2026-11-07 (pedido registrado da ED-pré): o `ReviewEvent` leva `metadata["style"]` com
+  `bold_spans`/`italic_spans`, `apply_review` funde no bloco, e `editorial_legacy` lê as
+  faixas em vez de zerá-las. O que o IR não guarda — sublinhado, tachado, versalete,
+  posição — continua perda declarada (DEC-10, §10.7).
 - Controle de alterações estilo Word, comentários de revisor, edição simultânea.
 - EPUB 2 como saída (sai EPUB 3 com NCX de compatibilidade), layout fixo, MathML,
   escrita da direita para a esquerda, áudio e vídeo.
@@ -387,8 +388,12 @@ com `fen`/`orientation` trocados (senão `png_base64` e `font` se perdem); `rows
 tabela. Bloco com origem **apagado** → `sessao.reject(...)` (sai com `("rejected",)`);
 blocos **fundidos** → `edit` no primeiro e `reject` nos demais (`origem.fundidas`);
 bloco novo → sem evento, listado no relatório. O documento projetado passa a ser
-`sessao.document`. **Formato não viaja**: o `ReviewEvent` não tem campo de estilo, e o
-negrito/itálico editado é perda declarada (§2.2, §10.7). Um livro aberto de um EPUB
+`sessao.document`. **O negrito e o itálico viajam** desde 2026-11-07 (pedido registrado
+da ED-pré): o evento leva em `metadata["style"]` as faixas `bold_spans`/`italic_spans`
+do texto novo, calculadas dos trechos; `apply_review` as funde em `block.style`, descarta
+as do texto velho quando o texto muda e `undo` repõe o que havia (`before_metadata`); o
+parágrafo cujo formato mudou gera evento mesmo com o texto igual. Sublinhado, tachado,
+versalete e posição continuam perda declarada (§2.2, §10.7). Um livro aberto de um EPUB
 qualquer não tem documento editorial e a ponte não existe.
 
 **Duas verdades, uma resposta.** Enquanto o editor estiver aberto sobre a exportação da
@@ -1305,7 +1310,7 @@ para margens espelhadas, cabeçalhos par/ímpar, numeração), fontes via `Archi
 
 | De → para | Perde | Como aparece |
 |---|---|---|
-| modelo → documento editorial (ponte) | **negrito, itálico e todo formato** (DEC-10) | relatório ao salvar |
+| modelo → documento editorial (ponte) | sublinhado, tachado, versalete e posição (DEC-10); negrito e itálico viajam desde 2026-11-07 | relatório ao salvar |
 | modelo → DOCX | `classe` livre, `epub:type`, ilhas (texto), CSS fora da mínima, `origem` | relatório |
 | modelo → HTML/PDF/TXT | `origem` | — |
 | DOCX → modelo | caixas de texto, formas, campos, comentários, controle de alterações, cabeçalho/rodapé | relatório |

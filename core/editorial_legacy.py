@@ -471,8 +471,7 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
                 continue
             if status != "reviewed":
                 continue
-            destino.blocos[ordem] = _bloco_revisado(destino.blocos[ordem],
-                                                    block.decision.value, opcoes)
+            destino.blocos[ordem] = _bloco_revisado(destino.blocos[ordem], block, opcoes)
         for ordem in sorted(set(remover), reverse=True):
             del destino.blocos[ordem]
     return [saida[numero] for numero in ordem_das_paginas]
@@ -494,18 +493,42 @@ def _ordem_do_bloco(block_id: str) -> Optional[int]:
     return int(fim) if sep and fim.isdigit() else None
 
 
-def _bloco_revisado(legado: Any, valor: Any, opcoes: OpcoesDeFigura) -> Any:
+def _faixas(block: Any, chave: str) -> list[tuple[int, int]]:
+    """As faixas de `block.style[chave]` como o `Paragrafo` as guarda."""
+    saida = []
+    for item in block.style.get(chave) or []:
+        try:
+            saida.append((int(item[0]), int(item[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    return saida
+
+
+def _bloco_revisado(legado: Any, block: Any, opcoes: OpcoesDeFigura) -> Any:
+    valor = block.decision.value
     if isinstance(legado, livro.Paragrafo) and isinstance(valor, str):
-        if valor == legado.texto:
+        # O negrito e o itálico vêm do bloco, e não são zerados (pedido
+        # registrado da ED-pré): o evento do editor de livros traz as faixas do
+        # texto novo em `style`, e `apply_review` descarta as do texto velho —
+        # então o que está em `block.style` é sempre do texto que está em
+        # `value`. O parágrafo editado na fila, sem faixas, sai em redondo, como
+        # saía.
+        negrito = _faixas(block, "bold_spans")
+        italico = _faixas(block, "italic_spans")
+        texto_mudou = valor != legado.texto
+        if (not texto_mudou and negrito == list(legado.negrito)
+                and italico == list(getattr(legado, "italico", None) or [])):
             return legado
         novo = copy.copy(legado)
-        novo.texto = valor
-        # As medidas andam caractere a caractere com o texto; com o texto
-        # trocado elas já não dizem nada dele.
-        novo.pesos = novo.lacunas = None
-        novo.negrito = []
-        novo.inicios = []
-        novo.registros = []
+        if texto_mudou:
+            novo.texto = valor
+            # As medidas andam caractere a caractere com o texto; com o texto
+            # trocado elas já não dizem nada dele.
+            novo.pesos = novo.lacunas = None
+            novo.inicios = []
+            novo.registros = []
+        novo.negrito = negrito
+        novo.italico = italico
         return novo
     if isinstance(legado, livro.Tabela) and isinstance(valor, Mapping):
         filas = [[str(c) for c in fila] for fila in valor.get("rows", legado.linhas)]

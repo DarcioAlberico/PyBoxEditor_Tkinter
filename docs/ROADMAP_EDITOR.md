@@ -148,8 +148,17 @@ spec → registrar na fase, não editar a spec.
 `core/linha_trainer.py`, `core/editorial_pipeline.py`, `ui/dialogo_rotulagem.py`,
 `ui/dialogo_revisao_*.py`, `core/ocr_phase7.py`, `core/ocr_training.py`,
 `core/chess_symbols.py`, `CONTEXT.md`, os três testes e `scripts/smoke_release.py`).
-**Pedido registrado** (para uma versão futura da ponte): `ReviewEvent.metadata`,
-`apply_review` fundindo em `block.metadata`, `_bloco_revisado` lendo `bold_spans`.
+~~**Pedido registrado** (para uma versão futura da ponte): `ReviewEvent.metadata`,
+`apply_review` fundindo em `block.metadata`, `_bloco_revisado` lendo `bold_spans`.~~
+**Feito em 2026-11-07** (commit de 2026-11-07): `ReviewEvent.metadata` e `before_metadata`;
+`apply_review` funde `metadata["style"]` em `block.style` e o resto em `block.metadata`,
+descartando `bold_spans`/`italic_spans` do texto velho quando o texto muda; `undo` repõe o
+que havia; `ReviewSession.edit(metadata=)`; a ponte (`importar_ir`) calcula as faixas dos
+trechos e gera evento também quando só o formato mudou; `_bloco_revisado` lê as faixas do
+bloco. Medido em `tests/test_ponte_formato.py`: o negrito editado no editor chega ao EPUB
+do documento revisado pelos dois caminhos (páginas do leitor e volta do IR); o relatório
+da ponte deixa de avisar "não viaja" para negrito e itálico e avisa só para sublinhado,
+tachado, versalete e posição, que o IR não guarda.
 
 ### Verificação
 
@@ -2433,3 +2442,4 @@ de layout, e a meta de altura já foi atingida sem eles.
 | ED-18 | **commitada** | 2026-09-30 | e75a3a0 | reler por página, não por bloco; painel ligado na janela (não por aba); `previa_divisao` → `divisao` com prévia e original juntos; caixa com trama porque a do leitor vai de margem a margem |
 | ED-16 | **commitada** | 2026-09-30 | 3ba30ef | só fileira, caderno recolhido com versão do layout e glifos maiores; colunas em abas, Propriedades encolhível, N/I/S/T com estado e a duplicação do xadrez ficaram de fora; largura como argumento no teste (janela escondida só aceita o primeiro `geometry` no Windows) |
 | ED-16b | **implementada** | 2026-09-30 | (ver "Registro" da fase) | a barra de xadrez some com o painel à vista em vez de encolher (os três botões dela foram para o painel); `<<FormatoMudou>>` novo no `TextoRico` |
+| ED-pré (pedido) | **feito** | 2026-11-07 | (ver "Feito" da ED-pré) | o negrito e o itálico viajam pela ponte em `ReviewEvent.metadata["style"]`; `apply_review` descarta as faixas do texto velho e `undo` as repõe; o parágrafo só de formato gera evento; sublinhado, tachado, versalete e posição seguem perda declarada |

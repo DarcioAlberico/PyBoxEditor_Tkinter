@@ -76,7 +76,9 @@ def test_o_core_tem_dois_escritores_de_epub():
 # O carimbo no escritor de produção
 # ----------------------------------------------------------------------
 
-def test_a_figura_pendente_leva_a_ressalva_no_alt_e_na_figcaption_do_epub(tmp_path):
+def test_a_figura_pendente_leva_a_ressalva_no_alt_e_na_figcaption_do_epub(tmp_path, monkeypatch):
+    # O relogio do zip fixo: os dois EPUBs comparados byte a byte podem cair em segundos diferentes.
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
     exportar.para_epub([_pagina(revisao_pendente=True)], str(tmp_path / "p.epub"),
                        titulo="Livro")
     xhtml = _xhtml(tmp_path / "p.epub")

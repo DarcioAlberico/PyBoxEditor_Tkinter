@@ -3,7 +3,7 @@ Testes da ponte na janela (ED-11; SPEC_EDITOR §7.2, §10.6.5, DEC-09, DEC-10): 
 JSON editorial…" e "Abrir…" com `.json` montam o livro com a ponte ligada; o bloco suspeito
 tem a tag `suspeito` e o `!` na calha, e o painel Propriedades mostra a origem, os motivos
 e as leituras, com "Marcar como revisto" (AC-ED11-5); salvar grava os eventos no diário e
-o relatório diz que o negrito não viaja; o EPUB salvo religa o documento ao reabrir; na
+o negrito editado viaja no evento (ED-pré, 2026-11-07); o EPUB salvo religa o documento ao reabrir; na
 janela principal, "Abrir no editor" depois de exportar monta o livro das páginas, a fila
 fica com "Exportar com as correções" desabilitado e o aviso, e a caixa de conclusão da
 exportação revisada oferece o editor (AC-ED11-6). E a principal e o editor que ela abre
@@ -140,11 +140,13 @@ def test_salvar_grava_os_eventos_e_o_epub_religa_o_documento(tmp_path):
         relatorio = j.executar("salvar_como", destino)
         ponte = j.projeto.ponte
         assert ponte is not None and ponte.eventos == 2 and ponte.editados == 2 and ponte.diario == diario
-        assert any("não viaja" in a for a in relatorio.avisos) and relatorio.metadados["ponte"]["eventos"] == 2
+        assert not any("não viaja" in a for a in relatorio.avisos) and relatorio.metadados["ponte"]["eventos"] == 2
+        assert ponte.formatados == 1                                                    # o negrito viajou
         assert "ponte: 2 evento(s)" in j.campos["aviso"].cget("text")
         eventos = [json.loads(li) for li in open(diario, encoding="utf-8").read().splitlines() if li.strip()]
         assert [(e["target_id"], e["after"]) for e in eventos] == [("block-doc-p0001-b0001", "Trecho com negrito no meio."),
                                                                    ("block-doc-p0002-b0002", "outra coisa")]
+        assert eventos[0]["metadata"] == {"style": {"bold_spans": [[11, 18]], "italic_spans": []}}
         assert j.projeto.documento_editorial.review_events and j.projeto.livro.origem.diario == diario
         assert not j.projeto.sujo
         # salvar de novo sem mudar: nenhum evento a mais
@@ -284,7 +286,7 @@ def test_ac6_abrir_no_editor_apos_exportar_monta_das_paginas_e_a_fila_fica_desab
         fila = _Fila.instancias[-1]
         assert fila.kw["aviso_da_exportacao"] == "o livro está no editor; exporte por ele"
         assert fila.kw["ao_exportar"] == app.win._exportar_documento_revisado
-        # o negrito editado não viaja, e o relatório ao salvar o diz
+        # o negrito editado viaja no evento, e o relatório ao salvar não avisa perda
         texto = editor.aba_ativa().widget
         par = blocos[1]
         texto.selecionar(0, len("25♖xc7!"), par.id)
@@ -293,9 +295,11 @@ def test_ac6_abrir_no_editor_apos_exportar_monta_das_paginas_e_a_fila_fica_desab
         texto.apagar_selecao()
         texto.inserir("26")
         relatorio = editor.executar("salvar_como", str(tmp_path / "editado.epub"))
-        assert editor.projeto.ponte.eventos == 1 and any("não viaja" in a for a in relatorio.avisos)
+        assert editor.projeto.ponte.eventos == 1 and not any("não viaja" in a for a in relatorio.avisos)
         eventos = [json.loads(li) for li in open(tmp_path / "saida.review.jsonl", encoding="utf-8").read().splitlines()]
         assert eventos[0]["after"].startswith("26♖xc7!") and "<" not in eventos[0]["after"]
+        faixas = eventos[0]["metadata"]["style"]["bold_spans"]
+        assert faixas and faixas[-1][1] == len("26♖xc7!"), faixas                 # o negrito do lance viajou
         # um EPUB exportado vira o caminho do projeto
         editor.executar("fechar_livro")
         outro = app.win.abrir_editor_de_livro(str(tmp_path / "saida.epub"), documento=documento)

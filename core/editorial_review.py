@@ -29,6 +29,7 @@ from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
 from core.editorial_model import (
+    FAIXAS_DO_TEXTO,
     DECISION_STATUSES,
     EditorialDocument,
     EditorialBlock,
@@ -351,6 +352,23 @@ class ReviewJournal:
                      self.path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
+def _metadata_de_antes(block: EditorialBlock, metadata: Mapping[str, Any],
+                       texto_muda: bool) -> dict[str, Any]:
+    """O valor atual das chaves que o evento vai mexer — e das faixas do texto,
+    quando o valor muda e `apply_review` as descarta —, para o `undo` repor."""
+    antes: dict[str, Any] = {}
+    estilo = metadata.get("style")
+    chaves_de_estilo = set(estilo) if isinstance(estilo, Mapping) else set()
+    if texto_muda:
+        chaves_de_estilo.update(FAIXAS_DO_TEXTO)
+    if chaves_de_estilo:
+        antes["style"] = {chave: copy.deepcopy(block.style.get(chave)) for chave in sorted(chaves_de_estilo)}
+    for chave in metadata:
+        if chave != "style":
+            antes[chave] = copy.deepcopy(block.metadata.get(chave))
+    return antes
+
+
 def _lote_de(event: ReviewEvent) -> str | None:
     return next((code[len(_LOTE):] for code in event.reason_codes
                  if code.startswith(_LOTE)), None)
@@ -416,8 +434,10 @@ class ReviewSession:
         raise KeyError(f"alvo editorial inexistente: {target_id}")
 
     def _apply(self, target_id: str, after: Any, status: str,
-               reason_codes: Iterable[str]) -> EditorialDocument:
+               reason_codes: Iterable[str],
+               metadata: Mapping[str, Any] | None = None) -> EditorialDocument:
         page_id, block = self._block(target_id)
+        metadata = dict(metadata or {})
         event = ReviewEvent(
             event_id=uuid4().hex, document_id=self.document.document_id,
             page_id=page_id, target_id=target_id,
@@ -426,6 +446,8 @@ class ReviewSession:
             created_at=_now(), model_version=self.model_version,
             source_refs=tuple(block.source_refs),
             before_status=block.decision.status,
+            metadata=metadata,
+            before_metadata=_metadata_de_antes(block, metadata, after != block.decision.value),
         )
         atualizado = self.document.apply_review(event)
         self.journal.append(event)
@@ -437,8 +459,12 @@ class ReviewSession:
         return self._apply(target_id, block.decision.value, "reviewed", ("accepted",))
 
     def edit(self, target_id: str, value: Any,
-             reason_codes: Iterable[str] = ("human_correction",)) -> EditorialDocument:
-        return self._apply(target_id, value, "reviewed", reason_codes)
+             reason_codes: Iterable[str] = ("human_correction",),
+             metadata: Mapping[str, Any] | None = None) -> EditorialDocument:
+        """O valor novo e, em `metadata`, o que a revisão sabe além dele — a chave
+        `style` com `bold_spans`/`italic_spans` do texto novo é o que leva o
+        negrito e o itálico do editor de livros ao documento (ED-pré)."""
+        return self._apply(target_id, value, "reviewed", reason_codes, metadata)
 
     def reject(self, target_id: str, value: Any = None) -> EditorialDocument:
         _, block = self._block(target_id)
@@ -543,7 +569,9 @@ class ReviewSession:
             status = event.before_status if event.before_status in DECISION_STATUSES else "reviewed"
             lote = _lote_de(event)
             codigos = ("undo",) + ((f"{_LOTE}{lote}",) if lote else ())
-            self._apply(event.target_id, event.before, status, codigos)
+            # O estilo e o metadata voltam ao que eram (`before_metadata`), como o valor.
+            self._apply(event.target_id, event.before, status, codigos,
+                        metadata=dict(event.before_metadata) or None)
         return self.document
 
     @classmethod

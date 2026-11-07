@@ -28,8 +28,11 @@ o dicionário inteiro da decisão com `fen`/`orientation` trocados para diagrama
 nos demais; o bloco novo não dá evento — vai ao relatório. `gravar_eventos` abre a
 `ReviewSession.from_journal` no diário que o pipeline convencionou
 (`metadata["review_journal_path"]`, `<arquivo>.review.jsonl`) e grava `edit`/`reject`
-com `reason_codes=("editor",)`, `user="editor"`. **Formato não viaja** (DEC-10): o
-negrito e o itálico do bloco editado ficam no livro, e o relatório da ponte o diz.
+com `reason_codes=("editor",)`, `user="editor"`. **O negrito e o itálico viajam** no
+`metadata["style"]` do evento (`bold_spans`/`italic_spans` do texto novo, calculados dos
+trechos — pedido registrado da ED-pré, feito em 2026-11-07), e o parágrafo cujo formato
+mudou gera evento mesmo com o texto igual; o que o IR não guarda — sublinhado, tachado,
+versalete, posição — fica no livro, e o relatório da ponte o diz (§10.7).
 
 Só `core.editorial_model` é importado no topo (é leve); `core.editorial_review` puxa a
 cadeia do OCR e entra só em `gravar_eventos` (DEC-07).
@@ -353,6 +356,37 @@ class Mudanca(NamedTuple):
     bloco_id: str          # o `EditorialBlock.id`
     after: Any             # o valor novo, no formato do IR; `None` = o bloco saiu (rejeitar)
     motivo: str            # "editado" | "apagado" | "fundido" (o primeiro) | "fundido_apagado" (os demais)
+    metadata: Any = None   # o `ReviewEvent.metadata`: `{"style": {"bold_spans", "italic_spans"}}` do parágrafo
+
+
+def _estilo_de(bloco: Paragrafo) -> dict[str, list[list[int]]]:
+    """As faixas de negrito e itálico do parágrafo, nos índices de `texto_de`
+    (a quebra suave conta um caractere), como o adapter as grava em `style`."""
+    negrito: list[list[int]] = []
+    italico: list[list[int]] = []
+    pos = 0
+    for trecho in bloco.trechos:
+        if trecho.quebra_antes:
+            pos += 1
+        fim = pos + len(trecho.texto)
+        if fim > pos:
+            for ligado, faixas in ((trecho.negrito, negrito), (trecho.italico, italico)):
+                if not ligado:
+                    continue
+                if faixas and faixas[-1][1] == pos:
+                    faixas[-1][1] = fim          # trechos contíguos com o mesmo formato são uma faixa
+                else:
+                    faixas.append([pos, fim])
+        pos = fim
+    return {"bold_spans": negrito, "italic_spans": italico}
+
+
+def _estilo_atual(block: EditorialBlock) -> dict[str, list[list[int]]]:
+    """As faixas que o bloco do IR tem hoje, no mesmo formato de `_estilo_de`."""
+    saida = {}
+    for chave in ("bold_spans", "italic_spans"):
+        saida[chave] = [[int(a), int(b)] for a, b in (block.style.get(chave) or []) if int(b) > int(a)]
+    return saida
 
 
 def _texto_da_celula(celula: Celula) -> str:
@@ -422,16 +456,36 @@ def eventos_de(livro: Livro, documento: EditorialDocument) -> list[Mudanca]:
                     saida.append(Mudanca(block.id, None, "apagado"))
                 continue
             after = _valor_de(bloco, block)
-            if after is None or after == block.decision.value:
+            if after is None:
                 continue
-            saida.append(Mudanca(block.id, after, "fundido" if bloco.origem and bloco.origem.fundidas else "editado"))
+            motivo = "fundido" if bloco.origem and bloco.origem.fundidas else "editado"
+            # O formato viaja com o texto (pedido registrado da ED-pré): o parágrafo
+            # cujo negrito ou itálico mudou gera evento mesmo com o texto igual, e o
+            # evento leva as faixas do texto novo em `metadata["style"]`.
+            if block.kind in TIPOS_DE_TEXTO and isinstance(bloco, Paragrafo):
+                estilo = _estilo_de(bloco)
+                if after == block.decision.value and estilo == _estilo_atual(block):
+                    continue
+                saida.append(Mudanca(block.id, after, motivo, {"style": estilo}))
+                continue
+            if after == block.decision.value:
+                continue
+            saida.append(Mudanca(block.id, after, motivo))
     return saida
 
 
 def _tem_formato(bloco: Bloco) -> bool:
+    """Negrito ou itálico: o que a ponte leva no evento (ED-pré)."""
     if not isinstance(bloco, Paragrafo):
         return False
-    return any(t.negrito or t.italico or t.sublinhado or t.tachado or t.versalete or t.posicao for t in bloco.trechos)
+    return any(t.negrito or t.italico for t in bloco.trechos)
+
+
+def _tem_formato_que_nao_viaja(bloco: Bloco) -> bool:
+    """Sublinhado, tachado, versalete e posição: o IR não tem onde guardá-los (§10.7)."""
+    if not isinstance(bloco, Paragrafo):
+        return False
+    return any(t.sublinhado or t.tachado or t.versalete or t.posicao for t in bloco.trechos)
 
 
 @dataclass
@@ -443,6 +497,8 @@ class RelatorioDaPonte:
     editados: int = 0
     apagados: int = 0
     fundidos: int = 0
+    #: Blocos editados cujo negrito ou itálico foi no evento (`metadata["style"]`).
+    formatados: int = 0
     novos: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
     documento: Any = None
@@ -454,7 +510,9 @@ class RelatorioDaPonte:
     def linhas(self) -> list[str]:
         """O resumo para o relatório de conversão e o log."""
         saida = [f"Ponte com o documento editorial: {self.eventos} evento(s) no diário "
-                 f"({self.editados} editado(s), {self.apagados} apagado(s), {self.fundidos} fundido(s))"]
+                 f"({self.editados} editado(s), {self.apagados} apagado(s), {self.fundidos} fundido(s)"
+                 + (f"; negrito e itálico de {self.formatados} levados no evento" if self.formatados else "")
+                 + ")"]
         if self.novos:
             saida.append(f"Blocos novos, sem origem no documento (não geram evento): {len(self.novos)}")
         saida.extend(self.avisos)
@@ -481,7 +539,7 @@ def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, u
     relatorio.avisos.extend(avisos)
     relatorio.novos = [b.id for b in novos]
     relatorio.mudancas = eventos_de(livro, sessao.document)
-    com_formato = 0
+    sem_canal = 0
     for mudanca in relatorio.mudancas:
         if mudanca.after is None:
             sessao.reject(mudanca.bloco_id)
@@ -490,16 +548,18 @@ def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, u
             else:
                 relatorio.apagados += 1
         else:
-            sessao.edit(mudanca.bloco_id, mudanca.after, reason_codes=("editor",))
+            sessao.edit(mudanca.bloco_id, mudanca.after, reason_codes=("editor",), metadata=mudanca.metadata)
             if mudanca.motivo == "fundido":
                 relatorio.fundidos += 1
             else:
                 relatorio.editados += 1
             if _tem_formato(principais[mudanca.bloco_id]):
-                com_formato += 1
-    if com_formato:
-        relatorio.avisos.append(f"o formato (negrito, itálico…) de {com_formato} bloco(s) editado(s) não viaja "
-                                f"para o documento editorial: a ponte transporta só o texto (DEC-10, §10.7)")
+                relatorio.formatados += 1
+            if _tem_formato_que_nao_viaja(principais[mudanca.bloco_id]):
+                sem_canal += 1
+    if sem_canal:
+        relatorio.avisos.append(f"sublinhado, tachado, versalete ou posição de {sem_canal} bloco(s) editado(s) não "
+                                f"viajam para o documento editorial: o IR guarda só negrito e itálico (DEC-10, §10.7)")
     relatorio.documento = sessao.document
     return relatorio
 

@@ -5,7 +5,8 @@ todo bloco (`data-origem-*`, sem colidir com `data-pagina`) e o `data-suspeito`
 (AC-ED11-1); a volta gera no diário do `review_journal_path` os eventos de AC-008 por
 `from_journal` (AC-ED11-2); desfazer antes de salvar não gera evento, editar/salvar/
 editar de volta/salvar dá dois, e o bloco já editado na fila tem `before` igual ao `after`
-da fila (AC-ED11-3); a fusão dá `edit` no primeiro e `reject` no segundo (AC-ED11-4).
+da fila (AC-ED11-3); a fusão dá `edit` no primeiro e `reject` no segundo (AC-ED11-4). Desde
+2026-11-07 o negrito e o itálico viajam em `ReviewEvent.metadata["style"]` (ED-pré).
 
 Rodar sem pytest:      .venv/Scripts/python.exe tests/test_editor_importar_ir.py
 """
@@ -279,7 +280,9 @@ def test_ac2_ac008_os_eventos_no_diario_do_review_journal_path(tmp_path):
     ponte = importar_ir.gravar_eventos(livro, doc, diario)
     assert ponte.eventos == 3 and ponte.editados == 2 and ponte.apagados == 1 and ponte.fundidos == 0
     assert ponte.novos == [livro.capitulos[1].blocos[-1].id] and ponte.diario == diario
-    assert any("não viaja" in a for a in ponte.avisos)                                # o negrito editado
+    # o negrito editado viaja no evento (pedido da ED-pré, 2026-11-07): nada a avisar
+    assert not any("não viaja" in a for a in ponte.avisos) and ponte.formatados == 1
+    assert ponte.documento.review_events[0].metadata == {"style": {"bold_spans": [[6, 15]], "italic_spans": []}}
     # o diário: dois reviewed e um rejected, before/after certos, reason_codes ("editor",), user "editor"
     linhas = [json.loads(li) for li in open(diario, encoding="utf-8").read().splitlines() if li.strip()]
     assert [(e["target_id"], e["status"], e["reason_codes"], e["user"], e["before"], e["after"]) for e in linhas] == [
@@ -377,7 +380,7 @@ def test_o_diagrama_e_a_tabela_viajam_inteiros_e_o_diario_alheio_e_ignorado(tmp_
     # a figura que veio de um diagrama sem fen não tem valor comparável; apagada, é rejeitada
     fig = _bloco_de(livro, "block-doc-p0002-b0000")
     livro.capitulos[0].blocos.remove(fig)
-    assert ("block-doc-p0002-b0000", None, "apagado") in importar_ir.eventos_de(livro, doc)
+    assert importar_ir.Mudanca("block-doc-p0002-b0000", None, "apagado") in importar_ir.eventos_de(livro, doc)
     # o diário de outro documento no mesmo caminho: ignorado, com aviso, e o livro continua gravando
     from core.editorial_review import ReviewJournal, ReviewSession
 
