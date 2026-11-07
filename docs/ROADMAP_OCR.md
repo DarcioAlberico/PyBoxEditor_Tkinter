@@ -1072,8 +1072,61 @@ a linha que o motor leu e foi aceita sem semelhança — rejeitada é a que
 ficou com a cadeia (`fonte` `glyph`). Sobram na p. 237: `1..♖b2?`, `—see`
 e o apóstrofo.
 
+### O ponto do lance que a figurina engoliu
+
+Data: 2026-11-07. O `1..♖b2?` da p. 237 não é troca de classe: no impresso
+o terceiro ponto encosta na torre, o box da figurina sai com 36 px (os
+pontos têm 7) e o classificador lê só `♖`, a 1,00. A p. 30 do Aagaard tem
+o mesmo defeito no ponto único das brancas: em `25.♖xc7!` o ponto encosta
+na torre, e em `26.♕g5` encosta no `6` (box de 30 px contra os 18 do `2`);
+saíam `25♖xc7!` e `26♕g5`, que `notacao.RE_NUMERO` nem reconhece como
+número de lance. Nenhum recorte resolve isso no classificador — a tinta
+está mesmo junta —, e a notação resolve sozinha:
+
+- **A reticência com um ponto a menos** (`RE_RETICENCIA_CURTA`): número,
+  dois pontos e lance (figurina, peça e casa, roque) ganham o terceiro
+  ponto. Dois pontos não são notação de livro nenhum: na camada dos PDFs
+  nascidos digitais, `N..` antes de lance aparece uma vez em 6.368 no
+  Dvoretsky e uma em 1.927 no Nunn; nos livros com camada de OCR (Yusupov,
+  Attacking Manual) os `N..` da camada são a mesma leitura errada
+  (`1..J♖h8t`).
+- **O ponto único** (`RE_PONTO_ENGOLIDO`): número colado a figurina ganha o
+  ponto — mas o ponto é estilo do livro (o Nunn imprime `2 ♖e8!`, e ali o
+  que se perdeu seria o espaço), e por isso a linha decide: só onde ela
+  mesma tem um lance das brancas com ponto (`RE_LANCE_COM_PONTO`) e nenhum
+  número solto antes de figurina (`RE_LANCE_COM_ESPACO`).
+
+O ponto devolvido entra nos quatro vetores de `_colar_numero_de_lance`
+como os espaços das regras irmãs: sem box (`-1`) e sem medida.
+
+| página | CER notação antes | depois | CER total antes | depois |
+|---|---:|---:|---:|---:|
+| Aagaard p. 30 | 2,93% | **2,30%** | 1,30% | **1,10%** |
+| Nunn p. 237 | 0,48% | **0,24%** | 0,31% | **0,21%** |
+| Yusupov p. 34 | 0,76% | 0,76% | 0,71% | 0,71% |
+| Yusupov p. 47 | 0,00% | 0,00% | 2,50% | 2,50% |
+| **corpus** | 1,19% (WER 4,66%) | **0,97%** (WER 3,42%) | 1,32% | **1,24%** |
+
+A prosa não muda (1,38%). **Varredura fora da referência** (instrumento de
+sessão: a cadeia lida em 1 página a cada 10 do Nunn, do Calculation, do
+Chess Evolution 1 e do Attacking Manual, e 1 a cada 60 do Yusupov Complete,
+178 páginas e 7.611 linhas, com e sem cada regra): a reticência muda **13
+linhas** (Calculation 2, Yusupov Complete 11) e o ponto único **20**
+(Calculation 12, Chess Evolution 1 3, Yusupov Complete 5); nenhuma no Nunn
+nem no Attacking Manual. As 33 conferidas uma a uma pela numeração — o lance
+seguinte é sempre o `N+1.` das brancas (`25...♖g8 26.♕xg6!!`,
+`36.♖xh7+! ♔xh7 37.♘f6+`, `42.♖g5 ♗e8 43.♖xd5`) —, e nenhuma errada. O
+número colado a uma casa (`♔xg442♘e3+`) não é número de lance e fica.
+
+**A conferência das duas dúvidas da p. 237 contra a imagem** (900 dpi): o
+impresso tem `Black’s` com apóstrofo curvo e `wins – see`, travessão meia
+risca com espaço dos dois lados. A referência está certa nos dois (a aspa e
+o traço são dobrados antes de comparar, `ocr_ab.normalizar_tipografia`), e
+o que sobra é do OCR: o motor lê `—see` sem o espaço depois do traço.
+
 ### Próximo passo
 
-Conferir as quatro referências contra o livro impresso (o apóstrofo de
-`Black's`, o `–see`). A orelha girada do capítulo é assunto da F8.1, e os
-erros confiantes da cadeia no lance (`1..♖b2?`), da OCR-14.
+Na p. 237 sobra o espaço depois do traço (`—see`). Conferir as outras três
+referências contra o livro impresso continua em aberto. A orelha girada do
+capítulo é assunto da F8.1, e os erros confiantes que trocam classe (`⩲`
+lido `±`, `♕c1` por `♕e1`, na p. 30 do Aagaard), da OCR-14.

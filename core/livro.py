@@ -881,6 +881,29 @@ RE_PARENTESE_PARTIDO = re.compile(r"(?<!\S)\( (?=[0-9lI]{1,3}[. ])")
 #: não são dois sinais de pontuação.
 RE_RETICENCIA_PARTIDA = re.compile(r"(?<=[0-9lI ])(?:\. (?=\.\.)|\.\. (?=\.))")
 
+#: A reticência do lance das pretas com um ponto a menos: `1..♖b2?`. No
+#: Nunn (p. 237) o terceiro ponto encosta na torre, o box dele é o da
+#: figurina (36 px contra os 7 de cada ponto), e o classificador lê só `♖`,
+#: a 1,00. Dois pontos entre o número e o lance não são notação de livro
+#: nenhum: na camada dos PDFs nascidos digitais, `N..` antes de lance sai
+#: uma vez em 6.368 no Dvoretsky e uma em 1.927 no Nunn, contra o `N...`. O
+#: lance depois é o que autoriza — figurina, peça e casa, ou roque.
+RE_RETICENCIA_CURTA = re.compile(
+    r"(?<![\w.])[0-9]{1,3}\.\.(?=[♔♕♖♗♘♙♚♛♜♝♞♟]|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8]|O-O)")
+
+#: O ponto único do lance das brancas que a figurina ou o dígito engoliu:
+#: `25♖xc7!` (o ponto encosta na torre, box de 34 px) e `26♕g5` (encosta no
+#: `6`, box de 30 px contra os 18 do `2`), na p. 30 do Aagaard. Sem o ponto o
+#: número nem é número de lance para `notacao.RE_NUMERO`. Mas o ponto é
+#: estilo do livro: o Nunn imprime `2 ♖e8!`, com espaço, e ali o que se
+#: perdeu seria o espaço. Por isso a linha decide — o ponto volta só onde
+#: ela mesma tem um lance das brancas com ponto (`RE_LANCE_COM_PONTO`) e
+#: nenhum número solto antes de figurina (`RE_LANCE_COM_ESPACO`).
+RE_PONTO_ENGOLIDO = re.compile(r"(?<![\w.])[0-9]{1,3}(?=[♔♕♖♗♘])")
+RE_LANCE_COM_PONTO = re.compile(
+    r"(?<![\w.])[0-9]{1,3}\.(?=[♔♕♖♗♘]|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8]|O-O)")
+RE_LANCE_COM_ESPACO = re.compile(r"(?<![\w.])[0-9]{1,3} (?=[♔♕♖♗♘])")
+
 #: O `!`/`?` partido do lance por um espaço: `♖e8 !`, `♖e1 !)`. O sinal de
 #: anotação é do lance que o precede; solto, depois de casa, xeque ou
 #: figurina, ele nunca é outra coisa.
@@ -898,7 +921,10 @@ def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
                            lacunas: List[Optional[float]], caixas: List[int]):
     """Tira o espaço falso entre o número de lance e o lance, nos quatro
     vetores ao mesmo tempo — o espaço é um item deles, com box `-1`. Roda
-    até estabilizar, porque `1 l .♘xf4+` cola em dois passos."""
+    até estabilizar, porque `1 l .♘xf4+` cola em dois passos. Também devolve
+    o ponto do lance que a figurina ou o dígito engoliu: o terceiro da
+    reticência (`RE_RETICENCIA_CURTA`) e o único das brancas, quando a linha
+    usa ponto (`RE_PONTO_ENGOLIDO`)."""
     saida, pesos, lacunas, caixas = list(texto), list(pesos), list(lacunas), list(caixas)
 
     def tirar_espaco(posicao: int) -> None:
@@ -931,6 +957,16 @@ def _colar_numero_de_lance(texto: str, pesos: List[Optional[float]],
             for k in range(m.start(1), m.end(1)):
                 if saida[k] in "lI":
                     saida[k] = "1"
+    # O ponto que a figurina engoliu volta como os espaços das outras regras:
+    # sem box (`-1`) e sem medida.
+    atual = "".join(saida)
+    pontos = [m.end() for m in RE_RETICENCIA_CURTA.finditer(atual)]
+    if RE_LANCE_COM_PONTO.search(atual) and not RE_LANCE_COM_ESPACO.search(atual):
+        pontos += [m.end() for m in RE_PONTO_ENGOLIDO.finditer(atual)]
+    for posicao in sorted(pontos, reverse=True):
+        saida.insert(posicao, ".")
+        for vetor, vazio in ((pesos, None), (lacunas, None), (caixas, -1)):
+            vetor.insert(min(posicao, len(vetor)), vazio)
     atual = "".join(saida)
     for m in RE_L_QUE_E_UM.finditer(atual):
         saida[m.start()] = "1"

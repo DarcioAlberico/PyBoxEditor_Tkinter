@@ -57,6 +57,61 @@ def test_as_colagens_da_tabela_do_nunn(antes, depois):
     assert _colar(antes) == depois
 
 
+@pytest.mark.parametrize("antes, depois", [
+    # O terceiro ponto encostado na torre (Nunn p. 237): o box é da figurina.
+    ("W3a) 1..♖b2? (1...♖f2?", "W3a) 1...♖b2? (1...♖f2?"),
+    ("(4..♔f7?", "(4...♔f7?"),
+    ("21..Nxd4 22.e5", "21...Nxd4 22.e5"),
+    ("12..e5", "12...e5"),
+    ("7..O-O", "7...O-O"),
+])
+def test_a_reticencia_com_um_ponto_a_menos_ganha_o_ponto(antes, depois):
+    saida, pesos, lacunas, caixas = livro._colar_numero_de_lance(*_vetores(antes))
+    assert saida == depois
+    assert len(saida) == len(pesos) == len(lacunas) == len(caixas)
+    # O ponto devolvido não tem box nem medida; os outros guardam o deles.
+    novo = saida.index("..") + 2
+    assert caixas[novo] == -1 and pesos[novo] is None
+    assert [c for c in caixas if c >= 0] == [i for i, c in enumerate(antes) if c != " "]
+
+
+@pytest.mark.parametrize("antes, depois", [
+    # A p. 30 do Aagaard: o ponto encosta na torre, ou no `6`.
+    ("25♖xc7! Amazingly ... after: 25.g4? ♖g6", "25.♖xc7! Amazingly ... after: 25.g4? ♖g6"),
+    ("26♕g5 g6 Perhaps ... 26...♖g6 27.♕xg6!. 27.♕xh6",
+     "26.♕g5 g6 Perhaps ... 26...♖g6 27.♕xg6!. 27.♕xh6"),
+])
+def test_o_ponto_unico_volta_onde_a_linha_usa_ponto(antes, depois):
+    assert _colar(antes) == depois
+
+
+@pytest.mark.parametrize("texto", [
+    # O Nunn imprime o lance das brancas com espaço: a linha não tem prova
+    # do ponto, e o que se perdeu ali seria o espaço.
+    "W: Win (1♖d1!) B: Draw (1...♖h2!)",
+    "2 ♖e8! ♔g4 3♖e2! ♖b8",
+    # Prova dos dois estilos na mesma linha: não decide.
+    "25.g4 26♕g5 27 ♖e1",
+    # Sem lance com ponto na linha, nada.
+    "26♕g5 g6 Perhaps",
+    # A casa antes da figurina não é número de lance.
+    "W♔d1 W♔c1 25.g4",
+])
+def test_o_ponto_unico_nao_volta_sem_a_prova_da_linha(texto):
+    assert _colar(texto) == texto
+
+
+@pytest.mark.parametrize("texto", [
+    "1...♖b2?",           # a reticência inteira não ganha um quarto ponto
+    "see p. 12.. and",    # dois pontos sem lance depois
+    "a2..b3",             # o número tem de começar o token
+    "Fig. 3..",           # nada depois
+    "1120..♖b2",          # quatro dígitos não são número de lance
+])
+def test_dois_pontos_sem_numero_e_lance_ficam(texto):
+    assert _colar(texto) == texto
+
+
 @pytest.mark.parametrize("texto", [
     "wins ! and",            # `!` depois de palavra é pontuação da prosa
     "he said 1 . 2 . 3 .",   # números soltos com ponto não são lance
