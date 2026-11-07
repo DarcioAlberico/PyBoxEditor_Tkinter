@@ -1061,6 +1061,22 @@ def _motor_le_a_trama(detalhes) -> bool:
     return confiantes >= 2 and confiantes * 2 >= total
 
 
+def _motor_sem_ancora(confianca_ocr: float) -> bool:
+    """A linha que a cadeia derrubou inteira é do motor, se ele a leu com confiança.
+
+    Sem âncora não há semelhança a medir nem letra a exigir: o `*` das duas
+    células da tabela do Nunn (p. 237) é um box só, a cadeia o derruba, o
+    motor lê a faixa a 0,92 — e a compatibilidade o recusava por não ter
+    letra e por semelhança zero com o nada. O piso é o da palavra impressa
+    sobre trama (`CONFIANCA_DA_PALAVRA_NA_TRAMA`), e separa pelo mesmo vão:
+    nas quatro páginas de referência, os registros sem âncora em que o motor
+    leu alguma coisa são o `*` a 0,92 (duas vezes) e o lixo da trama da p. 47
+    do Chess Evolution 1 a 0,00–0,53 (`ER`, `oe`, `-`, `et © ie`, `SEE EE ER
+    I ST`), 34 registros.
+    """
+    return confianca_ocr >= CONFIANCA_DA_PALAVRA_NA_TRAMA
+
+
 def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
                               detalhes, fusao: str, *,
                               trama: bool = False) -> Tuple[float, bool]:
@@ -1068,6 +1084,8 @@ def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
 
     A fusão por palavra tem o piso de cada palavra e só pede a semelhança; a
     troca da linha inteira precisa do piso da linha, porque não tem outro.
+    Sem âncora — a cadeia derrubou a linha inteira — o motor decide sozinho,
+    pela confiança (`_motor_sem_ancora`).
 
     Com `trama`, o registro é o da faixa desta linha lida sobre meio-tom, e
     a semelhança deixa de decidir: a âncora sobre trama não é evidência de
@@ -1085,6 +1103,8 @@ def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
               and (por_palavra or confianca_ocr >= CONFIANCA_MINIMA_DA_LINHA))
     if not aceita and trama and por_palavra and tem_letra:
         aceita = _motor_le_a_trama(detalhes)
+    if not aceita and not ancora.strip() and texto_ocr.strip():
+        aceita = _motor_sem_ancora(confianca_ocr)
     return semelhanca, aceita
 
 

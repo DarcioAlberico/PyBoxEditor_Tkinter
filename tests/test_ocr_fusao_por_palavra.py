@@ -748,6 +748,34 @@ def test_a_faixa_sobre_trama_e_aceita_pelo_motor_e_nao_pela_semelhanca():
         ancora, linha_ocr, 0.71, detalhes, "linha", trama=True)[1]
 
 
+def test_a_linha_sem_ancora_e_do_motor_quando_ele_a_le_com_confianca():
+    # O `*` da célula da tabela do Nunn (p. 237): um box, derrubado pela
+    # cadeia; o motor lê a faixa a 0,92, e o `*` não tem letra.
+    semelhanca, aceita = livro._compatibilidade_da_linha(
+        "", "*", 0.92, _detalhes(("*", 0.92)), "palavra")
+    assert aceita and semelhanca == 0.0
+    # O lixo da trama sem âncora continua fora: 0,00–0,53 na p. 47.
+    for texto, conf in (("ER", 0.37), ("-", 0.53), ("et © ie", 0.50),
+                        ("SEE EE ER I ST", 0.22)):
+        assert not livro._compatibilidade_da_linha(
+            "", texto, conf, _detalhes((texto, conf)), "palavra")[1], texto
+    # Com âncora a régua é a de sempre — o `*` onde a cadeia leu `x` não
+    # passa —, e o motor que não leu nada não decide nada.
+    assert not livro._compatibilidade_da_linha(
+        "x", "*", 0.92, _detalhes(("*", 0.92)), "palavra")[1]
+    assert not livro._compatibilidade_da_linha("", "", 0.99, (), "palavra")[1]
+
+
+def test_a_fusao_sem_ancora_poe_a_palavra_do_motor_no_lugar():
+    # Sem token da âncora, a palavra do motor que está na faixa da linha
+    # entra sozinha — é o caractere que a confiança derrubou, e que o motor
+    # ainda leu.
+    linha = [BoxEntry("", 100, 200, 110, 230)]
+    texto, contas = livro._fundir_por_palavra("", [], linha, _detalhes(("*", 0.92)))
+    assert texto == "*"
+    assert contas["palavras_do_motor"] == 1 and contas["tokens_da_ancora"] == 0
+
+
 @pytest.mark.parametrize("token, sem_casa", [
     ("T♕", True), ("ex♕fange", True), ("♕", True), ("♘xe", True),
     ("♘e4", False), ("25.♖xc7!", False), ("2.♘", False), ("e8=♕", False),

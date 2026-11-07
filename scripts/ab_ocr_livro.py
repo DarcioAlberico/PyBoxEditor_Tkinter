@@ -75,9 +75,13 @@ def _percentual(valor: float) -> str:
 def _resumo_do_roteamento(pagina) -> dict:
     por_dominio = collections.Counter(
         (r["dominio"], r["fonte"]) for r in pagina.roteamento)
+    # Rejeitada é a linha que o motor leu e ficou com a cadeia: a semelhança
+    # baixa sozinha não diz — a linha sobre trama e a linha sem âncora são
+    # aceitas sem ela (`_motor_le_a_trama`, `_motor_sem_ancora`).
     rejeitadas = [r for r in pagina.roteamento
                   if r["semelhanca"] is not None
-                  and r["semelhanca"] < livro.SEMELHANCA_MINIMA_DA_LINHA]
+                  and r["semelhanca"] < livro.SEMELHANCA_MINIMA_DA_LINHA
+                  and r["fonte"] == "glyph"]
     return {"linhas": len(pagina.roteamento),
             "por_dominio_e_fonte": {f"{d}/{f}": n for (d, f), n
                                     in sorted(por_dominio.items())},

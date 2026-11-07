@@ -1041,12 +1041,39 @@ motor o lê a 0,92, mas sem letra e sem âncora a compatibilidade recusa),
 `1..♖b2?`, o `—see` e o apóstrofo (`Black’s` contra `Black's` na
 referência).
 
+### A célula sem âncora: o motor decide pela confiança
+
+Data: 2026-11-07. O `*` das duas células da tabela do Nunn (p. 237) é um
+box só; a cadeia o derruba, e `_ler_linha` paga o motor (domínio
+desconhecido com box derrubado), que lê a faixa da célula a 0,92 — e a
+compatibilidade o recusava duas vezes: `*` não tem letra, e a semelhança
+com a âncora vazia é zero. Sem âncora não há o que medir:
+`_motor_sem_ancora` aceita o registro do motor pela confiança, com o piso
+da palavra impressa sobre trama (`CONFIANCA_DA_PALAVRA_NA_TRAMA`, 0,8), e a
+fusão por palavra põe a palavra do motor no lugar — é o caminho de sempre
+do caractere que a confiança derrubou e o motor ainda leu. Com âncora nada
+muda, e o motor que não leu nada não decide nada. O piso separa pelo vão
+que já havia: nas quatro páginas, os registros sem âncora em que o motor
+leu alguma coisa são o `*` a 0,92 (duas vezes) e os 34 do lixo da trama da
+p. 47 a 0,00–0,53 (`ER`, `oe`, `-`, `et © ie`, `SEE EE ER I ST`).
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Nunn p. 237 (pedaço da moldura) | `palavra` | 0,54% | 1,82% | 0,48% | 2,74% | 0,52% |
+| Nunn p. 237 (célula sem âncora) | `palavra` | **0,18%** | **0,61%** | 0,48% | 2,74% | **0,31%** |
+
+As outras três páginas não mudam um centésimo (Aagaard p. 30 1,30%, Yusupov
+p. 34 0,71%, p. 47 2,50%), e a p. 47 continua com os 77 registros
+`unknown/glyph`. As páginas de sumário dos três livros (Nunn 3–5, Yusupov
+3–5, Aagaard 3–6) e a do painel de pontuação do Chess Evolution 1 (p. 18)
+saem com o texto idêntico com e sem a regra: nenhuma linha sem âncora
+passou a ser do motor. O `ab_ocr_livro.py` deixa de listar como rejeitada
+a linha que o motor leu e foi aceita sem semelhança — rejeitada é a que
+ficou com a cadeia (`fonte` `glyph`). Sobram na p. 237: `1..♖b2?`, `—see`
+e o apóstrofo.
+
 ### Próximo passo
 
 Conferir as quatro referências contra o livro impresso (o apóstrofo de
-`Black's`, o `–see`). O `*` das duas células da tabela do Nunn: a cadeia o
-derruba e o motor o lê a 0,92, mas a compatibilidade pede letra e âncora —
-é o caso da célula sem âncora, a medir contra os registros `unknown/glyph`
-das quatro páginas antes de abrir a porta. A orelha girada do capítulo é
-assunto da F8.1, e os erros confiantes da cadeia no lance (`1..♖b2?`), da
-OCR-14.
+`Black's`, o `–see`). A orelha girada do capítulo é assunto da F8.1, e os
+erros confiantes da cadeia no lance (`1..♖b2?`), da OCR-14.
