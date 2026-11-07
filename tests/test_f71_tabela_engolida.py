@@ -17,6 +17,10 @@ E abrir mais blocos escancarou o que a régua de antes escondia: a capa que é u
 fotografia tem escala de texto de 2 px, e com ela o bloco rende 40.382 "glifos".
 Daí o teto.
 
+E a terceira vez (2026-11-07): a fila de cabeçalho da tabela era lida pela
+abertura do corpo e engolida pelo merge vertical, que devolvia os glifos ao
+pedaço da moldura em que estavam — `_pedacos_da_moldura`.
+
 Rodar sem pytest:      python tests/test_f71_tabela_engolida.py
 """
 
@@ -205,3 +209,125 @@ def test_a_pontuacao_da_celula_passa_pelo_piso():
     escala = 29
     assert escala * trama.ALTURA_GLIFO[0] <= 5
     assert escala * trama.ALTURA_GLIFO[0] > 2
+
+
+# ----------------------------------------------------------------------
+# A fila de cabeçalho (página 237 do Nunn, terceira vez): o pedaço da moldura
+# ----------------------------------------------------------------------
+
+def _pagina_com_fila_de_cabecalho():
+    """
+    Texto normal e uma tabela cuja fila de cabeçalho é um contorno à parte,
+    com o centro dentro do retângulo do corpo — é como o scan parte a moldura
+    da página 237 do Nunn: a régua da esquerda sobe até o topo e estica o
+    retângulo do corpo sobre a fila, mas as réguas da fila não a tocam.
+    """
+    img = np.full((900, 900), 245, np.uint8)
+    for k in range(4):
+        cv2.putText(img, "ABCDEFGH", (40, 60 + k * 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, 15, 2)
+    # O corpo: moldura fechada, divisória e filas — e a régua da esquerda
+    # subindo até o topo da fila de cabeçalho.
+    cv2.rectangle(img, (60, 380), (840, 860), 15, 3)
+    cv2.line(img, (60, 300), (60, 380), 15, 3)
+    cv2.line(img, (450, 380), (450, 860), 15, 3)
+    for y in (500, 620, 740):
+        cv2.line(img, (60, y), (840, y), 15, 3)
+    for y in (470, 590, 710, 830):
+        cv2.putText(img, "Win", (90, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 15, 2)
+        cv2.putText(img, "Draw", (480, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 15, 2)
+    # A fila de cabeçalho: um contorno só, a 10 px da régua da esquerda e a
+    # 12 px do corpo, baixo demais para ser candidato.
+    cv2.line(img, (72, 300), (840, 300), 15, 3)
+    cv2.line(img, (72, 365), (840, 365), 15, 3)
+    cv2.line(img, (840, 300), (840, 365), 15, 3)
+    cv2.line(img, (450, 300), (450, 365), 15, 3)
+    cv2.putText(img, "Wd1", (200, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 15, 2)
+    cv2.putText(img, "Wc1", (600, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 15, 2)
+    return img
+
+
+def _na_fila_de_cabecalho(boxes):
+    return [b for b in boxes
+            if 302 < (b.y1 + b.y2) / 2 < 363 and 74 < (b.x1 + b.x2) / 2 < 838]
+
+
+def test_o_pedaco_da_moldura_e_o_largo_e_baixo_com_o_centro_dentro():
+    """937×91 e 392×91 dentro do corpo de 1340×1098, na escala 29 do Nunn."""
+    escala = 29
+    corpo = BoxEntry("", 156, 327, 156 + 1340, 327 + 1098)
+    esquerda = BoxEntry("", 155, 326, 155 + 937, 326 + 91)
+    direita = BoxEntry("", 1100, 326, 1100 + 392, 326 + 91)
+    fora = BoxEntry("", 155, 1500, 155 + 937, 1500 + 91)        # abaixo do corpo
+    travessao = BoxEntry("", 400, 600, 400 + 4 * escala - 1, 608)  # estreito: fica
+    tabuleiro = BoxEntry("", 400, 500, 400 + 578, 500 + 579)     # alto: fica
+    pedacos = trama._pedacos_da_moldura(
+        corpo, [corpo, esquerda, direita, fora, travessao, tabuleiro], escala)
+    assert pedacos == {id(esquerda), id(direita)}
+
+
+def test_a_regua_do_pedaco_e_a_do_glifo():
+    """O pedaço começa exatamente onde `glifos` deixa de devolver o componente."""
+    escala = 29
+    limite = int(escala * trama.LARGURA_DO_GLIFO)
+    corpo = BoxEntry("", 0, 0, 2000, 2000)
+    glifo = BoxEntry("", 100, 100, 100 + limite, 130)
+    pedaco = BoxEntry("", 100, 100, 100 + limite + 1, 130)
+    assert trama._pedacos_da_moldura(corpo, [glifo, pedaco], escala) == {id(pedaco)}
+
+    def componente(largura):
+        local = np.zeros((200, 400), np.uint8)
+        local[50:80, 10:10 + largura] = 255
+        return trama.glifos(local, corpo, escala)
+
+    assert len(componente(limite)) == 1
+    assert componente(limite + 1) == []
+
+
+def test_o_pedaco_nunca_e_candidato():
+    """
+    Pedaço é mais baixo que o piso de `candidatos`, por construção: nenhum
+    bloco do laço de `aplicar` some da lista antes da própria vez.
+    """
+    escala = 29
+    piso = int(escala * trama.TAMANHO_MINIMO)
+    corpo = BoxEntry("", 0, 0, 2000, 2000)
+    baixo = BoxEntry("", 10, 10, 10 + 937, 10 + piso - 1)
+    alto = BoxEntry("", 10, 10, 10 + 937, 10 + piso)
+    assert trama._pedacos_da_moldura(corpo, [baixo, alto], escala) == {id(baixo)}
+    assert trama.candidatos([baixo, alto], escala) == [alto]
+
+
+def test_aplicar_consome_o_pedaco_e_poupa_o_vizinho_de_fora():
+    img = _pagina_com_fila_de_cabecalho()
+    escala = 25
+    corpo = BoxEntry("", 58, 298, 842, 862)
+    pedaco = BoxEntry("", 70, 298, 842, 367)
+    vizinho = BoxEntry("", 70, 880, 842, 895)          # largo e baixo, fora do corpo
+    novas, lidos = trama.aplicar(img, [corpo, pedaco, vizinho], escala)
+    assert lidos == [corpo]
+    assert pedaco not in novas and vizinho in novas
+    assert len(_na_fila_de_cabecalho(novas)) >= 6
+
+
+def test_a_fila_de_cabecalho_sobrevive_ao_merge_e_ao_descarte():
+    """
+    A abertura do corpo lia a fila de cabeçalho — e o merge vertical devolvia
+    os glifos ao pedaço da moldura em que estavam, que o descarte do filete
+    jogava fora em seguida. Medido na página 237 do Nunn: 12 glifos lidos,
+    0 na página.
+    """
+    from PIL import Image
+
+    from core.services.box_service import BoxService
+
+    img = _pagina_com_fila_de_cabecalho()
+    antes, _th, escala, _cinza = BoxService.boxes_antes_do_descarte(Image.fromarray(img))
+    depois = BoxService.descartar_blocos_nao_texto(antes, escala=escala)
+    fila = _na_fila_de_cabecalho(depois)
+    assert len(fila) >= 6, f"a fila de cabeçalho não chegou ao descarte: {len(fila)}"
+    assert all(b.width < escala * trama.LARGURA_DO_GLIFO for b in fila), \
+        "o pedaço da moldura da fila continua na página"
+    assert all(getattr(b, "moldura", False) for b in fila)
+    corpo = [b for b in depois if 382 < (b.y1 + b.y2) / 2 < 858]
+    assert len(corpo) >= 20, "o corpo da tabela deixou de ser lido"

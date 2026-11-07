@@ -300,7 +300,10 @@ class PaginaExtraida:
             if isinstance(b, Paragrafo):
                 partes.append(b.texto)
             elif isinstance(b, Tabela):
-                partes.extend(" ".join(c.replace("\n", " ") for c in fila)
+                # A célula vazia não imprime nada, e não ganha separador: a
+                # fila de cabeçalho da tabela do Nunn começa pelo canto vazio,
+                # e saía ` W♔d1 W♔c1 W♔b1`, com um espaço antes do texto.
+                partes.extend(" ".join(c.replace("\n", " ") for c in fila if c)
                               for fila in b.linhas)
         return "\n\n".join(partes)
 

@@ -787,6 +787,8 @@ e a marca `-see`.
 - **A fila de cabeçalho da tabela** está num bloco de 937×91 px que
   `trama.candidatos` recusa por baixo (piso de 4 escalas). Abrir blocos
   baixos e largos é o que a resolve — com a peneira do filete logo atrás.
+  *Corrigido em 2026-11-07, abaixo — e não era a peneira: a abertura do corpo
+  já lia a fila, e o merge devolvia os glifos ao pedaço da moldura.*
 - **As páginas com painel sobre trama do Chess Evolution 1 saíam como
   lixo** (a 18, «Scoring»: `⯹⯹♖= . :. . .`, 912 «caracteres») — e já saíam
   assim em HEAD. *Corrigido na rodada seguinte, abaixo.* (A página 46, que
@@ -990,11 +992,61 @@ prosa); os erros da cadeia no lance (`(l...♖a2!)`, `1..♖b2?`, `♖e1 !`,
 `♖e8 !`, `w♖g1`); o `*` (derrubado pela cadeia, e o motor não o lê); e
 `-see`.
 
+### A fila de cabeçalho da tabela: o pedaço da moldura dentro do bloco aberto
+
+Data: 2026-11-07. A fila `W♔d1 W♔c1 W♔b1` não era o bloco baixo e largo que
+`trama.candidatos` recusa — era lida, e depois engolida. O scan parte a
+moldura da tabela em contornos que se sobrepõem: o corpo é um bloco de
+1340×1098, e a régua dupla do topo com as divisórias da fila de cabeçalho
+são dois blocos de 937×91 e 392×91 (3,1 escalas, abaixo do piso de 4), com
+o centro *dentro* do retângulo do corpo. Abrir o corpo já lia a fila,
+porque o recorte de `trama.aplicar` é o retângulo: 12 glifos de caractere
+na faixa do cabeçalho, medido etapa a etapa. Mas os dois pedaços
+continuavam na lista, e o `merge_vertical_boxes` fundia os 12 glifos neles
+(26 caixas na faixa → 2), caixas largas que o descarte do filete jogava
+fora em seguida (→ 0). Etapa nenhuma recusava a fila; ela sumia entre duas.
+
+`trama._pedacos_da_moldura`: o bloco aberto consome os pedaços da própria
+moldura que estão dentro dele — o box mais largo do que qualquer glifo
+(`LARGURA_DO_GLIFO`, a régua do próprio `glifos`: três tetos de altura) e
+mais baixo do que um candidato (`TAMANHO_MINIMO`), com o centro no bloco.
+É o que a abertura jamais devolveria como caractere, e cujo conteúdo ela
+acabou de ler. O piso de altura deixa o tabuleiro de fora, que
+`diagrama.localizar` ainda procura entre esses boxes; o box estreito de
+dentro (o travessão, o `l`) fica, sai em dobro pela abertura, e o merge
+funde a cópia à original. Pedaço nunca é candidato, por construção. Com a
+fila na página, `_grade` acha a régua do topo, e a fila vira a primeira do
+`<table>`, lida célula a célula como as outras; a célula vazia do canto
+deixa de pôr um espaço antes do texto da fila (`PaginaExtraida.texto`).
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Nunn p. 237 (antes) | `palavra` | 0,54% | 1,82% | 3,39% | 6,85% | 1,76% |
+| Nunn p. 237 (pedaço da moldura) | `palavra` | 0,54% | 1,82% | **0,48%** | **2,74%** | **0,52%** |
+| Aagaard p. 30 | `palavra` | 0,51% | 2,42% | 2,93% | 10,23% | 1,30% |
+| Yusupov p. 34 | `palavra` | 0,66% | 2,34% | 0,76% | 3,39% | 0,71% |
+| Yusupov p. 47 | `palavra` | 2,92% | 5,28% | 0,00% | 0,00% | 2,50% |
+
+As três outras páginas não mudam um centésimo. Nas 11 páginas rotuladas
+(`scripts/medidas/medir_paginas.py`) a saída é idêntica, linha a linha, nos
+quatro modos (arbitrado: F1 95,2, recall 96,3%, precisão 94,1%). Numa
+varredura só de segmentação — uma página em cada oito dos três livros, 138
+páginas — nenhuma muda; nas páginas 225–245 do Nunn mudam quatro, e todas
+ganham a fila de cabeçalho de uma tabela (p. 226 três glifos, p. 237 doze,
+p. 240 e p. 242 quatro), sem perder caixa nenhuma. Dos tokens que sobram na
+p. 237: os tokens colados da rodada anterior (`W:W1n(1♖d1!)`,
+`Draw(1...♖h2!)`) já saíam certos antes desta mudança — a fusão por palavra
+de hoje os parte —, e ficam o `*` das duas células (a cadeia o derruba; o
+motor o lê a 0,92, mas sem letra e sem âncora a compatibilidade recusa),
+`1..♖b2?`, o `—see` e o apóstrofo (`Black’s` contra `Black's` na
+referência).
+
 ### Próximo passo
 
-Conferir as quatro referências contra o livro impresso. Partir o token da
-âncora que cola prosa ao lance (`Draw(1...♖h2!)`) pelas palavras do motor,
-quando o token inteiro não tem forma de lance e cada pedaço tem a sua. A
-fila de cabeçalho da tabela do Nunn é o bloco baixo e largo de
-`trama.candidatos`. A orelha girada do capítulo é assunto da F8.1, e os
-erros confiantes da cadeia no lance, da OCR-14.
+Conferir as quatro referências contra o livro impresso (o apóstrofo de
+`Black's`, o `–see`). O `*` das duas células da tabela do Nunn: a cadeia o
+derruba e o motor o lê a 0,92, mas a compatibilidade pede letra e âncora —
+é o caso da célula sem âncora, a medir contra os registros `unknown/glyph`
+das quatro páginas antes de abrir a porta. A orelha girada do capítulo é
+assunto da F8.1, e os erros confiantes da cadeia no lance (`1..♖b2?`), da
+OCR-14.

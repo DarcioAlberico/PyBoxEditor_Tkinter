@@ -42,6 +42,14 @@ proporção 1,00 a 1,01. O painel de pontuação mede 1049x390, proporção 2,69
 
 A cobertura por células diria o mesmo com margem estreita (99,9% no painel
 contra 82%–91% nos diagramas) e não é usada por isso.
+
+## O pedaço da moldura dentro do bloco aberto
+
+O scan parte a moldura em contornos que se sobrepõem, e o pedaço baixo e largo
+que fica dentro do retângulo do bloco aberto — a régua do topo da tabela do
+Nunn, com as divisórias da fila de cabeçalho — engolia de volta, no merge
+vertical, os glifos que a abertura tinha acabado de ler. O bloco aberto consome
+esses pedaços (`_pedacos_da_moldura`, 2026-11-07).
 """
 
 from typing import List, Sequence, Tuple
@@ -79,6 +87,12 @@ TAMANHO_MINIMO = 4.0
 #: no painel de pontuação do Yusupov (Complete, p. 20) `p1nts` vira `pints`.
 #: O ponto da trama continua fora: tem 2 px, e a escala nunca é menor que 13.
 ALTURA_GLIFO = (0.15, 2.5)
+
+#: Quantas escalas de texto um componente pode ter de largura e ainda ser
+#: glifo: três tetos de `ALTURA_GLIFO`. É a régua de `glifos`, que recusa o
+#: componente mais largo, e a de `_pedacos_da_moldura`, que é o complemento
+#: dela: o box que a abertura jamais devolveria como caractere.
+LARGURA_DO_GLIFO = ALTURA_GLIFO[1] * 3
 
 #: Quantos caracteres fazem o bloco valer a substituição. Três é o mesmo mínimo
 #: da F10, e pelo mesmo motivo: para *decidir*, um punhado basta.
@@ -195,12 +209,47 @@ def glifos(local: np.ndarray, bloco: BoxEntry, escala: int) -> List[BoxEntry]:
     m = _margem(escala)
     saida = []
     for x, y, w, h, _area in medidas[1:]:
-        if not (piso <= h <= teto) or w > teto * 3:
+        if not (piso <= h <= teto) or w > escala * LARGURA_DO_GLIFO:
             continue
         saida.append(BoxEntry("", bloco.x1 + m + int(x), bloco.y1 + m + int(y),
                               bloco.x1 + m + int(x) + int(w),
                               bloco.y1 + m + int(y) + int(h)))
     return saida
+
+
+def _pedacos_da_moldura(bloco: BoxEntry, boxes: Sequence[BoxEntry],
+                        escala: int) -> set:
+    """
+    Os `id` dos boxes que são pedaços da moldura do `bloco` aberto, e saem com ele.
+
+    **A fila de cabeçalho da tabela do Nunn (p. 237) era lida, e depois
+    engolida.** O scan parte a moldura em contornos que se sobrepõem: o corpo
+    da tabela é um bloco de 1340×1098, e a régua dupla do topo, com as
+    divisórias da fila de cabeçalho, são dois blocos de 937×91 e 392×91 —
+    baixos demais para `candidatos` (3,1 escalas), e com o centro *dentro* do
+    retângulo do corpo. Abrir o corpo lê a fila de cabeçalho junto, porque o
+    recorte é o retângulo: 12 glifos, `W♔d1 W♔c1 W♔b1`. Mas os dois pedaços
+    continuavam na lista, e o `merge_vertical_boxes` fundia os glifos neles —
+    caixa larga que o descarte do filete jogava fora logo depois. A fila sumia
+    da página sem que etapa nenhuma a tivesse recusado.
+
+    O pedaço é o box **mais largo do que qualquer glifo** (`LARGURA_DO_GLIFO`,
+    a régua do próprio `glifos`) e **mais baixo do que um candidato**
+    (`TAMANHO_MINIMO`), com o centro dentro do bloco: é o que a abertura jamais
+    devolveria como caractere, e cujo conteúdo, se há, ela acabou de ler. O
+    piso de altura é o que deixa o tabuleiro de fora: um diagrama que calhe
+    dentro do retângulo de um painel partido não é régua, e `diagrama.
+    localizar` ainda o procura entre estes boxes. O box estreito de dentro do
+    bloco — o travessão, o `l` — fica como está: a abertura o devolve em
+    dobro, e o merge funde a cópia à original como sempre fundiu.
+    """
+    largura = escala * LARGURA_DO_GLIFO
+    altura = escala * TAMANHO_MINIMO
+    return {id(o) for o in boxes
+            if o is not bloco
+            and o.width > largura and o.height < altura
+            and bloco.x1 <= (o.x1 + o.x2) / 2 <= bloco.x2
+            and bloco.y1 <= (o.y1 + o.y2) / 2 <= bloco.y2}
 
 
 def aplicar(cinza: np.ndarray, boxes: Sequence[BoxEntry], escala: int
@@ -232,7 +281,13 @@ def aplicar(cinza: np.ndarray, boxes: Sequence[BoxEntry], escala: int
         # `<table>` é a estrutura, não a marca.
         for g in dentro:
             g.moldura = True
-        novas = [o for o in novas if o is not b] + dentro
+        # E os pedaços da mesma moldura que estão dentro dele saem junto: o
+        # que havia neles a abertura acabou de ler, e deixá-los na lista é
+        # deixar o merge devolver os glifos a eles (ver `_pedacos_da_moldura`).
+        # Pedaço nunca é candidato — é mais baixo que o piso de `candidatos`
+        # por definição —, então nenhum bloco deste laço some antes da vez.
+        pedacos = _pedacos_da_moldura(b, novas, escala)
+        novas = [o for o in novas if o is not b and id(o) not in pedacos] + dentro
         lidos.append(b)
 
     if lidos:
