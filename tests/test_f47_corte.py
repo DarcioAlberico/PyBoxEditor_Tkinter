@@ -1,5 +1,7 @@
 """
 F4.7 — o Ctrl+D corta onde a tinta abre, e não onde a caixa é mais comprida.
+Desde 2026-11-09, sempre lado a lado (ao longo da leitura): o acento do `í`
+ganhava o corte por cima.
 
 O defeito relatado: um box com 'ba', 'it' ou 'll' — letra alta ao lado de letra
 baixa — sai mais **alto** que largo, e a regra da proporção partia as duas
@@ -77,40 +79,68 @@ def test_cada_metade_fica_com_uma_letra_inteira():
     assert dir_.x1 <= b[0] and dir_.x2 >= b[2]
 
 
-def test_a_regra_antiga_erraria_este_caso():
-    """
-    A prova de que a figura é a certa: sem imagem, o corte sai em Y.
-
-    Se este teste começar a falhar, ou a regra de reserva mudou ou a figura
-    deixou de reproduzir o defeito — e nos dois casos os testes acima passariam
-    a não medir nada.
-    """
+def test_sem_imagem_o_box_alto_tambem_e_partido_ao_lado():
+    """A proporção do box não escolhe mais o eixo: o 'ba' sem imagem, mais
+    alto que largo, é partido no meio da largura."""
     a, b = BA
     partes = BoxService.split_box(_uniao(a, b))
-    assert partes[0].y2 == partes[1].y1, "a figura não engana mais a geometria"
+    assert partes[0].x2 == partes[1].x1 == (a[0] + b[2]) // 2
 
 
 # ----------------------------------------------------------------------
-# O outro eixo continua funcionando
+# O corte por cima não existe mais (2026-11-09)
 # ----------------------------------------------------------------------
 
-# Empilhados: larga (20) e baixa (14). A proporção mandaria cortar em X.
+# O `aí` de `saída`, como o usuário o mostrou: o `a` (4..14), a haste do `í`
+# (18..21) e o acento solto em cima dela, separado por fileiras em branco.
+# Antes o vão horizontal entre o acento e a haste ganhava do vão entre as
+# letras, e o Ctrl+D devolvia o acento num box e o resto no outro.
+A_I_AGUDO = ((4, 16, 14, 30), (18, 12, 21, 30), (17, 4, 22, 8))
+
+
+def test_o_acento_nao_e_partido_por_cima():
+    partes = BoxService.split_box(_uniao(*A_I_AGUDO), _pagina(*A_I_AGUDO))
+
+    assert partes[0].x2 == partes[1].x1, "o corte não foi lado a lado"
+    assert partes[0].y1 == partes[1].y1 == 4 and partes[0].y2 == partes[1].y2 == 30
+    a, haste, _acento = A_I_AGUDO
+    assert a[2] <= partes[0].x2 <= haste[0], "o corte não caiu entre o a e o í"
+
+
+def test_o_vao_horizontal_ganharia_do_vertical():
+    """A prova de que a figura é a certa: o vale por fileira é mais fundo que
+    o vale por coluna — é o que fazia a regra de antes cortar por cima."""
+    pagina = _pagina(*A_I_AGUDO)
+    tinta = BoxService._tinta_do_box(_uniao(*A_I_AGUDO), pagina)
+    m = BoxService.MARGEM_DO_CORTE
+    assert (BoxService._vale_mais_fundo(tinta.sum(axis=1), m)[1]
+            >= BoxService._vale_mais_fundo(tinta.sum(axis=0), m)[1])
+
+
+# Empilhados: larga (20) e baixa (14). Também saem lado a lado — duas linhas
+# coladas num box são da geração (`dividir_linhas_coladas`), não do Ctrl+D.
 PILHA = ((6, 4, 26, 10), (6, 14, 26, 20))
 
 
-def test_glifos_empilhados_sao_partidos_por_cima():
+def test_glifos_empilhados_tambem_sao_partidos_ao_lado():
     a, b = PILHA
     partes = BoxService.split_box(_uniao(a, b), _pagina(a, b))
+    assert partes[0].x2 == partes[1].x1 == 16
+    assert partes[0].y1 == partes[1].y1 == 4 and partes[0].y2 == partes[1].y2 == 20
 
-    assert partes[0].y2 == partes[1].y1, "o corte não foi horizontal"
+
+def test_o_rotulo_girado_e_partido_ao_longo_da_leitura():
+    """Na tarja girada (F8.1) a leitura corre em y: as letras do rótulo estão
+    uma embaixo da outra na imagem, e o corte cai no vão entre elas."""
+    a, b = (8, 4, 20, 14), (8, 20, 20, 34)
+    box = _uniao(a, b)
+    box.angulo = 90
+    partes = BoxService.split_box(box, _pagina(a, b))
+
+    assert partes[0].y2 == partes[1].y1, "o corte não foi ao longo da leitura"
     assert partes[0].x1 == partes[1].x1 and partes[0].x2 == partes[1].x2
     assert a[3] <= partes[0].y2 <= b[1]
-
-
-def test_pilha_tambem_engana_a_geometria_sozinha():
-    a, b = PILHA
-    partes = BoxService.split_box(_uniao(a, b))
-    assert partes[0].x2 == partes[1].x1, "a figura não engana mais a geometria"
+    assert [p.angulo for p in partes] == [90, 90]
 
 
 # ----------------------------------------------------------------------

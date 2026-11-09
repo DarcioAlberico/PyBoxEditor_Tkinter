@@ -1501,9 +1501,9 @@ class Reconhecimento:
         """
         Ctrl+D: parte o box selecionado em dois.
 
-        A página vai junto porque o corte olha a tinta (ver `split_box`): sem
-        ela sobra a regra da proporção, que devolve as metades uma embaixo da
-        outra sempre que o box tem uma letra alta ao lado de uma baixa.
+        O corte é sempre lado a lado, ao longo da leitura, e a página vai
+        junto porque o lugar dele é o vão da tinta (ver `split_box`): sem ela,
+        o corte cai no meio do box.
 
         **O foco vai para o campo do caractere** (F4.9). `split_box` devolve as
         duas metades **sem char nenhum**, então o passo seguinte a dividir é

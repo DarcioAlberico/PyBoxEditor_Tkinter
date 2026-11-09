@@ -2206,31 +2206,39 @@ class BoxService:
         *uma embaixo da outra*. Era o defeito relatado, e ele tem nome: as letras
         estreitas e altas do inglês corrido.
 
-        **O que decide agora é onde a tinta abre.** Perfil de tinta nos dois
-        eixos, vale mais nítido de cada um (`_vale_mais_fundo`), e ganha o eixo
-        com o vale mais fundo. Sem imagem, ou sem vale em eixo nenhum, vale a
-        regra antiga — que é a resposta honesta para um box onde não há vão.
+        **O corte é sempre lado a lado, ao longo da leitura** (2026-11-09, a
+        pedido do usuário: "a divisão horizontal não faz sentido no nosso
+        programa"). Quem divide um box divide letras coladas; duas linhas
+        coladas num box são do `dividir_linhas_coladas`, na geração. No box
+        girado (F8.1, 90° ou 270°), ao longo da leitura é o eixo y da imagem.
 
-        **Medido nas 9 páginas rotuladas**, unindo cada par de caracteres
-        vizinhos da verdade rotulada num box só — que é exatamente o box que o
-        usuário manda dividir. 5.747 pares lado a lado e 57 empilhados; "corte
-        bom" é cair a menos de 10% do lado do box da fronteira verdadeira:
+        **O lugar do corte é onde a tinta abre**: o vale mais nítido do perfil
+        de tinta ao longo da leitura (`_vale_mais_fundo`); sem imagem, ou sem
+        vale, o meio.
 
-            regra        lado a lado (n=5.747)      empilhados (n=57)
-                         eixo errado  corte bom   eixo errado  corte bom
-            geometria       9,3%        61,6%        0,0%       94,7%
-            vale de tinta   0,3%        98,6%        0,0%       94,7%
+        **Até aqui o eixo era escolhido pelo vale mais fundo dos dois** (F4.7,
+        que já tinha trocado a proporção do box por isso), e o acento perdia
+        o corte: entre o acento do `í` e a haste há sempre um vão horizontal
+        limpo, e o Ctrl+D em `aí` de `saída` devolvia o acento por cima e o
+        resto embaixo. Medido unindo cada par de vizinhos num box só — que é o
+        box que o usuário manda dividir —, com "corte bom" a menos de 10% da
+        largura do box do vão verdadeiro:
 
-        **A coluna dos empilhados é a que prova que não houve troca de um erro
-        por outro.** O eixo Y continua sendo escolhido onde ele é o certo — o
-        vale por linha existe de verdade ali —, com o mesmo acerto de antes.
+            pares                                   antes              agora
+                                             eixo errado  bom   eixo errado  bom
+            11 páginas rotuladas (n=12.414)      0,3%   99,5%      0,0%   99,7%
+              com pingo ou acento (n=1.178)      1,1%   98,2%      0,0%   99,3%
+            acentuados do português (n=768)     62,2%   33,9%      0,0%   79,8%
 
-        O que sobra de erro é o pingo do 'i' sobre o braço do 'w': em 'wi' e 'vi'
-        há um vale horizontal real embaixo do pingo, e ele ganha do vertical.
-        Quinze casos em 5.747.
+        A última linha são 32 palavras acentuadas em quatro fontes serifadas,
+        com as letras encostadas de 2 a 4 px como no scan. Com 2 px o corte
+        acerta 94%; com 4 px, 62%, porque o miolo do `o`, do `a` e do `e`
+        também é vale no perfil e compete com a junção — o que sobra para uma
+        régua que siga o contorno. Tirar o acento do perfil foi medido e
+        piora (75,7%): o acento é o que enche o vale falso do miolo.
 
         A binarização é a do **recorte**, com Otsu, e não a da página: sai igual
-        (15 erros contra 17) e poupa binarizar a folha inteira a cada Ctrl+D.
+        e poupa binarizar a folha inteira a cada Ctrl+D.
 
         As metades herdam o ângulo (F8.1) e a polaridade (F10): quem parte um
         box de rótulo vertical — ou de tarja preta — em dois quer dois pedaços
@@ -2239,29 +2247,27 @@ class BoxService:
         x1, y1, x2, y2 = box.x1, box.y1, box.x2, box.y2
         angulo = getattr(box, "angulo", 0)
         neg = getattr(box, "negativo", False)
+        # O rótulo girado (F8.1) é lido de cima para baixo: ao longo da
+        # leitura, na imagem, é o eixo y.
+        girado = angulo in (90, 270)
 
-        def em_x(corte):
+        def partir(corte):
+            if girado:
+                return [BoxEntry("", x1, y1, x2, corte, angulo=angulo, negativo=neg),
+                        BoxEntry("", x1, corte, x2, y2, angulo=angulo, negativo=neg)]
             return [BoxEntry("", x1, y1, corte, y2, angulo=angulo, negativo=neg),
                     BoxEntry("", corte, y1, x2, y2, angulo=angulo, negativo=neg)]
 
-        def em_y(corte):
-            return [BoxEntry("", x1, y1, x2, corte, angulo=angulo, negativo=neg),
-                    BoxEntry("", x1, corte, x2, y2, angulo=angulo, negativo=neg)]
-
+        inicio = y1 if girado else x1
         tinta = BoxService._tinta_do_box(box, imagem_cinza)
         if tinta is not None:
-            margem = BoxService.MARGEM_DO_CORTE
-            vx = BoxService._vale_mais_fundo(tinta.sum(axis=0), margem)
-            vy = BoxService._vale_mais_fundo(tinta.sum(axis=1), margem)
-            fx = vx[1] if vx else 0.0
-            fy = vy[1] if vy else 0.0
-            if max(fx, fy) >= BoxService.MIN_FUNDURA_DO_VALE:
-                return em_x(x1 + vx[0]) if fx >= fy else em_y(y1 + vy[0])
+            perfil = (tinta.sum(axis=1) if girado else tinta.sum(axis=0))
+            vale = BoxService._vale_mais_fundo(perfil, BoxService.MARGEM_DO_CORTE)
+            if vale and vale[1] >= BoxService.MIN_FUNDURA_DO_VALE:
+                return partir(inicio + vale[0])
 
-        # Sem imagem ou sem vão: o meio geométrico, como sempre foi.
-        if (x2 - x1) > (y2 - y1):
-            return em_x((x1 + x2) // 2)
-        return em_y((y1 + y2) // 2)
+        # Sem imagem ou sem vão: o meio, ao longo da leitura.
+        return partir((inicio + (y2 if girado else x2)) // 2)
 
     @staticmethod
     def _tinta_do_box(box: BoxEntry, imagem_cinza: np.ndarray):
