@@ -34,14 +34,18 @@ FONTE_ROTULO = ("Segoe UI Symbol", 12, "bold")
 
 
 def fundo_do_rotulo(texto: str) -> str:
-    """O fundo da etiqueta sob o box: verde quando o caractere é maiúsculo.
+    """O fundo da etiqueta sob o box: verde na maiúscula, azul no algarismo.
 
     Em `zZ`, `pP`, `sS`, `oO`, `cC`, `vV`, `wW` e `xX` a maiúscula e a minúscula
     têm o mesmo desenho, e no rótulo só a altura as separa — pouco para conferir
     a página de relance. O verde diz a caixa sem que seja preciso comparar o
-    tamanho. Vale `str.isupper`: `É` e `Ç` contam, figurina, dígito e pontuação
-    não têm caixa e ficam no amarelo.
+    tamanho. Vale `str.isupper`: `É` e `Ç` contam. O azul faz o mesmo pelo
+    algarismo, que se confunde com letra (`0O`, `1l`, `5S`); vale `str.isdigit`,
+    e o rótulo só fica azul se todo ele for algarismo. Figurina, pontuação e o
+    `?` do box vazio ficam no amarelo.
     """
+    if texto.isdigit():
+        return tema.FUNDO_DA_ETIQUETA_NUMERO
     return tema.FUNDO_DA_ETIQUETA_MAIUSCULA if texto.isupper() else tema.FUNDO_DA_ETIQUETA
 
 
@@ -724,7 +728,7 @@ class CanvasView(tk.Canvas):
                 px2 = cx + preview_w/2
                 py2 = py_start + preview_h
                 
-                # Fundo amarelo claro; verde claro quando é maiúscula
+                # Fundo amarelo claro; verde na maiúscula, azul no algarismo
                 self.create_rectangle(
                     px1, py1, px2, py2,
                     fill=fundo_do_rotulo(char_text), outline="black"

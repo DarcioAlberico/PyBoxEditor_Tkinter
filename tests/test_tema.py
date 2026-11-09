@@ -52,12 +52,14 @@ def test_nenhum_modulo_da_interface_escreve_cor_a_mao():
     assert not achadas, "\n".join(achadas)
 
 
-def test_o_rotulo_do_box_fica_verde_so_na_maiuscula():
-    """`zZ`, `pP`: o desenho é o mesmo, e a cor do rótulo diz a caixa."""
+def test_o_rotulo_do_box_fica_verde_na_maiuscula_e_azul_no_algarismo():
+    """`zZ`, `pP`, `0O`: o desenho é parecido, e a cor do rótulo diz o que é."""
     from ui.canvas_view import fundo_do_rotulo
 
     for maiuscula in ("Z", "P", "S", "É", "Ç"):
         assert fundo_do_rotulo(maiuscula) == tema.FUNDO_DA_ETIQUETA_MAIUSCULA, maiuscula
-    for sem_caixa in ("z", "p", "s", "é", "ç", "?", "4", ".", "♕", ""):
+    for sem_caixa in ("z", "p", "s", "é", "ç", "?", ".", "♕", "", "4a"):
         assert fundo_do_rotulo(sem_caixa) == tema.FUNDO_DA_ETIQUETA, sem_caixa
-    assert tema.FUNDO_DA_ETIQUETA_MAIUSCULA != tema.FUNDO_DA_ETIQUETA
+    for algarismo in ("0", "1", "5", "9", "12"):
+        assert fundo_do_rotulo(algarismo) == tema.FUNDO_DA_ETIQUETA_NUMERO, algarismo
+    assert len({tema.FUNDO_DA_ETIQUETA, tema.FUNDO_DA_ETIQUETA_MAIUSCULA, tema.FUNDO_DA_ETIQUETA_NUMERO}) == 3
