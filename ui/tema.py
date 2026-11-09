@@ -49,6 +49,7 @@ TEXTO_SECUNDARIO = "#4D4D4D"     # a explicação ao lado do controle
 
 FUNDO_DO_RECORTE = "#202124"     # a pré-visualização da linha recortada
 FUNDO_DA_ETIQUETA = "#FFFFE0"    # a etiqueta do caractere sob o box selecionado
+FUNDO_DA_ETIQUETA_MAIUSCULA = "#C8F0C8"  # a mesma etiqueta quando o caractere é maiúsculo
 FUNDO_MARCADO = "#E8F5E9"        # a miniatura que entra no lote
 BORDA_DESMARCADA = "#BDBDBD"     # a miniatura que ficou de fora
 

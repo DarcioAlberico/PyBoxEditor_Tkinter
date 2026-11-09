@@ -50,3 +50,14 @@ def test_nenhum_modulo_da_interface_escreve_cor_a_mao():
                for n, linha in enumerate(arquivo.read_text(encoding="utf-8").splitlines(), 1)
                if solta.search(linha) and not linha.lstrip().startswith("#")]
     assert not achadas, "\n".join(achadas)
+
+
+def test_o_rotulo_do_box_fica_verde_so_na_maiuscula():
+    """`zZ`, `pP`: o desenho é o mesmo, e a cor do rótulo diz a caixa."""
+    from ui.canvas_view import fundo_do_rotulo
+
+    for maiuscula in ("Z", "P", "S", "É", "Ç"):
+        assert fundo_do_rotulo(maiuscula) == tema.FUNDO_DA_ETIQUETA_MAIUSCULA, maiuscula
+    for sem_caixa in ("z", "p", "s", "é", "ç", "?", "4", ".", "♕", ""):
+        assert fundo_do_rotulo(sem_caixa) == tema.FUNDO_DA_ETIQUETA, sem_caixa
+    assert tema.FUNDO_DA_ETIQUETA_MAIUSCULA != tema.FUNDO_DA_ETIQUETA
