@@ -2233,9 +2233,28 @@ class BoxService:
         A última linha são 32 palavras acentuadas em quatro fontes serifadas,
         com as letras encostadas de 2 a 4 px como no scan. Com 2 px o corte
         acerta 94%; com 4 px, 62%, porque o miolo do `o`, do `a` e do `e`
-        também é vale no perfil e compete com a junção — o que sobra para uma
-        régua que siga o contorno. Tirar o acento do perfil foi medido e
-        piora (75,7%): o acento é o que enche o vale falso do miolo.
+        também é vale no perfil e compete com a junção. Tirar o acento do
+        perfil foi medido e piora (75,7%): o acento é o que enche o vale falso
+        do miolo.
+
+        **A régua que siga o contorno foi medida e não paga** (2026-11-09). Três
+        tentativas, nas mesmas populações:
+
+            regra                              páginas  c/ pingo  acent. 2-4 px
+            vale do perfil (esta)                99,7%    99,3%      79,8%
+            costura de menor tinta, binária      99,7%    98,8%      82,3%
+            costura pela tinta em cinza          99,7%    98,9%      78,4%
+            a rede escolhe entre os vales          —        —        57,4%
+
+        A costura (caminho de cima a baixo, um passo lateral por linha, de
+        menor tinta; o corte no meio entre a tinta de cada lado) só ganha com 3
+        e 4 px de sobreposição, que nas páginas rotuladas não aparece, e perde
+        cinco pares com pingo. Ela falha pelo mesmo motivo do perfil: na
+        serifada o traço horizontal é um fio, e a costura atravessa o arco do
+        `m` e o miolo do `o` tão barata quanto a junção. A rede, perguntada
+        pela menor confiança das duas metades, erra até com vão limpo (66% no
+        aperto 0): ela lê lasca de letra como `l`, `i` ou `r` com confiança
+        alta, que é o que a F1.1 já tinha visto.
 
         A binarização é a do **recorte**, com Otsu, e não a da página: sai igual
         e poupa binarizar a folha inteira a cada Ctrl+D.
