@@ -36,7 +36,7 @@ fase cita a origem (fase e linha do documento de origem, em 2026-09-29).
 | 4 | PD-10, PD-11, PD-12 | Texto corrido | — |
 | 5 | PD-13, PD-14 | Medidas que podem virar produção | medição |
 | 6 | PD-15 … PD-19 | Bloqueadas | rótulo, retreino, material externo |
-| 7 | PD-22 | A forma do código: a janela principal por fluxos, e a outra metade do ciclo do leitor | — |
+| 7 | PD-22, PD-23 | A forma do código: a janela principal por fluxos, a outra metade do ciclo do leitor, e o portão do retreino | — |
 
 ---
 
@@ -351,6 +351,31 @@ constantes de página e de figura e o `_coluna_de` foram para `core/pagina.py`;
 `core/pagina.py`. Ciclos diretos do grafo da análise: 18 antes, 16 depois — `livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram; restam 16, entre eles o `editorial_export` ↔ `editorial_legacy` que a PD-21 abriu por import tardio, e os de `core/services/box_service` com `leitura_de_linha` e `vertical`.
 Suíte: 3535 verdes.
 
+### PD-23 — O portão do retreino
+
+**Por quê.** O treino da rede de glifos gravava o peso novo por cima do `custom_model.pth`,
+sem cópia e sem medida. O retreino de 2026-11-09 entrou assim em produção: 99,7% de
+validação no split e, no corpus de referência, a notação com o dobro de erro (ver a linha
+PD-16 de 2026-11-12). O peso anterior só existia ainda numa cópia esquecida num worktree.
+
+**O que mudou.** (1) O miolo da rodada do corpus saiu de `scripts/rodada_do_corpus.py`
+para `core/rodada.py` (`medir_paginas` recebe o serviço de glifos pronto; o script
+importa de lá e grava, compara e aplica o portão de qualidade como antes), porque o
+núcleo não importa script. (2) `core/portao_do_modelo.py`: `guardar_anterior` copia o par
+de produção para `custom_model_<data>_antes_do_retreino.pth`/`model_meta_<data>_antes_do_retreino.json`
+antes do treino; `avaliar` mede os dois pares no corpus **com o código de agora** e
+recusa o novo se uma página piorar mais que 0,1 ponto de CER, ou o corpus inteiro —
+recusado, ele vai para `_recusado` e o anterior volta ao lugar. Sem corpus (manifesto sem
+os PDFs, página sem medida, Tesseract quebrado) o novo fica, e o veredito diz que não
+houve medida. (3) `LearningService.train_neural(portao=True)`, que só a janela pede; o
+veredito aparece no log da tarefa e numa caixa antes do "treinamento concluído".
+`config.paths.manifesto_do_corpus()` aponta o manifesto.
+
+**Medido.** O portão de verdade, com o par de 2026-11-09 como novo e o de produção como
+anterior, em cópias: **recusado**, com os mesmos números da medida à mão (CER total
+1,24% → 1,47%, três páginas e o corpus inteiro além da tolerância), em 96 s — contra as
+horas do treino. A rodada pelo script refatorado repete a de 2026-11-07 página a página.
+
 ---
 
 ## Registro de execução
@@ -383,3 +408,4 @@ Suíte: 3535 verdes.
 | PD-21 | **feita** | 2026-10-10 | O carimbo "não revisado" foi para a `Figura` (`revisao_pendente`) e para o `exportar.py` (`alt`, `figcaption`, legenda do DOCX, só quando `True`); EPUB e DOCX do documento editorial saem do escritor de produção pela fachada, sobre as páginas lidas com a revisão aplicada ou de volta do IR, e o `_export_legacy` e o terceiro escritor sumiram. A volta reconhece o diagrama da Fase 4 e o desenha do FEN; o ramo "de volta do IR" só redesenha o que veio sem desenho ou cujo FEN a revisão trocou. Medido em 30 páginas sintéticas: EPUB 17 ms/172 KB e DOCX 280 ms/42 KB pelo IR, byte a byte iguais ao direto (13 e 254 ms); redesenhar tudo custava 333 KB/761 ms. |
 | PD-22 | **feita** | 2026-10-10 | A janela por fluxos (`reconhecimento`, `documento`, `treino`, mais a `exportacao` de 10-06) e o menu numa tabela (`ui/menu_principal.py`, 73 itens conferidos contra o `_build_menu`): `MainWindow` 5.105 → 1.961 linhas, com 115 delegados, e nenhum fluxo importa a janela. O ciclo `livro` ↔ `pdf_nativo` (e `livro` ↔ `negrito`) desfeito: constantes e `_coluna_de` em `core/pagina.py`, auxiliares de cabeçalho em `core/leitura_comum.py`, `idioma_do_pdf` no `pdf_nativo`, o `livro` reexportando. Ciclos diretos: 18 antes, 16 depois — `livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram. |
 | PD-16 (retreino de 2026-11-09) | **medido, recusado — produção mantida** | 2026-11-12 | O usuário retreinou com a base nova (635.809 amostras, 317 classes — três ligaduras novas, `fy`, `kn` e `xh`, com uma amostra cada; teste 99,73%, T = 1,905) e o peso foi para a árvore sem medida. **Corpus de referência**, mesmo código, só o peso trocado: CER total 1,24% → **1,47%**, prosa 1,38% → 1,20%, **notação 0,97% → 1,99%**; o portão reprova Aagaard p. 30 (1,10% → 1,44%), Yusupov p. 34 (0,71% → 1,10%) e p. 47 (2,50% → 2,64%). O modelo anterior reproduz a rodada de 2026-11-07 caractere a caractere. Os erros novos são de lance: `h` lido `b` (`hxg7` → `bxg7`, `♕xh6` → `♕xb6`), `♕xf7+` → `♕xf3+`, `exf4` → `e44`, `♗xf7` → `Exf7`, e as reticências do lance das pretas somem (`5...♕d6` → `5♕d6`, `6...f6` → `6.f6`); a prosa ganha `YusuPv` → `Yusupov` e menos cisco. **Páginas rotuladas**, caractere a caractere sem árbitro (13 páginas, 13.939): 95,86% contra 95,82%, 24 consertos e 30 quebras — empate, e a favor do novo, que já viu as três páginas rotuladas em 2026-11-07. **Não é rótulo errado:** o modelo anterior discorda com confiança ≥ 0,9 de só 40 das 10.852 amostras gravadas desde 2026-08-26 (8 `l`→`]`, 8 `p`→`P`, nenhuma `h`/`b`); a piora é da rodada de treino. O peso anterior (`6b613d…`) voltou a ser o de produção, e o de 2026-11-09 ficou guardado como `custom_model_2026-11-09_recusado.pth`/`model_meta_2026-11-09_recusado.json`. Retreino novo se aceita pela rodada do corpus, não pela validação do split. |
+| PD-23 (nova) | **feita** | 2026-11-12 | O treino pela janela guarda o par de produção com data antes de começar e, no fim, mede o novo contra ele no corpus de referência (`core/portao_do_modelo.py`, sobre `core/rodada.py`, o miolo que saiu do script da rodada); se ler pior, o novo vai para `_recusado` e o anterior volta. Provado com o peso de 2026-11-09: recusado com 1,24% → 1,47%, em 96 s. Sem corpus, o novo fica e o veredito diz que não mediu. |

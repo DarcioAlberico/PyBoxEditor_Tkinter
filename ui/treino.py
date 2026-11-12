@@ -667,6 +667,9 @@ class Treino:
                 epochs=epochs,
                 callback=h.log,
                 should_stop=lambda: h.cancelled,
+                # O peso novo se mede contra o anterior no corpus antes de
+                # ficar no lugar dele (PD-23).
+                portao=True,
             )
 
         def falhou(exc):
@@ -711,6 +714,17 @@ class Treino:
             # não tem página rotulada. O log da tarefa já disse qual dos dois
             # aconteceu; isto é para quem não leu o log.
             self.janela._modelo_conferido = False
+
+            # Recusado, o modelo em uso continua o anterior, e isso tem de ser
+            # dito antes do "treinamento concluído": quem lê só o título acharia
+            # que o novo está valendo.
+            veredito = getattr(self.janela.learning_service, "ultimo_veredito", None)
+            if veredito is not None:
+                from core.portao_do_modelo import RECUSADO
+                if veredito.situacao == RECUSADO:
+                    messagebox.showwarning("Modelo novo recusado", veredito.mensagem())
+                else:
+                    messagebox.showinfo("Modelo novo no corpus", veredito.mensagem())
 
             relatorio = self.janela.learning_service.caminho_relatorio()
             if os.path.exists(relatorio):

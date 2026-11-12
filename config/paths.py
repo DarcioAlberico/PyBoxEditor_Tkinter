@@ -72,6 +72,16 @@ def completar_modelo_linha(modelo: str | Path | None = None,
     return Path(modelo), Path(meta)
 
 
+def manifesto_do_corpus() -> Path:
+    """O manifesto do corpus de referência, que o portão do retreino mede (PD-23).
+
+    O manifesto é versionado; os PDFs e as referências que ele aponta, não — fora
+    da máquina de quem tem os livros, ele existe e não mede nada, e o portão diz
+    isso em vez de fingir que mediu.
+    """
+    return projeto_dir() / "benchmarks" / "corpus_v2.json"
+
+
 def dado_do_projeto(nome: str) -> Path:
     """Um arquivo ou pasta de dados que vive ao lado do código, sem depender do cwd.
 

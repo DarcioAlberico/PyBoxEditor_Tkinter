@@ -52,6 +52,8 @@ class LearningService:
 
         self._learner: Optional[CharacterLearner] = None
         self._predictor = None
+        # O veredito do portão do último `train_neural(portao=True)` (PD-23).
+        self.ultimo_veredito = None
 
     # ------------------------------------------------------------------
     # Learner (k-NN)
@@ -267,7 +269,8 @@ class LearningService:
                      validar: bool = True,
                      balanceamento: str = "sqrt",
                      calibrar: bool = True,
-                     corrigir: bool = False) -> bool:
+                     corrigir: bool = False,
+                     portao: bool = False) -> bool:
         """
         Treina a rede neural com os dados atuais.
 
@@ -279,7 +282,16 @@ class LearningService:
         `DatasetInvalido`. Continua sendo decisão de quem chama, e não o
         padrão: a correção mexe nas pastas do usuário, e o pedido de treino
         sozinho não autoriza isso.
+
+        `portao=True` (o que a janela pede) guarda o par de produção antes de
+        treinar e, no fim, mede o novo contra ele no corpus de referência
+        (`core/portao_do_modelo.py`, PD-23): se ler pior, o novo vai para
+        `_recusado` e o anterior volta. O veredito fica em `ultimo_veredito`.
+        Desligado por padrão porque mede com o leitor inteiro — minutos de
+        Tesseract —, e o teste que treina um modelo de brinquedo não tem o que
+        comparar.
         """
+        self.ultimo_veredito = None
         if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             if callback:
                 callback("Nenhum dado de treinamento encontrado.")
@@ -304,6 +316,11 @@ class LearningService:
 
         from core.neural_trainer import NeuralTrainer
 
+        anterior = None
+        if portao:
+            from core import portao_do_modelo
+            anterior = portao_do_modelo.guardar_anterior(self.model_path, self.meta_path)
+
         trainer = NeuralTrainer(self.data_dir, self.model_path, self.meta_path)
         ok = trainer.train(epochs=epochs, callback=callback,
                            should_stop=should_stop,
@@ -315,6 +332,12 @@ class LearningService:
             # sessão seguiria usando os pesos velhos, e a ressalva da F26 seria
             # a do arquivo que acabou de ser substituído.
             self._predictor = None
+        if ok and portao:
+            from core import portao_do_modelo
+            self.ultimo_veredito = portao_do_modelo.avaliar(
+                self.model_path, self.meta_path, anterior, callback=callback)
+            if callback:
+                callback(self.ultimo_veredito.mensagem())
         return ok
 
     # ------------------------------------------------------------------
