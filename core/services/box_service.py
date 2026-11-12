@@ -1599,6 +1599,19 @@ class BoxService:
                 faixas[i:i + 2] = [(faixas[i][0], faixas[i + 1][1])]
         return faixas
 
+    #: O vão, em alturas medianas de caractere, abaixo de uma banda só de
+    #: caixas curtas a partir do qual a caixa seguinte já é outra linha. A aspa
+    #: que abre a linha tem o fundo **abaixo** do topo da letra que ela abre
+    #: (vão negativo); a fileira de estrelas do *A Estratégia no Xadrez* fica
+    #: a 2,85 alturas da linha de baixo (117 px, mediana de 41).
+    VAO_ABAIXO_DA_BANDA_CURTA = 0.5
+    #: Quantas caixas curtas fazem uma fileira. O cisco de 3 a 10 px no alto da
+    #: página também abre banda sem fundo e também engole a linha de baixo, mas
+    #: separá-lo muda a ordem em metade das páginas do Yusupov Complete e um
+    #: terço das do Rubinstein — é outra medida, e não esta. A fileira de
+    #: separação tem dezenas; a aspa e o cisco, uma a três.
+    FILEIRA_CURTA_MINIMA = 5
+
     @staticmethod
     def _linhas(boxes: List[BoxEntry]) -> List[List[BoxEntry]]:
         """
@@ -1619,6 +1632,17 @@ class BoxService:
         Enquanto a banda só tiver caixa curta ela não tem fundo, e a próxima
         caixa entra sem discussão — que é o certo: uma aspa não estabelece
         linha de base, e a letra que vem depois dela é da linha dela.
+
+        **Sem discussão, mas não a qualquer distância.** Uma fileira inteira de
+        caixas curtas — os `*****` que separam os exercícios do *A Estratégia
+        no Xadrez*, uma linha de pontos — também não tem fundo, e a primeira
+        caixa da linha de baixo, uma entrelinha inteira abaixo, entrava nela:
+        a ordenação por x intercalava as estrelas com os lances (`*e**7*
+        *2*1**.♖**e*d**1*`). A aspa encosta na letra que ela abre, e o topo da
+        letra fica acima do fundo da aspa; a fileira de separação fica longe.
+        Na banda de `FILEIRA_CURTA_MINIMA` caixas curtas ou mais, a caixa cujo
+        topo passa do fundo delas por mais de `VAO_ABAIXO_DA_BANDA_CURTA`
+        alturas medianas abre outra banda.
         """
         if not boxes:
             return []
@@ -1632,6 +1656,9 @@ class BoxService:
         alturas = sorted(b.y2 - b.y1 for b in boxes)
         curto = (alturas[len(alturas) // 2] or 1) * CAIXA_CURTA
 
+        mediana = alturas[len(alturas) // 2] or 1
+        vao_da_curta = mediana * BoxService.VAO_ABAIXO_DA_BANDA_CURTA
+
         grupos: List[List[BoxEntry]] = []
         atual: List[BoxEntry] = []
         altos: List[int] = []           # os fundos do que já é letra na banda
@@ -1642,6 +1669,10 @@ class BoxService:
                 if (b.y1 + b.y2) / 2 > fundo + (b.y2 - b.y1) * 0.2:
                     grupos.append(atual)
                     atual, altos = [], []
+            elif (len(atual) >= BoxService.FILEIRA_CURTA_MINIMA
+                  and b.y1 > max(a.y2 for a in atual) + vao_da_curta):
+                grupos.append(atual)
+                atual = []
             atual.append(b)
             if (b.y2 - b.y1) >= curto:
                 altos.append(b.y2)

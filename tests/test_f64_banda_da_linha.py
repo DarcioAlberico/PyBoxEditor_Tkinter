@@ -132,6 +132,45 @@ def test_sem_boxes():
 
 
 # ----------------------------------------------------------------------
+# A fileira de caixas curtas (2026-11-12): sem fundo, mas não a qualquer distância
+# ----------------------------------------------------------------------
+
+def _fileira_de_estrelas(y, n=40, x0=100):
+    """Os `*****` que separam os exercícios do *A Estratégia no Xadrez*: curtas,
+    no alto da entrelinha, e uma linha inteira acima do texto de baixo."""
+    return [BoxEntry("*", x0 + i * 30, y, x0 + i * 30 + 25, y + 12) for i in range(n)]
+
+
+def _linha_de_texto(n=60, x0=100):
+    return [_alta("A", x0 + i * 20) for i in range(n)]
+
+
+def test_a_fileira_de_estrelas_nao_engole_a_linha_de_baixo():
+    estrelas = _fileira_de_estrelas(BASE - ASCENDENTE - 2 * ENTRELINHA)
+    texto = _linha_de_texto()
+    bandas = BoxService._linhas(estrelas + texto)
+    assert [len(b) for b in bandas] == [len(estrelas), len(texto)]
+    # E a ordem de leitura deixa de intercalar estrelas e letras.
+    saida = "".join(b.char for b in BoxService.sort_boxes_reading_order(estrelas + texto))
+    assert saida == "*" * len(estrelas) + "A" * len(texto)
+
+
+def test_a_fileira_encostada_na_linha_continua_dela():
+    """Pontos de guia ou aspas em série logo acima da letra: o vão é negativo."""
+    curtas = [BoxEntry("'", 100 + i * 30, BASE - ASCENDENTE - 3, 105 + i * 30,
+                       BASE - ALTURA - 3) for i in range(8)]
+    assert len(BoxService._linhas(curtas + _linha_de_texto())) == 1
+
+
+def test_o_cisco_sozinho_no_alto_ainda_entra_na_banda():
+    """Menos de `FILEIRA_CURTA_MINIMA` curtas não é fileira: o cisco de 3 a 10
+    px no alto da página fica como estava — separá-lo é outra medida."""
+    ciscos = _fileira_de_estrelas(BASE - ASCENDENTE - 2 * ENTRELINHA,
+                                  n=BoxService.FILEIRA_CURTA_MINIMA - 1)
+    assert len(BoxService._linhas(ciscos + _linha_de_texto())) == 1
+
+
+# ----------------------------------------------------------------------
 # Execução direta
 # ----------------------------------------------------------------------
 

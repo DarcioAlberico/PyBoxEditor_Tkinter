@@ -1175,6 +1175,44 @@ semelhança; e o `owerto` de `Gilberto` vem da palavra do motor abaixo de
 semelhança recusa contra uma âncora de uma letra (`u` contra `da existência
 de peças…`) são todas da linha de baixo, e aparecem nela: a régua acerta.
 
+### A fileira de estrelas que engolia a linha de baixo
+
+Data: 2026-11-12. O *A Estratégia no Xadrez* separa os exercícios com uma
+fileira de `*****` e, nas páginas em que ela vem logo antes de um parágrafo de
+lances, a leitura saía intercalada — `*e**7* *2*1**.♖**e*d**1* *♗**c**6*` por
+`20...♖e7 21.♖ed1 ♗c6`, e o começo da linha (`20...♖`) solto noutra. Não era o
+classificador: `BoxService._linhas` agrupava as estrelas (y 836–862) e a linha
+de lances (y 980–1037, 117 px abaixo, 2,85 alturas medianas) numa banda só, e a
+ordenação por x intercalava as duas. A causa é a regra da F64: banda feita só de
+caixa curta não tem fundo, e a próxima caixa entra sem discussão — certo para a
+aspa que abre a linha, cujo fundo fica abaixo do topo da letra; errado para uma
+fileira inteira de curtas, que fica longe.
+
+**A regra**: na banda de `FILEIRA_CURTA_MINIMA` (5) caixas curtas ou mais, a
+caixa cujo topo passa do fundo delas por mais de `VAO_ABAIXO_DA_BANDA_CURTA`
+(0,5) alturas medianas abre outra banda. A primeira versão, sem o mínimo de 5,
+mudava a ordem em 13 de 27 páginas do Yusupov Complete e 8 de 20 do Rubinstein:
+um cisco de 3 a 10 px no alto também abre banda sem fundo e também engole a
+linha de baixo — talvez seja conserto, mas é outra medida, e ficou de fora.
+
+**Medido.** O agrupamento com e sem a regra (instrumento de sessão,
+`generate_boxes_opencv` + `linhas_da_pagina`), 212 páginas de nove livros:
+
+| livro | páginas | mudam | o quê |
+|---|---:|---:|---|
+| A Estratégia no Xadrez (1 em 10) | 32 | 5 | a fileira de estrelas sai da linha de lances, em todas |
+| Yusupov Complete (1 em 100) | 27 | 4 | ruído da digitalização (margem, foto, uma fileira de cisco acima de `F-16 ★★`) deixa de engolir a legenda |
+| Xadrez Básico (1 em 20) | 30 | 3 | a pontuação que se soltou da linha de cima deixa de entrar na de baixo |
+| Rubinstein (1 em 30) | 20 | 1 | uma foto |
+| Nunn, Calculation, Dvoretsky, Xadrez Vitorioso, Attacking Manual | 103 | 0 | — |
+
+No texto que o leitor entrega, o *A Estratégia no Xadrez* lido com e sem a regra
+(32 páginas, 636 linhas) muda 120 linhas: cada parágrafo de exercício que saía
+picado e intercalado (`18...♕` / `18... **f*6* *1*9**.♗**g**2*…`) sai inteiro,
+`18...♕f6 19.♗g2 ♘e5 20.♖d2 3. Seu Cavalo e Dama estão bem colocados`, com a
+fileira de estrelas como o livro a imprime. Rodada do corpus idêntica (1,24%), e
+`medir_paginas.py` nas páginas rotuladas idêntico linha a linha.
+
 ### Próximo passo
 
 Na p. 237 sobra o espaço depois do traço (`—see`). Conferir as outras três
