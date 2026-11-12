@@ -1124,6 +1124,57 @@ risca com espaço dos dois lados. A referência está certa nos dois (a aspa e
 o traço são dobrados antes de comparar, `ocr_ab.normalizar_tipografia`), e
 o que sobra é do OCR: o motor lê `—see` sem o espaço depois do traço.
 
+### A figurina dentro da palavra
+
+Data: 2026-11-12. O *Xadrez Básico* (D'Agostini, PDF de digitalização com a
+imagem de cada página em 1 bit, ~546 dpi, e uma camada de OCR do Acrobat que
+corta as linhas pela metade) tem a fonte maior — título, sumário, cabeçalho —
+com o traço fino **ausente na própria imagem**: o arco do `n`, do `m` e do `r`
+e a barriga do `d` não estão lá nem renderizados a 600 dpi. A cadeia lê os
+pedaços (`II()sT=1iIiais` por `II – Os Finais`), e na página rotulada 3 o
+classificador acerta 80% dos boxes, quase todos os erros de segmentação.
+
+Lida pelo leitor de produção em 1 página a cada 20 (30 páginas, 1.547 linhas),
+o texto corrido sai bom; o defeito que se repete é o cabeçalho das páginas
+ímpares, `Dr. Orfeu Gilberto D'Agostini`, que saía `D'♗xostiii`, `D'♗xos`,
+`D,♗xostixii` em 10 das 30: o `Ag` lido `♗x` faz do token um lance sem casa
+(`_lance_sem_casa`), e o lance fica com a âncora contra o `D'Agostini` do motor.
+
+**A regra** (`_figurina_dentro_de_palavra`): o lance sem casa de verdade é a
+figurina com a coluna ou a captura cuja casa caiu (`♘x`, `♘bd`, `♘bxd`) —
+nenhuma minúscula fora de `a`–`h` e `x`. Duas ou mais delas, e nenhum dígito,
+fazem do token uma palavra, e ele vai ao motor como prosa, como o lance sem
+casa sobre trama já ia — e só onde o motor leu uma palavra confiante no mesmo
+lugar. O dígito ficou de fora depois da varredura: uma linha do *A Estratégia
+no Xadrez* que a cadeia leu como um token só, de asteriscos, lances e prosa
+colados, também tinha as letras, e ia ao motor perdendo os lances.
+
+**Medido.** Rodada do corpus idêntica à de 2026-11-07 (1,24%, as quatro
+páginas iguais). Varredura com e sem a regra (instrumento de sessão, a cadeia
+lida duas vezes sobre o mesmo Tesseract):
+
+| livro | páginas | linhas | mudadas | o quê |
+|---|---:|---:|---:|---|
+| Xadrez Básico (1 em 20) | 30 | 872 | 8 | 4 cabeçalhos consertados, 4 que passam a ser reconhecidos como cabeçalho corrente e saem do texto, `I♗S` → `I- AS` num título |
+| Calculation (1 em 24) | 20 | 152 | 3 | `♔idy` → `Saidy`, `Woa♔ek` → `Wojtaszek`, `Kry♗xin` → `Kryakvin` |
+| Yusupov Complete (1 em 120) | 22 | 510 | 1 | `M♗ximum` → `Maximum` |
+| A Estratégia no Xadrez (1 em 20) | 16 | 380 | 1 | `pesi♔es` → `posições` |
+| Nunn, Xadrez Vitorioso, Rubinstein | 41 | 925 | 0 | — |
+
+Nenhuma piora nas 13 mudanças.
+
+**O que ficou de fora, medido.** (1) O sumário: as reticências de guia fazem o
+Tesseract em `--psm 7` devolver **nada** para a faixa (`II – Os Finais……121`
+lida sem a guia sai `Os` 0,92, `Finais` 0,78, `121` 0,95), e mesmo lida a
+releitura seria recusada pela semelhança com a âncora estragada (0,24–0,36).
+Apagar a guia e confiar na faixa contra a âncora são duas regras para uma
+página por livro. (2) O cabeçalho que a cadeia lê inteiro como lixo
+(`Th.eaGThe` contra `Dr. Orfeu Gilberto D'4` do motor) fica com a âncora pela
+semelhança; e o `owerto` de `Gilberto` vem da palavra do motor abaixo de
+`CONFIANCA_MINIMA_DA_PALAVRA`. As linhas inteiras que o motor lê e a
+semelhança recusa contra uma âncora de uma letra (`u` contra `da existência
+de peças…`) são todas da linha de baixo, e aparecem nela: a régua acerta.
+
 ### Próximo passo
 
 Na p. 237 sobra o espaço depois do traço (`—see`). Conferir as outras três

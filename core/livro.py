@@ -1515,6 +1515,37 @@ def _lance_sem_casa(token: str) -> bool:
             and not token[:1].isdigit())
 
 
+#: As letras que um lance pode ter: a coluna e a captura. As de peça são
+#: maiúsculas, e a figurina é o glifo; qualquer outra minúscula não é de lance.
+_LETRAS_DE_LANCE = frozenset("abcdefghx")
+
+
+def _figurina_dentro_de_palavra(token: str) -> bool:
+    """O lance sem casa que é, na verdade, uma palavra com um glifo no meio.
+
+    A cadeia lê o `Ag` de `D'Agostini`, no cabeçalho do *Xadrez Básico* (a
+    fonte maior, com o traço fino partido na digitalização), como `♗x`, e o
+    token `D'♗xostiii` passava por lance — tem figurina e não tem casa — e
+    ficava com a âncora contra o `D'Agostini` do motor, em quase toda página
+    ímpar. O lance sem casa de verdade é a figurina com a coluna ou a
+    captura cuja casa caiu (`♘x`, `♘bd`, `♘bxd`): nenhuma letra fora de
+    `a`–`h` e `x`. Duas ou mais delas (`o`, `s`, `t`, `i` em `♗xostiii`)
+    fazem do token uma palavra, e ele vai ao motor como prosa — mas só onde
+    o motor leu uma palavra confiante no mesmo lugar, como na trama.
+
+    Sem dígito, porque palavra não tem: a linha do *A Estratégia no Xadrez*
+    que a cadeia leu como um token só, de asteriscos, lances e prosa colados
+    (`*e**7* *2*1**.♖**e*d**1* … *p*r*e*s**s*ã*o*`), também tem as letras,
+    e mandá-la ao motor trocava o lixo com os lances dentro pela prosa sem
+    eles.
+    """
+    if not _lance_sem_casa(token) or any(c.isdigit() for c in token):
+        return False
+    estranhas = sum(1 for c in token
+                    if c.isalpha() and c.islower() and c not in _LETRAS_DE_LANCE)
+    return estranhas >= 2
+
+
 #: Onde o espaço do motor **não** entra num lance: entre a peça e a casa
 #: (`♖d1`), entre a letra e o dígito da casa (`d1`), depois da captura
 #: (`xd1`) e da promoção (`=♕`). O motor separa `(1` de `&d1!)` porque o
@@ -1703,6 +1734,10 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
                 e_lance = False
                 estatisticas["lances_sem_casa"] = (
                     estatisticas.get("lances_sem_casa", 0) + 1)
+            elif sobrepostas and _figurina_dentro_de_palavra(texto_token):
+                e_lance = False
+                estatisticas["figurinas_na_palavra"] = (
+                    estatisticas.get("figurinas_na_palavra", 0) + 1)
         tokens.append((x1, texto_token, sobrepostas, e_lance))
 
     itens = []

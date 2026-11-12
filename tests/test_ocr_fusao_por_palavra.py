@@ -857,3 +857,55 @@ def test_a_linha_sobre_trama_com_registro_da_pagina_mede_a_trama_por_conta(monke
     assert pagina.roteamento[1]["lances_sem_casa"] == 1
     assert len(medidas) == 1, "só a linha com lance sem casa paga a medição"
     assert "trama" not in pagina.roteamento[0]
+
+
+@pytest.mark.parametrize("token, palavra", [
+    # O cabeçalho do *Xadrez Básico*: o `Ag` de `D'Agostini` lido `♗x`.
+    ("D'♗xostiii", True), ("D'♗xos", True), ("D,♗xo", False), ("♗xostixii", True),
+    # O lance cuja casa caiu: só coluna e captura em volta da figurina.
+    ("♘x", False), ("♘bd", False), ("♘bxd", False), ("♕", False), ("♖fe", False),
+    # Com casa ou número é lance, tenha as letras que tiver.
+    ("♘e4", False), ("2.♘", False), ("♗xe5", False),
+    ("Agostini", False), ("", False),
+    # Palavra não tem dígito: a linha inteira colada num token só não é uma.
+    ("*e**7*♖**e*d**1*♗*p*r*e*s**s*ã*o*", False),
+    # Os consertos medidos nos outros livros.
+    ("Woa♔ek", True), ("Kry♗xin", True), ("pesi♔es", True), ("M♗ximum", True),
+])
+def test_a_figurina_dentro_de_palavra(token, palavra):
+    assert livro._figurina_dentro_de_palavra(token) is palavra
+
+
+def test_a_figurina_dentro_de_palavra_vai_para_o_motor_fora_da_trama():
+    ancora = "Gilberto D'♗xostiii"
+    boxes, caixas = _linha_de_boxes(ancora)
+    detalhes = _palavras_do_motor("Gilberto D'Agostini", ancora)
+
+    texto, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes)
+
+    assert texto == "Gilberto D'Agostini"
+    assert contas["figurinas_na_palavra"] == 1
+    assert "lances_sem_casa" not in contas
+
+
+def test_a_figurina_dentro_de_palavra_fica_sem_palavra_confiante_do_motor():
+    ancora = "Gilberto D'♗xostiii"
+    boxes, caixas = _linha_de_boxes(ancora)
+    fraca = _palavras_do_motor("Gilberto D'Agostini", ancora, conf=0.3)
+
+    texto, contas = livro._fundir_por_palavra(ancora, caixas, boxes, fraca)
+
+    # O motor fraco não decide nada: a âncora é o que existe.
+    assert texto == ancora
+    assert "figurinas_na_palavra" not in contas
+
+
+def test_o_lance_sem_casa_de_verdade_continua_da_ancora_fora_da_trama():
+    ancora = "the ♘bd is strong"
+    boxes, caixas = _linha_de_boxes(ancora)
+    detalhes = _palavras_do_motor("the Dbd is strong", ancora)
+
+    texto, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes)
+
+    assert texto == "the ♘bd is strong"
+    assert "figurinas_na_palavra" not in contas
