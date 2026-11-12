@@ -1047,6 +1047,30 @@ def _semelhanca_de_linha(ancora: str, linha: str) -> float:
     return SequenceMatcher(None, a, b, autojunk=False).ratio()
 
 
+#: A guia do sumário — seis pontos ou mais em série, juntos ou espaçados.
+RE_GUIA_DE_SUMARIO = re.compile(r"\.(?:\s?\.){5,}")
+
+
+def _cobertura_da_ancora(ancora: str, linha: str) -> float:
+    """Quanto da âncora o motor leu, olhando só letras e dígitos.
+
+    É a régua da linha com guia de sumário, no lugar da semelhança. A guia
+    some da âncora (ponto não é letra), mas o motor a lê como letras —
+    `Introdução... eeeataterraraearararererrr`, `Erros de estratégia... cer
+    ieereeena` no sumário do *Xadrez Vitorioso* —, e o lixo dele derruba a
+    semelhança das duas leituras inteiras para 0,15–0,44, abaixo de
+    `SEMELHANCA_MINIMA_DA_LINHA`, com o título certo dentro. A fração da
+    âncora que aparece no motor não paga pelo que o motor tem a mais.
+    """
+    def nucleo(texto: str) -> str:
+        return "".join(c for c in str(texto or "").casefold() if c.isalnum())
+    a, b = nucleo(ancora), nucleo(linha)
+    if not a or not b:
+        return 0.0
+    blocos = SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+    return sum(bloco.size for bloco in blocos) / len(a)
+
+
 #: Abaixo desta semelhança o registro do motor não é esta linha: é a vizinha,
 #: ou o lixo da segunda passada sobre a trama, e a âncora fica como está.
 SEMELHANCA_MINIMA_DA_LINHA = 0.5
@@ -1132,6 +1156,8 @@ def _compatibilidade_da_linha(ancora: str, texto_ocr: str, confianca_ocr: float,
     pode ser a linha vizinha, e é a semelhança que o pega.
     """
     semelhanca = _semelhanca_de_linha(ancora, texto_ocr)
+    if RE_GUIA_DE_SUMARIO.search(ancora):
+        semelhanca = max(semelhanca, _cobertura_da_ancora(ancora, texto_ocr))
     por_palavra = fusao == "palavra" and bool(detalhes)
     tem_letra = any(char.isalpha() for char in texto_ocr)
     aceita = (tem_letra

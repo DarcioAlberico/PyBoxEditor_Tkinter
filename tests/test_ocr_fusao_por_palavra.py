@@ -909,3 +909,49 @@ def test_o_lance_sem_casa_de_verdade_continua_da_ancora_fora_da_trama():
 
     assert texto == "the ♘bd is strong"
     assert "figurinas_na_palavra" not in contas
+
+
+#: O sumário do *Xadrez Vitorioso* (p. 8): a âncora com a guia, e o motor que
+#: lê o título certo e a guia como letras.
+GUIA = "." * 60
+
+
+def test_a_linha_com_guia_e_aceita_pelo_que_o_motor_cobre_da_ancora():
+    ancora = "10. Err()s de estratég.ia" + GUIA + " 171"
+    motor = ("1D. Erros de estratégia... serie ierreeenacrerraaa "
+             "eeeataterraraearararererrr iircererrerirerrrraeeerereear 171")
+    # A semelhança das duas inteiras não passa: o lixo da guia pesa.
+    assert livro._semelhanca_de_linha(ancora, motor) < livro.SEMELHANCA_MINIMA_DA_LINHA
+    semelhanca, aceita = livro._compatibilidade_da_linha(
+        ancora, motor, 0.6, _detalhes(("Erros", 0.9)), "palavra")
+    assert aceita and semelhanca >= livro.SEMELHANCA_MINIMA_DA_LINHA
+
+
+def test_sem_guia_a_regua_continua_a_semelhanca():
+    # A mesma âncora sem os pontos: é a régua de sempre, e o lixo do motor pesa.
+    ancora = "10. Err()s de estratég.ia 171"
+    motor = ("1D. Erros de estratégia... serie ierreeenacrerraaa "
+             "eeeataterraraearararererrr iircererrerirerrrraeeerereear 171")
+    semelhanca, aceita = livro._compatibilidade_da_linha(
+        ancora, motor, 0.6, _detalhes(("Erros", 0.9)), "palavra")
+    assert not aceita
+    assert semelhanca == livro._semelhanca_de_linha(ancora, motor)
+
+
+def test_a_guia_nao_aceita_a_linha_vizinha():
+    ancora = "3. Como barrar o contrajogo inimigo" + GUIA + " 31"
+    vizinha = "4. Para onde levar as peças? ...... 41"
+    assert not livro._compatibilidade_da_linha(
+        ancora, vizinha, 0.9, _detalhes(("Para", 0.9)), "palavra")[1]
+
+
+@pytest.mark.parametrize("texto, guia", [
+    ("Introdução" + GUIA + " 9", True), ("Índice . . . . . . 581", True),
+    # O painel de pontuação do Yusupov também tem guia — e a varredura de 44
+    # páginas do Yusupov Complete não mudou nenhuma linha dele.
+    ("25 points and above.. .... ....", True),
+    ("1...♖b2? 2.♔g3", False),
+    ("Black is mated.", False),
+])
+def test_a_guia_de_sumario_sao_seis_pontos_em_serie(texto, guia):
+    assert bool(livro.RE_GUIA_DE_SUMARIO.search(texto)) is guia

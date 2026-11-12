@@ -1213,6 +1213,39 @@ picado e intercalado (`18...♕` / `18... **f*6* *1*9**.♗**g**2*…`) sai inte
 fileira de estrelas como o livro a imprime. Rodada do corpus idêntica (1,24%), e
 `medir_paginas.py` nas páginas rotuladas idêntico linha a linha.
 
+**O cisco, medido no texto e recusado.** Com `FILEIRA_CURTA_MINIMA = 1` (o cisco
+solto também separa), o leitor lido com e sem em 63 páginas (Yusupov Complete 1
+em 100, Rubinstein 1 em 30, Xadrez Vitorioso 1 em 15) muda 63 linhas, e o saldo
+não fecha: conserta `Correspondence game`, `read the chapter again…` inteiro e
+`Yermolinsky-Seirawan`, mas parte `zine LAuto` com uma aspa solta, separa `, que
+retoma a peça.` da frase e cria linhas de `.` avulsas. O mínimo de 5 fica.
+
+### A guia do sumário: a régua é quanto da âncora o motor cobre
+
+Data: 2026-11-12. No sumário do *Xadrez Vitorioso* (p. 8), 9 das 14 linhas
+ficavam com a cadeia (`A.importânc.ia da estratég.ia`, `Err()s de estratég.ia`,
+`Gossár.lo`) com o motor tendo lido o título certo. A guia some da âncora — ponto
+não é letra —, mas o motor a lê como letras (`Introdução... eeeataterraraear`,
+`Erros de estratégia... cer ieereeena`), e o lixo dele derrubava a semelhança das
+duas leituras inteiras para 0,15–0,44, abaixo de `SEMELHANCA_MINIMA_DA_LINHA`.
+
+**A regra**: quando a âncora tem guia (`RE_GUIA_DE_SUMARIO`, seis pontos em série,
+juntos ou espaçados), a semelhança é a maior entre a de sempre e a **cobertura da
+âncora** (`_cobertura_da_ancora`): a fração das letras e dígitos dela que aparece
+no motor, que não paga pelo que o motor tem a mais. A linha vizinha continua
+recusada (0,19 de cobertura no par `3. Como barrar…` × `4. Para onde levar…`).
+
+**Medido.** Transcrito o sumário da p. 8 e comparado sem os pontos da guia: CER
+**12,5% → 8,0%** (53 → 34 erros em 424): `contrajogo inimigo … 31`, `Para onde
+levar as peças? … 41`, `Erros de estratégia … 171`, `119`, `205`. Piora no mesmo
+sumário o que o motor lê pior que a cadeia e agora vale: `79` → `19`, `6 Como usar
+os peões` → `b. Como usar os PEÕES`. O sumário do *Xadrez Básico* (p. 3) não muda
+(29,7%): a âncora é lixo do traço partido e a faixa vem vazia. Rodada do corpus
+idêntica (1,24%); varredura com e sem a regra em 118 páginas de cinco livros
+(Yusupov Complete 1 em 60, com os painéis de pontuação, que também têm guia;
+Chess Evolution 1, Calculation, A Estratégia no Xadrez, Xadrez Vitorioso): uma
+linha muda, neutra (`12) points Pass mark` → `12 points Pass mak`).
+
 ### Próximo passo
 
 Na p. 237 sobra o espaço depois do traço (`—see`). Conferir as outras três
