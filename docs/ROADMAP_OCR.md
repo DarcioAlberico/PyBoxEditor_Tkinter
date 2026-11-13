@@ -1246,9 +1246,48 @@ idêntica (1,24%); varredura com e sem a regra em 118 páginas de cinco livros
 Chess Evolution 1, Calculation, A Estratégia no Xadrez, Xadrez Vitorioso): uma
 linha muda, neutra (`12) points Pass mark` → `12 points Pass mak`).
 
+### O traço espaçado e a marca de verificação: a p. 237 sai sem erro
+
+Data: 2026-11-12. Os dois pares que sobravam na p. 237 eram um só: `and wins
+– see diagram` saía `and wins —see diagram`. Visto o recorte, o impresso tem
+espaço dos dois lados do traço; a cadeia (`andwins —see diagam`) e o motor
+(`and wins —see diagram`) perdem o de depois — o vão ali é mais curto que o
+de antes — e nenhum dos dois perde o de antes. `_espacar_traco`, no corretor
+da linha (`_corrigir_prosa_contextual`, por onde passam a linha fundida e a
+que fica com a cadeia): o traço entre letras que tem espaço de um lado ganha
+o do outro. Só a meia-risca e o travessão, e só entre letras — o hífen
+(`a-file`), o resultado (`1–0`, `½–½`), a avaliação (`–+`), o número de um
+lado (`2012 –`) e o travessão fechado dos dois (`word—word`) ficam.
+
+E a marca de verificação do painel de conteúdo do Chess Evolution 1 (p. 47)
+é uma só na medida: a cadeia a escreve como 🗸 (U+1F5F8, a classe do modelo)
+e a referência transcrita tem ✓ (U+2713); `normalizar_tipografia` dobra as
+duas, como já dobrava o traço, a aspa e o `†`. Das três marcas da página uma
+estava certa e contava erro; as outras duas continuam perdidas (uma some na
+fusão sobre trama, a outra sai `-`).
+
+| página | modo | CER prosa | WER prosa | CER notação | WER notação | CER total |
+|---|---|---:|---:|---:|---:|---:|
+| Nunn p. 237 (antes) | `palavra` | 0,18% | 0,61% | 0,24% | 1,37% | 0,21% |
+| Nunn p. 237 (traço) | `palavra` | **0,00%** | **0,00%** | **0,00%** | **0,00%** | **0,00%** |
+| Yusupov p. 47 (antes) | `palavra` | 2,92% | 5,28% | 0,00% | 0,00% | 2,50% |
+| Yusupov p. 47 (marca) | `palavra` | **2,84%** | **4,91%** | 0,00% | 0,00% | **2,44%** |
+
+Aagaard p. 30 (1,10%) e Yusupov p. 34 (0,71%) não mudam um centésimo. A
+regra do traço, com e sem, em 42 páginas de cinco livros (uma em cada 40 do
+Nunn, do Calculation, do Chess Evolution 1, do *Xadrez Vitorioso* e de *A
+Estratégia no Xadrez*): nenhuma página muda — a p. 237 é a única medida em
+que o traço vem colado, e o instrumento a vê (`varredura_regra.py`, de
+sessão). Os 238 tokens da p. 237 saem iguais à referência. Rodada do corpus
+(`benchmarks/rodadas/2026-11-12-2059.json`): CER total 1,24% → **1,18%**
+(prosa 1,32%, notação 0,91%), e o portão passa.
+
 ### Próximo passo
 
-Na p. 237 sobra o espaço depois do traço (`—see`). Conferir as outras três
-referências contra o livro impresso continua em aberto. A orelha girada do
-capítulo é assunto da F8.1, e os erros confiantes que trocam classe (`⩲`
-lido `±`, `♕c1` por `♕e1`, na p. 30 do Aagaard), da OCR-14.
+Conferir as outras três referências contra o livro impresso continua em
+aberto. Na p. 47 sobram as duas marcas de verificação perdidas, o `5` de
+`CHAPTER 5` e o cabeçalho `A.Yusupov – A.Reuss` em negativo, lidos sobre a
+trama; na p. 34, a orelha girada do capítulo (`⇄ ♕ ♕`), assunto da F8.1,
+e `J`/`S` lidos `]`/`§` em nome próprio; na p. 30, os erros confiantes que
+trocam classe (`⩲` lido `±`, `♕c1` por `♕e1`, `g16` por `gxh6`), da OCR-14,
+e o `[n` do motor para `In`.

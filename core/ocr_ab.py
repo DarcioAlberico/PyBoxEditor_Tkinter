@@ -118,6 +118,10 @@ _TIPOGRAFIA = str.maketrans({
     "\u2013": "-", "\u2014": "-", "\u2212": "-",
     "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
     "\u2020": "+", "\u2026": "...", "\u00a0": " ",
+    # A marca de verifica\u00e7\u00e3o \u00e9 uma s\u00f3: a cadeia a escreve como \ud83d\uddf8 (U+1F5F8,
+    # a classe do modelo), e a refer\u00eancia transcrita como \u2713 (U+2713). O
+    # painel de conte\u00fado do Chess Evolution 1 (p. 47) tem tr\u00eas.
+    "\U0001f5f8": "\u2713",
 })
 
 

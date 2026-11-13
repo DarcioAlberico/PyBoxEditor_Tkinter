@@ -2305,6 +2305,23 @@ def _corrigir_frases_de_prosa(texto: str) -> str:
     return re.sub(r"\bTused to think\b", "I used to think", texto)
 
 
+#: O traço entre palavras que tem espaço de um lado tem espaço dos dois. Na
+#: p. 237 do Nunn, `and wins – see diagram` saía `and wins —see diagram`: a
+#: cadeia e o motor perdem o espaço *depois* do traço — o vão ali é mais curto
+#: que o de antes — e nenhum dos dois o perde antes. Só a meia-risca e o
+#: travessão (U+2013, U+2014), e só entre letras: o hífen (`a-file`), o
+#: resultado (`1–0`, `½–½`), a avaliação (`–+`) e o número ficam como estão,
+#: e o travessão fechado dos dois lados (`word—word`) também.
+RE_TRACO_COLADO_DEPOIS = re.compile(r"(?<=\s)([–—])(?=[^\W\d_])")
+RE_TRACO_COLADO_ANTES = re.compile(r"(?<=[^\W\d_])([–—])(?=\s)")
+
+
+def _espacar_traco(texto: str) -> str:
+    """O traço espaçado de um lado só fica espaçado dos dois (`RE_TRACO_COLADO_DEPOIS`)."""
+    texto = RE_TRACO_COLADO_DEPOIS.sub(r"\1 ", texto)
+    return RE_TRACO_COLADO_ANTES.sub(r" \1", texto)
+
+
 def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
                                fuzzy: bool = True) -> str:
     """Corrige erros tipográficos claros usando um vocabulário de frequência.
@@ -2327,6 +2344,7 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
     # imediatamente antes de pontuação editorial.
     texto = re.sub(r"\s+([,!?;:])", r"\1", texto)
     texto = re.sub(r"\s+\.(?!\.)", ".", texto)
+    texto = _espacar_traco(texto)
     # A figurina e a casa pertencem ao mesmo token de notação. O OCR às vezes
     # abre a caixa em ``♖e 1`` ou ``♖ h 1``; a regra fica limitada a glifo de
     # xadrez + coluna + linha para não colar palavras da prosa.
