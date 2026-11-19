@@ -1282,12 +1282,55 @@ sessão). Os 238 tokens da p. 237 saem iguais à referência. Rodada do corpus
 (`benchmarks/rodadas/2026-11-12-2059.json`): CER total 1,24% → **1,18%**
 (prosa 1,32%, notação 0,91%), e o portão passa.
 
+### A trama no motor, e o desempate do alinhamento
+
+Data: 2026-11-19. Sobre a trama, o Tesseract devolve entre as palavras
+impressas o que fez dos pontos do meio-tom e da marca de verificação: na
+p. 47 do Chess Evolution 1, `)` depois de `CHAPTER` (o `5` impresso), `-`
+depois de `pieces.`, `»`, `¥` e `'` no lugar do ✓, `! -..:` no fim da linha.
+A fusão punha na linha o que passava pela confiança (`CHAPTER )`,
+`pieces. -`), e o `¥` que cobria a marca da âncora consumia o token dela:
+o 🗸 que a cadeia tinha lido certo sumia, e `_corrigir_prosa_contextual`
+tirava o `¥` da linha pronta, tarde demais. `_lixo_da_trama`: sobre trama,
+a palavra do motor sem letra nem dígito é a trama, e não entra na fusão.
+Fora da trama nada muda — o travessão entre nomes é do motor.
+
+**A medida mentia, e foi consertada antes do número.** Com o `)` fora, o
+CER da p. 47 *subia* de 2,44% para 3,18% com dois tokens a menos errados:
+o alinhamento de tokens (`ocr_ab.alinhar_tokens`) resolvia de outro jeito o
+empate entre `CHAPTER 5` e `/ CHAPTER` — `CHAPTER` casado com `/` e `5` com
+`CHAPTER`, 7 + 7 caracteres errados no lugar de 1 + 1. Entre alinhamentos
+com o mesmo número de operações sobre tokens, o de antes ficava com o
+primeiro que o laço achava, e a conta de caracteres do CER dependia desse
+acaso. O custo passa a ser o par (operações, caracteres dessas operações),
+com a distância do `rapidfuzz` (0,1 s por página; a `distancia_edicao` pura
+quando ele falta). Re-medidas com a régua nova as saídas de **antes** desta
+mudança: Nunn p. 237 0,00%, Aagaard p. 30 1,10% e Yusupov p. 34 0,71%,
+iguais; Yusupov p. 47 **1,56%** — era 2,44% pela régua velha, e o empate
+já cobrava 0,9 ponto que não existia.
+
+| página | modo | CER prosa | CER notação | CER total | WER total |
+|---|---|---:|---:|---:|---:|
+| Yusupov p. 47 (régua nova, antes) | `palavra` | 1,81% | 0,00% | 1,56% | 4,22% |
+| Yusupov p. 47 (lixo da trama) | `palavra` | **1,73%** | 0,00% | **1,49%** | **3,90%** |
+
+As outras três páginas não mudam. A regra, com e sem, nas seis aberturas
+de capítulo do Chess Evolution 1 (p. 9, 19, 29, 37, 47, 57): a p. 47 ganha
+o ✓ de `Combining both methods` e perde o `-`; na p. 57 uma linha que é
+lixo do painel ganha um `⯹` da âncora no lugar da pontuação do motor —
+lixo por lixo. Em 105 páginas do Yusupov Complete (1 em 25), nenhuma muda.
+Rodada do corpus (`benchmarks/rodadas/2026-11-19-1805.json`): CER total **0,91%** (prosa 0,91%, notação 0,91%); a
+comparação com a rodada anterior cruza as duas réguas, e por isso o antes
+que vale é o re-medido acima.
+
 ### Próximo passo
 
 Conferir as outras três referências contra o livro impresso continua em
-aberto. Na p. 47 sobram as duas marcas de verificação perdidas, o `5` de
-`CHAPTER 5` e o cabeçalho `A.Yusupov – A.Reuss` em negativo, lidos sobre a
-trama; na p. 34, a orelha girada do capítulo (`⇄ ♕ ♕`), assunto da F8.1,
-e `J`/`S` lidos `]`/`§` em nome próprio; na p. 30, os erros confiantes que
-trocam classe (`⩲` lido `±`, `♕c1` por `♕e1`, `g16` por `gxh6`), da OCR-14,
-e o `[n` do motor para `In`.
+aberto. Na p. 47 sobram o ✓ de `Two methods` (a cadeia leu `T♕ eas`, e o
+motor só vê trama onde está a marca), o `5` de `CHAPTER 5`, o ponto de
+`pieces.`, a legenda `Diagram 5-1` e o cabeçalho `A.Yusupov – A.Reuss` em
+negativo; na p. 34, a orelha girada do capítulo (`⇄ ♕ ♕`), cinza sobre
+branco e partida em pontos, assunto da F8.1, e `J`/`S` lidos `]`/`§` em
+nome próprio; na p. 30, os erros confiantes que trocam classe (`⩲` lido
+`±`, `♕c1` por `♕e1`, `g16` por `gxh6`), da OCR-14, e o `[n` do motor para
+`In` — um caso só nas quatro páginas, pouco para uma regra.

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 from core import livro
-from core.ocr_ab import medir_por_dominio, normalizar_tipografia
+from core.ocr_ab import alinhar_tokens, medir_por_dominio, normalizar_tipografia
 
 
 def test_o_traco_espacado_de_um_lado_fica_espacado_dos_dois():
@@ -39,6 +39,20 @@ def test_o_traco_espacado_de_um_lado_fica_espacado_dos_dois():
 ])
 def test_o_que_nao_e_traco_entre_palavras_fica(texto):
     assert livro._espacar_traco(texto) == texto
+
+
+def test_o_alinhamento_desempata_pelo_custo_em_caracteres():
+    # p. 47: `CHAPTER 5` lido `/ CHAPTER`. São duas operações de qualquer
+    # jeito; o alinhamento de antes casava `CHAPTER` com `/` e `5` com
+    # `CHAPTER` (14 caracteres errados), e a conta do CER dependia do empate.
+    pares = alinhar_tokens(["CHAPTER", "5"], ["/", "CHAPTER"])
+    assert pares == [(None, "/"), ("CHAPTER", "CHAPTER"), ("5", None)]
+    contas = medir_por_dominio("CHAPTER 5", "/ CHAPTER")
+    assert contas["total"]["erros"] == 2
+    assert contas["total"]["erros_de_caractere"] == 2
+    # Sem empate, o alinhamento é o de sempre: a troca mais barata.
+    assert alinhar_tokens(["and", "wins"], ["and", "w1ns"]) == [("and", "and"), ("wins", "w1ns")]
+    assert alinhar_tokens([], ["a"]) == [(None, "a")] and alinhar_tokens(["a"], []) == [("a", None)]
 
 
 def test_a_marca_de_verificacao_e_uma_so_na_medida():

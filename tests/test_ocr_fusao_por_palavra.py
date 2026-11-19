@@ -819,6 +819,25 @@ def test_sobre_trama_o_lance_com_casa_e_o_sem_palavra_do_motor_ficam():
     assert "lances_sem_casa" not in contas
 
 
+def test_sobre_trama_a_pontuacao_solta_do_motor_e_lixo_e_a_marca_da_ancora_fica():
+    # p. 47: `¥ Combining both methods: ! -..:` sobre `🗸 Cining th eEfi`. O `¥`
+    # cobria o 🗸 da âncora e o consumia, e `! -..:` e o `)` de `CHAPTER )`
+    # entravam na linha pela confiança.
+    ancora = "🗸 Cining"
+    boxes, caixas = _linha_de_boxes(ancora)
+    detalhes = _palavras_do_motor("¥ Combining", ancora)
+    com_trama, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes,
+                                                  trama=True)
+    assert com_trama == "🗸 Combining"
+    assert contas["lixo_da_trama"] == 1
+    # Fora da trama nada muda: a palavra solta do motor é do motor.
+    _sem_trama, contas = livro._fundir_por_palavra(ancora, caixas, boxes, detalhes)
+    assert contas["lixo_da_trama"] == 0
+    for palavra, lixo in ((")", True), ("-", True), ("»", True), ("! -..:", True),
+                          ("5", False), ("b2!", False), ("Two", False)):
+        assert livro._lixo_da_trama(palavra) is lixo, palavra
+
+
 def test_a_linha_sobre_trama_lida_pela_faixa_troca_a_figurina_pelo_motor(monkeypatch):
     # A passada de página pulou a linha do painel; a faixa dela é lida
     # limpa, e o registro diz que estava sobre trama.

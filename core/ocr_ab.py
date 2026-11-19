@@ -147,26 +147,55 @@ def alinhar_tokens(referencia: Sequence[str],
     Devolve pares `(referência, predição)`; `None` de um lado é remoção ou
     inserção. É o alinhamento que a distância usa, e não uma reimplementação
     dela: o custo é 1 por operação, como em `distancia_edicao`.
+
+    **O desempate é pelo custo em caracteres.** Entre alinhamentos com o
+    mesmo número de operações sobre tokens, o de antes ficava com o primeiro
+    que o laço encontrava, e a conta de caracteres de `medir_por_dominio`
+    dependia desse acaso: na p. 47 do Chess Evolution 1, tirar o `)` que era
+    trama de `CHAPTER )` mudava o empate, e `CHAPTER` passava a casar com o
+    `/` da linha de cima e `5` com `CHAPTER` — 7 + 7 caracteres errados no
+    lugar de 1 + 1. Dois tokens a menos errados, e o CER subia de 2,44% para
+    3,18%. O custo é o par (operações, caracteres dessas operações): a
+    remoção custa o token da referência inteiro, a inserção o inserido, a
+    troca a distância entre os dois — a mesma conta do CER, que assim é a do
+    alinhamento mais barato entre os de menos operações. A distância vem do
+    `rapidfuzz` quando há (é o que `_corrigir_prosa_contextual` já usa) e da
+    `distancia_edicao` pura quando não há: a mesma conta, bem mais lenta.
     """
+    try:
+        from rapidfuzz.distance import Levenshtein
+        distancia = Levenshtein.distance
+    except Exception:
+        distancia = distancia_edicao
     n, m = len(referencia), len(predicao)
-    custo = [[0] * (m + 1) for _ in range(n + 1)]
+    custo: list[list[tuple[int, int]]] = [[(0, 0)] * (m + 1) for _ in range(n + 1)]
     for i in range(1, n + 1):
-        custo[i][0] = i
+        custo[i][0] = (i, custo[i - 1][0][1] + len(referencia[i - 1]))
     for j in range(1, m + 1):
-        custo[0][j] = j
+        custo[0][j] = (j, custo[0][j - 1][1] + len(predicao[j - 1]))
+
+    def troca(i: int, j: int) -> tuple[int, int]:
+        a, b = referencia[i - 1], predicao[j - 1]
+        if a == b:
+            return custo[i - 1][j - 1]
+        return (custo[i - 1][j - 1][0] + 1, custo[i - 1][j - 1][1] + distancia(a, b))
+
+    def remocao(i: int, j: int) -> tuple[int, int]:
+        return (custo[i - 1][j][0] + 1, custo[i - 1][j][1] + len(referencia[i - 1]))
+
+    def insercao(i: int, j: int) -> tuple[int, int]:
+        return (custo[i][j - 1][0] + 1, custo[i][j - 1][1] + len(predicao[j - 1]))
+
     for i in range(1, n + 1):
         for j in range(1, m + 1):
-            custo[i][j] = min(custo[i - 1][j] + 1, custo[i][j - 1] + 1,
-                              custo[i - 1][j - 1]
-                              + (referencia[i - 1] != predicao[j - 1]))
+            custo[i][j] = min(troca(i, j), remocao(i, j), insercao(i, j))
     pares: list[tuple[str | None, str | None]] = []
     i, j = n, m
     while i or j:
-        if (i and j and custo[i][j] == custo[i - 1][j - 1]
-                + (referencia[i - 1] != predicao[j - 1])):
+        if i and j and custo[i][j] == troca(i, j):
             pares.append((referencia[i - 1], predicao[j - 1]))
             i, j = i - 1, j - 1
-        elif i and custo[i][j] == custo[i - 1][j] + 1:
+        elif i and custo[i][j] == remocao(i, j):
             pares.append((referencia[i - 1], None))
             i -= 1
         else:

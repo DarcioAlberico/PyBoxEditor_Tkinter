@@ -1648,6 +1648,23 @@ def _espacos_do_motor(texto_token: str, caixas_do_token: Sequence[int],
     return " ".join(partes)
 
 
+def _lixo_da_trama(palavra: str) -> bool:
+    """A palavra do motor sem letra nem dígito, sobre trama, é a trama.
+
+    No painel de conteúdo do Chess Evolution 1 (p. 47) o Tesseract devolve,
+    entre as palavras impressas, o que fez dos pontos do meio-tom e da marca
+    de verificação: `)` depois de `CHAPTER` (o `5` impresso), `-` depois de
+    `pieces.`, `»`, `¥` e `'` no lugar do ✓, `! -..:` no fim da linha. Nada
+    disso é texto, e a fusão punha na linha o que passava pela confiança
+    (`CHAPTER )`, `pieces. -`). Pior: o `¥` que cobre a marca da âncora
+    consumia o token dela, e o 🗸 que a cadeia tinha lido certo sumia —
+    `_corrigir_prosa_contextual` já tirava o `¥` da linha pronta, tarde
+    demais para a âncora. Fora da trama a palavra solta de pontuação fica
+    como sempre ficou: o travessão entre nomes é do motor.
+    """
+    return not any(c.isalnum() for c in palavra)
+
+
 def _fundir_por_palavra(texto: str, caixas: Sequence[int],
                         linha: Sequence[BoxEntry], detalhes, *,
                         so_lacunas: bool = False,
@@ -1693,13 +1710,16 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
     y_base = max(b.y2 for b in linha)
     palavras = []
     todas = []
-    fora_da_faixa = fracas = 0
+    fora_da_faixa = fracas = lixo_da_trama = 0
     for detalhe in detalhes:
         if len(detalhe) < 3:
             continue
         palavra = str(detalhe[0] or "").strip()
         caixa = detalhe[2]
         if not palavra or len(caixa) < 4:
+            continue
+        if trama and _lixo_da_trama(palavra):
+            lixo_da_trama += 1
             continue
         x1, y1, x2, y2 = (float(v) for v in caixa[:4])
         if _sobreposicao(y_topo, y_base, y1, y2) < SOBREPOSICAO_MINIMA_DE_PALAVRA:
@@ -1716,7 +1736,8 @@ def _fundir_por_palavra(texto: str, caixas: Sequence[int],
         palavras = []
     estatisticas = {"tokens_da_ancora": 0, "palavras_do_motor": 0,
                     "palavras_fora_da_faixa": fora_da_faixa,
-                    "palavras_fracas": fracas, "lacunas_preenchidas": 0}
+                    "palavras_fracas": fracas, "lacunas_preenchidas": 0,
+                    "lixo_da_trama": lixo_da_trama}
     if not todas:
         return texto, estatisticas
 
