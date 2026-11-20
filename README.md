@@ -100,4 +100,7 @@ cada número foi obtido, e com que script, está em
 - [docs/REVISAO_MODOS_OCR.md](docs/REVISAO_MODOS_OCR.md): a revisão de 2026-09-18 dos modos de leitura.
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): o gate de release, o cache, o bundle, os dados do usuário.
 - [docs/ANALISE_GERAL_2026-10-06.md](docs/ANALISE_GERAL_2026-10-06.md): o estado da base e o que fazer.
+- [docs/SPEC_REVISAO_GERAL_2.md](docs/SPEC_REVISAO_GERAL_2.md) (R) e
+  [docs/ROADMAP_REVISAO_GERAL_2.md](docs/ROADMAP_REVISAO_GERAL_2.md) (RG): a revisão geral
+  2, de 2026-11-20 — os defeitos achados, o veredito do crítico e a ordem das fases.
 - [CLAUDE.md](CLAUDE.md): as regras para quem (ou o que) trabalha neste repositório.
