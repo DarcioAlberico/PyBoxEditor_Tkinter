@@ -629,6 +629,19 @@ idênticos, só o tempo do `relatorio.json` varia.
   pasta temporária. `tests/test_pasta_de_treino.py` falhou primeiro pelo motivo certo (o
   cwd ganhava do projeto). A/B idêntico ao de antes (só o tempo varia). Suíte do
   worktree: 3649 passed, 25 skipped.
+- Commit 2 (R-41): `config.paths.recurso()` (o projeto, depois o `share`), usado pelas três
+  leituras por `__file__` (`render_diagrama` ×2 e `ui/pecas.py`) e por uma quarta que a
+  spec não contava, `core/editor/fontes.arquivo_da_fonte_de_diagrama`; o `setup.py` leva
+  as duas fontes do `fontes_de_diagrama.json`, as licenças (`SkakNew.pdf`, `LEEME__D.TXT`)
+  e as 12 peças como `data-files`, e só chama o `setup()` como `__main__`; os perfis como
+  package-data de `config`; `RECURSOS_OBRIGATORIOS` com as fontes e os perfis,
+  `nome_no_wheel` e `verificar_wheel` (`--wheel`); `config/profiles` no spec do
+  PyInstaller. Medido: o wheel construído de uma cópia limpa (`py -3.13 -m build --wheel
+  --no-isolation`) sai completo pela regra; instalado num venv e importado de fora do
+  projeto, o `core` vem do venv, a fonte de diagrama e as peças de `share/PyBoxEditor`,
+  os 2 perfis carregam e a base de treino vai para a pasta de dados do usuário. A/B
+  idêntico. Suíte do worktree: 3658 passed, 25 skipped. A conferência do wheel na CI
+  (`ci.yml`) passa a usar o `--wheel` na RG-02b.
 ### RG-02b
 ### RG-03
 ### RG-04

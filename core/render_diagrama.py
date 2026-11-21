@@ -63,6 +63,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import fitz
 from PIL import Image, ImageChops
 
+from config.paths import recurso
+
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CAMINHO_MAPAS = os.path.join(_RAIZ, "core", "dados", "fontes_de_diagrama.json")
@@ -236,7 +238,7 @@ def carregar(nome: str = FONTE_PADRAO) -> Fonte:
 
     caminho = bruto["arquivo"]
     if not os.path.isabs(caminho):
-        caminho = os.path.join(_RAIZ, caminho)
+        caminho = str(recurso(caminho))
     if not os.path.exists(caminho):
         raise FonteIncompleta(f"arquivo da fonte não encontrado: {caminho}")
 
@@ -822,7 +824,7 @@ def mapa_da_fonte(nome: str = FONTE_PADRAO) -> Fonte:
     bruto = mapas[nome]
     caminho = bruto["arquivo"]
     if not os.path.isabs(caminho):
-        caminho = os.path.join(_RAIZ, caminho)
+        caminho = str(recurso(caminho))
     casas = {ch: (par[0], par[1]) for ch, par in bruto["casas"].items()}
     molduras = {m: dict(pecas) for m, pecas in bruto.get("molduras", {}).items()
                 if m in MOLDURAS}

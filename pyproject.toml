@@ -17,6 +17,9 @@ packages = [
 
 [tool.setuptools.package-data]
 core = ["dados/*.pth", "dados/*.json"]
+# Os perfis de mapeamento (RG-02a): sem eles, `perfis.carregar_todos()` devolvia `[]` no
+# programa instalado. As fontes de diagrama e as peças vão pelo `setup.py` (data-files).
+config = ["profiles/*.json"]
 "assets.fonts" = ["*.ttf", "*.txt"]
 "assets.lexico" = ["*.gz"]
 

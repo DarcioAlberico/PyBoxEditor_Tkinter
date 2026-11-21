@@ -204,7 +204,9 @@ def arquivo_da_fonte_de_diagrama(nome: str) -> str | None:
         return None
     caminho = bruto["arquivo"]
     if not os.path.isabs(caminho):
-        caminho = os.path.join(_RAIZ, caminho)
+        # O projeto ou, instalado por wheel, o `share` (RG-02a, R-41).
+        from config.paths import recurso
+        caminho = str(recurso(caminho))
     return caminho if os.path.exists(caminho) else None
 
 

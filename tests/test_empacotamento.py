@@ -14,7 +14,7 @@ def test_recursos_do_bundle_estao_presentes():
 
 def test_spec_preserva_as_arvores_de_recursos_e_nao_embute_pesos_grandes():
     spec = (RAIZ / "pyboxeditor.spec").read_text(encoding="utf-8")
-    for diretorio in ("assets", "core/dados", "fonts", "pieces"):
+    for diretorio in ("assets", "config/profiles", "core/dados", "fonts", "pieces"):
         assert f'_data("{diretorio}")' in spec
     assert "custom_model.pth" not in spec
     assert "exclude_binaries=True" in spec

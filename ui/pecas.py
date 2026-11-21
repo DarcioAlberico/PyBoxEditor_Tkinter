@@ -25,11 +25,11 @@ não se parece com a causa. Carregar de novo custa poucos milissegundos.
 import os
 from typing import Dict, Optional
 
-#: Raiz do projeto (este arquivo está em `ui/`).
-_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from config.paths import recurso
 
-#: Onde as figuras moram.
-PASTA = os.path.join(_RAIZ, "pieces")
+#: Onde as figuras moram: `pieces/` no projeto ou, instalado por wheel, no `share`
+#: (RG-02a, R-41). Por `__file__`, o wheel procurava no `site-packages`.
+PASTA = str(recurso("pieces"))
 
 #: Símbolo da peça -> arquivo. Maiúscula é branca, como no FEN.
 ARQUIVOS = {

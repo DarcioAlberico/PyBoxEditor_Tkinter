@@ -25,6 +25,7 @@ def _data(diretorio: str) -> tuple[str, str]:
 # e ``core/dados/``), portanto os recursos precisam conservar essa topologia.
 datas = [
     _data("assets"),
+    _data("config/profiles"),
     _data("core/dados"),
     _data("fonts"),
     _data("pieces"),

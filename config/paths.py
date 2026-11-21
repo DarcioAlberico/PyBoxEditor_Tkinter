@@ -35,6 +35,22 @@ def _raizes_de_recursos() -> tuple[Path, ...]:
     return tuple(resultado)
 
 
+def recurso(relativo: str | Path) -> Path:
+    """Um arquivo ou pasta que viaja com o programa (as fontes de diagrama, as peças).
+
+    Procura nas raízes de recurso — o projeto e, instalado por wheel, o `share` onde os
+    `data-files` caem — e, sem achar, devolve o caminho no projeto, para a mensagem de
+    erro de quem chama apontar onde ele devia estar. Antes, quem lia esses recursos os
+    achava por `__file__`, que num wheel aponta o `site-packages`, onde eles não estão
+    (RG-02a, R-41 da revisão geral 2).
+    """
+    for raiz in _raizes_de_recursos():
+        candidato = raiz / relativo
+        if candidato.exists():
+            return candidato
+    return projeto_dir() / relativo
+
+
 def _primeiro_arquivo(nome: str, fallback: Path | None = None) -> Path:
     for raiz in _raizes_de_recursos():
         candidato = raiz / nome
