@@ -25,7 +25,10 @@ from PIL import Image
 from core import formato_box
 from core.services.pdf_service import DPI_PADRAO
 from core.services.document_service import DocumentSession
+from core.log import logger
 from ui.dialogo_de_exportacao import CHAVE_DO_DIRETORIO_DE_ENTRADA
+
+log = logger(__name__)
 
 
 def _mesmo_arquivo(a, b) -> bool:
@@ -42,6 +45,10 @@ def _mesmo_arquivo(a, b) -> bool:
     except OSError:
         pass
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+#: Quanto o fechamento da janela espera a tarefa cancelada parar (RG-13, R-17).
+PRAZO_PARA_A_TAREFA_PARAR_S = 10.0
 
 
 class Documento:
@@ -189,19 +196,28 @@ class Documento:
             # destruiria a janela embaixo do laço que a espera.
             self.janela.status.set(f"Aguarde: {self.janela._sondando.lower()}.")
             return
-        if self.janela.task.is_running():
-            if not messagebox.askyesno(
-                "Operação em andamento",
-                "Há uma operação rodando. Cancelar e fechar mesmo assim?",
-                icon="warning",
-            ):
-                return
+        # Tudo se confirma antes de cancelar (RG-13, R-17): recusar o descarte deixava a
+        # tarefa cancelada e a janela aberta.
+        rodando = self.janela.task.is_running()
+        if rodando and not messagebox.askyesno(
+            "Operação em andamento",
+            "Há uma operação rodando. Cancelar e fechar mesmo assim?",
+            icon="warning",
+        ):
+            return
+        if not self.janela._confirm_discard():
+            return
+        if rodando:
             self.janela.task.cancel()
-        if self.janela._confirm_discard():
-            self._efetivar_descarte()
-            self.janela.gravar_estado_da_janela()
-            self.janela.task.shutdown()
-            self.janela.parent.destroy()
+            # A thread pode estar no meio de uma gravação: espera, com prazo, antes do
+            # `destroy` — a escrita atômica (RG-03) termina, ou não deixa nada pela metade.
+            if not self.janela.task.esperar(PRAZO_PARA_A_TAREFA_PARAR_S):
+                log.warning("a tarefa não parou em %s s; a janela fecha mesmo assim",
+                            PRAZO_PARA_A_TAREFA_PARAR_S)
+        self._efetivar_descarte()
+        self.janela.gravar_estado_da_janela()
+        self.janela.task.shutdown()
+        self.janela.parent.destroy()
 
     def salvar_rascunho_agora(self):
         """Força a gravação do rascunho (menu / Ctrl+B)."""
@@ -335,12 +351,15 @@ class Documento:
         pior. Como virar a página é a operação mais frequente do app, fazer isso
         na thread da UI travava a janela a cada clique.
         """
-        if self.janela.task.is_running():
+        motivo = self.janela._motivo_de_espera()
+        if motivo is not None:
             # Antes isto devolvia em silêncio, contando com os botões
             # desativados para explicar. Não explicam: pelo teclado (PgUp/PgDn)
             # ou pelo campo "ir para", o usuário aperta e **nada acontece** —
-            # e a leitura natural é que virar a página está quebrado.
-            self.janela.status.set("Aguarde a operação em andamento para virar a página.")
+            # e a leitura natural é que virar a página está quebrado. E a sondagem,
+            # que não é tarefa, passava por aqui: a página era arquivada e os botões
+            # ficavam desabilitados (RG-13, R-17).
+            self.janela.status.set(f"Aguarde ({motivo}) para virar a página.")
             return
 
         if self.janela.session is not None:

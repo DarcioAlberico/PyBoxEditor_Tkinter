@@ -18,6 +18,9 @@ class TaskController:
     def cancel(self):
         self._task.cancel()
 
+    def esperar(self, prazo_s: float) -> bool:
+        return self._task.esperar(prazo_s)
+
     def shutdown(self):
         self._task.shutdown()
 

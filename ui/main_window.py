@@ -446,22 +446,27 @@ class MainWindow(tk.Frame):
             raise resultado["erro"]
         return resultado.get("valor")
 
+    def _motivo_de_espera(self) -> str | None:
+        """
+        Por que nada pode começar agora, ou `None` (RG-13, R-17): a decisão única de "há
+        trabalho em curso". A sondagem de "Exportar livro" não é tarefa, e quem só olhava
+        `task.is_running()` — o virar de página — entrava no meio dela.
+        """
+        sondando = getattr(self, "_sondando", None)
+        if sondando:
+            return f"{sondando[0].lower()}{sondando[1:]}"
+        if self.task.is_running():
+            return "já há uma operação em andamento"
+        return None
+
     def _busy(self, acao="Esta operação") -> bool:
         """True (e avisa) se já houver uma tarefa rodando."""
-        if getattr(self, "_sondando", None):
-            messagebox.showinfo(
-                "Aguarde",
-                f"{acao} não pode começar agora: "
-                f"{self._sondando[0].lower()}{self._sondando[1:]}.")
-            return True
-        if self.task.is_running():
-            messagebox.showinfo(
-                "Aguarde",
-                f"{acao} não pode começar agora: já há uma operação em andamento.\n"
-                "Use 'Cancelar' na barra de status para interrompê-la."
-            )
-            return True
-        return False
+        motivo = self._motivo_de_espera()
+        if motivo is None:
+            return False
+        dica = "\nUse 'Cancelar' na barra de status para interrompê-la." if self.task.is_running() else ""
+        messagebox.showinfo("Aguarde", f"{acao} não pode começar agora: {motivo}.{dica}")
+        return True
 
     def _run_task(self, titulo, trabalho, ao_concluir,
                   ao_cancelar=None, indeterminado=False, ao_falhar=None):

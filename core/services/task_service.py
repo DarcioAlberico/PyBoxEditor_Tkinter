@@ -122,6 +122,14 @@ class BackgroundTask:
         if self._cancelar is not None:
             self._cancelar.set()
 
+    def esperar(self, prazo_s: float) -> bool:
+        """Espera a thread terminar, até `prazo_s`; diz se ela terminou (RG-13, R-17)."""
+        thread = self._thread
+        if thread is None or not thread.is_alive():
+            return True
+        thread.join(prazo_s)
+        return not thread.is_alive()
+
     # ------------------------------------------------------------------
     # Interno
     # ------------------------------------------------------------------

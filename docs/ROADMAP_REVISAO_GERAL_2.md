@@ -1128,6 +1128,16 @@ Estado: em andamento (2026-11-21), no worktree da Onda 5, depois da RG-12.
   em `finally`. `tests/test_dialogos_religam.py`: contra o código de antes, os sete falham
   (os três desfechos do pré-OCR, o fechamento no meio, a bandeira presa, a revisão sem
   Cancelar, a caixa que fica aberta). Suíte do worktree: 3847 passed, 26 skipped.
+- Commit 2 (R-17): `MainWindow._motivo_de_espera()` — o motivo de esperar (a sondagem, que
+  não é tarefa, ou a tarefa rodando), sem efeito colateral — vira a decisão única: o
+  `_busy` o usa para a caixa, e o `_load_pdf_page` para recusar com "Aguarde (…)" na barra
+  de status, sem arquivar a página nem desabilitar os botões. Fechar a janela confirma a
+  tarefa **e** o descarte antes de cancelar, e então espera a thread
+  (`BackgroundTask.esperar`/`TaskController.esperar`, prazo de 10 s, WARNING se estoura)
+  antes do `destroy`. `tests/test_fechar_e_navegar_com_tarefa.py`: contra o código de antes,
+  os três falham (a tarefa cancelada pelo descarte recusado, a janela destruída com a
+  thread no meio, a página que não virou sem aviso); o `test_f37_paginas.py` da PgDn
+  segue verde. Suíte do worktree: 3850 passed, 26 skipped.
 ### RG-14
 ### RG-15
 ### RG-16
