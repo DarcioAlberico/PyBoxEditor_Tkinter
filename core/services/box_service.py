@@ -1,4 +1,5 @@
 import itertools
+from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -2300,6 +2301,11 @@ class BoxService:
         # O rótulo girado (F8.1) é lido de cima para baixo: ao longo da
         # leitura, na imagem, é o eixo y.
         girado = angulo in (90, 270)
+        # Menos de 2 px ao longo da leitura não se parte: sairia um box de largura
+        # zero. Volta o box inteiro, sem levantar (RG-05b, R-54) — o AbbyChessCraft
+        # também chama esta função.
+        if ((y2 - y1) if girado else (x2 - x1)) < 2:
+            return [box]
 
         def partir(corte):
             if girado:
@@ -2338,18 +2344,14 @@ class BoxService:
 
     @staticmethod
     def clamp_box(box: BoxEntry, max_w: int, max_h: int) -> BoxEntry:
-        """Garante que as coordenadas do box fiquem dentro dos limites da imagem."""
-        return BoxEntry(
-            char=box.char,
-            x1=max(0, box.x1),
-            y1=max(0, box.y1),
-            x2=min(max_w, box.x2),
-            y2=min(max_h, box.y2),
-            confidence=box.confidence,
-            source=box.source,
-            angulo=getattr(box, "angulo", 0),
-            negativo=getattr(box, "negativo", False),
-        )
+        """Garante que as coordenadas do box fiquem dentro dos limites da imagem.
+
+        Por `replace`, e não por construtor campo a campo (RG-05b, R-54): o
+        construtor perdia `margem` e `moldura`, e o canvas, que passa a limitar o
+        box à página a cada arrasto, os apagaria.
+        """
+        return replace(box, x1=max(0, box.x1), y1=max(0, box.y1),
+                       x2=min(max_w, box.x2), y2=min(max_h, box.y2))
 
 
 # ----------------------------------------------------------------------

@@ -1521,7 +1521,12 @@ class Reconhecimento:
 
         b = self.janela.boxes[self.janela.selected_index]
         pagina = np.array(self.janela.image) if self.janela.image is not None else None
-        b1, b2 = self.janela.box_service.split_box(b, pagina)
+        partes = self.janela.box_service.split_box(b, pagina)
+        if len(partes) < 2:
+            # Estreito demais para partir (RG-05b, R-54): o `split_box` devolve o box.
+            self.janela.status.set("Box estreito demais para dividir.")
+            return
+        b1, b2 = partes
 
         self.janela.boxes.pop(self.janela.selected_index)
         self.janela.boxes.insert(self.janela.selected_index, b2)

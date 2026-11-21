@@ -11,6 +11,9 @@ from PIL import Image
 from core import alfabeto, proporcao, vertical
 from core.box_model import BoxEntry
 from core.learner import CharacterLearner, char_to_folder
+from core.log import logger
+
+log = logger(__name__)
 
 
 class DatasetInvalido(RuntimeError):
@@ -56,6 +59,8 @@ class LearningService:
         self.meta_path = meta_path
 
         self._learner: Optional[CharacterLearner] = None
+        #: Boxes do último `learn_from_boxes` que estavam fora da página (RG-05b, R-54).
+        self.ultimos_pulados = 0
         self._predictor = None
         # O veredito do portão do último `train_neural(portao=True)` (PD-23).
         self.ultimo_veredito = None
@@ -79,6 +84,7 @@ class LearningService:
         """
         learner = self._get_learner()
         count = 0
+        pulados = 0
         pagina = np.asarray(image)
 
         for b in boxes:
@@ -86,9 +92,18 @@ class LearningService:
                 continue
 
             crop_np = vertical.recorte_de_pe(pagina, b)
+            if crop_np.size == 0:
+                # O box fora da página não tem glifo (RG-05b, R-54): o `cv2.resize` do
+                # recorte vazio derrubava o lote no meio, e o cache não era salvo.
+                pulados += 1
+                continue
 
             learner.learn(crop_np, b.char)
             count += 1
+
+        self.ultimos_pulados = pulados
+        if pulados:
+            log.info("%d box(es) fora da página ficaram fora do aprendizado", pulados)
 
         # Uma gravação por lote, não por amostra: refazer a impressão digital
         # custa 0,2 s, e por amostra isso somaria minutos numa página cheia.

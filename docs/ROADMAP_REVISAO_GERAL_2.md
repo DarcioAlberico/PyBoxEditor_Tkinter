@@ -771,8 +771,8 @@ copiados), o mesmo da RG-05b e da RG-06; vai ao `master` com elas, no fim da Ond
   chega, `negativo`/`margem`/`moldura` perdidos); o quarto, o rascunho antigo de oito
   campos, já carregava e fica de guarda. Suíte do worktree: 3749 passed, 26 skipped.
 ### RG-05b
-Estado: em andamento (2026-11-21), no worktree da RG-05 (`.claude/worktrees/onda2`),
-depois dela.
+Estado: fechada (2026-11-21), em dois commits (`9ec6bd0` e o do R-54), no worktree da
+RG-05 (`.claude/worktrees/onda2`), depois dela; vai ao `master` no fim da Onda 2.
 - Commit 1 (R-53): o `CharacterLearner` guarda a impressão digital esperada (a da carga
   mais um por PNG que ele grava em `learn`), e `salvar_cache` grava essa, ou nada (INFO)
   quando a do disco diverge — a sessão seguinte relê a base uma vez e grava o cache
@@ -784,6 +784,21 @@ depois dela.
   falham (a sessão seguinte sem `b`, a base relida do disco depois da promoção, 3 → 6
   no disco); o quarto, aprender e reabrir pelo cache, já passava e guarda o custo que o
   cache existe para evitar. Suíte do worktree: 3753 passed, 26 skipped.
+- Commit 2 (R-54): `recorte_de_pe` limita o box à página e devolve o recorte vazio para o
+  que sai dela; `learn_from_boxes` pula o vazio, conta (`ultimos_pulados`, INFO) e salva
+  o cache do lote; `clamp_box` por `replace`, com todos os campos; `split_box` devolve
+  `[box]` com menos de 2 px ao longo da leitura, e o Ctrl+D diz "estreito demais"; o
+  canvas para o box movido na borda sem mudar o tamanho, corta na borda o redimensionado
+  (`_na_pagina`, pelo `clamp_box`, com os 3 px de mínimo para dentro) e o novo, e o
+  `release` só faz commit se o box mudou. `tests/test_box_fora_da_pagina.py`: contra o
+  código de antes, os oito falham (o recorte que deu a volta, com 600 px de tinta da
+  borda direita; o `cv2.resize` que derruba o lote; `margem` e `moldura` perdidas; o box
+  de largura zero; o box a −110; o canto a 400×300; o clique que sujou a página). A/B de
+  identidade (`recorte_de_pe` está na leitura): `preview_ocr/ab/RG-05b-antes` (exportação
+  limpa do `9ec6bd0`, com os pesos) contra `RG-05b-depois`, nas quatro páginas — só o
+  `tempo_s` do `relatorio.json` difere. Suíte do worktree: 3761 passed, 26 skipped.
+- AbbyChessCraft contra o `core` do worktree (passo 10; ele chama `split_box` e
+  `clamp_box`): 2915 passed e as mesmas 6 falhas da base.
 ### RG-06
 ### RG-07
 ### RG-08

@@ -3,6 +3,7 @@ from typing import Tuple
 from PIL import ImageTk, Image
 
 from core.box_model import BoxEntry
+from core.services.box_service import BoxService
 from ui import fontes
 from ui import tema
 from ui.confidence import cor_do_box, COR_LEXICO, COR_SELECAO
@@ -47,6 +48,24 @@ def fundo_do_rotulo(texto: str) -> str:
     if texto.isdigit():
         return tema.FUNDO_DA_ETIQUETA_NUMERO
     return tema.FUNDO_DA_ETIQUETA_MAIUSCULA if texto.isupper() else tema.FUNDO_DA_ETIQUETA
+
+
+def _na_pagina(x1: int, y1: int, x2: int, y2: int, tamanho) -> Tuple[int, int, int, int]:
+    """O box redimensionado, cortado na borda da página e com 3 px no mínimo (RG-05b, R-54).
+
+    O corte é pelo `BoxService.clamp_box`, o mesmo do AbbyChessCraft; o mínimo cresce
+    para dentro da página quando a borda não deixa crescer para fora.
+    """
+    largura, altura = tamanho
+    preso = BoxService.clamp_box(BoxEntry("", x1, y1, x2, y2), largura, altura)
+    x1, y1, x2, y2 = preso.x1, preso.y1, preso.x2, preso.y2
+    if x2 - x1 < 3:
+        x2 = min(largura, x1 + 3)
+        x1 = max(0, x2 - 3)
+    if y2 - y1 < 3:
+        y2 = min(altura, y1 + 3)
+        y1 = max(0, y2 - 3)
+    return x1, y1, x2, y2
 
 
 class CanvasView(tk.Canvas):
@@ -485,11 +504,15 @@ class CanvasView(tk.Canvas):
             dx = img_x - self.drag_start_img[0]
             dy = img_y - self.drag_start_img[1]
 
+            # Para na borda sem mudar de tamanho (RG-05b, R-54): fora da página o
+            # recorte sai vazio — ou, à esquerda, dá a volta e pega a tinta do outro lado.
+            largura, altura = self.controller.image.size
+            w, h = ob.x2 - ob.x1, ob.y2 - ob.y1
+            nx1 = min(max(0, int(ob.x1 + dx)), max(0, largura - w))
+            ny1 = min(max(0, int(ob.y1 + dy)), max(0, altura - h))
+
             b = boxes[self.drag_box_index]
-            b.x1 = int(ob.x1 + dx)
-            b.y1 = int(ob.y1 + dy)
-            b.x2 = int(ob.x2 + dx)
-            b.y2 = int(ob.y2 + dy)
+            b.x1, b.y1, b.x2, b.y2 = nx1, ny1, nx1 + w, ny1 + h
             self.controller.update_canvas()
 
         # redimensionar box
@@ -513,11 +536,7 @@ class CanvasView(tk.Canvas):
             x1, x2 = sorted((x1, x2))
             y1, y2 = sorted((y1, y2))
 
-            # tamanho mínimo
-            if x2 - x1 < 3:
-                x2 = x1 + 3
-            if y2 - y1 < 3:
-                y2 = y1 + 3
+            x1, y1, x2, y2 = _na_pagina(x1, y1, x2, y2, self.controller.image.size)
 
             b = boxes[self.drag_box_index]
             b.x1, b.y1, b.x2, b.y2 = x1, y1, x2, y2
@@ -538,6 +557,10 @@ class CanvasView(tk.Canvas):
             x2, y2 = self.new_box_end
             x1, x2 = sorted((int(x1), int(x2)))
             y1, y2 = sorted((int(y1), int(y2)))
+            # O box novo é cortado na borda da página (RG-05b, R-54).
+            largura, altura = self.controller.image.size
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(largura, x2), min(altura, y2)
 
             if x2 - x1 > 3 and y2 - y1 > 3:
                 self.controller.boxes.append(BoxEntry("", x1, y1, x2, y2))
@@ -548,7 +571,9 @@ class CanvasView(tk.Canvas):
             self.delete(self.new_box_rect_id)
             self.new_box_rect_id = None
 
-        if self.drag_mode in ("move", "resize"):
+        if self.drag_mode in ("move", "resize") and self._mudou_o_box():
+            # Só o que mexeu é edição (RG-05b, R-54): o clique que só seleciona
+            # sujava a página, e cinquenta deles expulsavam o histórico real.
             self.controller.on_boxes_changed()
 
         self.drag_mode = None
@@ -557,6 +582,14 @@ class CanvasView(tk.Canvas):
         self.drag_orig_box = None
         self.new_box_start = None
         self.new_box_end = None
+
+    def _mudou_o_box(self) -> bool:
+        """O box arrastado saiu do lugar (ou do tamanho) em que o clique o pegou."""
+        boxes = self.controller.boxes
+        ob = self.drag_orig_box
+        if ob is None or not 0 <= self.drag_box_index < len(boxes):
+            return True
+        return boxes[self.drag_box_index].as_tuple() != ob.as_tuple()
 
     # -------------------------------------------------------
     # Hit-test nos handles do box selecionado

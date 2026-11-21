@@ -141,7 +141,16 @@ def recorte_de_pe(imagem, box: BoxEntry) -> np.ndarray:
     from core import negativo
 
     arr = np.asarray(imagem)
-    recorte = arr[box.y1:box.y2, box.x1:box.x2]
+    # O box é limitado à página, e o que sai dela vem vazio (RG-05b, R-54): com índice
+    # negativo o fatiamento dá a volta, e o box inteiro à esquerda da página recortava a
+    # tinta da borda direita — aprendida, em silêncio, com o rótulo dele. Um lugar só,
+    # para todo classificador, inclusive o `.box` carregado de fora.
+    altura, largura = arr.shape[:2]
+    x1, y1 = max(0, box.x1), max(0, box.y1)
+    x2, y2 = min(largura, box.x2), min(altura, box.y2)
+    if x2 <= x1 or y2 <= y1:
+        return arr[0:0, 0:0]
+    recorte = arr[y1:y2, x1:x2]
     if getattr(box, "negativo", False):
         recorte = negativo.positivar(recorte)
     return endireitar(recorte, getattr(box, "angulo", 0))
