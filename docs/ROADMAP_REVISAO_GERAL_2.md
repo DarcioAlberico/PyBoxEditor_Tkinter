@@ -683,7 +683,8 @@ porque a fase toca o `lexico`, cujo `_ler` o AbbyChessCraft usa sob contrato (pa
 - AbbyChessCraft contra o `core` do worktree (passo 10): 2915 passed, as mesmas 6 falhas.
 - Próximo passo da revisão: a RG-04.
 ### RG-04
-Estado: em andamento. Base `6e57dab`, no worktree `.claude/worktrees/rg04` (destacado, com os
+Estado: fechada (2026-11-21), em quatro commits (`d82c212`, `2b66593`, `917ac7e` e o do
+R-48), levados ao `master` por `git merge --ff-only`. Base `6e57dab`, no worktree `.claude/worktrees/rg04` (destacado, com os
 pesos copiados; `model_meta.json` igual ao do `HEAD`), porque o R-48 toca o `OCRService`,
 que o AbbyChessCraft chama (passo 10).
 - Commit 1 (R-05): `core/caminho_seguro.py` (`e_relativo_seguro`, `caminho_seguro`,
@@ -711,6 +712,19 @@ que o AbbyChessCraft chama (passo 10).
   `tests/test_texto_legal_em_xml.py`: contra o código de antes, os quatro cenários falham
   (o EPUB mal formado, o DOCX que levanta, o `\ud800` do editor, o TXT com NUL); o negrito
   fica no lugar no EPUB e no DOCX. Suíte do worktree: 3724 passed, 26 skipped.
+- Commit 4 (R-48): o EasyOCR deixa de trocar o `ssl._create_default_https_context`; a
+  falha de certificado no download vira `RuntimeError` dizendo como instalar os pesos à
+  mão; o cache de leitores ganha uma trava. O `test_f16_easyocr.py`, que exigia o remendo
+  ligado durante o download, foi invertido; os três testes novos falharam primeiro (o
+  contexto desligado, o `URLError` cru, o leitor carregado duas vezes por duas threads).
+  Suíte do worktree: 3726 passed, 26 skipped; `slow and not gui`: 11 passed, 7 skipped.
+- AbbyChessCraft contra o `core` do worktree (passo 10): a primeira rodada deu uma sétima
+  falha, `test_lote.py::test_g1_fechar_com_o_lote_ativo_guarda_o_ponto_e_nao_rele_nada`,
+  com a suíte daqui rodando ao lado; sozinho, esse teste passou três vezes contra este
+  `core` e três contra o da árvore principal, e a suíte dele, rodada de novo com a máquina
+  quieta, deu 2915 passed e as mesmas 6 falhas da base. É instabilidade de carga dele,
+  não da fase.
+- Próximo passo da revisão: a Onda 2 (RG-05, RG-05b, RG-06).
 ### RG-05
 ### RG-05b
 ### RG-06

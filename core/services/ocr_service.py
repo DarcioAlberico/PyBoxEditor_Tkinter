@@ -1,5 +1,6 @@
 import cv2
 import json
+import threading
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -11,6 +12,32 @@ from core.box_model import SEM_MARGEM
 from core.log import logger
 
 log = logger(__name__)
+
+#: Uma thread carrega leitor do EasyOCR por vez (RG-04, R-48).
+_TRAVA_DOS_LEITORES = threading.Lock()
+
+_PESOS_A_MAO = (
+    "O download dos pesos do EasyOCR foi recusado pela verificação de certificado TLS — "
+    "comum em rede corporativa que troca o certificado. A verificação não é desligada, "
+    "porque os pesos baixados são executados. Instale os pesos à mão: baixe, de outra rede, "
+    "os arquivos do modelo (o detector craft_mlt_25k.pth e o reconhecedor do idioma) da "
+    "página de modelos do EasyOCR e copie-os para {pasta}. ({erro})")
+
+
+def _foi_o_certificado(erro: BaseException) -> bool:
+    """A falha (ou alguma das causas dela) é de verificação de certificado TLS?"""
+    import ssl
+
+    vistos = set()
+    while erro is not None and id(erro) not in vistos:
+        vistos.add(id(erro))
+        if isinstance(erro, ssl.SSLCertVerificationError):
+            return True
+        razao = getattr(erro, "reason", None)
+        if isinstance(razao, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(razao or ""):
+            return True
+        erro = erro.__cause__ or erro.__context__
+    return False
 
 
 @dataclass
@@ -502,40 +529,47 @@ class OCRService:
         torch ela ainda saiu **duas vezes mais lenta** (30,5 contra 15,8 ms por
         caractere), provavelmente caindo num kernel de referência.
 
-        **O remendo de SSL é restaurado.** Ele era global e permanente: a
-        primeira chamada de OCR desligava a verificação de certificado do
-        processo inteiro, para toda requisição HTTPS do programa, e nunca a
-        religava. Continua valendo onde era preciso — o download do modelo em
-        rede corporativa — e só ali.
+        **A verificação de certificado não é desligada.** Primeiro o remendo de
+        SSL era global e permanente; depois passou a ser restaurado, mas valia
+        durante o download — e os pesos baixados assim são desserializados: um
+        intermediário na rede podia trocá-los. Também não era seguro entre
+        threads (a segunda podia guardar o contexto já desligado como "anterior")
+        e valia mesmo com os modelos em disco. O contexto padrão do Windows já
+        carrega os certificados do sistema; numa rede que troca o certificado, a
+        mensagem diz como instalar os pesos à mão (RG-04, R-48).
+
+        **Uma thread carrega por vez**: sem a trava, duas tarefas de OCR que
+        chegassem juntas carregavam o modelo duas vezes.
         """
         chave = (tuple(languages), bool(gpu), model_storage_directory or "")
-        reader = self._readers.get(chave)
-        # Compatibilidade com readers criados antes do diretório de modelos
-        # entrar na chave. Isso também permite que aplicações que injetam um
-        # reader já carregado não inicializem a rede novamente.
-        if reader is None and not model_storage_directory:
-            reader = self._readers.get((tuple(languages), bool(gpu)))
-        if reader is None:
-            import ssl
-            import easyocr
-            anterior = ssl._create_default_https_context
-            ssl._create_default_https_context = ssl._create_unverified_context
-            try:
+        with _TRAVA_DOS_LEITORES:
+            reader = self._readers.get(chave)
+            # Compatibilidade com readers criados antes do diretório de modelos
+            # entrar na chave. Isso também permite que aplicações que injetam um
+            # reader já carregado não inicializem a rede novamente.
+            if reader is None and not model_storage_directory:
+                reader = self._readers.get((tuple(languages), bool(gpu)))
+            if reader is None:
+                import easyocr
                 # `verbose=False` evita que a barra de download Unicode do
                 # EasyOCR quebre no console cp1252 padrão do Windows.
                 kwargs = {"gpu": gpu, "quantize": False, "verbose": False}
                 if model_storage_directory:
                     kwargs["model_storage_directory"] = model_storage_directory
                 try:
-                    reader = easyocr.Reader(list(languages), **kwargs)
-                except TypeError:
-                    # Compatibilidade com versões antigas/mock readers que não
-                    # expõem o diretório de modelos.
-                    kwargs.pop("model_storage_directory", None)
-                    reader = easyocr.Reader(list(languages), **kwargs)
-            finally:
-                ssl._create_default_https_context = anterior
-            self._readers[chave] = reader
+                    try:
+                        reader = easyocr.Reader(list(languages), **kwargs)
+                    except TypeError:
+                        # Compatibilidade com versões antigas/mock readers que não
+                        # expõem o diretório de modelos.
+                        kwargs.pop("model_storage_directory", None)
+                        reader = easyocr.Reader(list(languages), **kwargs)
+                except Exception as erro:
+                    if _foi_o_certificado(erro):
+                        raise RuntimeError(_PESOS_A_MAO.format(
+                            pasta=model_storage_directory or "~/.EasyOCR/model", erro=erro)) from erro
+                    raise
+                self._readers[chave] = reader
         return reader
 
     def preparar_easyocr(self, languages: Tuple[str, ...] = ("en", "pt"),

@@ -191,26 +191,63 @@ def test_quantize_desligado(monkeypatch):
     assert criados == [False]
 
 
-def test_o_ssl_do_processo_e_restaurado(monkeypatch):
+def test_o_download_dos_pesos_nao_desliga_a_verificacao_de_certificado(monkeypatch):
     """
-    O remendo era global e permanente: a primeira chamada de OCR desligava a
-    verificação de certificado do programa inteiro e nunca a religava.
+    O remendo era global e permanente, depois passou a ser restaurado — mas valia
+    **durante** o download: os pesos que chegam assim são desserializados, e um
+    intermediário na rede podia trocá-los. Também não era seguro entre threads, e
+    valia mesmo com os modelos já em disco (RG-04, R-48 da revisão geral 2). O
+    contexto padrão do Windows já carrega os certificados do sistema.
     """
     import ssl
 
     class _EasyocrFalso:
         def Reader(self, langs, **kw):
             assert (ssl._create_default_https_context
-                    is ssl._create_unverified_context), \
-                "o remendo tem que valer durante o download do modelo"
+                    is not ssl._create_unverified_context), \
+                "a verificação de certificado foi desligada para o download"
             return _ReaderFalso()
 
     monkeypatch.setitem(sys.modules, "easyocr", _EasyocrFalso())
 
     antes = ssl._create_default_https_context
     OCRService()._init_easyocr()
-    assert ssl._create_default_https_context is antes, \
-        "a verificação de certificado ficou desligada no processo"
+    assert ssl._create_default_https_context is antes
+
+
+def test_certificado_recusado_diz_como_instalar_os_pesos_a_mao(monkeypatch):
+    import ssl
+    import urllib.error
+
+    class _EasyocrFalso:
+        def Reader(self, langs, **kw):
+            raise urllib.error.URLError(ssl.SSLCertVerificationError("certificate verify failed"))
+
+    monkeypatch.setitem(sys.modules, "easyocr", _EasyocrFalso())
+    with pytest.raises(RuntimeError, match="à mão"):
+        OCRService()._init_easyocr()
+
+
+def test_duas_threads_carregam_o_leitor_uma_vez(monkeypatch):
+    import threading
+    import time
+
+    criados = []
+
+    class _EasyocrFalso:
+        def Reader(self, langs, **kw):
+            criados.append(langs)
+            time.sleep(0.2)                     # o download, em que a outra thread chega
+            return _ReaderFalso()
+
+    monkeypatch.setitem(sys.modules, "easyocr", _EasyocrFalso())
+    servico = OCRService()
+    ts = [threading.Thread(target=servico._init_easyocr) for _ in range(2)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(criados) == 1
 
 
 def test_o_ssl_volta_mesmo_se_o_reader_levantar(monkeypatch):
