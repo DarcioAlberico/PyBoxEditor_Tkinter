@@ -17,6 +17,7 @@ Nasce na ED-00 porque a ED-01 (`epub.escrever`) e a ED-08 (o painel) o consomem.
 from __future__ import annotations
 
 import posixpath
+import re
 from typing import Sequence
 from urllib.parse import quote, unquote
 from xml.sax.saxutils import escape
@@ -104,8 +105,13 @@ def _ol(entradas: Sequence[EntradaDeSumario], de_arquivo: str, nivel: int) -> st
     itens = []
     for entrada in entradas:
         filhos = ("\n" + _ol(entrada.filhos, de_arquivo, nivel + 2) + "\n" + recuo + "  ") if entrada.filhos else ""
-        itens.append(f'{recuo}  <li><a href="{_attr(_relativo(entrada.destino, de_arquivo))}">'
-                     f"{escape(entrada.rotulo)}</a>{filhos}</li>")
+        if entrada.destino:
+            rotulo = f'<a href="{_attr(_relativo(entrada.destino, de_arquivo))}">{escape(entrada.rotulo)}</a>'
+        else:
+            # A entrada sem destino é rótulo de seção, e o `nav` do EPUB 3 a escreve em
+            # `<span>` (RG-09, R-27): antes ela saía do sumário com a subárvore inteira.
+            rotulo = f"<span>{escape(entrada.rotulo)}</span>"
+        itens.append(f"{recuo}  <li>{rotulo}{filhos}</li>")
     return f"{recuo}<ol>\n" + "\n".join(itens) + f"\n{recuo}</ol>"
 
 
@@ -215,13 +221,18 @@ def escrever_ncx(livro: Livro) -> str:
         recuo = "  " * nivel
         saida = []
         for entrada in entradas:
+            # O NCX não tem rótulo sem destino: o navPoint aponta para o primeiro destino
+            # dos filhos, e o rótulo sem destino e sem filhos fica só no nav (RG-09, R-27).
+            destino = entrada.destino or _primeiro_destino(entrada.filhos)
+            if not destino:
+                continue
             contador[0] += 1
             n = contador[0]
             filhos = ("\n" + pontos(entrada.filhos, nivel + 1)) if entrada.filhos else ""
             saida.append(
                 f'{recuo}<navPoint id="navPoint-{n}" playOrder="{n}">\n'
                 f"{recuo}  <navLabel><text>{escape(entrada.rotulo)}</text></navLabel>\n"
-                f'{recuo}  <content src="{_attr(_relativo(entrada.destino, ncx))}"/>{filhos}\n'
+                f'{recuo}  <content src="{_attr(_relativo(destino, ncx))}"/>{filhos}\n'
                 f"{recuo}</navPoint>")
         return "\n".join(saida)
 
@@ -238,6 +249,14 @@ def escrever_ncx(livro: Livro) -> str:
         f"<docTitle><text>{escape(livro.metadados.titulo)}</text></docTitle>\n"
         "<navMap>\n" + pontos(livro.sumario, 1) + "\n</navMap>\n</ncx>\n"
     )
+
+
+def _primeiro_destino(entradas: Sequence[EntradaDeSumario]) -> str:
+    for entrada in entradas:
+        destino = entrada.destino or _primeiro_destino(entrada.filhos)
+        if destino:
+            return destino
+    return ""
 
 
 def _profundidade(entradas: Sequence[EntradaDeSumario]) -> int:
@@ -301,12 +320,46 @@ def _todos(entradas: Sequence[EntradaDeSumario]) -> list[EntradaDeSumario]:
     return saida
 
 
+#: Um `id` num pedaço de XHTML (ilha, capítulo em modo código); pega também o `xml:id`.
+_ID_NO_XHTML = re.compile(r"""\bid\s*=\s*(["'])(.*?)\1""")
+
+
+def _ids_no_xhtml(texto: str) -> set[str]:
+    return {achado.group(2) for achado in _ID_NO_XHTML.finditer(texto or "")}
+
+
+def ancoras_do_livro(livro: Livro) -> dict[str, set[str]]:
+    """
+    O índice de âncoras de cada capítulo, calculado agora, do modelo (RG-09, R-27) — e
+    não na abertura, que ficaria velho depois da edição: os ids de bloco e de nota, os
+    ids de dentro das ilhas (o `<h2 id>` que virou `IlhaBruta`, o `<a id>` que virou
+    ilha inline), e, no capítulo em modo código, os ids do próprio XHTML dele.
+    """
+    saida: dict[str, set[str]] = {}
+    for cap in livro.capitulos:
+        if cap.texto_cru is not None:
+            saida[cap.arquivo] = _ids_no_xhtml(cap.texto_cru)
+            continue
+        blocos = modelo.blocos_do_capitulo(cap)
+        ids = {b.id for b in blocos} | {n.id for n in cap.notas}
+        for bloco in blocos:
+            if isinstance(bloco, modelo.IlhaBruta):
+                ids |= _ids_no_xhtml(bloco.xhtml)
+        for trecho in modelo.trechos_do_capitulo(cap):
+            if trecho.ilha:
+                ids |= _ids_no_xhtml(trecho.ilha)
+        saida[cap.arquivo] = ids
+    return saida
+
+
 def destinos_quebrados(livro: Livro) -> list[str]:
-    """As entradas do sumário cujo destino não existe (capítulo ou âncora)."""
-    ids = {cap.arquivo: {b.id for b in modelo.blocos_do_capitulo(cap)} | {n.id for n in cap.notas}
-           for cap in livro.capitulos}
+    """As entradas do sumário cujo destino não existe (capítulo ou âncora). A entrada sem
+    destino é rótulo, e não conta (RG-09, R-27)."""
+    ids = ancoras_do_livro(livro)
     quebrados = []
     for entrada in _todos(livro.sumario):
+        if not entrada.destino:
+            continue
         arquivo, _, ancora = entrada.destino.partition("#")
         if arquivo not in ids or (ancora and ancora not in ids[arquivo] and not ancora.startswith("pg-")):
             quebrados.append(entrada.destino)

@@ -591,6 +591,8 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
                 livro.marcos.append((MARCO_DO_GUIDE[tipo], href_de(livro, destino)))
     if not livro.sumario:
         livro.sumario = sumario.gerar_dos_titulos(livro)
+        if livro.sumario:
+            relatorio.aviso("o livro não tem sumário: um foi gerado dos títulos")
     return livro
 
 
@@ -688,9 +690,11 @@ class _Escritor:
                     self.relatorio.aviso(f"{recurso.caminho}: CSS com problema ({problema}); gravada assim mesmo")
         quebrados = sumario.destinos_quebrados(livro)
         if quebrados:
-            livro.sumario = _sem_destinos(livro.sumario, set(quebrados))
+            # A entrada quebrada vira rótulo e mantém os filhos (RG-09, R-27): antes ela
+            # saía com a subárvore inteira.
+            _destinos_em_rotulo(livro.sumario, set(quebrados))
             for destino in quebrados:
-                self.relatorio.aviso(f"entrada do sumário sem destino, retirada: {destino}")
+                self.relatorio.aviso(f"entrada do sumário sem destino, mantida como rótulo: {destino}")
         arquivos = {c.arquivo for c in livro.capitulos}
         marcos = []
         for tipo, destino in livro.marcos:
@@ -701,6 +705,8 @@ class _Escritor:
         livro.marcos = marcos
         if not livro.sumario:
             livro.sumario = sumario.gerar_dos_titulos(livro)
+            if livro.sumario:
+                self.relatorio.aviso("o livro não tinha sumário: o do arquivo foi gerado dos títulos")
         if not livro.metadados.identificador:
             livro.metadados.identificador = f"urn:uuid:{uuid.uuid4()}"
 
@@ -1013,14 +1019,11 @@ def problema_da_css(texto: str) -> str:
     return ""
 
 
-def _sem_destinos(entradas, quebrados: set[str]):
-    saida = []
+def _destinos_em_rotulo(entradas, quebrados: set[str]) -> None:
     for e in entradas:
         if e.destino in quebrados:
-            continue
-        e.filhos = _sem_destinos(e.filhos, quebrados)
-        saida.append(e)
-    return saida
+            e.destino = ""
+        _destinos_em_rotulo(e.filhos, quebrados)
 
 
 def _container(opf: str) -> str:

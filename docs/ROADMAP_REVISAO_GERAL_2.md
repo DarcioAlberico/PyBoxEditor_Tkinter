@@ -935,6 +935,22 @@ Onda 3, sobre a RG-07 (`98140f6`); a onda inteira vai ao `master` por `merge --f
   mesmas 6 falhas da base.
 - Próximo passo da revisão: a Onda 4 (a fidelidade do editor).
 ### RG-09
+Estado: fechada (2026-11-21), em um commit. Base `d82f74a`, no worktree
+`.claude/worktrees/onda4` (destacado, com os pesos copiados), o mesmo da RG-10 e da RG-11.
+- `sumario.ancoras_do_livro`: o índice de âncoras calculado na gravação, do modelo — ids
+  de bloco e de nota, ids de dentro das ilhas de bloco (`IlhaBruta.xhtml`) e inline
+  (`Trecho.ilha`), e, no capítulo em modo código, os ids do próprio `texto_cru`; os
+  `extras` da RG-10 entram nele quando chegarem. `destinos_quebrados` o usa, e a entrada
+  sem destino é rótulo (não conta como quebrada). A gravação transforma a entrada
+  quebrada em rótulo, mantendo os filhos, com o aviso ("mantida como rótulo"); o nav
+  escreve o rótulo em `<span>` (o leitor já o lia); o NCX, que não tem rótulo sem
+  destino, aponta o navPoint para o primeiro destino dos filhos, e deixa de fora o rótulo
+  sem destino e sem filhos. Gerar o sumário dos títulos — na leitura de um livro sem ele
+  e na gravação — passa a avisar. `tests/test_sumario_acha_as_ancoras.py`: contra o código
+  de antes, os cinco falham (o `<h2 id>` da ilha, o `<a id>` inline e o rótulo dados como
+  quebrados; a âncora do modo código idem; a subárvore que saía com a entrada; a
+  regeneração calada; o NCX de um sumário inteiro regenerado). Suíte do worktree: 3803
+  passed, 26 skipped.
 ### RG-10
 ### RG-11
 ### RG-12
