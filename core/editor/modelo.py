@@ -516,6 +516,11 @@ class Recurso:
     #: `False` para o que estava no zip sem entrada no manifesto (`META-INF/encryption.xml`,
     #: um arquivo esquecido): é regravado onde estava, e não entra no OPF.
     no_manifesto: bool = True
+    #: O nome da entrada no `Livro.zip_de_origem` de onde os bytes vêm, quando `dados` é
+    #: `None` (RG-06, R-03). Renomear troca o `caminho` sem carregar os bytes; sem este
+    #: nome, `epub.dados_de` procurava o novo no zip antigo e a imagem sumia ao salvar.
+    #: Vazio quando o recurso não veio de um zip (ou quando é o próprio `caminho`).
+    nome_de_origem: str = ""
 
     def __post_init__(self) -> None:
         self.caminho = str(self.caminho).strip()

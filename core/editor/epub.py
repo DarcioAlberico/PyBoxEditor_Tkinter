@@ -187,10 +187,29 @@ def pasta_de_imagens(livro: Livro) -> str:
     return "Images"
 
 
+class RecursosIlegiveis(OSError):
+    """
+    Recursos do livro que não se leem na gravação (RG-06, R-03): o EPUB de origem foi
+    apagado ou movido depois de aberto. A gravação para antes de tocar o destino; quem
+    quer salvar mesmo assim pede, explicitamente, `sem_ilegiveis=True`.
+    """
+
+    def __init__(self, recursos: Iterable[str]):
+        self.recursos = list(recursos)
+        lista = ", ".join(self.recursos[:8]) + (f" e mais {len(self.recursos) - 8}" if len(self.recursos) > 8 else "")
+        super().__init__(f"{len(self.recursos)} recurso(s) do livro não se leem mais: {lista}")
+
+
+def _nome_de_origem(livro: Livro, recurso: Recurso) -> str:
+    """Onde os bytes do recurso estão no `zip_de_origem`: o nome guardado, ou o do `caminho`."""
+    return recurso.nome_de_origem or nome_no_zip(livro, recurso.caminho)
+
+
 def dados_de(livro: Livro, recurso: Recurso) -> bytes:
     """
     Os bytes do recurso: os que ele tem; o `texto_cru` codificado; ou, lidos agora do
-    `zip_de_origem` e guardados nele. `FileNotFoundError` quando não há de onde ler.
+    `zip_de_origem` (pelo nome de origem, que o renomear não troca) e guardados nele.
+    `FileNotFoundError` quando não há de onde ler.
     """
     if recurso.texto_cru is not None:
         return recurso.texto_cru.lstrip("\ufeff").encode("utf-8")
@@ -198,7 +217,7 @@ def dados_de(livro: Livro, recurso: Recurso) -> bytes:
         return recurso.dados
     if not livro.zip_de_origem:
         raise FileNotFoundError(f"recurso {recurso.caminho} sem dados e sem zip de origem")
-    nome = nome_no_zip(livro, recurso.caminho)
+    nome = _nome_de_origem(livro, recurso)
     try:
         with zipfile.ZipFile(livro.zip_de_origem) as z:
             recurso.dados = teto_de_pacote.ler(z, nome)
@@ -222,7 +241,7 @@ def descarregar(livro: Livro) -> int:
         return 0
     soltos = 0
     for recurso in livro.recursos.values():
-        no_zip = nome_no_zip(livro, recurso.caminho) in nomes
+        no_zip = _nome_de_origem(livro, recurso) in nomes
         if recurso.dados is not None and recurso.texto_cru is None and no_zip:
             recurso.dados = None
             soltos += 1
@@ -528,7 +547,7 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
             continue
         propriedades = " ".join(p for p in props.split() if p != "cover-image")
         livro.recursos[href] = Recurso(caminho=href, tipo_mime=mime or tipo_mime_de(href),
-                                       propriedades=propriedades)
+                                       propriedades=propriedades, nome_de_origem=nome_no_zip(livro, href))
         if "cover-image" in props.split():
             livro.metadados.capa = href
     if not livro.metadados.capa and leitor.capa_id in leitor.itens:
@@ -542,7 +561,8 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
         if nome in conhecidos or nome.endswith("/"):
             continue
         href = href_de(livro, nome)
-        livro.recursos[href] = Recurso(caminho=href, tipo_mime=tipo_mime_de(nome), no_manifesto=False)
+        livro.recursos[href] = Recurso(caminho=href, tipo_mime=tipo_mime_de(nome), no_manifesto=False,
+                                       nome_de_origem=nome)
         if not nome.startswith("META-INF/"):
             relatorio.aviso(f"arquivo fora do manifesto, mantido onde está: {nome}")
 
@@ -637,10 +657,14 @@ def _propriedades_do_xhtml(texto: str, lidas: str = "") -> str:
 
 
 class _Escritor:
-    def __init__(self, livro: Livro, caminho: str, relatorio: RelatorioDeConversao):
+    def __init__(self, livro: Livro, caminho: str, relatorio: RelatorioDeConversao,
+                 sem_ilegiveis: bool = False):
         self.livro = livro
         self.caminho = caminho
         self.relatorio = relatorio
+        self.sem_ilegiveis = sem_ilegiveis
+        #: Os recursos que não se leram e ficaram de fora, com `sem_ilegiveis`.
+        self.omitidos: list[str] = []
         self.entradas: list[tuple[str, bytes]] = []
         self.manifesto: list[tuple[str, str, str, str]] = []     # (id, href, mime, propriedades)
         self.ids: set[str] = set()
@@ -705,6 +729,7 @@ class _Escritor:
             self._item(livro.ncx, MIME_NCX, "", sumario.escrever_ncx(livro).encode("utf-8"), id_="ncx")
         for cap, texto in capitulos:
             self._item(cap.arquivo, MIME_XHTML, _propriedades_do_xhtml(texto), texto.encode("utf-8"))
+        ilegiveis: list[str] = []
         for href, recurso in livro.recursos.items():
             if sem_dados:
                 dados = b""
@@ -712,7 +737,11 @@ class _Escritor:
                 try:
                     dados = dados_de(livro, recurso)
                 except FileNotFoundError as erro:
-                    self.relatorio.aviso(f"recurso deixado de fora: {erro}")
+                    # O recurso que não se lê não vira aviso de um livro salvo sem ele
+                    # (RG-06, R-03): a gravação para, com a lista, e o destino não muda.
+                    ilegiveis.append(href)
+                    if self.sem_ilegiveis:
+                        self.relatorio.aviso(f"recurso deixado de fora, como pedido: {erro}")
                     continue
             if not recurso.no_manifesto:
                 self.entradas.append((nome_no_zip(livro, href), dados))
@@ -721,6 +750,9 @@ class _Escritor:
             if href == livro.metadados.capa:
                 props = " ".join(dict.fromkeys(props.split() + ["cover-image"]))
             self._item(href, recurso.tipo_mime or tipo_mime_de(href), props, dados)
+        if ilegiveis and not self.sem_ilegiveis:
+            raise RecursosIlegiveis(ilegiveis)
+        self.omitidos = ilegiveis
         self.entradas.insert(1, (livro.opf, self._opf().encode("utf-8")))
 
     def _item(self, href: str, mime: str, props: str, dados: bytes, id_: str = "") -> None:
@@ -1009,14 +1041,21 @@ def texto_do_opf(livro: Livro) -> str:
     return escritor._opf()
 
 
-def escrever(livro: Livro, caminho: str, *, ncx: bool | None = None) -> RelatorioDeConversao:
+def escrever(livro: Livro, caminho: str, *, ncx: bool | None = None, sem_ilegiveis: bool = False,
+             destino: bool = True) -> RelatorioDeConversao:
     """
     Grava o livro como EPUB 3 no `caminho`, atomicamente. `ncx=True` acrescenta o
     `toc.ncx` de compatibilidade (`False` o tira; `None` deixa como o livro está).
 
     Recusa, **antes de tocar o disco**, um capítulo em `texto_cru` mal-formado
-    (`ErroDeXhtml` com o arquivo, a linha e a coluna) e um modelo que viola as
-    invariantes (`ValueError`); uma CSS com problema é aviso e grava.
+    (`ErroDeXhtml` com o arquivo, a linha e a coluna), um modelo que viola as
+    invariantes (`ValueError`) e um recurso que não se lê (`RecursosIlegiveis`, com a
+    lista; `sem_ilegiveis=True` grava sem eles, e eles saem do livro); uma CSS com
+    problema é aviso e grava.
+
+    Com `destino` (o padrão), o arquivo gravado passa a ser a origem do livro: o
+    `zip_de_origem` e o nome de origem de cada recurso apontam para ele. O checkpoint,
+    a diferença, a exportação e a validação gravam cópias, e passam `destino=False`.
     """
     caminho = os.fspath(caminho)
     if ncx is True and not livro.ncx:
@@ -1025,11 +1064,16 @@ def escrever(livro: Livro, caminho: str, *, ncx: bool | None = None) -> Relatori
         livro.ncx = ""
     relatorio = RelatorioDeConversao(formato="epub", arquivos=[caminho])
     with Cronometro(relatorio):
-        escritor = _Escritor(livro, caminho, relatorio)
+        escritor = _Escritor(livro, caminho, relatorio, sem_ilegiveis=sem_ilegiveis)
         escritor.verificar()
         escritor.montar()
         escritor.gravar()
-    livro.zip_de_origem = caminho
+    if destino:
+        livro.zip_de_origem = caminho
+        for href in escritor.omitidos:
+            livro.recursos.pop(href, None)
+        for recurso in livro.recursos.values():
+            recurso.nome_de_origem = nome_no_zip(livro, recurso.caminho)
     relatorio.contar(livro)
     relatorio.fontes_embutidas = fontes_embutidas(livro)
     return relatorio

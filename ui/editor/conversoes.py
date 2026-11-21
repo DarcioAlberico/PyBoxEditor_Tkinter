@@ -178,7 +178,7 @@ class Conversoes:
         j.configure(cursor="watch")
         try:
             if formato == "epub":
-                relatorio = epub.escrever(livro, caminho, ncx=j._preferencia("ncx", None))
+                relatorio = epub.escrever(livro, caminho, ncx=j._preferencia("ncx", None), destino=False)
                 escrito = caminho
             elif formato == "html":
                 relatorio = html_io.escrever_unico(livro, caminho)

@@ -709,7 +709,7 @@ class OperacoesDoLivro:
         except Exception:      # noqa: BLE001
             pass
         try:
-            epub.escrever(projeto.livro, caminho, ncx=j._preferencia("ncx", None))
+            epub.escrever(projeto.livro, caminho, ncx=j._preferencia("ncx", None), destino=False)
         finally:
             projeto.livro.zip_de_origem = zip_antes
         try:

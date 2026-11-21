@@ -800,6 +800,23 @@ RG-05 (`.claude/worktrees/onda2`), depois dela; vai ao `master` no fim da Onda 2
 - AbbyChessCraft contra o `core` do worktree (passo 10; ele chama `split_box` e
   `clamp_box`): 2915 passed e as mesmas 6 falhas da base.
 ### RG-06
+Estado: em andamento (2026-11-21), no worktree da Onda 2, depois da RG-05b.
+- Commit 1 (R-03): o recurso que não se lê na montagem levanta `epub.RecursosIlegiveis`
+  (subclasse de `OSError`, com a lista) antes de gravar — o destino não muda, e o projeto
+  continua apontando para o arquivo de antes —; `sem_ilegiveis=True` grava sem eles, com
+  aviso, e eles saem do livro aberto; a janela do editor pergunta ("Salvar sem eles?";
+  "Não" não grava nada). `Recurso.nome_de_origem` guarda a entrada do zip de onde os
+  bytes vêm (posto pelo leitor, lido por `dados_de` e `descarregar`), e a gravação no
+  destino o atualiza: renomear e `renomear_varios` não perdem mais a imagem. A gravação
+  em cópia passa `destino=False` (o checkpoint, a diferença, a exportação, a validação),
+  sem trocar a origem do livro — e o checkpoint segue a regra do salvar. Diferente do que
+  a spec escreveu ("dentro do `with escrita_atomica`"), a recusa vem antes de abrir o
+  destino, o que dá o mesmo aceite (o destino não muda) sem temporário a descartar.
+  `tests/test_epub_salvo_nao_perde_recurso.py`: contra o código de antes (com a classe
+  nova posta à mão para o teste carregar), os quatro do `core` falham (nada levanta com a
+  origem apagada, nem no checkpoint; a imagem renomeada some do zip, também com
+  `renomear_varios`); o quinto, na janela, confere a pergunta. Suíte do worktree: 3766
+  passed, 26 skipped.
 ### RG-07
 ### RG-08
 ### RG-09

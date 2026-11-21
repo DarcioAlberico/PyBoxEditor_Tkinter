@@ -896,9 +896,11 @@ class JanelaDoEditor(tk.Toplevel):
         self.status(f"Salvando {projeto.nome}…")
         self.configure(cursor="watch")
         try:
-            relatorio = projeto.salvar(**opcoes)
+            relatorio = self._gravar_com_recursos(projeto.salvar, opcoes)
         finally:
             self.configure(cursor="")
+        if relatorio is None:
+            return None
         self._depois_de_salvar(relatorio)
         return relatorio
 
@@ -917,14 +919,39 @@ class JanelaDoEditor(tk.Toplevel):
         opcoes.setdefault("ncx", self._preferencia("ncx", None))
         self.configure(cursor="watch")
         try:
-            relatorio = projeto.salvar_como(caminho, **opcoes)
+            relatorio = self._gravar_com_recursos(lambda **o: projeto.salvar_como(caminho, **o), opcoes)
         finally:
             self.configure(cursor="")
+        if relatorio is None:
+            return None
         self.recentes.adicionar(caminho)
         self._gravar_preferencia("diretorios", {**self._preferencia("diretorios", {}),
                                                "salvar": os.path.dirname(caminho)})
         self._depois_de_salvar(relatorio)
         return relatorio
+
+    def _gravar_com_recursos(self, gravar: Callable[..., Any], opcoes: dict) -> Any:
+        """
+        Grava; diante de recursos que não se leem, pergunta se salva sem eles (RG-06, R-03).
+
+        Antes o EPUB saía sem as imagens, por cima do arquivo, com um aviso no log. Agora
+        nada se grava sem o usuário escolher: "Não" deixa o arquivo como estava, e devolve
+        `None`.
+        """
+        try:
+            return gravar(**opcoes)
+        except epub.RecursosIlegiveis as erro:
+            lista = "\n".join("  " + r for r in erro.recursos[:12])
+            if len(erro.recursos) > 12:
+                lista += f"\n  e mais {len(erro.recursos) - 12}"
+            if not self.caixas.pergunta(
+                    f"{len(erro.recursos)} recurso(s) do livro não se leem mais — o EPUB de onde "
+                    f"vinham foi apagado ou movido depois de aberto:\n{lista}\n\n"
+                    "Salvar sem eles? (Não: nada é gravado, e o arquivo fica como estava.)",
+                    cancelar=False):
+                self.status("Nada foi gravado: há recursos que não se leem.")
+                return None
+            return gravar(**opcoes, sem_ilegiveis=True)
 
     def _depois_de_salvar(self, relatorio: Any) -> None:
         assert self.projeto is not None

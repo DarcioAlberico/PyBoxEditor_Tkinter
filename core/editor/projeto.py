@@ -235,11 +235,10 @@ class Projeto:
         while os.path.exists(caminho):
             n += 1
             caminho = os.path.join(destino, f"{base}-{n}.epub")
-        zip_antes = self.livro.zip_de_origem
-        epub.escrever(self.livro, caminho)
-        # O checkpoint é cópia, não destino: os recursos continuam vindo de onde vinham (a
-        # gravação acabou de carregar na memória os que ainda estavam no zip).
-        self.livro.zip_de_origem = zip_antes
+        # O checkpoint é cópia, não destino: os recursos continuam vindo de onde vinham. E
+        # segue a regra do salvar (RG-06, R-03): o recurso que não se lê levanta, e o
+        # checkpoint incompleto não fica no disco.
+        epub.escrever(self.livro, caminho, destino=False)
         return Checkpoint(caminho, quando, rotulo)
 
     def checkpoints(self, pasta: str | None = None) -> list[Checkpoint]:
@@ -258,14 +257,12 @@ class Projeto:
     def diferenca(self, cp: Checkpoint) -> list[Diferenca]:
         """As entradas que diferem entre o ponto e o livro atual (`difflib` nas de texto)."""
         pasta = tempfile.mkdtemp(prefix="pbe-diff-")
-        zip_antes = self.livro.zip_de_origem
         try:
             atual = os.path.join(pasta, "atual.epub")
-            epub.escrever(self.livro, atual)
+            epub.escrever(self.livro, atual, destino=False)
             de = _entradas(cp.caminho)
             para = _entradas(atual)
         finally:
-            self.livro.zip_de_origem = zip_antes
             shutil.rmtree(pasta, ignore_errors=True)
         for nome in set(de) & set(para):
             if nome.lower().endswith(".opf"):
