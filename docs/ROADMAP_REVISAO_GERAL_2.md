@@ -895,7 +895,18 @@ Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktree
   seguinte vai para `saida.cccccccccccc.review.jsonl`, e o arquivo antigo fica com o mesmo
   sha256 (`scratchpad\diario_da_base.py` da sessão). A abertura de um diário real do
   usuário segue fora do pronto: não há nenhum `*.review.jsonl` na máquina.
+- Estado: fechada (2026-11-21), em cinco commits (`d48bb09`, `a1dbce8`, `0acb649`,
+  `a0400c7`, `98140f6`), no worktree da Onda 3.
 ### RG-08
+Estado: em andamento (2026-11-21), no worktree da Onda 3, sobre a RG-07 (`98140f6`).
+- Commit 1 (abertura): a régua corrigida. O `medir_lote_de_revisao.py` da RG-07 media 200
+  edições interativas, e cada edição é uma foto nova do documento por natureza — não é
+  o que o R-13 conserta. Agora ele mede, com os mesmos 200 eventos: `interativo` (a
+  referência de antes), `reabrir` (`from_journal` sobre o diário, o que a janela e a
+  ponte fazem a cada abertura) e `lote` (`aplicar_lote`, o salvamento do editor), e grava
+  o documento **reaberto**. Antes, nesta máquina: interativo 18,14 s, **reabrir 18,41 s,
+  lote 19,30 s**; uma segunda rodada, 17,90/18,50/20,33 s, com o `documento_final.json`
+  igual byte a byte (`preview_ocr/ab/lote-RG-08-antes` e `-antes2`).
 ### RG-09
 ### RG-10
 ### RG-11
