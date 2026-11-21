@@ -39,10 +39,15 @@ class LearningService:
 
     def __init__(
         self,
-        data_dir: str = "training_data",
+        data_dir: Optional[str] = None,
         model_path: str = "custom_model.pth",
         meta_path: str = "model_meta.json",
     ):
+        if data_dir is None:
+            # A base do projeto, não um nome solto resolvido no cwd: a `MainWindow`
+            # constrói o serviço sem argumento (RG-02a, R-43 da revisão geral 2).
+            from config.paths import pasta_de_treino
+            data_dir = str(pasta_de_treino())
         self.data_dir = data_dir
         if model_path == "custom_model.pth" and meta_path == "model_meta.json":
             from config.paths import caminhos_modelo_glifos
@@ -414,12 +419,16 @@ class LearningService:
     # Importação de dados externos
     # ------------------------------------------------------------------
     @staticmethod
-    def import_character_images(src_dir: str, dest_dir: str = "training_data") -> int:
+    def import_character_images(src_dir: str, dest_dir: Optional[str] = None) -> int:
         """
         Importa imagens de uma pasta externa (organizada por caracteres)
         para a pasta oficial de treinamento.
         """
         import shutil
+
+        if dest_dir is None:
+            from config.paths import pasta_de_treino
+            dest_dir = str(pasta_de_treino())
 
         if not os.path.exists(dest_dir):
             os.makedirs(dest_dir)

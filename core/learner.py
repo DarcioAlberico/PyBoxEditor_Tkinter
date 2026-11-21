@@ -262,7 +262,11 @@ class CharacterLearner:
     aproximação.
     """
 
-    def __init__(self, data_dir="training_data", usar_cache=True):
+    def __init__(self, data_dir=None, usar_cache=True):
+        if data_dir is None:
+            # A base do projeto, não um nome solto resolvido no cwd (RG-02a, R-43).
+            from config.paths import pasta_de_treino
+            data_dir = str(pasta_de_treino())
         self.data_dir = data_dir
         self.usar_cache = usar_cache
         self._X = np.zeros((0, LADO * LADO), dtype=np.float32)

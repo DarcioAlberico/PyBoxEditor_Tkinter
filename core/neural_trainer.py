@@ -268,7 +268,10 @@ class CharDataset(Dataset):
     demanda, cada sorteio produz uma variante nova.
     """
 
-    def __init__(self, data_dir="training_data", augment=True):
+    def __init__(self, data_dir=None, augment=True):
+        if data_dir is None:
+            from config.paths import pasta_de_treino
+            data_dir = str(pasta_de_treino())
         # `augment_factor` saiu junto com as cópias congeladas: quantas
         # variantes existem por amostra passou a ser função de quantas vezes o
         # sampler a sorteia, não de um número fixo no construtor.
@@ -361,10 +364,14 @@ class CharDataset(Dataset):
 # -------------------------------------------------------
 
 class NeuralTrainer:
-    def __init__(self, data_dir="training_data", model_path="custom_model.pth", meta_path="model_meta.json"):
-        self.data_dir = data_dir
-        self.model_path = model_path
-        self.meta_path = meta_path
+    def __init__(self, data_dir=None, model_path=None, meta_path=None):
+        # Sem caminho, a base e o peso do projeto — nunca nomes soltos resolvidos no cwd
+        # (RG-02a, R-43 da revisão geral 2).
+        from config.paths import caminhos_modelo_glifos, pasta_de_treino
+        modelo, meta = caminhos_modelo_glifos()
+        self.data_dir = str(pasta_de_treino()) if data_dir is None else data_dir
+        self.model_path = str(modelo) if model_path is None else model_path
+        self.meta_path = str(meta) if meta_path is None else meta_path
         self.device = get_device()
         
     def train(self, epochs=20, callback=None, should_stop=None,
@@ -708,7 +715,12 @@ class NeuralTrainer:
                      f"de {paginas} página(s) rotulada(s).")
 
 class NeuralPredictor:
-    def __init__(self, model_path="custom_model.pth", meta_path="model_meta.json"):
+    def __init__(self, model_path=None, meta_path=None):
+        if model_path is None or meta_path is None:
+            from config.paths import caminhos_modelo_glifos
+            modelo, meta = caminhos_modelo_glifos()
+            model_path = str(modelo) if model_path is None else model_path
+            meta_path = str(meta) if meta_path is None else meta_path
         self.model_path = model_path
         self.meta_path = meta_path
         self.model = None

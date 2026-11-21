@@ -616,6 +616,19 @@ os outros 5 dependem de arquivo rastreado ou de fonte do Windows, e rodam de ver
 - Próximo passo da revisão: a RG-02a (a RG-01b corre fora do caminho crítico).
 ### RG-01b
 ### RG-02a
+Estado: em andamento. Base `70936c5`, no worktree `.claude/worktrees/rg02a` (destacado, com
+`custom_model.pth` e `text_line_model.*` copiados; `model_meta.json` igual ao do `HEAD`),
+porque a fase toca o que o AbbyChessCraft chama (passo 10). Medida de antes em
+`preview_ocr/ab/RG-02a-antes` do worktree, rodada duas vezes: textos e roteamentos
+idênticos, só o tempo do `relatorio.json` varia.
+- Commit 1 (R-43): `config.paths.pasta_de_treino()` (`PYBOXEDITOR_TRAINING_DIR`; na árvore
+  do projeto, a `training_data/` ao lado do código; instalado, a pasta de dados do
+  usuário); o cwd sai de `_raizes_de_recursos` e de `dado_do_projeto`; `LearningService`,
+  `CharacterLearner`, `CharDataset`, `NeuralTrainer`, `NeuralPredictor`, `coleta.promover`
+  e `import_character_images` sem nome solto; o `conftest` fixa a base da suíte numa
+  pasta temporária. `tests/test_pasta_de_treino.py` falhou primeiro pelo motivo certo (o
+  cwd ganhava do projeto). A/B idêntico ao de antes (só o tempo varia). Suíte do
+  worktree: 3649 passed, 25 skipped.
 ### RG-02b
 ### RG-03
 ### RG-04

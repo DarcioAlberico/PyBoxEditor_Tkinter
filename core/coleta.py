@@ -563,7 +563,7 @@ class Promocao:
     recusados: List[str] = field(default_factory=list)
 
 
-def promover(pasta: str = PASTA_PADRAO, data_dir: str = "training_data",
+def promover(pasta: str = PASTA_PADRAO, data_dir: Optional[str] = None,
              learner: Optional[CharacterLearner] = None,
              apagar: bool = False) -> Promocao:
     """

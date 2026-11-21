@@ -86,14 +86,22 @@ def _reapontar_a_pasta_de_dados():
     plataforma trocando `sys.platform`.
 
     Nada que a suíte precisa sai dessas variáveis: os pesos (`custom_model.pth`,
-    `text_line_model.*`, `core/dados/*.pth`) vêm de `projeto_dir()` (e do cwd), o
-    Tesseract do `PATH` ou de `C:\\Program Files`, e o Pillow procura fonte em
-    `WINDIR` — e a suíte inteira passa com as três reapontadas.
+    `text_line_model.*`, `core/dados/*.pth`) vêm de `projeto_dir()`, o Tesseract do
+    `PATH` ou de `C:\\Program Files`, e o Pillow procura fonte em `WINDIR` — e a
+    suíte inteira passa com as três reapontadas.
+
+    **A base de treino também** (`PYBOXEDITOR_TRAINING_DIR`, RG-02a): desde que
+    `LearningService()` e `CharacterLearner()` deixaram o cwd e passaram a usar a
+    `training_data/` do projeto, um teste que monta a `MainWindow` — os de
+    `test_f26_livro.py` fazem `chdir` para uma pasta temporária justamente para
+    isolar — leria e, num "Aprender", gravaria a base real. Aqui ela começa vazia,
+    como numa exportação limpa do `HEAD`.
     """
     for nome in VARIAVEIS_DA_PASTA_DE_DADOS:
         pasta = os.path.join(PASTA_DE_DADOS_DA_SUITE, nome)
         os.makedirs(pasta, exist_ok=True)
         os.environ[nome] = pasta
+    os.environ["PYBOXEDITOR_TRAINING_DIR"] = os.path.join(PASTA_DE_DADOS_DA_SUITE, "training_data")
     atexit.register(shutil.rmtree, PASTA_DE_DADOS_DA_SUITE, ignore_errors=True)
 
 

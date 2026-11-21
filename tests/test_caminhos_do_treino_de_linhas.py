@@ -5,8 +5,8 @@ A base rotulada, a sintética, o relatório, a avaliação, o léxico e o modelo
 nomes soltos (`Path("training_data_linhas")`, `"text_line_model.pth"`), e o app
 aberto por atalho — cujo cwd não é a raiz — rotulava linhas numa pasta, treinava
 de outra e abria um relatório que não era o do treino. Agora todos saem de
-`config.paths`, com a regra de `caminhos_modelo_linha`: vale o que existe no
-cwd, e senão a raiz do projeto. Os testes trocam a raiz por uma pasta
+`config.paths`, com a regra de `caminhos_modelo_linha`: vale a raiz do projeto,
+e desde a RG-02a o cwd não conta mais. Os testes trocam a raiz por uma pasta
 temporária e abrem o "atalho" noutra.
 """
 
@@ -52,10 +52,11 @@ def test_sem_nada_no_cwd_tudo_vai_para_a_raiz_do_projeto(projeto):
                                               projeto / "text_line_model.json")
 
 
-def test_o_que_ja_existe_no_cwd_continua_valendo(projeto):
-    local = os.path.join(os.getcwd(), "training_data_linhas")
-    os.mkdir(local)
-    assert str(paths.pasta_de_linhas()) == local
+def test_o_que_existe_no_cwd_nao_sombreia_a_raiz(projeto):
+    """Até a RG-02a valia o que existisse no cwd; uma pasta de mesmo nome largada noutro
+    lugar sombreava a base do projeto (R-43 da revisão geral 2)."""
+    os.mkdir(os.path.join(os.getcwd(), "training_data_linhas"))
+    assert paths.pasta_de_linhas() == projeto / "training_data_linhas"
     # o caminho pedido manda, e só o que falta vem do padrão
     modelo, meta = paths.completar_modelo_linha("outro.pth")
     assert (str(modelo), meta) == ("outro.pth", projeto / "text_line_model.json")

@@ -16,9 +16,13 @@ def projeto_dir() -> Path:
 
 
 def _raizes_de_recursos() -> tuple[Path, ...]:
-    """Raízes de dados em ordem de precedência, incluindo um wheel instalado."""
+    """Raízes de dados em ordem de precedência, incluindo um wheel instalado.
+
+    O cwd não entra (RG-02a, R-43 da revisão geral 2): com ele na frente, um
+    `custom_model.pth` ou um `core/dados/*.pth` largado na pasta de onde o programa foi
+    aberto passava a ser o peso da leitura, sem ninguém saber.
+    """
     candidatos = (
-        Path.cwd(),
         projeto_dir(),
         Path(sys.prefix) / "share" / APP_NAME,
         Path(sys.prefix) / "share" / APP_NAME.lower(),
@@ -44,8 +48,8 @@ def caminhos_modelo_linha() -> tuple[Path, Path]:
 
     A UI pode ser aberta por atalho, IDE ou pelo terminal. Nesses casos o
     diretório de trabalho nem sempre é a raiz do projeto, embora os pesos
-    continuem ao lado do código. Mantemos compatibilidade com um modelo
-    criado no cwd quando ele existe e, caso contrário, usamos a raiz real.
+    continuem ao lado do código: vale a raiz do projeto (e, instalado, o `share`),
+    nunca o cwd.
     """
     candidatos = _raizes_de_recursos()
     for raiz in candidatos:
@@ -89,13 +93,30 @@ def dado_do_projeto(nome: str) -> Path:
     linhas lê: a rotulada e a sintética. Com o nome solto
     (`Path("training_data_linhas")`), o app aberto por atalho rotulava linhas
     numa pasta e treinava de outra (item 9 da `docs/REVISAO_MODOS_OCR.md`).
-    Vale o que já existe no cwd — quem roda de outra pasta com os dados dela
-    continua como antes —, e senão a raiz do projeto, que é onde tudo nasce
-    quando o cwd é outro. O que o treino **grava** fica ao lado do modelo
-    (`relatorio_de_linhas`, `modelo_de_lingua`).
+    Vale a raiz do projeto, e o cwd não conta: a versão anterior aceitava o que já
+    existisse no cwd, e com isso uma pasta de mesmo nome largada noutro lugar
+    sombreava a base do projeto (RG-02a, R-43 da revisão geral 2). O que o treino
+    **grava** fica ao lado do modelo (`relatorio_de_linhas`, `modelo_de_lingua`).
     """
-    local = Path.cwd() / nome
-    return local if local.exists() else projeto_dir() / nome
+    return projeto_dir() / nome
+
+
+def pasta_de_treino() -> Path:
+    """A base de amostras do k-NN e da rede de glifos (`training_data/`).
+
+    `PYBOXEDITOR_TRAINING_DIR` reaponta a pasta — é o que mantém a suíte longe da base
+    real (`tests/conftest.py`). Numa árvore do projeto, a base mora ao lado do código;
+    instalado por wheel, o projeto fica no `site-packages`, onde não se grava, e a base
+    vai para a pasta de dados do usuário. Antes, o padrão era o nome solto
+    `"training_data"`, resolvido no cwd (RG-02a, R-43 da revisão geral 2).
+    """
+    base = os.environ.get("PYBOXEDITOR_TRAINING_DIR")
+    if base:
+        return Path(base)
+    raiz = projeto_dir()
+    if (raiz / "pyproject.toml").is_file():
+        return raiz / "training_data"
+    return data_dir() / "training_data"
 
 
 def pasta_de_linhas() -> Path:
