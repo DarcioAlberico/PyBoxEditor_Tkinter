@@ -704,6 +704,13 @@ que o AbbyChessCraft chama (passo 10).
   sexto confere os valores dos tetos); com tetos reduzidos no teste, a entrada grande
   demais é recusada sem nenhum `ZipFile.read` dela. Suíte do worktree: 3719 passed, 26
   skipped.
+- Commit 3 (R-07): `core/texto_legal.py` (`texto_legal_em_xml`, pública, com a contagem em
+  WARNING `uma_vez` por origem), aplicada onde o texto vira nó XML: no XHTML já serializado
+  de cada página do EPUB do OCR, no `add_run` do DOCX do OCR, no trecho e no atributo do
+  editor, e no texto do TXT importado; o TXT com BOM UTF-16 passa a ser lido como UTF-16.
+  `tests/test_texto_legal_em_xml.py`: contra o código de antes, os quatro cenários falham
+  (o EPUB mal formado, o DOCX que levanta, o `\ud800` do editor, o TXT com NUL); o negrito
+  fica no lugar no EPUB e no DOCX. Suíte do worktree: 3724 passed, 26 skipped.
 ### RG-05
 ### RG-05b
 ### RG-06

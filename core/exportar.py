@@ -36,6 +36,7 @@ from core.render_diagrama import (CANTO_PADRAO, MOLDURA_PADRAO,
                                   normalizar_cantos, normalizar_moldura)
 
 from core.escrita_atomica import caminho_temporario
+from core.texto_legal import texto_legal_em_xml
 from core.log import logger
 
 log = logger(__name__)
@@ -698,9 +699,10 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     for pagina, imagens in zip(paginas, imagens_por_pagina):
         nome = nome_da_pagina(pagina)
         arquivos_de_pagina.append(nome)
-        arquivos.append((f"OEBPS/{nome}",
-                         _xhtml_da_pagina(pagina, imagens, diagramas, simbolos,
-                                          idioma, corpo_pt).encode("utf-8")))
+        # O documento já serializado: caractere de controle só pode estar no texto, e
+        # tirá-lo aqui não desloca nenhuma faixa de negrito ou itálico (RG-04, R-07).
+        xhtml_da_pagina = _xhtml_da_pagina(pagina, imagens, diagramas, simbolos, idioma, corpo_pt)
+        arquivos.append((f"OEBPS/{nome}", texto_legal_em_xml(xhtml_da_pagina, nome).encode("utf-8")))
 
     itens = [f'<item id="c{i}" href="{n}" media-type="application/xhtml+xml"/>'
              for i, n in enumerate(arquivos_de_pagina)]
@@ -1208,7 +1210,9 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         texto = aspas_curvas(texto)
         for trecho, forte, inclinado in trechos_com_estilo(texto, negrito, italico):
             for pedaco, e_simbolo in _por_familia(trecho, simbolos):
-                run = p.add_run(pedaco)
+                # No run, depois das faixas (RG-04, R-07): o `python-docx` levantava e a
+                # exportação inteira caía.
+                run = p.add_run(texto_legal_em_xml(pedaco, "DOCX"))
                 # `None` e não `False`: o `False` escreve `<w:b w:val="0"/>` em
                 # todo run do livro, e o que se quer dizer é "este run não fala
                 # de peso" — que é o que o estilo do parágrafo já diz.
@@ -1311,7 +1315,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     # o quadrado do em, e o tabuleiro só fecha quadrado quando a
                     # linha mede exatamente uma casa.
                     p.paragraph_format.line_spacing = corpo
-                    run = p.add_run(linha)
+                    run = p.add_run(texto_legal_em_xml(linha, "DOCX"))
                     run.font.size = corpo
                     # Sem o `hAnsi`, o Word desenha a fonte pedida só até o
                     # primeiro caractere que julgue não-ASCII.

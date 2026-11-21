@@ -25,6 +25,7 @@ from typing import Sequence
 
 from core.editor import epub, modelo, sumario
 from core.editor.conversao import Cronometro, OpcoesDeConversao, RelatorioDeConversao
+from core.texto_legal import texto_legal_em_xml
 from core.editor.modelo import (Bloco, Capitulo, Celula, Citacao, Diagrama, Figura, IlhaBruta, ItemDeLista, Lista,
                                 Livro, MarcaDePagina, Metadados, Nota, Paragrafo, QuebraDePagina, Separador, Tabela,
                                 Titulo, Trecho)
@@ -352,12 +353,18 @@ def ler(caminho: str, titulos: bool = True, dividir_por_titulo: bool = True,
             raise ValueError(f"não deu para ler {caminho}: {erro}") from None
         if dados.startswith(b"\xef\xbb\xbf"):
             dados = dados[3:]
-        try:
-            texto = dados.decode("utf-8")
-        except UnicodeDecodeError:
-            relatorio.aviso("o arquivo não é UTF-8; lido como Windows-1252")
-            texto = dados.decode("cp1252", errors="replace")
+        if dados.startswith((b"\xff\xfe", b"\xfe\xff")):
+            # UTF-16 com BOM (o Bloco de Notas antigo grava assim): era lido como
+            # Windows-1252, com um NUL entre cada letra (RG-04, R-07).
+            texto = dados.decode("utf-16", errors="replace")
+        else:
+            try:
+                texto = dados.decode("utf-8")
+            except UnicodeDecodeError:
+                relatorio.aviso("o arquivo não é UTF-8; lido como Windows-1252")
+                texto = dados.decode("cp1252", errors="replace")
         texto = texto.replace("\r\n", "\n").replace("\r", "\n").replace("\f", "\n\n" + QUEBRA_DE_PAGINA + "\n\n")
+        texto = texto_legal_em_xml(texto, os.path.basename(caminho))
         paragrafos = [p.strip("\n") for p in re.split(r"\n\s*\n", texto) if p.strip()]
         grupos: list[list[str]] = [[]]
         for p in paragrafos:

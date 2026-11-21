@@ -46,6 +46,7 @@ from xml.sax.saxutils import escape
 
 from core import lado_a_jogar
 from core.editor import dialeto, modelo
+from core.texto_legal import texto_legal_em_xml
 from core.editor.modelo import (Bloco, Capitulo, Celula, Citacao, Diagrama, Figura, IlhaBruta,
                                 ItemDeLista, Lista, MarcaDePagina, Nota, Paragrafo,
                                 QuebraDePagina, Separador, Tabela, Titulo, Trecho)
@@ -1236,7 +1237,7 @@ def ler_fragmento(texto: str, arquivo: str = "") -> list[Bloco]:
 # ----------------------------------------------------------------------
 
 def _attr(valor: str) -> str:
-    return escape(valor, {'"': "&quot;"})
+    return escape(texto_legal_em_xml(valor, "atributo do editor"), {'"': "&quot;"})
 
 
 def _atributos_para_texto(attrs: dict[str, str]) -> str:
@@ -1536,7 +1537,9 @@ class _Escritor:
         return "".join(partes)
 
     def _trecho(self, t: Trecho) -> str:
-        texto = escape(t.texto)
+        # Onde o texto vira nó XML (RG-04, R-07): o capítulo saía mal formado com um
+        # `\x0c`, e um surrogate solto levantava `UnicodeEncodeError` ao gravar.
+        texto = escape(texto_legal_em_xml(t.texto, "texto do editor"))
         camadas: list[tuple[str, str]] = []   # (abertura, fechamento), de fora para dentro
         if t.link:
             attrs: dict[str, str] = {}
