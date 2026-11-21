@@ -409,11 +409,17 @@ class Rascunho:
         if dados.get("versao") != VERSAO_DO_RASCUNHO:
             raise ValueError(f"rascunho de versão desconhecida: {dados.get('versao')!r}")
         livro = modelo.de_dict(dados["livro"])
-        projeto = Projeto(livro, dados.get("caminho") or None, **kw)
+        # Com relatório, para o aviso da ponte desligada chegar a quem abriu: a janela
+        # mostra os avisos do relatório do projeto que instala (RG-05, R-55).
+        projeto = Projeto(livro, dados.get("caminho") or None,
+                          relatorio=RelatorioDeConversao(formato="rascunho"), **kw)
         if not projeto.caminho:
             nome = os.path.basename(caminho_do_rascunho)
             if nome.endswith(".json"):
                 projeto.uuid = nome[:-5]
+        # A ponte volta como volta ao abrir do disco: sem ela, o livro vindo do documento
+        # editorial salvava sem levar as correções ao diário, e sem aviso (RG-05, R-55).
+        projeto.religar_documento_editorial()
         projeto.marcar_sujo()
         return projeto
 

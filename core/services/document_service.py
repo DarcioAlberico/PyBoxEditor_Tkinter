@@ -3,6 +3,7 @@ import json
 import os
 import queue
 import threading
+from dataclasses import replace
 from typing import Dict, List, Optional, Set
 
 from core.box_model import BoxEntry
@@ -93,28 +94,39 @@ class _GravadorAssincrono:
         return self._erro
 
 
-def _estado_no_rascunho(b: BoxEntry) -> tuple:
-    """O box no rascunho: caractere, coordenadas, confiança, origem e ângulo."""
-    return (b.char, b.x1, b.y1, b.x2, b.y2, round(b.confidence, 4),
-            b.source, getattr(b, "angulo", 0))
+def _estado_no_rascunho(b: BoxEntry) -> list:
+    """O estado inteiro do box (`as_state`), com a confiança arredondada.
+
+    Com oito campos, `negativo`, `margem` e `moldura` se perdiam na recuperação, e o
+    `.box` salvo em seguida perdia o campo 8 (RG-05, R-55).
+    """
+    estado = list(b.as_state())
+    estado[5] = round(b.confidence, 4)
+    return estado
 
 
 def _box_do_rascunho(it, f: float) -> Optional[BoxEntry]:
-    """Um box do rascunho, reescalado por `f`; `None` se o item não se lê."""
+    """Um box do rascunho por `from_state`, reescalado por `f`; `None` se não se lê.
+
+    `from_state` aceita o estado curto dos rascunhos antigos: o de antes da F8.1 não tem
+    o oitavo campo (ângulo zero), o de antes da RG-05 não tem os três últimos, e os
+    padrões deles são o que aquele box queria dizer. A escala vem depois.
+    """
     try:
-        char, x1, y1, x2, y2 = it[0], int(it[1]), int(it[2]), int(it[3]), int(it[4])
-        conf = float(it[5]) if len(it) > 5 else 0.0
-        origem = it[6] if len(it) > 6 else ""
-        # Rascunho gravado antes da F8.1 não tem o oitavo campo, e
-        # a ausência dele quer dizer exatamente ângulo zero.
-        angulo = int(it[7]) if len(it) > 7 else 0
-    except (TypeError, ValueError, IndexError):
+        if len(it) < 5:
+            return None
+        box = BoxEntry.from_state(list(it[:11]))
+        x1, y1, x2, y2 = int(box.x1), int(box.y1), int(box.x2), int(box.y2)
+        conf = float(box.confidence)
+        angulo = int(box.angulo)
+    except (TypeError, ValueError):
         return None
     if f != 1.0:
         x1, y1 = int(round(x1 * f)), int(round(y1 * f))
         x2, y2 = int(round(x2 * f)), int(round(y2 * f))
-    return BoxEntry(char, x1, y1, x2, y2, confidence=conf, source=origem or "",
-                    angulo=angulo if angulo in (0, 90, 180, 270) else 0)
+    return replace(box, x1=x1, y1=y1, x2=x2, y2=y2, confidence=conf,
+                   source=box.source or "",
+                   angulo=angulo if angulo in (0, 90, 180, 270) else 0)
 
 
 class DocumentSession:

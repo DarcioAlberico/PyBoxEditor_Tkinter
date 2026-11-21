@@ -726,8 +726,9 @@ que o AbbyChessCraft chama (passo 10).
   não da fase.
 - Próximo passo da revisão: a Onda 2 (RG-05, RG-05b, RG-06).
 ### RG-05
-Estado: em andamento (2026-11-21). Base `15af852`, no worktree `.claude/worktrees/onda2`
-(destacado, com os pesos copiados), o mesmo da RG-05b e da RG-06.
+Estado: fechada (2026-11-21), em quatro commits (`920acca`, `b372cb0`, `147e32b` e o do
+R-55). Base `15af852`, no worktree `.claude/worktrees/onda2` (destacado, com os pesos
+copiados), o mesmo da RG-05b e da RG-06; vai ao `master` com elas, no fim da Onda 2.
 - Commit 1 (R-52): `_write_box_pair` não regrava o PNG do par quando ele é a própria imagem
   aberta (`_mesmo_arquivo`: `samefile` com os dois no disco, o caminho real normalizado
   senão), e o aviso de sucesso diz "a imagem de origem, mantida como estava". O PNG de um
@@ -761,6 +762,14 @@ Estado: em andamento (2026-11-21). Base `15af852`, no worktree `.claude/worktree
   `tests/test_rascunho_nao_some_antes_da_hora.py`: contra o código de antes, sete dos oito
   falham; o oitavo (fechar a janela com "Descartar" apaga o rascunho) já passava e fica de
   guarda. Suíte do worktree: 3745 passed, 26 skipped.
+- Commit 4 (R-55): `Rascunho.restaurar` religa a ponte, como `Projeto.abrir`, e o projeto
+  restaurado nasce com relatório, para o aviso da ponte desligada chegar à janela (que
+  mostra os avisos do relatório do projeto que instala); o rascunho da janela principal
+  grava `BoxEntry.as_state()` (onze campos, a confiança arredondada) e lê por
+  `from_state`, com a escala aplicada depois. `tests/test_rascunho_restaura_tudo.py`:
+  contra o código de antes, três dos quatro falham (a ponte que não volta, o aviso que não
+  chega, `negativo`/`margem`/`moldura` perdidos); o quarto, o rascunho antigo de oito
+  campos, já carregava e fica de guarda. Suíte do worktree: 3749 passed, 26 skipped.
 ### RG-05b
 ### RG-06
 ### RG-07
