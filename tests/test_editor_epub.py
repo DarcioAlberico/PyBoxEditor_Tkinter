@@ -299,8 +299,10 @@ def test_recursos_sao_lidos_sob_demanda_e_soltos_depois_de_gravar(tmp_path):
     novo = str(tmp_path / "novo.epub")
     epub.escrever(livro, novo)
     assert livro.zip_de_origem == novo
-    assert all(r.dados is not None for r in livro.recursos.values())
-    assert epub.descarregar(livro) == len(livro.recursos)
+    # O escritor trabalha numa cópia (RG-06, R-31): a montagem carrega os recursos nela, e
+    # o livro aberto fica só com o que já tinha na memória — o recurso lido acima.
+    assert [h for h, r in livro.recursos.items() if r.dados is not None] == ["imagens/fig-0001-1.png"]
+    assert epub.descarregar(livro) == 1
     assert all(r.dados is None for r in livro.recursos.values())
     os.unlink(original)
     assert epub.dados_de(livro, recurso) == dados          # agora vem do novo

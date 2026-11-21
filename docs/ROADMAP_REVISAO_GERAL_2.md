@@ -800,7 +800,8 @@ RG-05 (`.claude/worktrees/onda2`), depois dela; vai ao `master` no fim da Onda 2
 - AbbyChessCraft contra o `core` do worktree (passo 10; ele chama `split_box` e
   `clamp_box`): 2915 passed e as mesmas 6 falhas da base.
 ### RG-06
-Estado: em andamento (2026-11-21), no worktree da Onda 2, depois da RG-05b.
+Estado: fechada (2026-11-21), em dois commits (`b381a29` e o do R-31), no worktree da
+Onda 2, depois da RG-05b; a onda inteira vai ao `master` por `git merge --ff-only`.
 - Commit 1 (R-03): o recurso que não se lê na montagem levanta `epub.RecursosIlegiveis`
   (subclasse de `OSError`, com a lista) antes de gravar — o destino não muda, e o projeto
   continua apontando para o arquivo de antes —; `sem_ilegiveis=True` grava sem eles, com
@@ -817,6 +818,20 @@ Estado: em andamento (2026-11-21), no worktree da Onda 2, depois da RG-05b.
   origem apagada, nem no checkpoint; a imagem renomeada some do zip, também com
   `renomear_varios`); o quinto, na janela, confere a pergunta. Suíte do worktree: 3766
   passed, 26 skipped.
+- Commit 2 (R-31): `epub.escrever` monta e grava uma cópia do livro (`copy.deepcopy`;
+  os bytes não se copiam), e a opção `ncx` vale na cópia; com `destino`, voltam ao livro
+  aberto só a origem, o `ncx`, o nav e o identificador sorteados, e o nome de origem dos
+  recursos. O `test_editor_epub.py::test_recursos_sao_lidos_sob_demanda…` fixava que a
+  gravação carregava todos os recursos no livro aberto; agora ela os carrega na cópia, e
+  o teste confere que o livro aberto fica só com o que já tinha. O sumário ainda sai
+  podado no arquivo (R-27, Onda 4), não mais no livro aberto.
+  `tests/test_escritor_nao_muda_o_livro.py`: contra o código de antes, os quatro falham
+  (o marco podado no sucesso, o `ncx` trocado na falha, o identificador da cópia
+  devolvido ao livro, o checkpoint que poda os marcos do livro aberto). Suíte do
+  worktree: 3770 passed, 26 skipped; `slow and not gui`: 11 passed, 7 skipped.
+- AbbyChessCraft contra o `core` do worktree, no fim da onda (passo 10): 2915 passed e as
+  mesmas 6 falhas da base.
+- Próximo passo da revisão: a Onda 3 (RG-07 em diante, o diário de revisão).
 ### RG-07
 ### RG-08
 ### RG-09

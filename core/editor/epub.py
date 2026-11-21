@@ -1057,25 +1057,38 @@ def escrever(livro: Livro, caminho: str, *, ncx: bool | None = None, sem_ilegive
     `zip_de_origem` e o nome de origem de cada recurso apontam para ele. O checkpoint,
     a diferença, a exportação e a validação gravam cópias, e passam `destino=False`.
     """
+    import copy
+
     caminho = os.fspath(caminho)
-    if ncx is True and not livro.ncx:
-        livro.ncx = _nome_livre(livro, "toc.ncx")
+    # O escritor trabalha numa cópia, como `texto_do_opf` (RG-06, R-31): `verificar`
+    # podava os marcos do livro aberto, e a opção `ncx` o trocava mesmo quando a gravação
+    # falhava depois. Os bytes dos recursos não se copiam (`bytes` é imutável), e os que
+    # a montagem carrega do zip ficam na cópia, não no livro aberto.
+    copia = copy.deepcopy(livro)
+    if ncx is True and not copia.ncx:
+        copia.ncx = _nome_livre(copia, "toc.ncx")
     elif ncx is False:
-        livro.ncx = ""
+        copia.ncx = ""
     relatorio = RelatorioDeConversao(formato="epub", arquivos=[caminho])
     with Cronometro(relatorio):
-        escritor = _Escritor(livro, caminho, relatorio, sem_ilegiveis=sem_ilegiveis)
+        escritor = _Escritor(copia, caminho, relatorio, sem_ilegiveis=sem_ilegiveis)
         escritor.verificar()
         escritor.montar()
         escritor.gravar()
     if destino:
+        # Do que se gravou, volta ao livro só o que faz dele o livro deste arquivo: a
+        # origem, o `ncx` escolhido, o nav e o identificador sorteados (sem isto, cada
+        # gravação sortearia outro identificador).
         livro.zip_de_origem = caminho
+        livro.ncx = copia.ncx
+        livro.nav = livro.nav or copia.nav
+        livro.metadados.identificador = livro.metadados.identificador or copia.metadados.identificador
         for href in escritor.omitidos:
             livro.recursos.pop(href, None)
         for recurso in livro.recursos.values():
             recurso.nome_de_origem = nome_no_zip(livro, recurso.caminho)
-    relatorio.contar(livro)
-    relatorio.fontes_embutidas = fontes_embutidas(livro)
+    relatorio.contar(copia)
+    relatorio.fontes_embutidas = fontes_embutidas(copia)
     return relatorio
 
 
