@@ -49,7 +49,6 @@ import io
 import os
 import posixpath
 import re
-import tempfile
 from typing import Any, Sequence
 
 from core.editor import dialeto, epub, modelo, xhtml
@@ -288,23 +287,13 @@ class _Escritor:
 
     def gravar(self, caminho: str) -> None:
         from core import exportar
+        from core.escrita_atomica import caminho_temporario
 
-        pasta = os.path.dirname(os.path.abspath(caminho))
-        os.makedirs(pasta, exist_ok=True)
-        fd, temporario = tempfile.mkstemp(prefix=".docx-", suffix=".tmp", dir=pasta)
-        os.close(fd)
-        try:
+        with caminho_temporario(caminho) as temporario:
             self.doc.save(temporario)
             if self._fontes:
                 exportar._embutir_fontes_no_docx(temporario, dict(self._fontes))
             self.docx.Document(temporario)          # reabrir confere o pacote antes de publicá-lo
-            os.replace(temporario, caminho)
-        except Exception:
-            try:
-                os.unlink(temporario)
-            except OSError:
-                pass
-            raise
 
     def _capitulo_em_modelo(self, cap: Capitulo) -> Capitulo | None:
         """Um capítulo em código (`texto_cru`) passa pelo `xhtml.ler`; mal-formado vira aviso."""

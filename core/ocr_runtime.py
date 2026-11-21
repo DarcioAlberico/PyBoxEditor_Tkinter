@@ -167,9 +167,11 @@ class OCRCache:
         caminho = self._path(chave)
         if caminho is None:
             return None
-        temporario = caminho.with_suffix(".tmp")
-        resultado.save_json(temporario)
-        temporario.replace(caminho)
+        # Cache descartável: sem `fsync` (RG-03), e o temporário é único — dois processos
+        # lendo o mesmo livro gravavam o mesmo `.tmp`.
+        from core.escrita_atomica import caminho_temporario
+        with caminho_temporario(caminho, duravel=False) as temporario:
+            resultado.save_json(temporario)
         return caminho
 
     def prune(self, *, max_age_seconds: float | None = None,

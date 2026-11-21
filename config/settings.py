@@ -49,13 +49,10 @@ class Settings:
                 no_disco[chave] = valor
         for chave in self._visto.keys() - self.data.keys():
             no_disco.pop(chave, None)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporario = self.path.with_name(self.path.name + ".tmp")
-        temporario.write_text(
-            json.dumps(no_disco, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        temporario.replace(self.path)
+        # Temporário único: a janela principal e o `appy.py --editor` gravavam o mesmo
+        # `settings.json.tmp`, um por cima do outro (RG-03).
+        from core.escrita_atomica import gravar_atomico
+        gravar_atomico(self.path, json.dumps(no_disco, indent=2, ensure_ascii=False) + "\n")
         self.data = no_disco
         self._visto = copy.deepcopy(no_disco)
 

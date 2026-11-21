@@ -656,7 +656,8 @@ idênticos, só o tempo do `relatorio.json` varia.
 - Próximo passo da revisão: a RG-03 (a RG-01b e a RG-02b correm fora do caminho crítico).
 ### RG-02b
 ### RG-03
-Estado: em andamento. Base `b5f3dbd`, no worktree `.claude/worktrees/rg03` (destacado, com
+Estado: fechada (2026-11-21), em dois commits (`934e351` e o dos gravadores), levados ao
+`master` por `git merge --ff-only`. Base `b5f3dbd`, no worktree `.claude/worktrees/rg03` (destacado, com
 `custom_model.pth` e `text_line_model.*` copiados; `model_meta.json` igual ao do `HEAD`),
 porque a fase toca o `lexico`, cujo `_ler` o AbbyChessCraft usa sob contrato (passo 10).
 - Commit 1 (o módulo): `core/escrita_atomica.py` com três formas — `gravar_atomico`,
@@ -665,6 +666,22 @@ porque a fase toca o `lexico`, cujo `_ler` o AbbyChessCraft usa sob contrato (pa
   das duas da spec, porque metade dos 25 pontos grava assim. `tests/test_escrita_atomica.py`
   falhou primeiro (módulo ausente); 15 passed, 1 skipped (o do modo do arquivo, que o
   Windows não guarda, roda na CI). Suíte do worktree: 3672 passed, 26 skipped.
+- Commit 2 (os gravadores): os 22 pontos da spec e os 3 que já usavam `mkstemp` passam
+  pelo módulo; o `formato_box` monta o texto antes de abrir; o cache do OCR grava sem
+  `fsync` (`duravel=False`); o `_pdf` editorial fecha o documento num `finally`.
+  `tests/test_gravadores_atomicos.py`: a varredura por AST (sem `.tmp` de nome fixo nem
+  `mkstemp` fora do módulo; lista nominal vazia) acusa, contra o `HEAD`, os 13 `.tmp` e os 4
+  `mkstemp` que a spec listou, e nenhum depois; o caso de interrupção de cada um dos 23
+  gravadores (a troca final falhando) deixa o arquivo de antes intacto e nenhum temporário
+  — contra os gravadores antigos, 24 dos 25 testes falham. Os dois `torch.save` do treino
+  de linhas ficam só com a varredura (o caso pediria um treino inteiro). O acréscimo do
+  diário de revisão não é pego pela regra, que mira o temporário próprio, e fica fora de
+  propósito (R-09). A invariante 17 e o termo "escrita atômica" entram no `CONTEXT.md`.
+  Medido: o rascunho do editor de um livro de 300 capítulos (9,6 MB) grava em 1134 ms de
+  mediana antes e 1140 e 1127 ms depois — o `fsync` some no custo da serialização. Suíte do
+  worktree: 3697 passed, 26 skipped; `slow and not gui`: 11 passed, 7 skipped.
+- AbbyChessCraft contra o `core` do worktree (passo 10): 2915 passed, as mesmas 6 falhas.
+- Próximo passo da revisão: a RG-04.
 ### RG-04
 ### RG-05
 ### RG-05b

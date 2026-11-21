@@ -74,10 +74,9 @@ class _GravadorAssincrono:
             except queue.Empty:
                 return
             try:
-                tmp = caminho + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as f:
+                from core.escrita_atomica import escrita_atomica
+                with escrita_atomica(caminho) as f:
                     json.dump(payload, f, ensure_ascii=False)
-                os.replace(tmp, caminho)
                 self._erro = None
             except Exception as e:      # noqa: BLE001 — consultado pela UI
                 self._erro = e

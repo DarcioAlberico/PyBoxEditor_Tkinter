@@ -323,13 +323,13 @@ def escrever(livro: Livro, caminho: str, opcoes: OpcoesDeConversao | None = None
                 break
         writer.close()
         doc = fitz.open("pdf", buffer.getvalue())
+        from core.escrita_atomica import caminho_temporario
         try:
             _acabamento(doc, livro, posicoes, relatorio)
-            temporario = caminho + ".tmp"
-            doc.save(temporario, garbage=3, deflate=True)
+            with caminho_temporario(caminho) as temporario:
+                doc.save(temporario, garbage=3, deflate=True)
         finally:
             doc.close()
-        os.replace(temporario, caminho)
         relatorio.metadados["paginas"] = n
         relatorio.fontes_embutidas = list(montador.fontes_embutidas)
     relatorio.contar(livro)

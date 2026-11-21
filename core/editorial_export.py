@@ -402,11 +402,10 @@ def avisos_dos_diagramas(document: EditorialDocument) -> tuple[str, ...]:
 
 
 def _gravar_atomico(caminho: Path, conteudo: str) -> None:
-    """Grava num temporário ao lado e troca: uma falha no meio não deixa meio
-    arquivo no lugar do que havia (era como a fachada gravava o TXT)."""
-    temporario = caminho.with_suffix(caminho.suffix + ".tmp")
-    temporario.write_text(conteudo, encoding="utf-8")
-    temporario.replace(caminho)
+    """Uma falha no meio não deixa meio arquivo no lugar do que havia (era como a fachada
+    gravava o TXT); desde a RG-03, pela escrita atômica única."""
+    from core.escrita_atomica import gravar_atomico
+    gravar_atomico(caminho, conteudo)
 
 
 class EditorialExporter:
@@ -571,8 +570,12 @@ class EditorialExporter:
                     warnings.append(f"bloco {block.id}: {type(error).__name__}: {error}")
                     continue
                 text_items += 1
-        pdf.save(target)
-        pdf.close()
+        from core.escrita_atomica import caminho_temporario
+        try:
+            with caminho_temporario(target) as temporario:
+                pdf.save(temporario)
+        finally:
+            pdf.close()
         return ExportReport("pdf", (str(target),), warnings=tuple(warnings), metadata={
             "pages": len(document.pages), "text_items": text_items,
             "failed_items": failed_items, "mode": options.mode,

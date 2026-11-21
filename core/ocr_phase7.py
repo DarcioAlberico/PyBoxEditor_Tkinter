@@ -268,13 +268,8 @@ class CorrectionDataset:
         return hashlib.sha256(_canonical(self.to_dict(include_checksum=False))).hexdigest()
 
     def save(self, path: str | Path) -> Path:
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(target.suffix + ".tmp")
-        temporary.write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "\n",
-                             encoding="utf-8")
-        temporary.replace(target)
-        return target
+        from core.escrita_atomica import gravar_atomico
+        return gravar_atomico(path, json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "\n")
 
     @classmethod
     def load(cls, path: str | Path) -> "CorrectionDataset":

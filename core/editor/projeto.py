@@ -321,12 +321,11 @@ def _apagar(caminho: str) -> None:
 # ----------------------------------------------------------------------
 
 def gravar_json_atomico(caminho: str, dados: dict) -> None:
-    """O gravador padrão: temporário ao lado e `os.replace`, como o `document_service`."""
-    os.makedirs(os.path.dirname(caminho) or ".", exist_ok=True)
-    temporario = caminho + ".tmp"
-    with open(temporario, "w", encoding="utf-8") as f:
+    """O gravador padrão, pela escrita atômica (RG-03): dois editores no mesmo livro não
+    disputam mais um `rascunho.tmp` de nome fixo."""
+    from core.escrita_atomica import escrita_atomica
+    with escrita_atomica(caminho) as f:
         json.dump(dados, f, ensure_ascii=False)
-    os.replace(temporario, caminho)
 
 
 class Rascunho:

@@ -33,11 +33,8 @@ def ler_manifesto(pasta: str | Path | None = None) -> list[LinhaAmostra]:
 
 
 def _salvar(pasta: Path, amostras: list[LinhaAmostra]) -> None:
-    destino = pasta / "rec_gt.txt"
-    temporario = destino.with_suffix(".txt.tmp")
-    conteudo = "".join(f"{item.caminho}\t{item.texto}\n" for item in amostras)
-    temporario.write_text(conteudo, encoding="utf-8")
-    temporario.replace(destino)
+    from core.escrita_atomica import gravar_atomico
+    gravar_atomico(pasta / "rec_gt.txt", "".join(f"{item.caminho}\t{item.texto}\n" for item in amostras))
 
 
 def corrigir(pasta: str | Path, caminho: str, texto: str,

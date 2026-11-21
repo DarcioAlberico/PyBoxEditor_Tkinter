@@ -18,7 +18,6 @@ arquivo que o Word recusa abrir sem dizer por quê. Ali a dependência
 import datetime
 import html
 import os
-import tempfile
 import time
 import uuid
 import zipfile
@@ -36,6 +35,7 @@ from core.livro import Figura, PaginaExtraida, Paragrafo, Tabela
 from core.render_diagrama import (CANTO_PADRAO, MOLDURA_PADRAO,
                                   normalizar_cantos, normalizar_moldura)
 
+from core.escrita_atomica import caminho_temporario
 from core.log import logger
 
 log = logger(__name__)
@@ -786,17 +786,11 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
            "</head><body><nav epub:type=\"toc\"><h1>Sumário</h1><ol>"
            + entradas + "</ol></nav></body></html>\n")
 
-    pasta = os.path.dirname(os.path.abspath(caminho))
-    if pasta:
-        os.makedirs(pasta, exist_ok=True)
-    # Write beside the destination and publish only after the ZIP is closed.
-    # A cancelled export, a full disk, or a missing font must not replace a
-    # previously valid book with a partial archive.
-    fd, temporario = tempfile.mkstemp(prefix=".epub-", suffix=".tmp",
-                                      dir=pasta)
-    os.close(fd)
+    # Ao lado do destino e publicado só com o zip fechado e conferido: exportação
+    # cancelada, disco cheio ou fonte faltando não trocam um livro válido por um zip pela
+    # metade. Pela escrita atômica única desde a RG-03 (com `fsync` e o modo do destino).
     data_hora = data_no_zip(momento)
-    try:
+    with caminho_temporario(caminho) as temporario:
         with zipfile.ZipFile(temporario, "w", zipfile.ZIP_DEFLATED) as z:
             _gravar_no_zip(z, "mimetype", "application/epub+zip", data_hora,
                            zipfile.ZIP_STORED)
@@ -811,13 +805,6 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
         with zipfile.ZipFile(temporario) as z:
             if z.testzip() is not None:
                 raise zipfile.BadZipFile("EPUB temporário contém entrada inválida")
-        os.replace(temporario, caminho)
-    except Exception:
-        try:
-            os.unlink(temporario)
-        except OSError:
-            log.debug("EPUB: o temporário %s não foi apagado", temporario)
-        raise
     return caminho
 
 
@@ -1376,15 +1363,10 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                     p.paragraph_format.first_line_indent = Pt(0)
                     primeiro = False
 
-    pasta = os.path.dirname(os.path.abspath(caminho))
-    if pasta:
-        os.makedirs(pasta, exist_ok=True)
     # Font embedding is a second ZIP rewrite. Keep both stages off the public
-    # path so a failure cannot destroy an existing DOCX.
-    fd, temporario = tempfile.mkstemp(prefix=".docx-", suffix=".tmp",
-                                      dir=pasta)
-    os.close(fd)
-    try:
+    # path so a failure cannot destroy an existing DOCX — pela escrita atômica única
+    # desde a RG-03.
+    with caminho_temporario(caminho) as temporario:
         doc.save(temporario)
 
         embutir = {}
@@ -1404,13 +1386,6 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         # produced by a future embedding change before publication.
         from docx import Document as _Document
         _Document(temporario)  # opening validates the OOXML package
-        os.replace(temporario, caminho)
-    except Exception:
-        try:
-            os.unlink(temporario)
-        except OSError:
-            log.debug("DOCX: o temporário %s não foi apagado", temporario)
-        raise
     return caminho
 
 

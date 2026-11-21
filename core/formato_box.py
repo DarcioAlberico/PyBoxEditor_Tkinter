@@ -220,5 +220,7 @@ def escrever_texto(boxes: Sequence[BoxEntry], altura: int,
 
 def escrever(caminho: str, boxes: Sequence[BoxEntry], altura: int,
              pagina: int = 0) -> None:
-    with open(caminho, "w", encoding="utf-8") as f:
-        f.write(escrever_texto(boxes, altura, pagina))
+    # O texto inteiro antes, e a escrita atômica depois (RG-03): o `open("w")` zerava o
+    # `.box` antes de escrever, e uma exceção na formatação o deixava vazio.
+    from core.escrita_atomica import gravar_atomico
+    gravar_atomico(caminho, escrever_texto(boxes, altura, pagina))

@@ -286,12 +286,8 @@ def salvar_manifesto(manifesto: CorpusManifest, caminho: str | Path, *,
     base = Path(base_dir) if base_dir is not None else destino.parent
     manifesto.validate(base)
     manifesto.corpus_sha256 = manifesto.digest(base)
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    temporario = destino.with_suffix(destino.suffix + ".tmp")
-    temporario.write_text(json.dumps(manifesto.to_dict(), ensure_ascii=False,
-                                     indent=2) + "\n", encoding="utf-8")
-    temporario.replace(destino)
-    return destino
+    from core.escrita_atomica import gravar_atomico
+    return gravar_atomico(destino, json.dumps(manifesto.to_dict(), ensure_ascii=False, indent=2) + "\n")
 
 
 def carregar_manifesto(caminho: str | Path, *, validate_paths: bool = False,

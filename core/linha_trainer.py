@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import hashlib
 import random
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +19,8 @@ from typing import Callable, Mapping, Optional, Tuple
 
 import numpy as np
 from PIL import Image
+
+from core.escrita_atomica import caminho_temporario
 
 
 ALTURA = 48
@@ -725,11 +726,8 @@ def treinar(pasta: str | Path | None = None,
         # O checkpoint de trabalho é separado do melhor modelo. Assim um
         # cancelamento/fechamento da UI pode continuar da última época sem
         # substituir o peso que já foi validado como melhor.
-        checkpoint_ultimo.parent.mkdir(parents=True, exist_ok=True)
-        temporario_ultimo = checkpoint_ultimo.with_suffix(
-            checkpoint_ultimo.suffix + ".tmp")
-        torch.save(modelo.state_dict(), temporario_ultimo)
-        os.replace(temporario_ultimo, checkpoint_ultimo)
+        with caminho_temporario(checkpoint_ultimo) as temporario_ultimo:
+            torch.save(modelo.state_dict(), temporario_ultimo)
         if callback:
             callback(f"Validação — linhas exatas {linhas_exatas}/{len(val_ds)}, "
                      f"CER {erros / max(1, total_chars):.2%}, "
@@ -737,10 +735,8 @@ def treinar(pasta: str | Path | None = None,
         if perda_val < melhor:
             melhor = perda_val
             sem_melhora = 0
-            destino.parent.mkdir(parents=True, exist_ok=True)
-            temporario = destino.with_suffix(destino.suffix + ".tmp")
-            torch.save(modelo.state_dict(), temporario)
-            os.replace(temporario, destino)
+            with caminho_temporario(destino) as temporario:
+                torch.save(modelo.state_dict(), temporario)
         else:
             sem_melhora += 1
             if sem_melhora >= paciencia:

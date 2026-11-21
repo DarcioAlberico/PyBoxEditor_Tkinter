@@ -156,10 +156,8 @@ class Colecao:
     def exportar_json(self, caminho: str, nomes: Sequence[str] | None = None) -> int:
         escolhidas = [b for b in self.buscas if nomes is None or b.nome in set(nomes)]
         dados = {"formato": "pybox-buscas", "versao": VERSAO, "buscas": [asdict(b) for b in escolhidas]}
-        pasta = os.path.dirname(os.path.abspath(caminho))
-        os.makedirs(pasta, exist_ok=True)
-        with open(caminho, "w", encoding="utf-8") as f:
-            json.dump(dados, f, ensure_ascii=False, indent=2)
+        from core.escrita_atomica import gravar_atomico
+        gravar_atomico(caminho, json.dumps(dados, ensure_ascii=False, indent=2))
         return len(escolhidas)
 
     def importar_json(self, caminho: str) -> int:

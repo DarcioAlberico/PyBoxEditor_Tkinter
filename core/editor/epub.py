@@ -54,7 +54,6 @@ import json
 import os
 import posixpath
 import re
-import tempfile
 import time
 import uuid
 import zipfile
@@ -926,12 +925,10 @@ class _Escritor:
     # -- gravação -------------------------------------------------------------------
 
     def gravar(self) -> None:
-        caminho = self.caminho
-        pasta = os.path.dirname(os.path.abspath(caminho)) or "."
-        os.makedirs(pasta, exist_ok=True)
-        fd, temporario = tempfile.mkstemp(prefix=".epub-", suffix=".tmp", dir=pasta)
-        os.close(fd)
-        try:
+        # A escrita atômica única (RG-03): o zip só vira o livro do usuário depois de
+        # fechado, conferido e posto no disco (`fsync`, que faltava aqui).
+        from core.escrita_atomica import caminho_temporario
+        with caminho_temporario(self.caminho) as temporario:
             with zipfile.ZipFile(temporario, "w", zipfile.ZIP_DEFLATED) as z:
                 z.writestr(zipfile.ZipInfo("mimetype"), MIME_EPUB, compress_type=zipfile.ZIP_STORED)
                 vistos: set[str] = set()
@@ -944,13 +941,6 @@ class _Escritor:
             with zipfile.ZipFile(temporario) as z:
                 if z.testzip() is not None:
                     raise zipfile.BadZipFile("EPUB temporário com entrada inválida")
-            os.replace(temporario, caminho)
-        except BaseException:
-            try:
-                os.unlink(temporario)
-            except OSError:
-                log.debug("EPUB: o temporário %s não foi apagado", temporario)
-            raise
 
 
 def problema_da_css(texto: str) -> str:

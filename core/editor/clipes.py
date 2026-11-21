@@ -173,8 +173,8 @@ class Clipes:
         settings.save()
 
     def exportar(self, caminho: str) -> None:
-        with open(caminho, "w", encoding="utf-8") as f:
-            json.dump(self.para_lista(), f, ensure_ascii=False, indent=2)
+        from core.escrita_atomica import gravar_atomico
+        gravar_atomico(caminho, json.dumps(self.para_lista(), ensure_ascii=False, indent=2))
 
     def importar(self, caminho: str, substituir: bool = False) -> int:
         """Lê um JSON de clipes; os que colidem em nome e grupo ficam de fora (ou trocam, com `substituir`)."""

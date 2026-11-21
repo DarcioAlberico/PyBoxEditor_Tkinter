@@ -22,7 +22,6 @@ nele, com aviso: o PGN sai até onde a linha é jogável.
 
 from __future__ import annotations
 
-import io
 import os
 import re
 from dataclasses import dataclass, field
@@ -227,8 +226,8 @@ def escrever(cap: Capitulo, caminho: str, livro: Livro | None = None) -> Relator
     relatorio = RelatorioDeConversao(formato="pgn", arquivos=[caminho])
     with Cronometro(relatorio):
         texto = texto_do_capitulo(cap, livro, relatorio)
-        with io.open(caminho, "w", encoding="utf-8", newline="\n") as f:
-            f.write(texto)
+        from core.escrita_atomica import gravar_atomico
+        gravar_atomico(caminho, texto)
         relatorio.capitulos = 1
         relatorio.blocos = len(cap.blocos)
         relatorio.diagramas_png = sum(1 for b in cap.blocos if isinstance(b, Diagrama) and b.modo == "png")

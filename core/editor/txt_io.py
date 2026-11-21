@@ -162,10 +162,8 @@ def escrever(livro: Livro, caminho: str, opcoes: OpcoesDeConversao | None = None
                     continue
             partes.append(_Escritor(cap, relatorio).capitulo())
         texto = "\n\n\n".join(p for p in partes if p)
-        pasta = os.path.dirname(os.path.abspath(caminho))
-        os.makedirs(pasta, exist_ok=True)
-        with open(caminho, "w", encoding="utf-8", newline="\n") as f:
-            f.write(texto + ("\n" if texto else ""))
+        from core.escrita_atomica import gravar_atomico
+        gravar_atomico(caminho, texto + ("\n" if texto else ""))
     relatorio.contar(livro)
     return relatorio
 

@@ -426,10 +426,8 @@ def escrever_unico(livro: Livro, caminho: str, opcoes: OpcoesDeConversao | None 
 
 
 def _gravar(caminho: str, texto: str) -> None:
-    pasta = os.path.dirname(os.path.abspath(caminho))
-    os.makedirs(pasta, exist_ok=True)
-    with open(caminho, "w", encoding="utf-8", newline="\n") as f:
-        f.write(texto)
+    from core.escrita_atomica import gravar_atomico
+    gravar_atomico(caminho, texto)
 
 
 # ----------------------------------------------------------------------

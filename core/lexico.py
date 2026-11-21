@@ -205,15 +205,10 @@ def salvar_do_usuario(caminho: str, palavras: Iterable[str]) -> int:
     seria varredura.
     """
     lista = sorted({p.strip().lower() for p in palavras if p.strip()})
-    pasta = os.path.dirname(caminho)
-    if pasta:
-        os.makedirs(pasta, exist_ok=True)
-    # Arquivo temporário e `os.replace`, como o autosave da F3.4: travar no meio
-    # da escrita não pode deixar o vocabulário do livro pela metade.
-    temporario = caminho + ".tmp"
-    with open(temporario, "w", encoding="utf-8") as f:
-        f.write("\n".join(lista) + ("\n" if lista else ""))
-    os.replace(temporario, caminho)
+    # Travar no meio da escrita não pode deixar o vocabulário do livro pela metade: a
+    # escrita atômica única (RG-03), como o autosave da F3.4.
+    from core.escrita_atomica import gravar_atomico
+    gravar_atomico(caminho, "\n".join(lista) + ("\n" if lista else ""))
     return len(lista)
 
 

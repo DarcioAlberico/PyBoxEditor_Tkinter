@@ -749,7 +749,9 @@ class Documento:
         """
         try:
             formato_box.escrever(path, boxes, image.height)
-            image.save(os.path.splitext(path)[0] + ".png", format="PNG")
+            from core.escrita_atomica import caminho_temporario
+            with caminho_temporario(os.path.splitext(path)[0] + ".png") as temporario:
+                image.save(temporario, format="PNG")
             return None
         except Exception as e:
             return str(e)

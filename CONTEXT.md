@@ -82,6 +82,12 @@ de implementação pertencem às specs e aos ADRs.
 - **Protocolo de benchmark**: conjunto imutável de corpus, idioma, resolução,
   pré-processamento e política de revisão que todos os engines devem compartilhar.
 
+## Termos da revisão geral 2
+
+- **Escrita atômica**: gravação por arquivo temporário na mesma pasta e troca no fim, de
+  modo que o destino tem sempre o conteúdo antigo inteiro ou o novo inteiro
+  (`core.escrita_atomica`, RG-03).
+
 ## Invariantes do domínio
 
 1. A imagem e o texto original do documento-fonte nunca são destruídos.
@@ -106,3 +112,6 @@ de implementação pertencem às specs e aos ADRs.
 14. Peso sem checksum e compatibilidade declarados não pode ser promovido a produção.
 15. Comparações entre engines usam a mesma entrada, resolução, idioma e política de saída.
 16. Um release só é promovido depois de passar o smoke test e os gates de qualidade.
+17. Gravação interrompida deixa o arquivo anterior do usuário intacto; no diário de
+    revisão, que só acrescenta, legível até o último evento completo (revisão geral 2,
+    RG-03).
