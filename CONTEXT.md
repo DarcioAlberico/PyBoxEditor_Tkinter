@@ -120,3 +120,6 @@ de implementação pertencem às specs e aos ADRs.
 19. O diário de revisão é de um documento só: a identidade vai no nome
     (`<saida>.<sha12>.review.jsonl`), o diário de outro documento nunca recebe escrita, e
     uma correção que tem sucessora nunca se aplica sozinha (revisão geral 2, RG-07).
+20. Abrir e salvar um livro sem editá-lo não perde, calado, o que o editor leu: o atributo
+    que o dialeto conhece volta como veio, o que ele não conhece leva o elemento a ilha, e
+    a perda que sobra é avisada no relatório (revisão geral 2, RG-10).

@@ -348,8 +348,26 @@ def ancoras_do_livro(livro: Livro) -> dict[str, set[str]]:
         for trecho in modelo.trechos_do_capitulo(cap):
             if trecho.ilha:
                 ids |= _ids_no_xhtml(trecho.ilha)
+        ids |= {i for i in _ids_dos_extras(cap, blocos) if i}
         saida[cap.arquivo] = ids
     return saida
+
+
+def _ids_dos_extras(cap: Capitulo, blocos: Sequence[modelo.Bloco]):
+    """Os ids que moram nos `extras` de dentro dos blocos (RG-10, R-26): o `<li id="fn1">`."""
+    yield cap.extras_do_corpo.get("id", "")
+    for bloco in blocos:
+        if isinstance(bloco, Lista):
+            for item in bloco.itens:
+                yield item.extras.get("id", "")
+        elif isinstance(bloco, modelo.Tabela):
+            for extras in bloco.extras_das_filas:
+                yield extras.get("id", "")
+            for fila in bloco.filas:
+                for celula in fila:
+                    yield celula.extras.get("id", "")
+        elif isinstance(bloco, modelo.Figura):
+            yield bloco.extras_da_imagem.get("id", "")
 
 
 def destinos_quebrados(livro: Livro) -> list[str]:

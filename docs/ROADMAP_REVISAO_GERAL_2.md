@@ -975,6 +975,21 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
   OPF, `xmlns:*` do `metadata`, `opf:role`/`opf:file-as`/`opf:scheme` dos `dc:*`, o
   `guide` (`reference@*`), `spine@page-map` e `spine@page-progression-direction`
   (`preview_ocr/ab/ida-e-volta-antes`).
+- Commit 2 (R-26, os elementos): `extras` em `ItemDeLista` e `Celula`, `extras_das_filas`
+  em `Tabela`, `extras_da_imagem` em `Figura`, e `extras_do_corpo`, `extras_da_raiz` e
+  `midia_das_folhas` em `Capitulo`. O `li`, o `tr`, o `td` e o `th` guardam `id`, `class`,
+  `lang`, `xml:lang` e `dir` — com eles, a lista e a tabela continuam editáveis, em vez de
+  virarem ilha —, e outro atributo qualquer ainda leva o bloco a ilha; o `img` da figura
+  guarda também o `title`, que se perdia; o `body` e o `html`, que não viram ilha, guardam
+  tudo o que o escritor não gera; o `<link>` guarda o `media`. O dialeto não escreve
+  `class` nesses elementos, então não há o que fundir. Os ids desses `extras` entram no
+  índice de âncoras do sumário (RG-09). Os campos novos nascem vazios: o rascunho gravado
+  antes deles abre. A I-20 entrou no `CONTEXT.md`. `tests/test_ida_e_volta_dos_atributos.py`:
+  contra o código de antes, dois dos quatro falham — a lista e a tabela que viravam ilha
+  pelo `lang`/`dir` do item e da célula, e o `id` do `img` fora do índice de âncoras; os
+  outros dois (o atributo desconhecido ainda levando a ilha, o rascunho sem `extras`)
+  guardam o que não podia mudar. Suíte do worktree: 3807 passed, 26 skipped (uma falha de
+  `init.tcl` do Tcl numa rodada parcial, que passou sozinha e na suíte inteira).
 ### RG-11
 ### RG-12
 ### RG-13

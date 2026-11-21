@@ -413,6 +413,10 @@ class _Leitor:
             raise ErroDeXhtml(raiz.linha, 1, f"o elemento raiz é <{raiz.nome}>, não <html>")
         cap = Capitulo(arquivo=self.arquivo or "capitulo.xhtml")
         cap.idioma = raiz.attrs.get("xml:lang") or raiz.attrs.get("lang") or ""
+        # O `<html>` e o `<body>` não viram ilha: o que eles têm além do que o escritor gera
+        # volta como veio (RG-10, R-26) — a `class` e o `dir` do corpo, o `dir` da raiz.
+        cap.extras_da_raiz = {k: v for k, v in raiz.attrs.items()
+                              if not k.startswith("xmlns") and k not in ("lang", "xml:lang")}
         cap.namespaces = {p: u for p, u in self.doc.namespaces.items()
                           if u not in (NS_XHTML, NS_EPUB) and PREFIXOS_CONHECIDOS.get(p) != u}
         cabeca = next((e for e in raiz.elementos() if e.nome == "head"), None)
@@ -422,6 +426,7 @@ class _Leitor:
         if corpo is None:
             raise ErroDeXhtml(raiz.linha, 1, "documento sem <body>")
         cap.semantica = corpo.attrs.get("epub:type", "")
+        cap.extras_do_corpo = {k: v for k, v in corpo.attrs.items() if k != "epub:type"}
         self._corpo(corpo, cap)
         self._marcar_referenciados(cap)
         titulo = cap.titulo
@@ -441,6 +446,8 @@ class _Leitor:
             elif (isinstance(filho, No) and filho.nome == "link"
                   and filho.attrs.get("rel", "").lower() == "stylesheet" and filho.attrs.get("href")):
                 cap.folhas.append(self._href(filho.attrs["href"]))
+                if filho.attrs.get("media"):
+                    cap.midia_das_folhas[self._href(filho.attrs["href"])] = filho.attrs["media"]
             else:
                 extra.append(self.doc.cru(filho))
         cap.cabeca_extra = "\n".join(extra)
@@ -622,13 +629,14 @@ class _Leitor:
         return Lista(ordenada=no.nome == "ol", itens=itens, inicio=inicio, marcador=marcador, **campos)
 
     def _item(self, li: No) -> ItemDeLista | None:
-        if li.attrs and set(li.attrs) - {"id", "class"}:
+        extras = _extras_internos(li)
+        if extras is None:
             return None
         elementos = li.elementos()
         filhos_de_bloco = [e for e in elementos if e.nome in ("p", "ol", "ul")]
         if not elementos or len(filhos_de_bloco) != len(elementos):
             if all(isinstance(f, Texto) or (isinstance(f, No) and f.nome in ELEMENTOS_INLINE) for f in li.filhos):
-                return ItemDeLista(paragrafos=[Paragrafo(trechos=self.trechos(li))])
+                return ItemDeLista(paragrafos=[Paragrafo(trechos=self.trechos(li))], extras=extras)
             return None
         if any(isinstance(f, Texto) and f.texto.strip() for f in li.filhos):
             return None
@@ -651,7 +659,7 @@ class _Leitor:
                 filhos = sub
         if not paragrafos:
             paragrafos = [Paragrafo(trechos=[])]
-        return ItemDeLista(paragrafos=paragrafos, filhos=filhos)
+        return ItemDeLista(paragrafos=paragrafos, filhos=filhos, extras=extras)
 
     def _tabela(self, no: No) -> Bloco:
         extras, ok = self._atributos(no, ("style", "data-numero"))
@@ -669,6 +677,7 @@ class _Leitor:
                 return self._ilha(no)
         legenda: list[Trecho] = []
         filas: list[list[Celula]] = []
+        extras_das_filas: list[dict[str, str]] = []
         cabecalho = False
         for filho in no.filhos:
             if isinstance(filho, Texto) and not filho.texto.strip():
@@ -688,12 +697,14 @@ class _Leitor:
                         return self._ilha(no)
                     if filho.nome == "thead" and not filas:
                         cabecalho = True
-                    filas.append(fila)
+                    filas.append(fila[0])
+                    extras_das_filas.append(fila[1])
             elif filho.nome == "tr":
                 fila = self._fila(filho)
                 if fila is None:
                     return self._ilha(no)
-                filas.append(fila)
+                filas.append(fila[0])
+                extras_das_filas.append(fila[1])
             else:
                 return self._ilha(no)
         if not filas or len({len(f) for f in filas}) != 1:
@@ -701,10 +712,13 @@ class _Leitor:
         numero = no.attrs.get("data-numero", "")
         return Tabela(filas=filas, primeira_fila_cabecalho=cabecalho or all(c.cabecalho for c in filas[0]),
                       legenda=legenda, numero=int(numero) if numero.isdigit() else None,
-                      largura_pct=largura, **campos)
+                      largura_pct=largura, extras_das_filas=extras_das_filas if any(extras_das_filas) else [],
+                      **campos)
 
-    def _fila(self, tr: No) -> list[Celula] | None:
-        if set(tr.attrs) - {"id", "class"}:
+    def _fila(self, tr: No) -> tuple[list[Celula], dict[str, str]] | None:
+        """As células da linha e os atributos do `<tr>` (RG-10, R-26), ou `None` (vira ilha)."""
+        extras_da_fila = _extras_internos(tr)
+        if extras_da_fila is None:
             return None
         celulas: list[Celula] = []
         for filho in tr.filhos:
@@ -712,7 +726,8 @@ class _Leitor:
                 continue
             if not isinstance(filho, No) or filho.nome not in ("td", "th"):
                 return None
-            if set(filho.attrs) - {"id", "class", "style"}:
+            extras = _extras_internos(filho, ("style",))
+            if extras is None:
                 return None
             alinhamento = ""
             if "style" in filho.attrs:
@@ -723,8 +738,9 @@ class _Leitor:
             blocos = [] if not filho.filhos else self._paragrafos_de(filho)
             if blocos is None:
                 return None
-            celulas.append(Celula(blocos=blocos, cabecalho=filho.nome == "th", alinhamento=alinhamento))
-        return celulas
+            celulas.append(Celula(blocos=blocos, cabecalho=filho.nome == "th", alinhamento=alinhamento,
+                                  extras=extras))
+        return celulas, extras_da_fila
 
     def _figura(self, no: No) -> Bloco:
         extras, ok = self._atributos(no, ("style", "data-numero") + dialeto.ATRIBUTOS_DE_DIAGRAMA)
@@ -759,8 +775,10 @@ class _Leitor:
             return self._diagrama_de_div(miolo, campos, {"legenda": legenda})
         if miolo.nome != "img":
             return self._ilha(no)
-        if set(miolo.attrs) - {"src", "alt", "style", "title", "id", "class"}:
+        if set(miolo.attrs) - {"src", "alt", "style", "title", "id", "class", "lang", "xml:lang", "dir"}:
             return self._ilha(no)
+        extras_da_imagem = {k: v for k, v in miolo.attrs.items()
+                            if k in ("id", "class", "title", "lang", "xml:lang", "dir")}
         alt = miolo.attrs.get("alt", "")
         fen_do_alt, lado_do_alt = lado_a_jogar.do_alt(alt)
         if modelo.fen_valido(fen_do_alt):
@@ -785,7 +803,7 @@ class _Leitor:
             self.avisos.append(f"figura {miolo.attrs.get('src', '?')} sem alt")
         return Figura(recurso=self._href(miolo.attrs.get("src", "")) or "?", alt=alt, legenda=legenda,
                       numero=int(numero) if numero.isdigit() else None, largura_pt=largura,
-                      alinhamento=alinhamento, **campos)
+                      alinhamento=alinhamento, extras_da_imagem=extras_da_imagem, **campos)
 
     def _imagem_do_diagrama(self, d: Diagrama, src: str) -> None:
         """
@@ -1240,6 +1258,18 @@ def _attr(valor: str) -> str:
     return escape(texto_legal_em_xml(valor, "atributo do editor"), {'"': "&quot;"})
 
 
+#: Os atributos que um elemento de dentro de bloco (`li`, `tr`, `td`, `th`) guarda em
+#: `extras` (RG-10, R-26); outro qualquer manda o bloco para ilha, como antes.
+EXTRAS_INTERNOS = ("id", "class", "lang", "xml:lang", "dir")
+
+
+def _extras_internos(no: "No", permitidos: Sequence[str] = ()) -> dict[str, str] | None:
+    """Os `extras` do elemento, ou `None` se ele tem atributo que o dialeto não conhece."""
+    if set(no.attrs) - set(EXTRAS_INTERNOS) - set(permitidos):
+        return None
+    return {k: v for k, v in no.attrs.items() if k in EXTRAS_INTERNOS}
+
+
 def _atributos_para_texto(attrs: dict[str, str]) -> str:
     return "".join(f' {k}="{_attr(v)}"' for k, v in attrs.items() if v != "" or k in ("alt",))
 
@@ -1310,7 +1340,9 @@ class _Escritor:
         linhas_do_corpo = "\n".join(p for p in (corpo, notas) if p)
         cabeca = [f"<title>{escape(cap.titulo_efetivo)}</title>"]
         for folha in cap.folhas:
-            cabeca.append(f'<link rel="stylesheet" type="text/css" href="{_attr(self._href(folha))}"/>')
+            midia = cap.midia_das_folhas.get(folha)
+            cabeca.append(f'<link rel="stylesheet" type="text/css" href="{_attr(self._href(folha))}"'
+                          + (f' media="{_attr(midia)}"' if midia else "") + "/>")
         if cap.cabeca_extra:
             cabeca.append(self._ilha(cap.cabeca_extra))
         raiz = f'<html xmlns="{NS_XHTML}"'
@@ -1326,8 +1358,9 @@ class _Escritor:
                 raiz += f' xmlns:{prefixo}="{uri}"'
         if cap.idioma:
             raiz += f' lang="{_attr(cap.idioma)}" xml:lang="{_attr(cap.idioma)}"'
-        raiz += ">"
-        body = "<body" + (f' epub:type="{_attr(cap.semantica)}"' if cap.semantica else "") + ">"
+        raiz += _atributos_para_texto(cap.extras_da_raiz) + ">"
+        body = ("<body" + (f' epub:type="{_attr(cap.semantica)}"' if cap.semantica else "")
+                + _atributos_para_texto(cap.extras_do_corpo) + ">")
         return ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE html>\n"
                 + raiz + "\n<head>\n" + "\n".join(cabeca) + "\n</head>\n" + body + "\n"
                 + linhas_do_corpo + ("\n" if linhas_do_corpo else "") + "</body>\n</html>\n")
@@ -1426,13 +1459,14 @@ class _Escritor:
         elemento = "ol" if lista.ordenada else "ul"
         itens = []
         for item in lista.itens:
+            li = f"<li{_atributos_para_texto(item.extras)}>"
             if len(item.paragrafos) == 1 and item.filhos is None and _paragrafo_simples(item.paragrafos[0]):
-                itens.append(f"{recuo}  <li>{self.trechos(item.paragrafos[0].trechos)}</li>")
+                itens.append(f"{recuo}  {li}{self.trechos(item.paragrafos[0].trechos)}</li>")
                 continue
             partes = [self.bloco(p, nivel + 2) for p in item.paragrafos]
             if item.filhos is not None:
                 partes.append(self._lista(item.filhos, nivel + 2))
-            itens.append(f"{recuo}  <li>\n" + "\n".join(partes) + f"\n{recuo}  </li>")
+            itens.append(f"{recuo}  {li}\n" + "\n".join(partes) + f"\n{recuo}  </li>")
         return f"{recuo}<{elemento}{_atributos_para_texto(attrs)}>\n" + "\n".join(itens) + f"\n{recuo}</{elemento}>"
 
     def _tabela(self, tabela: Tabela, nivel: int) -> str:
@@ -1446,26 +1480,29 @@ class _Escritor:
         if tabela.legenda:
             partes.append(f"{recuo}  <caption>{self.trechos(tabela.legenda)}</caption>")
         filas = tabela.filas
+        extras = list(tabela.extras_das_filas) + [{}] * (len(filas) - len(tabela.extras_das_filas))
         if tabela.primeira_fila_cabecalho and filas:
             partes.append(f"{recuo}  <thead>")
-            partes.append(self._fila(filas[0], nivel + 2, True))
+            partes.append(self._fila(filas[0], nivel + 2, True, extras[0]))
             partes.append(f"{recuo}  </thead>")
-            filas = filas[1:]
+            filas, extras = filas[1:], extras[1:]
         if filas:
             partes.append(f"{recuo}  <tbody>")
-            partes.extend(self._fila(fila, nivel + 2, False) for fila in filas)
+            partes.extend(self._fila(fila, nivel + 2, False, ext) for fila, ext in zip(filas, extras))
             partes.append(f"{recuo}  </tbody>")
         partes.append(f"{recuo}</table>")
         return "\n".join(partes)
 
-    def _fila(self, fila: list[Celula], nivel: int, cabecalho: bool) -> str:
+    def _fila(self, fila: list[Celula], nivel: int, cabecalho: bool, extras_da_fila: dict[str, str] | None = None) \
+            -> str:
         recuo = "  " * nivel
         celulas = []
         for celula in fila:
             elemento = "th" if (celula.cabecalho or cabecalho) else "td"
-            attrs = ""
+            dados = dict(celula.extras)
             if celula.alinhamento:
-                attrs = f' style="text-align: {dialeto.ALINHAMENTO_CSS[celula.alinhamento]}"'
+                dados["style"] = f"text-align: {dialeto.ALINHAMENTO_CSS[celula.alinhamento]}"
+            attrs = _atributos_para_texto(dados)
             if len(celula.blocos) == 1 and _paragrafo_simples(celula.blocos[0]):
                 celulas.append(f"{recuo}  <{elemento}{attrs}>{self.trechos(celula.blocos[0].trechos)}</{elemento}>")
             elif not celula.blocos:
@@ -1473,7 +1510,7 @@ class _Escritor:
             else:
                 miolo = "\n".join(self.bloco(p, nivel + 2) for p in celula.blocos)
                 celulas.append(f"{recuo}  <{elemento}{attrs}>\n{miolo}\n{recuo}  </{elemento}>")
-        return f"{recuo}<tr>\n" + "\n".join(celulas) + f"\n{recuo}</tr>"
+        return f"{recuo}<tr{_atributos_para_texto(extras_da_fila or {})}>\n" + "\n".join(celulas) + f"\n{recuo}</tr>"
 
     def _figura(self, figura: Figura) -> str:
         attrs = self._comuns(figura, figura.alinhamento if figura.alinhamento != "centro" else "")
@@ -1482,6 +1519,7 @@ class _Escritor:
         img: dict[str, str] = {"src": self._href(figura.recurso), "alt": figura.alt}
         if figura.largura_pt is not None:
             img["style"] = f"width: {figura.largura_pt:g}pt"
+        img.update({k: v for k, v in figura.extras_da_imagem.items() if k not in img})
         legenda = f"<figcaption>{self.trechos(figura.legenda)}</figcaption>" if figura.legenda else ""
         return f"<figure{_atributos_para_texto(attrs)}><img{_atributos_para_texto(img)}/>{legenda}</figure>"
 

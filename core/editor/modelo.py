@@ -268,6 +268,9 @@ class Titulo(Paragrafo):
 class ItemDeLista:
     paragrafos: list[Paragrafo]
     filhos: "Lista | None" = None
+    #: `id`, `class`, `lang` e `dir` do `<li>` (RG-10, R-26): o `<li id="fn1">` voltava
+    #: `<li>`, e o link `#fn1` quebrava.
+    extras: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.paragrafos = list(self.paragrafos)
@@ -293,6 +296,8 @@ class Celula:
     blocos: list[Paragrafo]
     cabecalho: bool = False
     alinhamento: str = ""
+    #: `id`, `class`, `lang` e `dir` do `<td>`/`<th>` (RG-10, R-26).
+    extras: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.blocos = list(self.blocos)
@@ -306,6 +311,8 @@ class Tabela(Bloco):
     legenda: list[Trecho] = field(default_factory=list)
     numero: int | None = None
     largura_pct: int | None = None
+    #: Os atributos de cada `<tr>`, na ordem das filas (RG-10, R-26); vazia sem nenhum.
+    extras_das_filas: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -337,6 +344,8 @@ class Figura(Bloco):
     numero: int | None = None
     largura_pt: float | None = None
     alinhamento: str = "centro"
+    #: `id`, `class`, `title`, `lang` e `dir` do `<img>` (RG-10, R-26).
+    extras_da_imagem: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -475,6 +484,12 @@ class Capitulo:
     namespaces: dict[str, str] = field(default_factory=dict)
     #: `linear="no"` na espinha do OPF é `False` (a capa e as notas de um EPUB de fora).
     linear: bool = True
+    #: Os atributos do `<body>` e do `<html>` que o escritor não gera (RG-10, R-26): a
+    #: `class` e o `dir` do corpo, o `dir` da raiz, os `data-*` que outra ferramenta pôs.
+    extras_do_corpo: dict[str, str] = field(default_factory=dict)
+    extras_da_raiz: dict[str, str] = field(default_factory=dict)
+    #: O `media` de cada folha (`<link media="screen">`), por caminho da folha (RG-10, R-26).
+    midia_das_folhas: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.arquivo = str(self.arquivo).strip()
