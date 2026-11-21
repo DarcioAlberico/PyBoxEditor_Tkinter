@@ -1,0 +1,33 @@
+# PyBoxEditor — versões fixadas das dependências declaradas (RG-02a, R-08 da revisão geral 2)
+# Codificação: UTF-8 sem BOM.
+#
+#   pip install -c constraints.txt -e ".[dev,tools,docx,ocr,ml,epub-validacao]"
+#
+# Só o que o requirements.txt e o pyproject.toml declaram, nas versões em que a suíte passa
+# hoje no Windows — não um `pip freeze` do .venv, que tem pacotes do Windows e
+# experimentais. É o que a CI instala (RG-02b), para que uma versão nova de uma dependência
+# não chegue calada no meio de um push: o PyMuPDF 2.1 chegou assim em 2026-11-06. Trocar
+# uma versão aqui é uma mudança medida, com a suíte e, se ela lê arquivo, o A/B.
+# Ficam de fora os extras que a CI não instala (paddle, editor-previa, desktop).
+
+# --- requirements.txt ---
+Pillow==12.1.1
+numpy==2.4.2
+opencv-python==4.13.0.92
+PyMuPDF==1.27.1
+chess==1.11.2
+
+# --- extras do pyproject.toml ---
+python-docx==1.2.0
+pytesseract==0.3.10
+opencv-python-headless==4.13.0.92
+wordfreq==3.1.1
+rapidfuzz==3.14.5
+torch==2.10.0
+easyocr==1.7.2
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.16.7
+build==1.6.1
+fonttools==4.63.0
+epubcheck==5.3.0

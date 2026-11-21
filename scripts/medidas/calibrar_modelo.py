@@ -35,7 +35,8 @@ def carregar_modelo(model_path="custom_model.pth", meta_path="model_meta.json"):
         meta = json.load(f)
     device = get_device()
     model = SimpleCNN(meta["num_classes"]).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    # weights_only: um peso trocado não executa código ao ser lido (RG-02a, R-08).
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.eval()
     return model, meta, device
 

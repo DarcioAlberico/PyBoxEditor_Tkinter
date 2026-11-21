@@ -616,7 +616,8 @@ os outros 5 dependem de arquivo rastreado ou de fonte do Windows, e rodam de ver
 - Próximo passo da revisão: a RG-02a (a RG-01b corre fora do caminho crítico).
 ### RG-01b
 ### RG-02a
-Estado: em andamento. Base `70936c5`, no worktree `.claude/worktrees/rg02a` (destacado, com
+Estado: fechada (2026-11-20), em três commits (`f9d2095`, `de26c74` e o do R-08), levados
+ao `master` por `git merge --ff-only`. Base `70936c5`, no worktree `.claude/worktrees/rg02a` (destacado, com
 `custom_model.pth` e `text_line_model.*` copiados; `model_meta.json` igual ao do `HEAD`),
 porque a fase toca o que o AbbyChessCraft chama (passo 10). Medida de antes em
 `preview_ocr/ab/RG-02a-antes` do worktree, rodada duas vezes: textos e roteamentos
@@ -642,6 +643,17 @@ idênticos, só o tempo do `relatorio.json` varia.
   os 2 perfis carregam e a base de treino vai para a pasta de dados do usuário. A/B
   idêntico. Suíte do worktree: 3658 passed, 25 skipped. A conferência do wheel na CI
   (`ci.yml`) passa a usar o `--wheel` na RG-02b.
+- Commit 3 (R-08): teto no PyMuPDF (`<3`), no Pillow (`<13`) e no python-docx (`<2`), que
+  admitem as versões do AbbyChessCraft; `constraints.txt` com as dependências declaradas,
+  nas versões em que a suíte passa (a CI passa a usá-lo na RG-02b); piso 3.11 no
+  `requires-python` e no `target-version` do `ruff`, com o `README.md`, o `docs/SETUP.md` e
+  o parágrafo do gate no `CLAUDE.md` no mesmo commit; `weights_only=True` no
+  `calibrar_modelo.py`. `py -3.11 -m compileall` limpo; o wheel do estado final
+  reconstruído e conferido de novo. Suíte do worktree: 3663 passed, 25 skipped; `slow and
+  not gui`: 11 passed, 7 skipped.
+- AbbyChessCraft contra o `core` do worktree (passo 10): 2915 passed, 6 failed, as mesmas
+  seis da base.
+- Próximo passo da revisão: a RG-03 (a RG-01b e a RG-02b correm fora do caminho crítico).
 ### RG-02b
 ### RG-03
 ### RG-04

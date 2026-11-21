@@ -2,8 +2,9 @@
 
 ## Ambiente recomendado
 
-Use Python 3.11 ou 3.12. O projeto declara compatibilidade de 3.10 a 3.13,
-mas PyTorch e EasyOCR precisam ser instalados de acordo com a plataforma e,
+Use Python 3.11 ou 3.12. O projeto declara compatibilidade de 3.11 a 3.13 (a matriz da
+CI), e as versões em que a suíte passa estão fixadas em `constraints.txt`; mas PyTorch e
+EasyOCR precisam ser instalados de acordo com a plataforma e,
 quando aplicável, com o suporte de GPU desejado.
 
 Sempre use o mesmo interpretador para instalar e executar:

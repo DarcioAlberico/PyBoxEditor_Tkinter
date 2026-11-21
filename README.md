@@ -5,7 +5,7 @@
 Editor e pipeline de OCR para livros de xadrez: lê a página digitalizada ou o PDF nascido
 digital, reconhece a prosa, a notação com figurinas e os diagramas (que viram FEN), e
 escreve o livro de volta em EPUB, DOCX, HTML, PDF pesquisável e PGN — com um editor de
-livros para acabar o trabalho. Em Python 3.10–3.13, Tkinter, PyMuPDF, OpenCV e PyTorch;
+livros para acabar o trabalho. Em Python 3.11–3.13, Tkinter, PyMuPDF, OpenCV e PyTorch;
 desenvolvido e medido no Windows, testado no Linux pela CI.
 
 ## Os três fluxos

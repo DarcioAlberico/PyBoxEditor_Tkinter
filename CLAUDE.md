@@ -21,7 +21,12 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   ui appy.py config scripts tests`): os testes estão limpos desde a RG-01, e a CI passa a
   conferi-los na RG-02b. O `pytest.ini` tem `--strict-markers`: marca nova se registra lá.
   Teste sem o dado ou o display de que precisa sai por `pytest.skip("motivo")`, nunca por
-  `return` (`tests/test_testes_honestos.py` recusa).
+  `return` (`tests/test_testes_honestos.py` recusa). O piso é o Python 3.11, o que a matriz
+  testa; as versões das dependências estão fixadas em `constraints.txt`, e trocar uma é
+  mudança medida. O wheel se confere com `scripts/verificar_empacotamento.py --wheel`.
+- Dado e recurso saem de `config.paths`, nunca do cwd: a base de treino é
+  `pasta_de_treino()` (a suíte a reaponta por `PYBOXEDITOR_TRAINING_DIR`), e fonte e peça
+  são `recurso()`, que acha também o `share` de um wheel instalado.
 - Antes de um push, exporte o `HEAD` limpo (`git archive HEAD | tar -x -C pasta`) e rode a
   suíte lá: sem o `custom_model.pth`, sem arquivos sem rastreio — é o que a CI vê. Testes
   que dependem de dado fora do git pulam com `skipif`, nunca falham.

@@ -4,10 +4,13 @@
 #  como "P y M u P D F". Não altere a codificação ao editar.)
 
 # --- Núcleo ---
-Pillow>=10.0
+# Quem lê arquivo de terceiro (PDF, imagem, DOCX) tem teto na maior versão medida aqui:
+# uma versão maior nova muda o que o livro vira sem aviso — o PyMuPDF 2.x já deixou a CI
+# vermelha (295f9c6). As versões que a CI instala ficam em constraints.txt (RG-02a, R-08).
+Pillow>=10.0,<13
 numpy>=1.26
 opencv-python>=4.8,<5       # OpenCV 5 altera limiares de segmentação medidos
-PyMuPDF>=1.23          # leitura/escrita de PDF, medição e embutimento de fontes
+PyMuPDF>=1.23,<3       # leitura/escrita de PDF, medição e embutimento de fontes
 
 # --- Validação de notação ---
 chess>=1.10             # regras do jogo (core/notacao.py, ROADMAP F1.7)
