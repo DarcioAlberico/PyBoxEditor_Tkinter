@@ -28,6 +28,22 @@ from core.services.document_service import DocumentSession
 from ui.dialogo_de_exportacao import CHAVE_DO_DIRETORIO_DE_ENTRADA
 
 
+def _mesmo_arquivo(a, b) -> bool:
+    """`a` e `b` nomeiam o mesmo arquivo do disco (RG-05, R-52).
+
+    Com os dois existindo, quem responde é o sistema de arquivos (`samefile`: a caixa do
+    nome no Windows, um link); senão, o caminho real normalizado.
+    """
+    if not a or not b:
+        return False
+    try:
+        if os.path.exists(a) and os.path.exists(b):
+            return os.path.samefile(a, b)
+    except OSError:
+        pass
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
 class Documento:
     """O fluxo de documento da janela principal; `janela` é a `MainWindow`."""
 
@@ -749,9 +765,15 @@ class Documento:
         """
         try:
             formato_box.escrever(path, boxes, image.height)
-            from core.escrita_atomica import caminho_temporario
-            with caminho_temporario(os.path.splitext(path)[0] + ".png") as temporario:
-                image.save(temporario, format="PNG")
+            png = os.path.splitext(path)[0] + ".png"
+            # O PNG do par que é a própria imagem aberta não é regravado (RG-05, R-52):
+            # o destino sugerido do `.box` é o nome dela, e ela está em memória em cinza —
+            # o scan RGB a 600 dpi voltava em cinza e sem dpi, sem pergunta.
+            origem = getattr(getattr(self, "janela", None), "image_path", None)
+            if not _mesmo_arquivo(png, origem):
+                from core.escrita_atomica import caminho_temporario
+                with caminho_temporario(png) as temporario:
+                    image.save(temporario, format="PNG")
             return None
         except Exception as e:
             return str(e)
@@ -790,10 +812,13 @@ class Documento:
             aviso = (f"\n\nAtenção: ainda há {pend} outra(s) página(s) não salva(s)."
                      "\nUse 'Salvar todas as páginas' para gravar tudo.")
 
+        imagem = os.path.basename(img_path)
+        if _mesmo_arquivo(img_path, self.janela.image_path):
+            imagem += " (a imagem de origem, mantida como estava)"
         messagebox.showinfo(
             "Sucesso",
             f"Salvo com sucesso:\n- {os.path.basename(path)}\n"
-            f"- {os.path.basename(img_path)}{aviso}"
+            f"- {imagem}{aviso}"
             f"{self.janela._frase_do_dicionario(palavras)}"
         )
         if palavras:

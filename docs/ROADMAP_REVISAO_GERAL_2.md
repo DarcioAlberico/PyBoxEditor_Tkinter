@@ -726,6 +726,15 @@ que o AbbyChessCraft chama (passo 10).
   não da fase.
 - Próximo passo da revisão: a Onda 2 (RG-05, RG-05b, RG-06).
 ### RG-05
+Estado: em andamento (2026-11-21). Base `15af852`, no worktree `.claude/worktrees/onda2`
+(destacado, com os pesos copiados), o mesmo da RG-05b e da RG-06.
+- Commit 1 (R-52): `_write_box_pair` não regrava o PNG do par quando ele é a própria imagem
+  aberta (`_mesmo_arquivo`: `samefile` com os dois no disco, o caminho real normalizado
+  senão), e o aviso de sucesso diz "a imagem de origem, mantida como estava". O PNG de um
+  par com outro nome, e o das páginas do PDF, saem como antes. `tests/test_imagem_de_origem.py`:
+  contra o código de antes, três dos quatro falham pelo motivo certo (o byte 25 do PNG, o
+  tipo de cor, passa de RGB a cinza; no Ctrl+S, no "Salvar todas" e com `Pagina.PNG`); o
+  quarto, o par com outro nome, já passava. Suíte do worktree: 3730 passed, 26 skipped.
 ### RG-05b
 ### RG-06
 ### RG-07
