@@ -864,6 +864,15 @@ Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktree
   ("não é deste documento"), e o `_App` de `test_revisao_na_janela.py` não capturava
   `showwarning` — o aviso novo abria a caixa de verdade e o teste esperava 137 s; agora
   ele captura e o teste confere o aviso. Suíte do worktree: 3781 passed, 26 skipped.
+- Commit 4 (R-11): `ReviewEvent.before_reason_codes` (gravado e lido; vazio no evento
+  antigo); o evento de desfazer leva as marcas (`undo`, `batch:<id>`) e depois os motivos
+  de antes, e `apply_review` deixa na decisão só os motivos (`_motivos_da_decisao`); `undo`
+  e `batch:` são recusados vindos de fora (`_recusar_reservados`; `apply_batch` e `undo`
+  os usam por dentro). O `test_editorial_review_phase5.py` conferia que o desfazer
+  deixava `("undo",)` na decisão; agora confere a marca seguida dos motivos de antes.
+  `tests/test_desfazer_devolve_os_motivos.py`: contra o código de antes, os seis falham (o
+  item que sai da fila, no passo, no lote e em dois passos; os três motivos reservados
+  aceitos). Suíte do worktree: 3787 passed, 26 skipped.
 ### RG-08
 ### RG-09
 ### RG-10

@@ -489,6 +489,14 @@ def _metadata_de_antes(block: EditorialBlock, metadata: Mapping[str, Any],
     return antes
 
 
+def _recusar_reservados(reason_codes: Iterable[str]) -> None:
+    """`undo` e `batch:<id>` são marcas da pilha de desfazer (RG-07, R-11): vindos de fora,
+    um `edit` com `("undo",)` era tomado por um desfazer e corrompia a pilha."""
+    for codigo in reason_codes:
+        if codigo == "undo" or str(codigo).startswith(_LOTE):
+            raise ValueError(f"motivo reservado para desfazer e lote: {codigo!r}")
+
+
 def _lote_de(event: ReviewEvent) -> str | None:
     return next((code[len(_LOTE):] for code in event.reason_codes
                  if code.startswith(_LOTE)), None)
@@ -557,7 +565,10 @@ class ReviewSession:
 
     def _apply(self, target_id: str, after: Any, status: str,
                reason_codes: Iterable[str],
-               metadata: Mapping[str, Any] | None = None) -> EditorialDocument:
+               metadata: Mapping[str, Any] | None = None, *, interno: bool = False) -> EditorialDocument:
+        reason_codes = tuple(reason_codes)
+        if not interno:
+            _recusar_reservados(reason_codes)
         page_id, block = self._block(target_id)
         metadata = dict(metadata or {})
         event = ReviewEvent(
@@ -570,6 +581,7 @@ class ReviewSession:
             before_status=block.decision.status,
             metadata=metadata,
             before_metadata=_metadata_de_antes(block, metadata, after != block.decision.value),
+            before_reason_codes=tuple(block.decision.reason_codes),
         )
         atualizado = self.document.apply_review(event)
         self.journal.append(event)
@@ -672,7 +684,7 @@ class ReviewSession:
         lote = uuid4().hex[:12]
         for target_id in ids:
             _, block = self._block(target_id)
-            self._apply(target_id, block.decision.value, status, ("batch", f"{_LOTE}{lote}"))
+            self._apply(target_id, block.decision.value, status, ("batch", f"{_LOTE}{lote}"), interno=True)
         return self.document
 
     def passos_desfaziveis(self) -> int:
@@ -690,10 +702,12 @@ class ReviewSession:
             # guardado, fica `reviewed` — o comportamento de antes.
             status = event.before_status if event.before_status in DECISION_STATUSES else "reviewed"
             lote = _lote_de(event)
-            codigos = ("undo",) + ((f"{_LOTE}{lote}",) if lote else ())
+            # As marcas primeiro, os motivos de antes depois (RG-07, R-11): a decisão
+            # volta com os motivos que tinha, e o bloco que estava na fila volta a ela.
+            codigos = ("undo",) + ((f"{_LOTE}{lote}",) if lote else ()) + tuple(event.before_reason_codes)
             # O estilo e o metadata voltam ao que eram (`before_metadata`), como o valor.
             self._apply(event.target_id, event.before, status, codigos,
-                        metadata=dict(event.before_metadata) or None)
+                        metadata=dict(event.before_metadata) or None, interno=True)
         return self.document
 
     @classmethod

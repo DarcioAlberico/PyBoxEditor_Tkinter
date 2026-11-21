@@ -59,7 +59,10 @@ def test_session_edit_aplica_evento_persiste_e_undo_preserva_append_only(tmp_pat
     desfeito = session.undo()
     assert desfeito.pages[0].blocks[1].decision.value["fen"] == "8/8/8/8/8/8/8/4K2k w - - 0 1"
     assert len(desfeito.review_events) == 2
-    assert desfeito.review_events[-1].reason_codes == ("undo",)
+    # A marca primeiro, os motivos de antes depois (RG-07, R-11): a decisão volta com eles.
+    original = _document().pages[0].blocks[1].decision.reason_codes
+    assert desfeito.review_events[-1].reason_codes == ("undo", *original)
+    assert desfeito.pages[0].blocks[1].decision.reason_codes == list(original)
 
 
 def test_aceitar_adiar_e_lote_exigem_decisao_explicita():

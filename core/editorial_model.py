@@ -328,6 +328,10 @@ class ReviewEvent:
     #: Os mesmos campos, com o valor que tinham **antes** deste evento (`None` para
     #: o que não existia): é o que `undo` repõe junto com `before`.
     before_metadata: Mapping[str, Any] = field(default_factory=dict)
+    #: Os motivos da decisão **antes** deste evento (RG-07, R-11): o `undo` os repõe, e o
+    #: bloco que só estava na fila por um motivo de alto impacto volta para ela. Vazio no
+    #: evento gravado antes de existir, que desfaz sem motivo, como antes.
+    before_reason_codes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("event_id", "document_id", "page_id", "target_id", "user", "created_at"):
@@ -342,6 +346,7 @@ class ReviewEvent:
             raise ValueError(f"estado anterior inválido: {self.before_status!r}")
         object.__setattr__(self, "metadata", copy.deepcopy(dict(self.metadata or {})))
         object.__setattr__(self, "before_metadata", copy.deepcopy(dict(self.before_metadata or {})))
+        object.__setattr__(self, "before_reason_codes", tuple(str(item) for item in self.before_reason_codes or ()))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -354,6 +359,7 @@ class ReviewEvent:
             "before_status": self.before_status,
             "metadata": copy.deepcopy(dict(self.metadata)),
             "before_metadata": copy.deepcopy(dict(self.before_metadata)),
+            "before_reason_codes": list(self.before_reason_codes),
         }
 
     @classmethod
@@ -372,6 +378,7 @@ class ReviewEvent:
             before_status=str(data.get("before_status", "")),
             metadata=dict(data.get("metadata") or {}),
             before_metadata=dict(data.get("before_metadata") or {}),
+            before_reason_codes=tuple(data.get("before_reason_codes") or ()),
         )
 
 
@@ -501,13 +508,28 @@ class EditorialDocument:
             value=copy.deepcopy(event.after),
             evidence_ids=list(bloco.decision.evidence_ids),
             status=event.status,
-            reason_codes=list(event.reason_codes),
+            reason_codes=list(_motivos_da_decisao(event.reason_codes)),
             original_value=original,
         )
         _fundir_metadata(bloco, event)
         atualizado.review_events.append(event)
         atualizado.validate()
         return atualizado
+
+
+def _motivos_da_decisao(codigos: tuple[str, ...]) -> tuple[str, ...]:
+    """Os motivos que o evento deixa na decisão.
+
+    O evento de desfazer começa pelas marcas — `undo` e, num lote, `batch:<id>` — e
+    traz depois os motivos de antes do passo desfeito (RG-07, R-11): a decisão fica só
+    com eles. Os outros eventos deixam os motivos como vieram.
+    """
+    if not codigos or codigos[0] != "undo":
+        return codigos
+    resto = codigos[1:]
+    if resto and resto[0].startswith("batch:"):
+        resto = resto[1:]
+    return resto
 
 
 #: As chaves de `block.style` que andam caractere a caractere com o texto.
