@@ -490,6 +490,11 @@ class Capitulo:
     extras_da_raiz: dict[str, str] = field(default_factory=dict)
     #: O `media` de cada folha (`<link media="screen">`), por caminho da folha (RG-10, R-26).
     midia_das_folhas: dict[str, str] = field(default_factory=dict)
+    #: O `id` do capítulo no manifesto, os outros atributos do `<item>` e os do `<itemref>`
+    #: (`id`, `properties`) (RG-10, R-26).
+    id_no_manifesto: str = ""
+    extras_do_item: dict[str, str] = field(default_factory=dict)
+    extras_do_itemref: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.arquivo = str(self.arquivo).strip()
@@ -536,6 +541,11 @@ class Recurso:
     #: nome, `epub.dados_de` procurava o novo no zip antigo e a imagem sumia ao salvar.
     #: Vazio quando o recurso não veio de um zip (ou quando é o próprio `caminho`).
     nome_de_origem: str = ""
+    #: O `id` do `<item>` no manifesto, preservado (RG-10, R-26): o escritor o renomeava
+    #: (`c1` → `c1.xhtml`) e quebrava o `refines="#c1"` e o `fallback` de quem apontava.
+    id_no_manifesto: str = ""
+    #: Os outros atributos do `<item>` (`fallback`, `media-overlay`…).
+    extras_do_item: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.caminho = str(self.caminho).strip()
@@ -596,6 +606,9 @@ class Metadados:
     ids: dict[str, str] = field(default_factory=dict)
     #: O `prefix` do `<package>`, além dos reservados e dos que o escritor declara sozinho.
     prefixos: dict[str, str] = field(default_factory=dict)
+    #: Os atributos dos elementos interpretados além do `id`, pela mesma chave de `ids`
+    #: (`"identificador": {"opf:scheme": "ISBN"}`, `"titulo": {"xml:lang": "en"}`) (RG-10, R-26).
+    atributos: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.titulo = str(self.titulo)
@@ -654,6 +667,11 @@ class Livro:
     zip_de_origem: str = ""
     #: Posição do `nav.xhtml` na espinha quando ele estava nela (o Sigil o põe), senão `None`.
     nav_na_espinha: int | None = None
+    #: Os atributos do `<package>` e da `<spine>` que o escritor não gera (RG-10, R-26): o
+    #: `xml:lang` e o `dir` do pacote — que podem diferir do `dc:language` —, o
+    #: `page-progression-direction` da espinha.
+    extras_do_pacote: dict[str, str] = field(default_factory=dict)
+    extras_da_espinha: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.capitulos = list(self.capitulos)
@@ -1248,7 +1266,9 @@ def _sem_ids_gerados(dados: Any) -> Any:
     if isinstance(dados, dict):
         limpo = {}
         for chave, valor in dados.items():
-            if chave == "linha_fonte":
+            # Onde o conteúdo mora no arquivo, e não o conteúdo: a linha da fonte, o id do
+            # manifesto e o nome de origem no zip (RG-06, RG-10) não distinguem dois modelos.
+            if chave in ("linha_fonte", "id_no_manifesto", "nome_de_origem"):
                 continue
             if chave == "id" and not dados.get("id_persistente", True) and id_gerado(str(valor)):
                 continue

@@ -990,6 +990,20 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
   outros dois (o atributo desconhecido ainda levando a ilha, o rascunho sem `extras`)
   guardam o que não podia mudar. Suíte do worktree: 3807 passed, 26 skipped (uma falha de
   `init.tcl` do Tcl numa rodada parcial, que passou sozinha e na suíte inteira).
+- Commit 3 (R-26, o pacote): `Livro.extras_do_pacote` e `extras_da_espinha`;
+  `id_no_manifesto` e `extras_do_item` em `Capitulo` e `Recurso`; `extras_do_itemref` em
+  `Capitulo`; `Metadados.atributos` (os do elemento além do `id`, pela chave de `ids`). O
+  leitor guarda o `xml:lang` e o `dir` do pacote (o `xml:lang` só quando difere do
+  `dc:language`, senão é o que o escritor já põe), o `page-progression-direction` da
+  espinha, o `id` e o `properties` do `itemref`, o `fallback` do `item`, o `opf:scheme` do
+  identificador e o `xml:lang` dos `dc:*`; o escritor devolve tudo e grava cada item com o
+  id que ele tinha (o `_item` já aceitava o id; ninguém o passava) — o `refines="#c1"` e
+  o `fallback` voltam a apontar. `modelo.igual` ignora o `id_no_manifesto` e o
+  `nome_de_origem`, como já ignorava a `linha_fonte` (é onde o conteúdo mora, não o
+  conteúdo): sem isso, o livro relido de `test_editor_epub.py` deixava de ser igual ao
+  novo. `tests/test_ida_e_volta_do_pacote.py`: contra o código de antes, os dois falham
+  (a espinha sem `page-progression-direction`, o `c1` renomeado para `c1.xhtml`); a
+  segunda volta sai igual à primeira. Suíte do worktree: 3809 passed, 26 skipped.
 ### RG-11
 ### RG-12
 ### RG-13

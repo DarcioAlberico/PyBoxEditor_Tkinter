@@ -292,6 +292,11 @@ class _LeitorDeOpf:
         self.prefixos = dict(_RE_PREFIXO.findall(self.raiz.get("prefix", "")))
         self.itens: dict[str, tuple[str, str, str]] = {}      # id -> (href, mime, propriedades)
         self.espinha: list[tuple[str, bool]] = []              # (id, linear)
+        # O que o editor não interpreta e devolve como veio (RG-10, R-26).
+        self.extras_do_pacote = _atributos_de(self.raiz, ("version", "unique-identifier", "prefix"))
+        self.extras_dos_itens: dict[str, dict[str, str]] = {}
+        self.extras_dos_itemrefs: list[dict[str, str]] = []
+        self.extras_da_espinha: dict[str, str] = {}
         self.toc_da_espinha = ""
         self.guia: list[tuple[str, str]] = []                  # (type, href)
         self.capa_id = ""
@@ -305,9 +310,11 @@ class _LeitorDeOpf:
                 self._manifesto(filho)
             elif nome == "spine":
                 self.toc_da_espinha = filho.get("toc", "")
+                self.extras_da_espinha = _atributos_de(filho, ("toc",))
                 for ref in filho:
                     if _local(ref.tag) == "itemref" and ref.get("idref"):
                         self.espinha.append((ref.get("idref"), ref.get("linear", "yes") != "no"))
+                        self.extras_dos_itemrefs.append(_atributos_de(ref, ("idref", "linear")))
             elif nome == "guide":
                 for ref in filho:
                     if _local(ref.tag) == "reference" and ref.get("href"):
@@ -324,6 +331,7 @@ class _LeitorDeOpf:
                 continue
             id_ = item.get("id", "") or f"item-{len(self.itens) + 1}"
             self.itens[id_] = (unquote(item.get("href")), item.get("media-type", ""), item.get("properties", ""))
+            self.extras_dos_itens[id_] = _atributos_de(item, ("id", "href", "media-type", "properties"))
 
     # -- metadados --------------------------------------------------------
 
@@ -367,6 +375,10 @@ class _LeitorDeOpf:
         def guardar_id(chave: str, el: ET.Element) -> None:
             if el.get("id"):
                 m.ids[chave] = el.get("id")
+            # O `opf:scheme` do identificador, o `xml:lang` do título (RG-10, R-26).
+            atributos = _atributos_de(el, ("id",))
+            if atributos:
+                m.atributos[chave] = atributos
 
         # O identificador principal é o que `unique-identifier` aponta; sem ele, o primeiro.
         identificadores = [el for el in elementos if _ns(el.tag) == NS_DC and _local(el.tag) == "identifier"]
@@ -440,6 +452,18 @@ class _LeitorDeOpf:
                 self.relatorio.aviso(f"pybox:pagina ilegível, ignorado: {erro}")
 
 
+def _atributos_de(el: ET.Element, ignorar: Iterable[str] = ()) -> dict[str, str]:
+    """Os atributos do elemento com o prefixo de volta (`xml:lang`, `opf:scheme`), menos os
+    de `ignorar` e os de namespace que o escritor não declara."""
+    saida: dict[str, str] = {}
+    for chave, valor in el.attrib.items():
+        nome = _nome_do_atributo(chave)
+        if nome in ignorar or (chave.startswith("{") and ":" not in nome):
+            continue
+        saida[nome] = valor
+    return saida
+
+
 def _nome_do_atributo(chave: str) -> str:
     if chave.startswith("{"):
         uri, local = chave[1:].split("}", 1)
@@ -491,6 +515,10 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
     opf = _opf_do_container(z, nomes, relatorio)
     leitor = _LeitorDeOpf(z.read(opf), opf, relatorio)
     livro = Livro(metadados=leitor.metadados, opf=opf, origem=leitor.origem, zip_de_origem=caminho)
+    livro.extras_da_espinha = dict(leitor.extras_da_espinha)
+    livro.extras_do_pacote = dict(leitor.extras_do_pacote)
+    if livro.extras_do_pacote.get("xml:lang") == livro.metadados.idioma:
+        livro.extras_do_pacote.pop("xml:lang")       # é o que o escritor põe: não precisa guardar
     if leitor.pagina is not None:
         livro.pagina = leitor.pagina
     pasta = posixpath.dirname(opf)
@@ -537,6 +565,9 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
             cap = Capitulo(arquivo=href, texto_cru=texto, avisos=[f"XHTML mal-formado: {erro}"])
             relatorio.aviso(f"{href}: XHTML mal-formado ({erro}); aberto em modo código")
         cap.linear = linear
+        cap.id_no_manifesto = id_
+        cap.extras_do_item = dict(leitor.extras_dos_itens.get(id_, {}))
+        cap.extras_do_itemref = dict(leitor.extras_dos_itemrefs[i]) if i < len(leitor.extras_dos_itemrefs) else {}
         livro.capitulos.append(cap)
         na_espinha.add(id_)
     for id_, (href, mime, props) in leitor.itens.items():
@@ -547,7 +578,8 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
             continue
         propriedades = " ".join(p for p in props.split() if p != "cover-image")
         livro.recursos[href] = Recurso(caminho=href, tipo_mime=mime or tipo_mime_de(href),
-                                       propriedades=propriedades, nome_de_origem=nome_no_zip(livro, href))
+                                       propriedades=propriedades, nome_de_origem=nome_no_zip(livro, href),
+                                       id_no_manifesto=id_, extras_do_item=dict(leitor.extras_dos_itens.get(id_, {})))
         if "cover-image" in props.split():
             livro.metadados.capa = href
     if not livro.metadados.capa and leitor.capa_id in leitor.itens:
@@ -734,7 +766,8 @@ class _Escritor:
         if livro.ncx:
             self._item(livro.ncx, MIME_NCX, "", sumario.escrever_ncx(livro).encode("utf-8"), id_="ncx")
         for cap, texto in capitulos:
-            self._item(cap.arquivo, MIME_XHTML, _propriedades_do_xhtml(texto), texto.encode("utf-8"))
+            self._item(cap.arquivo, MIME_XHTML, _propriedades_do_xhtml(texto), texto.encode("utf-8"),
+                       id_=cap.id_no_manifesto)
         ilegiveis: list[str] = []
         for href, recurso in livro.recursos.items():
             if sem_dados:
@@ -755,7 +788,7 @@ class _Escritor:
             props = recurso.propriedades
             if href == livro.metadados.capa:
                 props = " ".join(dict.fromkeys(props.split() + ["cover-image"]))
-            self._item(href, recurso.tipo_mime or tipo_mime_de(href), props, dados)
+            self._item(href, recurso.tipo_mime or tipo_mime_de(href), props, dados, id_=recurso.id_no_manifesto)
         if ilegiveis and not self.sem_ilegiveis:
             raise RecursosIlegiveis(ilegiveis)
         self.omitidos = ilegiveis
@@ -820,10 +853,16 @@ class _Escritor:
             for prefixo in _RE_PROPRIEDADE_COM_PREFIXO.findall(atributos):
                 if prefixo not in PREFIXOS_RESERVADOS and prefixo not in prefixos:
                     self.relatorio.aviso(f"prefixo {prefixo}: usado nos metadados sem declaração")
-        usa_opf = any("opf:" in atributos for _e, atributos, _v in m.extras)
+        usa_opf = (any("opf:" in atributos for _e, atributos, _v in m.extras)
+                   or any(k.startswith("opf:") for atributos in m.atributos.values() for k in atributos))
         id_unico = m.ids.get("identificador") or "pub-id"
+        # O `xml:lang` do pacote, se o livro tinha um diferente do `dc:language`, e o resto
+        # do que o pacote trazia (RG-10, R-26).
+        pacote = dict(livro.extras_do_pacote)
+        idioma_do_pacote = pacote.pop("xml:lang", "") or m.idioma
         cabeca = (f'<package xmlns="{NS_OPF}" version="3.0" unique-identifier="{_attr(id_unico)}"'
-                  + (f' xml:lang="{_attr(m.idioma)}"' if m.idioma else "")
+                  + (f' xml:lang="{_attr(idioma_do_pacote)}"' if idioma_do_pacote else "")
+                  + "".join(f' {k}="{_attr(v)}"' for k, v in pacote.items())
                   + (' xmlns:opf="' + NS_OPF + '"' if usa_opf else "")
                   + (' prefix="' + " ".join(f"{p}: {u}" for p, u in prefixos.items()) + '"' if prefixos else "")
                   + ">")
@@ -832,16 +871,21 @@ class _Escritor:
         linhas.extend(self._metadata(tem_fonte, pybox, ids_por_href))
         linhas.append("</metadata>")
         linhas.append("<manifest>")
+        extras_do_item = {cap.arquivo: cap.extras_do_item for cap in livro.capitulos}
+        extras_do_item.update({href: r.extras_do_item for href, r in livro.recursos.items()})
         for id_, href, mime, props in self.manifesto:
             linhas.append(f'<item id="{_attr(id_)}" href="{_attr(quote(href, safe="/@!$&()*+,;=:-._~"))}" '
-                          f'media-type="{_attr(mime)}"' + (f' properties="{_attr(props)}"' if props else "") + "/>")
+                          f'media-type="{_attr(mime)}"' + (f' properties="{_attr(props)}"' if props else "")
+                          + "".join(f' {k}="{_attr(v)}"' for k, v in extras_do_item.get(href, {}).items()) + "/>")
         linhas.append("</manifest>")
-        linhas.append('<spine toc="ncx">' if livro.ncx else "<spine>")
-        itemrefs = [(cap.arquivo, cap.linear) for cap in livro.capitulos]
+        espinha = "".join(f' {k}="{_attr(v)}"' for k, v in livro.extras_da_espinha.items())
+        linhas.append(f'<spine toc="ncx"{espinha}>' if livro.ncx else f"<spine{espinha}>")
+        itemrefs = [(cap.arquivo, cap.linear, cap.extras_do_itemref) for cap in livro.capitulos]
         if livro.nav_na_espinha is not None:
-            itemrefs.insert(min(livro.nav_na_espinha, len(itemrefs)), (livro.nav, False))
-        for href, linear in itemrefs:
-            linhas.append(f'<itemref idref="{_attr(ids_por_href[href])}"' + ("" if linear else ' linear="no"') + "/>")
+            itemrefs.insert(min(livro.nav_na_espinha, len(itemrefs)), (livro.nav, False, {}))
+        for href, linear, extras in itemrefs:
+            linhas.append(f'<itemref idref="{_attr(ids_por_href[href])}"' + ("" if linear else ' linear="no"')
+                          + "".join(f' {k}="{_attr(v)}"' for k, v in extras.items()) + "/>")
         linhas.append("</spine>")
         if livro.ncx and livro.marcos:
             linhas.append("<guide>")
@@ -869,7 +913,9 @@ class _Escritor:
         m = livro.metadados
         saida: list[str] = []
 
-        def dc(nome: str, texto: str, id_: str = "", extra: str = "") -> None:
+        def dc(nome: str, texto: str, id_: str = "", extra: str = "", chave: str = "") -> None:
+            # Os atributos que o elemento tinha além do `id` (RG-10, R-26).
+            extra += "".join(f' {k}="{_attr(v)}"' for k, v in m.atributos.get(chave, {}).items())
             abre = f"<dc:{nome}" + (f' id="{_attr(id_)}"' if id_ else "") + extra
             saida.append(f"{abre}>{escape(texto)}</dc:{nome}>")
 
@@ -878,9 +924,9 @@ class _Escritor:
                          + (f' scheme="{scheme}"' if scheme else "") + (f' id="{_attr(id_)}"' if id_ else "")
                          + f">{escape(texto)}</meta>")
 
-        dc("identifier", m.identificador, m.ids.get("identificador") or "pub-id")
-        dc("title", m.titulo or "Sem título", m.ids.get("titulo", ""))
-        dc("language", m.idioma or "und", m.ids.get("idioma", ""))
+        dc("identifier", m.identificador, m.ids.get("identificador") or "pub-id", chave="identificador")
+        dc("title", m.titulo or "Sem título", m.ids.get("titulo", ""), chave="titulo")
+        dc("language", m.idioma or "und", m.ids.get("idioma", ""), chave="idioma")
         for i, pessoa in enumerate(m.autores, start=1):
             id_ = pessoa.id or f"creator-{i}"
             dc("creator", pessoa.nome, id_)
@@ -894,19 +940,19 @@ class _Escritor:
             if pessoa.file_as:
                 meta("file-as", pessoa.file_as, refines=id_)
         if m.editora:
-            dc("publisher", m.editora, m.ids.get("editora", ""))
+            dc("publisher", m.editora, m.ids.get("editora", ""), chave="editora")
         if m.data:
-            dc("date", m.data, m.ids.get("data", ""))
+            dc("date", m.data, m.ids.get("data", ""), chave="data")
         if m.descricao:
-            dc("description", m.descricao, m.ids.get("descricao", ""))
+            dc("description", m.descricao, m.ids.get("descricao", ""), chave="descricao")
         for i, assunto in enumerate(m.assuntos, start=1):
-            dc("subject", assunto, m.ids.get(f"assunto-{i}", ""))
+            dc("subject", assunto, m.ids.get(f"assunto-{i}", ""), chave=f"assunto-{i}")
         if m.direitos:
-            dc("rights", m.direitos, m.ids.get("direitos", ""))
+            dc("rights", m.direitos, m.ids.get("direitos", ""), chave="direitos")
         marcas = sumario.marcas_de_pagina(livro)
         if m.fonte_impressa:
             id_ = m.ids.get("fonte_impressa") or "src-1"
-            dc("source", m.fonte_impressa, id_)
+            dc("source", m.fonte_impressa, id_, chave="fonte_impressa")
             if marcas:
                 meta("pageBreakSource", m.fonte_impressa)
         m.modificado = _agora()
