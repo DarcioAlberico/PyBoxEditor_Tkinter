@@ -49,6 +49,7 @@ import zipfile
 from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
+from core import teto_de_pacote
 from core.editor import epub, livro_ops, modelo, sumario
 from core.editor.conversao import Cronometro, RelatorioDeConversao
 from core.editor.modelo import (Bloco, Capitulo, Celula, Citacao, Diagrama, Figura, FormatoDePagina, ItemDeLista,
@@ -198,12 +199,18 @@ class _Pacote:
         self.relatorio = relatorio
         try:
             with zipfile.ZipFile(caminho) as z:
+                # O tamanho declarado antes de ler: o zip inteiro ia para a memória (RG-04).
+                teto_de_pacote.conferir(z, os.path.basename(caminho))
                 self.partes = {n: z.read(n) for n in z.namelist()}
         except (OSError, zipfile.BadZipFile) as erro:
             raise ValueError(f"não deu para abrir {caminho} como DOCX: {erro}") from None
         if "word/document.xml" not in self.partes:
             raise ValueError(f"{os.path.basename(caminho)} não é um DOCX (sem word/document.xml)")
-        self.documento = ET.fromstring(self.partes["word/document.xml"])
+        try:
+            self.documento = ET.fromstring(self.partes["word/document.xml"])
+        except ET.ParseError as erro:
+            # O contrato é `ValueError`, que a interface trata; o `ParseError` subia cru.
+            raise ValueError(f"{os.path.basename(caminho)} tem o word/document.xml mal-formado: {erro}") from None
         self.estilos = self._estilos()
         self.numeracao = self._numeracao()
         self.rels = self._rels("word/_rels/document.xml.rels")

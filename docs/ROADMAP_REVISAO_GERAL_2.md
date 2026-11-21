@@ -696,6 +696,14 @@ que o AbbyChessCraft chama (passo 10).
   (o `ESCAPOU.txt` em `out/`, o `Text/c.html` fora da pasta, o `../sobra.txt` de volta no
   EPUB, o `.txt` embutido); o `test_editor_html.py:92-113` continua verde. Suíte do
   worktree: 3713 passed, 26 skipped.
+- Commit 2 (R-06): `core/teto_de_pacote.py` (256 MB por entrada, 1 GB no total, conferidos
+  pelo `ZipInfo.file_size` antes de ler), usado pelo `_Pacote` do DOCX, pela leitura, pelo
+  `dados_de` e pela validação do EPUB; o `document.xml` mal formado vira `ValueError`; o OPF
+  com entidade do HTML abre por `xhtml.entidades_em_numericas`, a mesma tabela dos
+  capítulos. `tests/test_teto_de_pacote.py`: contra o código de antes, 5 de 6 falham (o
+  sexto confere os valores dos tetos); com tetos reduzidos no teste, a entrada grande
+  demais é recusada sem nenhum `ZipFile.read` dela. Suíte do worktree: 3719 passed, 26
+  skipped.
 ### RG-05
 ### RG-05b
 ### RG-06

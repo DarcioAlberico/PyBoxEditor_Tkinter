@@ -74,6 +74,25 @@ _DTD_DAS_ENTIDADES = "".join(
 ).encode("ascii")
 
 _RE_ENTIDADE_NOMEADA = re.compile(r"&([A-Za-z][A-Za-z0-9]*);")
+_RE_ENTIDADE_NOMEADA_EM_BYTES = re.compile(rb"&([A-Za-z][A-Za-z0-9]*);")
+_DO_XML = ("lt", "gt", "amp", "quot", "apos")
+
+
+def entidades_em_numericas(dados: bytes) -> bytes:
+    """As entidades nomeadas do HTML5 (`&nbsp;`) como referências numéricas (`&#160;`).
+
+    Para quem lê XML com o `ElementTree`, que não as conhece: o OPF (RG-04, R-06). É a
+    mesma tabela da DTD com que os capítulos são lidos; as cinco do XML ficam como estão, e
+    a desconhecida também, para o analisador acusá-la.
+    """
+    def numerica(m: re.Match) -> bytes:
+        nome = m.group(1).decode("ascii")
+        valor = html.entities.html5.get(nome + ";")
+        if valor is None or nome in _DO_XML:
+            return m.group(0)
+        return "".join(f"&#{ord(c)};" for c in valor).encode("ascii")
+
+    return _RE_ENTIDADE_NOMEADA_EM_BYTES.sub(numerica, dados)
 _RE_DECLARACAO = re.compile(rb"^(\xef\xbb\xbf)?\s*<\?xml[^>]*\?>")
 _RE_STANDALONE = re.compile(rb"\s+standalone\s*=\s*([\"'])yes\1")
 _RE_ENCODING = re.compile(rb"encoding\s*=\s*[\"']([A-Za-z0-9._-]+)[\"']")

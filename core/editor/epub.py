@@ -62,6 +62,7 @@ from typing import Iterable
 from urllib.parse import quote, unquote
 from xml.sax.saxutils import escape
 
+from core import teto_de_pacote
 from core.caminho_seguro import e_relativo_seguro
 from core.editor import css_minima, dialeto, fontes, modelo, sumario, xhtml
 from core.editor.conversao import Cronometro, RelatorioDeConversao
@@ -200,7 +201,7 @@ def dados_de(livro: Livro, recurso: Recurso) -> bytes:
     nome = nome_no_zip(livro, recurso.caminho)
     try:
         with zipfile.ZipFile(livro.zip_de_origem) as z:
-            recurso.dados = z.read(nome)
+            recurso.dados = teto_de_pacote.ler(z, nome)
     except (OSError, KeyError, zipfile.BadZipFile) as erro:
         raise FileNotFoundError(f"recurso {recurso.caminho} não está em {livro.zip_de_origem}: {erro}") from None
     return recurso.dados
@@ -259,7 +260,12 @@ class _LeitorDeOpf:
         try:
             self.raiz = ET.fromstring(texto)
         except ET.ParseError as erro:
-            raise ErroDeEpub(f"{opf} mal-formado: {erro}") from None
+            # `&nbsp;` e as outras entidades do HTML: os capítulos já as aceitam pela
+            # mesma tabela; o OPF não abria (RG-04, R-06).
+            try:
+                self.raiz = ET.fromstring(xhtml.entidades_em_numericas(texto))
+            except ET.ParseError:
+                raise ErroDeEpub(f"{opf} mal-formado: {erro}") from None
         self.opf = opf
         self.relatorio = relatorio
         self.versao = self.raiz.get("version", "3.0")
@@ -440,6 +446,10 @@ def ler(caminho: str) -> tuple[Livro, RelatorioDeConversao]:
         except (OSError, zipfile.BadZipFile) as erro:
             raise ErroDeEpub(f"não deu para abrir {caminho}: {erro}") from None
         with z:
+            try:
+                teto_de_pacote.conferir(z, os.path.basename(caminho))
+            except teto_de_pacote.PacoteGrandeDemais as erro:
+                raise ErroDeEpub(str(erro)) from None
             livro = _ler_do_zip(z, caminho, relatorio)
     relatorio.contar(livro)
     relatorio.fontes_embutidas = fontes_embutidas(livro)
@@ -1061,6 +1071,10 @@ def validar_estrutura(caminho: str) -> list[str]:
     except (OSError, zipfile.BadZipFile) as erro:
         return [f"não abre como zip: {erro}"]
     with z:
+        try:
+            teto_de_pacote.conferir(z, os.path.basename(caminho))
+        except teto_de_pacote.PacoteGrandeDemais as erro:
+            return [str(erro)]
         infos = z.infolist()
         nomes = [i.filename for i in infos]
         if not infos or infos[0].filename != "mimetype":
