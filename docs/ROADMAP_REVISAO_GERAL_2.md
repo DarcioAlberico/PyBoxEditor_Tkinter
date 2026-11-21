@@ -596,7 +596,13 @@ diff do usuário).
   `plausivel` exige `is True` e o contraste sem o rei branco; o golden ausente falha em vez
   de se regravar. Os cinco falham contra a função testada devolvendo um vazio do tipo
   certo (plugin de conferência). Suíte da exportação limpa: 3637 passed, 28 skipped.
-- Próximo passo: commit 3 (`pytest.ini`, marcadores, `epubcheck`).
+- Commit 3 (configuração do pytest): `--strict-markers` e `-ra` no `pytest.ini`; as marcas
+  `unit`, `integration`, `ml` e `export` (sem uso) e o bloco `[tool.pytest.ini_options]`
+  do `pyproject.toml` fora; `epubcheck>=5.0` nos dois arquivos (o instalado é o 5.3.0).
+  `pytest --strict-markers --collect-only` sem erro (3719 coletados, com o teste não
+  rastreado do usuário). Suíte da exportação limpa: 3637 passed, 28 skipped; `slow and not
+  gui`: 10 passed, 8 skipped.
+- Próximo passo: commit 4 (`ruff check tests` limpo).
 ### RG-01b
 ### RG-02a
 ### RG-02b
