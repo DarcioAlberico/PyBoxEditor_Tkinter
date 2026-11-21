@@ -350,7 +350,10 @@ def test_ac008_a_ponte(tmp_path):
     bloco("block-doc-p0001-b0003").trechos = [m.Trecho(texto="Do editor")]
     ponte = importar_ir.gravar_eventos(livro, doc, diario)
     eventos = ponte.documento.review_events[1:]                                # o primeiro é o da fila
-    assert [(e.target_id, e.status, e.reason_codes, e.user, e.before, e.after) for e in eventos] == [
+    # O salvamento é um lote só (RG-07, R-12): os motivos vêm com a marca `batch:<id>`, a mesma em todos.
+    assert len({c for e in eventos for c in e.reason_codes if c.startswith("batch:")}) == 1
+    sem_lote = [tuple(c for c in e.reason_codes if not c.startswith("batch:")) for e in eventos]
+    assert [(e.target_id, e.status, codigos, e.user, e.before, e.after) for e, codigos in zip(eventos, sem_lote)] == [
         ("block-doc-p0001-b0001", "reviewed", ("editor",), "editor", "Texto com negrito no meio.", "Texto novo."),
         ("block-doc-p0001-b0003", "reviewed", ("editor",), "editor", "Da fila", "Do editor"),
         ("block-doc-p0002-b0002", "rejected", ("rejected",), "editor", "coisa estranha", "coisa estranha"),

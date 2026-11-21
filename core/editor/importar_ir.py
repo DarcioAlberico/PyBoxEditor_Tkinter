@@ -46,11 +46,14 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Iterable, NamedTuple
 
-from core.editor import epub, modelo, sumario
+from core.editor import epub, modelo, sumario, xhtml
 from core.editor.conversao import Cronometro, RelatorioDeConversao
 from core.editor.modelo import (Bloco, Capitulo, Celula, Diagrama, Figura, Livro, MarcaDePagina, Metadados, Origem,
                                 Paragrafo, Recurso, Tabela, Titulo, Trecho)
 from core.editorial_model import EditorialBlock, EditorialDocument, EditorialPage
+from core.log import logger
+
+log = logger(__name__)
 
 #: Os códigos de procedência que o adapter põe em toda decisão — não são motivo de suspeita
 #: (a mesma lista de `core.editorial_suspeitas.PROCEDENCIA`, copiada para não importar o OCR).
@@ -420,18 +423,71 @@ def _valor_de(bloco: Bloco, block: EditorialBlock) -> Any:
     return None
 
 
-def _blocos_com_origem(livro: Livro) -> tuple[dict[str, Bloco], dict[str, str], list[Bloco], list[str]]:
-    """`(principal por bloco_id, fundida → id do bloco que a absorveu, blocos novos, avisos)`."""
+def _blocos_da_ponte(blocos: Iterable[Bloco], notas: Iterable[Any] = ()) -> Iterable[Bloco]:
+    """
+    Os blocos que podem ter origem própria: os de cima e os de dentro de lista, citação e
+    nota (RG-07, R-12) — o bloco com origem dentro de uma citação virava "apagado". A
+    célula de tabela não é bloco: a tabela inteira é o bloco do documento editorial.
+    """
+    def percorrer(lista):
+        for bloco in lista:
+            yield bloco
+            if isinstance(bloco, modelo.Lista):
+                for item in bloco.itens:
+                    yield from percorrer(item.paragrafos)
+                    if item.filhos is not None:
+                        yield from percorrer([item.filhos])
+            elif isinstance(bloco, modelo.Citacao):
+                yield from percorrer(bloco.blocos)
+    yield from percorrer(blocos)
+    for nota in notas:
+        yield from percorrer(nota.blocos)
+
+
+def _origens_em_codigo(cap: Capitulo) -> set[str]:
+    """
+    Os blocos do documento editorial que o capítulo em modo código contém: os do próprio
+    `texto_cru`, lido agora, ou — se ele não se lê — os que o capítulo tinha em blocos.
+    """
+    try:
+        lido = xhtml.ler(cap.texto_cru or "", cap.arquivo)
+        blocos = list(_blocos_da_ponte(lido.blocos, lido.notas))
+    except (xhtml.ErroDeXhtml, ValueError) as erro:
+        log.info("o código de %s não se lê (%s); valem os blocos de antes da troca", cap.arquivo, erro)
+        blocos = list(_blocos_da_ponte(cap.blocos, cap.notas))
+    origens: set[str] = set()
+    for bloco in blocos:
+        if bloco.origem is not None:
+            origens.add(bloco.origem.bloco_id)
+            origens.update(f.bloco_id for f in bloco.origem.fundidas)
+    return origens
+
+
+def _blocos_com_origem(livro: Livro) -> tuple[dict[str, Bloco], dict[str, str], list[Bloco], list[str], set[str]]:
+    """`(principal por bloco_id, fundida → id do bloco que a absorveu, blocos novos, avisos,
+    origens dos capítulos em modo código)`."""
     principais: dict[str, Bloco] = {}
     fundidas: dict[str, str] = {}
     novos: list[Bloco] = []
     avisos: list[str] = []
+    em_codigo: set[str] = set()
     for cap in livro.capitulos:
-        for bloco in cap.blocos:                        # só o nível de cima: a célula de tabela não é bloco novo
+        if cap.texto_cru is not None:
+            # O capítulo em modo código não volta ao documento editorial (RG-07, R-12):
+            # sem os blocos dele, cada um virava um `reject`, sem aviso.
+            origens = _origens_em_codigo(cap)
+            em_codigo |= origens
+            if origens:
+                avisos.append(f"{cap.arquivo} está em modo código: as mudanças dele não voltam ao documento "
+                              f"editorial ({len(origens)} bloco(s) ficam como estavam); volte ao modo texto "
+                              f"para levá-las")
+            continue
+        for bloco in _blocos_da_ponte(cap.blocos, cap.notas):
             if isinstance(bloco, (MarcaDePagina, modelo.QuebraDePagina, modelo.Separador)):
                 continue
             if bloco.origem is None:
-                novos.append(bloco)
+                if not isinstance(bloco, (modelo.Lista, modelo.Citacao)):    # o contêiner não é bloco novo
+                    novos.append(bloco)
                 continue
             if bloco.origem.bloco_id in principais:
                 avisos.append(f"{cap.arquivo}: o bloco {bloco.id} repete a origem {bloco.origem.bloco_id}; "
@@ -441,16 +497,18 @@ def _blocos_com_origem(livro: Livro) -> tuple[dict[str, Bloco], dict[str, str], 
             principais[bloco.origem.bloco_id] = bloco
             for outra in bloco.origem.fundidas:
                 fundidas.setdefault(outra.bloco_id, bloco.origem.bloco_id)
-    return principais, fundidas, novos, avisos
+    return principais, fundidas, novos, avisos, em_codigo
 
 
 def eventos_de(livro: Livro, documento: EditorialDocument) -> list[Mudanca]:
     """As mudanças do livro em relação à decisão atual de cada bloco do documento (ver o cabeçalho)."""
-    principais, fundidas, _novos, _avisos = _blocos_com_origem(livro)
+    principais, fundidas, _novos, _avisos, em_codigo = _blocos_com_origem(livro)
     saida: list[Mudanca] = []
     for page in documento.pages:
         for block in sorted(page.blocks, key=lambda b: b.order):
             if block.kind in TIPOS_FORA_DO_LIVRO or block.decision.status == "rejected":
+                continue
+            if block.id in em_codigo:
                 continue
             bloco = principais.get(block.id)
             if bloco is None:
@@ -531,26 +589,28 @@ def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, u
     do nome com identidade (RG-07, R-10): o de **outro** documento não se aplica nem se
     escreve, e o conflito de valor pula só o alvo dele — os dois com aviso.
     """
-    from core.editorial_review import ReviewSession, abrir_diario
+    from core.editorial_review import Pedido, ReviewSession, abrir_diario
 
     journal, avisos_do_diario = abrir_diario(diario or "", documento)
     relatorio = RelatorioDaPonte(diario=str(journal.path) if journal.path is not None else "")
     sessao = ReviewSession.from_journal(documento, journal, user=user)
     relatorio.avisos.extend(avisos_do_diario + sessao.avisos)
-    principais, _fundidas, novos, avisos = _blocos_com_origem(livro)
+    principais, _fundidas, novos, avisos, _em_codigo = _blocos_com_origem(livro)
     relatorio.avisos.extend(avisos)
     relatorio.novos = [b.id for b in novos]
     relatorio.mudancas = eventos_de(livro, sessao.document)
     sem_canal = 0
+    pedidos: list[Pedido] = []
     for mudanca in relatorio.mudancas:
         if mudanca.after is None:
-            sessao.reject(mudanca.bloco_id)
+            atual = sessao._block(mudanca.bloco_id)[1].decision.value
+            pedidos.append(Pedido(mudanca.bloco_id, atual, "rejected", ("rejected",)))
             if mudanca.motivo == "fundido_apagado":
                 relatorio.fundidos += 1
             else:
                 relatorio.apagados += 1
         else:
-            sessao.edit(mudanca.bloco_id, mudanca.after, reason_codes=("editor",), metadata=mudanca.metadata)
+            pedidos.append(Pedido(mudanca.bloco_id, mudanca.after, "reviewed", ("editor",), mudanca.metadata))
             if mudanca.motivo == "fundido":
                 relatorio.fundidos += 1
             else:
@@ -559,6 +619,9 @@ def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, u
                 relatorio.formatados += 1
             if _tem_formato_que_nao_viaja(principais[mudanca.bloco_id]):
                 sem_canal += 1
+    # Um lote por salvamento (RG-07, R-12): o Ctrl+S do editor é um passo só de desfazer
+    # na revisão, e ou entra inteiro no diário, ou nada.
+    sessao.aplicar_lote(pedidos)
     if sem_canal:
         relatorio.avisos.append(f"sublinhado, tachado, versalete ou posição de {sem_canal} bloco(s) editado(s) não "
                                 f"viajam para o documento editorial: o IR guarda só negrito e itálico (DEC-10, §10.7)")

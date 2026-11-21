@@ -257,6 +257,11 @@ def _livro_e_documento(tmp_path):
     return livro, doc
 
 
+def _sem_lote(codigos):
+    """Os motivos sem a marca do lote, que todo evento de um salvamento da ponte leva (RG-07, R-12)."""
+    return [c for c in codigos if not c.startswith("batch:")]
+
+
 def _bloco_de(livro, bloco_id):
     return next(b for c in livro.capitulos for b in c.blocos if b.origem is not None and b.origem.bloco_id == bloco_id)
 
@@ -283,9 +288,12 @@ def test_ac2_ac008_os_eventos_no_diario_do_review_journal_path(tmp_path):
     # o negrito editado viaja no evento (pedido da ED-pré, 2026-11-07): nada a avisar
     assert not any("não viaja" in a for a in ponte.avisos) and ponte.formatados == 1
     assert ponte.documento.review_events[0].metadata == {"style": {"bold_spans": [[6, 15]], "italic_spans": []}}
-    # o diário: dois reviewed e um rejected, before/after certos, reason_codes ("editor",), user "editor"
+    # o diário: dois reviewed e um rejected, before/after certos, reason_codes ("editor",), user "editor";
+    # o salvamento é um lote só (RG-07, R-12): todos levam a mesma marca `batch:<id>`
     linhas = [json.loads(li) for li in open(diario, encoding="utf-8").read().splitlines() if li.strip()]
-    assert [(e["target_id"], e["status"], e["reason_codes"], e["user"], e["before"], e["after"]) for e in linhas] == [
+    assert len({c for e in linhas for c in e["reason_codes"] if c.startswith("batch:")}) == 1
+    assert [(e["target_id"], e["status"], _sem_lote(e["reason_codes"]), e["user"], e["before"], e["after"])
+            for e in linhas] == [
         ("block-doc-p0001-b0001", "reviewed", ["editor"], "editor", "Texto com negrito no meio.",
          "Texto corrigido no meio."),
         ("block-doc-p0002-b0002", "rejected", ["rejected"], "editor", "coisa estranha", "coisa estranha"),
@@ -354,7 +362,7 @@ def test_ac4_a_fusao_da_edit_no_primeiro_e_reject_no_segundo(tmp_path):
     eventos = ponte.documento.review_events
     assert [(e.target_id, e.status) for e in eventos] == [("block-doc-p0002-b0002", "reviewed"),
                                                           ("block-doc-p0002-b0003", "rejected")]
-    assert eventos[0].after == "coisa estranhaSuspeito por motor." and eventos[0].reason_codes == ("editor",)
+    assert eventos[0].after == "coisa estranhaSuspeito por motor." and _sem_lote(eventos[0].reason_codes) == ["editor"]
     # a origem fundida volta do XHTML
     x = xhtml.escrever(cap)
     assert 'data-origem-fundidas="doc-p0002|block-doc-p0002-b0003"' in x

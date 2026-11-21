@@ -873,6 +873,28 @@ Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktree
   `tests/test_desfazer_devolve_os_motivos.py`: contra o código de antes, os seis falham (o
   item que sai da fila, no passo, no lote e em dois passos; os três motivos reservados
   aceitos). Suíte do worktree: 3787 passed, 26 skipped.
+- Commit 5 (R-12): `ReviewSession._aplicar_varios` monta e aplica os eventos num documento
+  de trabalho e só então grava todos (`ReviewJournal.append_lote`, uma gravação e um
+  `fsync`); `apply_batch` confere os alvos antes, e `undo` desfaz o passo numa transação;
+  `Pedido` + `aplicar_lote` (status, motivos e metadata por evento; alvos, status e
+  motivos reservados conferidos antes). A ponte grava um lote por salvamento; desce nos
+  blocos de lista, citação e nota (não na célula de tabela) e não conta o contêiner sem
+  origem como bloco novo; o capítulo em modo código não gera evento — as origens dele
+  saem do próprio `texto_cru` (ou, se ele não se lê, dos blocos de antes da troca) — e o
+  salvamento avisa. Três testes antigos conferiam os motivos da ponte como `("editor",)`;
+  agora conferem `editor` mais uma marca `batch:` só, a mesma no salvamento inteiro.
+  `tests/test_lote_transacional_e_ponte.py`: contra o código de antes (com `Pedido` e
+  `aplicar_lote` imitando o lote evento a evento), os cinco falham — o lote que deixa a
+  metade, dois passos onde devia haver um, o salvamento em dois passos, o modo código que
+  rejeita 9 blocos, o bloco da citação "apagado". Suíte do worktree: 3792 passed, 26
+  skipped.
+- O diário gravado na base abre: um diário escrito pelo core da árvore principal
+  (`1a923bb`, nome sem sha, linhas CRLF, eventos sem `before_reason_codes`, com edição,
+  lote, aceite e desfazer), aberto pelo core do worktree, aplica tudo (b0 corrigido, b1 e
+  b2 aceitos, b3 de volta a `automatic`, dois passos desfazíveis), sem aviso; a edição
+  seguinte vai para `saida.cccccccccccc.review.jsonl`, e o arquivo antigo fica com o mesmo
+  sha256 (`scratchpad\diario_da_base.py` da sessão). A abertura de um diário real do
+  usuário segue fora do pronto: não há nenhum `*.review.jsonl` na máquina.
 ### RG-08
 ### RG-09
 ### RG-10

@@ -353,10 +353,17 @@ class ReviewJournal:
         self._events: list[ReviewEvent] = []
 
     def append(self, event: ReviewEvent) -> ReviewEvent:
-        self._events.append(event)
-        if self.path is not None:
-            self._gravar([event])
+        self.append_lote([event])
         return event
+
+    def append_lote(self, events: Iterable[ReviewEvent]) -> None:
+        """Os eventos de uma transação, numa gravação e num `fsync` (RG-07, R-12)."""
+        events = list(events)
+        if not events:
+            return
+        self._events.extend(events)
+        if self.path is not None:
+            self._gravar(events)
 
     def _gravar(self, events: Iterable[ReviewEvent]) -> None:
         linhas = "".join(json.dumps(event.to_dict(), ensure_ascii=False) + "\n" for event in events)
@@ -537,6 +544,26 @@ def passos_para_desfazer(events: Iterable[ReviewEvent]) -> list[ReviewEvent]:
     return list(pilha[-1]) if pilha else []
 
 
+@dataclass(frozen=True)
+class Pedido:
+    """Um evento de `ReviewSession.aplicar_lote`: o alvo, o valor novo e, por evento, o
+    status, os motivos e o metadata (RG-07, R-12)."""
+
+    target_id: str
+    after: Any
+    status: str = "reviewed"
+    reason_codes: tuple[str, ...] = ("human_correction",)
+    metadata: Mapping[str, Any] | None = None
+
+
+def _bloco_em(documento: EditorialDocument, target_id: str) -> tuple[str, EditorialBlock]:
+    for page in documento.pages:
+        for block in page.blocks:
+            if block.id == target_id:
+                return page.page_id, block
+    raise KeyError(f"alvo editorial inexistente: {target_id}")
+
+
 class ReviewSession:
     """Serviço transacional pequeno para aceitar, editar, rejeitar e desfazer."""
 
@@ -557,11 +584,7 @@ class ReviewSession:
         return build_review_queue(self.document, limite_por_pagina=limite_por_pagina)
 
     def _block(self, target_id: str) -> tuple[str, EditorialBlock]:
-        for page in self.document.pages:
-            for block in page.blocks:
-                if block.id == target_id:
-                    return page.page_id, block
-        raise KeyError(f"alvo editorial inexistente: {target_id}")
+        return _bloco_em(self.document, target_id)
 
     def _apply(self, target_id: str, after: Any, status: str,
                reason_codes: Iterable[str],
@@ -569,24 +592,39 @@ class ReviewSession:
         reason_codes = tuple(reason_codes)
         if not interno:
             _recusar_reservados(reason_codes)
-        page_id, block = self._block(target_id)
-        metadata = dict(metadata or {})
-        event = ReviewEvent(
-            event_id=uuid4().hex, document_id=self.document.document_id,
-            page_id=page_id, target_id=target_id,
-            before=copy.deepcopy(block.decision.value), after=copy.deepcopy(after),
-            status=status, reason_codes=tuple(reason_codes), user=self.user,
-            created_at=_now(), model_version=self.model_version,
-            source_refs=tuple(block.source_refs),
-            before_status=block.decision.status,
-            metadata=metadata,
-            before_metadata=_metadata_de_antes(block, metadata, after != block.decision.value),
-            before_reason_codes=tuple(block.decision.reason_codes),
-        )
-        atualizado = self.document.apply_review(event)
-        self.journal.append(event)
-        self.document = atualizado
-        return atualizado
+        return self._aplicar_varios([(target_id, after, status, reason_codes, metadata)])
+
+    def _aplicar_varios(self, pedidos: list[tuple[str, Any, str, tuple[str, ...], Mapping[str, Any] | None]]) \
+            -> EditorialDocument:
+        """
+        Aplica os pedidos `(alvo, valor, status, motivos, metadata)` como **uma**
+        transação (RG-07, R-12): os eventos se montam e se aplicam a um documento de
+        trabalho, e só depois de todos passarem vão ao diário, numa gravação. Um alvo
+        que não existe, ou um evento que o documento recusa, levanta sem gravar nada —
+        antes, o lote aplicava a metade e levantava, e o diário ficava com ela.
+        """
+        documento = self.document
+        eventos: list[ReviewEvent] = []
+        for target_id, after, status, reason_codes, metadata in pedidos:
+            page_id, block = _bloco_em(documento, target_id)
+            metadata = dict(metadata or {})
+            event = ReviewEvent(
+                event_id=uuid4().hex, document_id=documento.document_id,
+                page_id=page_id, target_id=target_id,
+                before=copy.deepcopy(block.decision.value), after=copy.deepcopy(after),
+                status=status, reason_codes=tuple(reason_codes), user=self.user,
+                created_at=_now(), model_version=self.model_version,
+                source_refs=tuple(block.source_refs),
+                before_status=block.decision.status,
+                metadata=metadata,
+                before_metadata=_metadata_de_antes(block, metadata, after != block.decision.value),
+                before_reason_codes=tuple(block.decision.reason_codes),
+            )
+            documento = documento.apply_review(event)
+            eventos.append(event)
+        self.journal.append_lote(eventos)
+        self.document = documento
+        return documento
 
     def accept(self, target_id: str) -> EditorialDocument:
         page_id, block = self._block(target_id)
@@ -681,11 +719,33 @@ class ReviewSession:
         ids = list(target_ids)
         if sample_size is not None:
             ids = ids[:max(0, int(sample_size))]
+        # Os alvos se conferem antes do primeiro evento (RG-07, R-12), e o lote é uma
+        # transação só: o alvo inexistente não deixa a metade do lote no diário.
+        valores = {target_id: self._block(target_id)[1].decision.value for target_id in ids}
         lote = uuid4().hex[:12]
-        for target_id in ids:
-            _, block = self._block(target_id)
-            self._apply(target_id, block.decision.value, status, ("batch", f"{_LOTE}{lote}"), interno=True)
-        return self.document
+        return self._aplicar_varios([(target_id, valores[target_id], status, ("batch", f"{_LOTE}{lote}"), None)
+                                     for target_id in ids])
+
+    def aplicar_lote(self, pedidos: Iterable["Pedido"]) -> EditorialDocument:
+        """
+        Um lote com status por evento (RG-07, R-12) — o que a ponte do editor grava a cada
+        salvamento, e que por isso é um passo só de desfazer. `apply_batch` exige
+        `confirm` e um status para todos; este recebe os pedidos prontos, confere os
+        alvos, os status e os motivos antes do primeiro evento, e não grava nada se um
+        deles não serve.
+        """
+        pedidos = list(pedidos)
+        for pedido in pedidos:
+            if pedido.status not in DECISION_STATUSES:
+                raise ValueError(f"status de evento inválido: {pedido.status!r}")
+            _recusar_reservados(pedido.reason_codes)
+            self._block(pedido.target_id)
+        if not pedidos:
+            return self.document
+        lote = uuid4().hex[:12]
+        return self._aplicar_varios([(p.target_id, p.after, p.status,
+                                      tuple(p.reason_codes) + (f"{_LOTE}{lote}",), p.metadata)
+                                     for p in pedidos])
 
     def passos_desfaziveis(self) -> int:
         """Quantos passos o revisor ainda pode desfazer."""
@@ -695,6 +755,7 @@ class ReviewSession:
         passo = passos_para_desfazer(self.document.review_events)
         if not passo:
             raise ValueError("não há evento para desfazer")
+        pedidos = []
         for event in reversed(passo):
             # O bloco volta ao valor **e ao estado** de antes do passo: o que
             # foi aceito e desfeito volta para a fila (`automatic`), e o que
@@ -706,9 +767,9 @@ class ReviewSession:
             # volta com os motivos que tinha, e o bloco que estava na fila volta a ela.
             codigos = ("undo",) + ((f"{_LOTE}{lote}",) if lote else ()) + tuple(event.before_reason_codes)
             # O estilo e o metadata voltam ao que eram (`before_metadata`), como o valor.
-            self._apply(event.target_id, event.before, status, codigos,
-                        metadata=dict(event.before_metadata) or None, interno=True)
-        return self.document
+            pedidos.append((event.target_id, event.before, status, codigos, dict(event.before_metadata) or None))
+        # O passo inteiro se desfaz numa transação: ou volta todo, ou nada (RG-07, R-12).
+        return self._aplicar_varios(pedidos)
 
     @classmethod
     def from_journal(cls, document: EditorialDocument, journal: ReviewJournal, *,
