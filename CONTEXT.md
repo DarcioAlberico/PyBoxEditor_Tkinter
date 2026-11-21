@@ -115,3 +115,5 @@ de implementação pertencem às specs e aos ADRs.
 17. Gravação interrompida deixa o arquivo anterior do usuário intacto; no diário de
     revisão, que só acrescenta, legível até o último evento completo (revisão geral 2,
     RG-03).
+18. Nenhum caminho vindo de pacote ou de HTML importado sai da raiz dele: a raiz do
+    pacote, ou a pasta que o usuário escolheu (revisão geral 2, RG-04).

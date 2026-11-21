@@ -683,6 +683,19 @@ porque a fase toca o `lexico`, cujo `_ler` o AbbyChessCraft usa sob contrato (pa
 - AbbyChessCraft contra o `core` do worktree (passo 10): 2915 passed, as mesmas 6 falhas.
 - Próximo passo da revisão: a RG-04.
 ### RG-04
+Estado: em andamento. Base `6e57dab`, no worktree `.claude/worktrees/rg04` (destacado, com os
+pesos copiados; `model_meta.json` igual ao do `HEAD`), porque o R-48 toca o `OCRService`,
+que o AbbyChessCraft chama (passo 10).
+- Commit 1 (R-05): `core/caminho_seguro.py` (`e_relativo_seguro`, `caminho_seguro`,
+  `CaminhoInseguro`); a leitura do EPUB deixa de fora, com aviso, a entrada que sai do
+  pacote; a pasta HTML grava pelo nome no zip relativo à raiz comum do OPF, dos capítulos e
+  do manifesto, e o `index.html` linka pelo mesmo mapa; os recursos da pasta passam pela
+  escrita atômica; `_trazer_do_disco` recusa absoluto, unidade e UNC e só embute a
+  extensão do recurso pedido. A invariante 18 entra no `CONTEXT.md`.
+  `tests/test_caminho_seguro.py`: os quatro cenários falharam primeiro pelo motivo certo
+  (o `ESCAPOU.txt` em `out/`, o `Text/c.html` fora da pasta, o `../sobra.txt` de volta no
+  EPUB, o `.txt` embutido); o `test_editor_html.py:92-113` continua verde. Suíte do
+  worktree: 3713 passed, 26 skipped.
 ### RG-05
 ### RG-05b
 ### RG-06

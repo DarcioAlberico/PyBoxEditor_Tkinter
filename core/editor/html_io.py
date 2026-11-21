@@ -44,7 +44,9 @@ from typing import Any, Sequence
 from urllib.parse import quote, unquote
 from xml.sax.saxutils import escape
 
+from core.caminho_seguro import CaminhoInseguro, caminho_seguro, e_relativo_seguro
 from core.editor import consertar, epub, fontes, livro_ops, modelo, sumario, xhtml
+from core.escrita_atomica import gravar_atomico
 from core.editor.conversao import Cronometro, OpcoesDeConversao, RelatorioDeConversao
 from core.editor.modelo import (Capitulo, Diagrama, EntradaDeSumario, Figura, IlhaBruta, Livro, Metadados,
                                 Paragrafo, Pessoa, Recurso, Titulo)
@@ -426,7 +428,6 @@ def escrever_unico(livro: Livro, caminho: str, opcoes: OpcoesDeConversao | None 
 
 
 def _gravar(caminho: str, texto: str) -> None:
-    from core.escrita_atomica import gravar_atomico
     gravar_atomico(caminho, texto)
 
 
@@ -447,6 +448,7 @@ def escrever_pasta(livro: Livro, pasta: str, opcoes: OpcoesDeConversao | None = 
         escritor = _Escritor(livro, relatorio, opcoes)
         capitulos = escritor.preparar()
         os.makedirs(pasta, exist_ok=True)
+        na_pasta = _na_pasta(livro)
         escritos: list[str] = []
         for cap, cabeca, corpo in capitulos:
             serializador = _Serializador(livro, cap, "pasta", relatorio, escritor.dados)
@@ -460,7 +462,9 @@ def escrever_pasta(livro: Livro, pasta: str, opcoes: OpcoesDeConversao | None = 
                 "<!DOCTYPE html>", f'<html lang="{_attr(idioma)}">', "<head>", '<meta charset="utf-8">',
                 f"<title>{escape(cap.titulo_efetivo)}</title>", extra, "</head>",
                 f'<body role="{papel}">', miolo, "</body>", "</html>", ""])
-            destino = os.path.join(pasta, *_com_html(cap.arquivo).split("/"))
+            destino = _destino_seguro(pasta, _com_html(na_pasta(cap.arquivo)), relatorio)
+            if destino is None:
+                continue
             _gravar(destino, texto)
             escritos.append(destino)
         for href, recurso in livro.recursos.items():
@@ -469,13 +473,13 @@ def escrever_pasta(livro: Livro, pasta: str, opcoes: OpcoesDeConversao | None = 
             dados = escritor.dados(recurso)
             if dados is None:
                 continue
-            destino = os.path.join(pasta, *href.split("/"))
-            os.makedirs(os.path.dirname(destino), exist_ok=True)
-            with open(destino, "wb") as f:
-                f.write(dados)
+            destino = _destino_seguro(pasta, na_pasta(href), relatorio)
+            if destino is None:
+                continue
+            gravar_atomico(destino, dados)
             escritos.append(destino)
         indice = os.path.join(pasta, "index.html")
-        _gravar(indice, _index(livro, escritor))
+        _gravar(indice, _index(livro, escritor, na_pasta))
         relatorio.arquivos = [indice] + escritos
     relatorio.contar(livro)
     relatorio.fontes_embutidas = epub.fontes_embutidas(livro)
@@ -487,19 +491,50 @@ def _relativo(href: str, de_arquivo: str) -> str:
     return quote(posixpath.relpath(href, pasta) if pasta else href, safe=xhtml.SEGUROS_NA_URL)
 
 
-def _index(livro: Livro, escritor: _Escritor) -> str:
+def _na_pasta(livro: Livro):
+    """`href` (relativo ao OPF) → o caminho dele na pasta HTML (RG-04, R-05).
+
+    É o nome da entrada no zip relativo à raiz comum do OPF, dos capítulos e do manifesto.
+    No caso comum — o OPF em `OEBPS/` e tudo debaixo dele — dá o próprio `href`, o leiaute
+    de sempre. Com o OPF em `OEBPS/opf/` e os capítulos em `../Text/`, o `href` cru saía da
+    pasta; aqui o capítulo cai em `Text/`. As posições relativas entre os arquivos não
+    mudam, e por isso os links entre capítulos e recursos continuam valendo.
+    """
+    diretorios = [posixpath.dirname(livro.opf)]
+    diretorios += [posixpath.dirname(epub.nome_no_zip(livro, c.arquivo)) for c in livro.capitulos]
+    diretorios += [posixpath.dirname(epub.nome_no_zip(livro, h)) for h, r in livro.recursos.items()
+                   if not r.no_manifesto]
+    seguros = [d for d in diretorios if not d or e_relativo_seguro(d)]
+    base = posixpath.commonpath(seguros) if seguros else ""
+
+    def na_pasta(href: str) -> str:
+        nome = epub.nome_no_zip(livro, href)
+        return posixpath.relpath(nome, base) if base else nome
+
+    return na_pasta
+
+
+def _destino_seguro(pasta: str, relativo: str, relatorio: RelatorioDeConversao) -> str | None:
+    try:
+        return str(caminho_seguro(pasta, relativo))
+    except CaminhoInseguro:
+        relatorio.aviso(f"arquivo que sairia da pasta, deixado de fora: {relativo}")
+        return None
+
+
+def _index(livro: Livro, escritor: _Escritor, na_pasta=lambda href: href) -> str:
     md = livro.metadados
 
     def destino(alvo: str) -> str:
         arquivo, _, ancora = alvo.partition("#")
-        return quote(_com_html(arquivo), safe=xhtml.SEGUROS_NA_URL) + ("#" + ancora if ancora else "")
+        return quote(_com_html(na_pasta(arquivo)), safe=xhtml.SEGUROS_NA_URL) + ("#" + ancora if ancora else "")
 
     partes = [escritor.cabeca_html(md.titulo or "Livro"), "<body>", "<header>",
               f"<h1>{escape(md.titulo or 'Livro')}</h1>"]
     if md.autores:
         partes.append(f"<p>{escape('; '.join(p.nome for p in md.autores))}</p>")
     if md.capa and livro.recurso(md.capa) is not None:
-        partes.append(f'<p><img src="{_attr(quote(md.capa, safe=xhtml.SEGUROS_NA_URL))}" alt="Capa"></p>')
+        partes.append(f'<p><img src="{_attr(quote(na_pasta(md.capa), safe=xhtml.SEGUROS_NA_URL))}" alt="Capa"></p>')
     partes.append("</header>")
     entradas = livro.sumario or sumario.gerar_dos_titulos(livro)
     partes.append('<nav role="doc-toc" aria-label="Sumário">\n<h2>Sumário</h2>\n'
@@ -850,13 +885,33 @@ def _recurso_de_imagem(livro: Livro, href: str, pasta: str, relatorio: Relatorio
     return _trazer_do_disco(livro, href, pasta, "Images", "", relatorio, capitulo)
 
 
+#: O que `_trazer_do_disco` embute, por pasta de destino (RG-04, R-05).
+_EXTENSOES_DO_RECURSO = {
+    "Styles": (".css",),
+    "Images": (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"),
+}
+_RE_UNIDADE = re.compile(r"^[A-Za-z]:")
+
+
 def _trazer_do_disco(livro: Livro, href: str, pasta: str, destino: str, mime: str,
                      relatorio: RelatorioDeConversao, capitulo: str = "Text/cap-0001.xhtml") -> str | None:
-    """Um href relativo ao OPF (calculado do capítulo) → o arquivo no disco → recurso em `destino/`; `None` sem ele."""
+    """Um href relativo ao OPF (calculado do capítulo) → o arquivo no disco → recurso em `destino/`; `None` sem ele.
+
+    Relativo de qualquer profundidade vale (`../img/a.png` de um HTML em subpasta), mas
+    caminho absoluto, letra de unidade e UNC não, e só entra a extensão do recurso pedido
+    — folha de estilo ou imagem: o HTML importado apontava e o programa embutia qualquer
+    arquivo legível (RG-04, R-05).
+    """
     if href in livro.recursos:
         return href
     pasta_do_capitulo = posixpath.dirname(capitulo)
     relativo = posixpath.relpath(href, pasta_do_capitulo) if pasta_do_capitulo else href
+    absoluto = _RE_UNIDADE.match(href) or _RE_UNIDADE.match(relativo) or \
+        relativo.replace("\\", "/").startswith("/") or href.replace("\\", "/").startswith("/")
+    extensao = posixpath.splitext(relativo)[1].lower()
+    if absoluto or extensao not in _EXTENSOES_DO_RECURSO.get(destino, ()):
+        relatorio.aviso(f"referência que não é {destino.lower()} do livro, deixada de fora: {relativo}")
+        return None
     caminho = os.path.normpath(os.path.join(pasta, *relativo.split("/")))
     if not os.path.isfile(caminho):
         relatorio.aviso(f"arquivo referenciado não encontrado: {relativo}")

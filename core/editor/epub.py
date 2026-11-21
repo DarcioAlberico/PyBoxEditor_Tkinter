@@ -62,6 +62,7 @@ from typing import Iterable
 from urllib.parse import quote, unquote
 from xml.sax.saxutils import escape
 
+from core.caminho_seguro import e_relativo_seguro
 from core.editor import css_minima, dialeto, fontes, modelo, sumario, xhtml
 from core.editor.conversao import Cronometro, RelatorioDeConversao
 from core.editor.modelo import (Capitulo, Diagrama, Figura, FormatoDePagina, Livro, Metadados,
@@ -446,7 +447,14 @@ def ler(caminho: str) -> tuple[Livro, RelatorioDeConversao]:
 
 
 def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversao) -> Livro:
-    nomes = z.namelist()
+    # A entrada que sai da raiz do pacote (`../x`, `/x`, `C:x`) não entra no livro: ela
+    # seria regravada no EPUB salvo e gravada fora da pasta HTML (RG-04, R-05).
+    nomes = []
+    for nome in z.namelist():
+        if e_relativo_seguro(nome):
+            nomes.append(nome)
+        else:
+            relatorio.aviso(f"entrada que sai do pacote, deixada de fora: {nome}")
     if "mimetype" not in nomes:
         relatorio.aviso("sem entrada mimetype")
     elif z.read("mimetype").strip() != MIME_EPUB.encode("ascii"):
