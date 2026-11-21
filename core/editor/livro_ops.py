@@ -542,14 +542,15 @@ def juntar(livro: Livro, href: str) -> str:
         mapa.setdefault(f"{href}#{id_}", f"{alvo}#{id_}")
     mapa[href] = alvo
     juntado = modelo.juntar_capitulos(anterior, este)
-    # Duas marcas da mesma página (só acontece juntando cópias): fica a primeira.
-    vistos: set[str] = set()
+    # Duas marcas da mesma página (só acontece juntando cópias): fica a primeira — pelo
+    # número da página, e não pelo id, que a cópia pode trazer outro (RG-11, R-28).
+    vistos: set[int] = set()
     blocos = []
     for bloco in juntado.blocos:
         if isinstance(bloco, MarcaDePagina):
-            if bloco.id in vistos:
+            if bloco.pagina in vistos:
                 continue
-            vistos.add(bloco.id)
+            vistos.add(bloco.pagina)
         blocos.append(bloco)
     juntado.blocos = blocos
     if anterior.titulo and _RE_PAGINA_NO_TITULO.match(anterior.titulo):

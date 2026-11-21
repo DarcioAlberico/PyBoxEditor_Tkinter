@@ -433,6 +433,7 @@ class _Leitor:
         cap.titulo = ""
         if titulo != cap.titulo_efetivo:
             cap.titulo = titulo      # só um <title> que não é o que se deduziria é próprio
+        self.avisos.extend(modelo.deduplicar_ids(cap))
         cap.avisos.extend(self.avisos)
         return cap
 

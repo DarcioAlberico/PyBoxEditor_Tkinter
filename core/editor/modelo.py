@@ -777,6 +777,60 @@ def _todos_os_blocos(cap: Capitulo):
         yield from percorrer(nota.blocos)
 
 
+def _extras_com_id(cap: Capitulo):
+    """Os dicionários de `extras` de dentro dos blocos que podem ter `id` (RG-10, R-26)."""
+    yield cap.extras_do_corpo
+    for bloco in _todos_os_blocos(cap):
+        if isinstance(bloco, Lista):
+            for item in bloco.itens:
+                yield item.extras
+        elif isinstance(bloco, Tabela):
+            yield from bloco.extras_das_filas
+            for fila in bloco.filas:
+                for celula in fila:
+                    yield celula.extras
+        elif isinstance(bloco, Figura):
+            yield bloco.extras_da_imagem
+
+
+def deduplicar_ids(cap: Capitulo) -> list[str]:
+    """
+    Ids repetidos no capítulo, renumerados: o segundo `x` vira `x-2` (RG-11, R-28). Um
+    livro de terceiro com dois `<p id="x">` abria e não salvava (`id duplicado no
+    capítulo`), e a busca trocava no primeiro bloco do id, não no certo. Os blocos e as
+    notas primeiro, na ordem do capítulo, e depois os ids dos `extras`. Devolve os avisos.
+    """
+    todos = {b.id for b in _todos_os_blocos(cap)} | {n.id for n in cap.notas}
+    todos |= {e["id"] for e in _extras_com_id(cap) if e.get("id")}
+    vistos: set[str] = set()
+    avisos: list[str] = []
+
+    def unico(id_: str) -> str:
+        n = 2
+        while f"{id_}-{n}" in todos or f"{id_}-{n}" in vistos:
+            n += 1
+        return f"{id_}-{n}"
+
+    for alvo in list(_todos_os_blocos(cap)) + list(cap.notas):
+        if alvo.id in vistos:
+            novo = unico(alvo.id)
+            avisos.append(f"{cap.arquivo}: id repetido {alvo.id!r}; o seguinte virou {novo!r}")
+            alvo.id = novo
+            if hasattr(alvo, "id_persistente"):
+                alvo.id_persistente = True
+        vistos.add(alvo.id)
+    for extras in _extras_com_id(cap):
+        id_ = extras.get("id")
+        if not id_:
+            continue
+        if id_ in vistos:
+            novo = unico(id_)
+            avisos.append(f"{cap.arquivo}: id repetido {id_!r}; o seguinte virou {novo!r}")
+            extras["id"] = novo
+        vistos.add(extras["id"])
+    return avisos
+
+
 def blocos_do_capitulo(cap: Capitulo) -> list[Bloco]:
     """A lista achatada de `_todos_os_blocos`, para quem prefere lista."""
     return list(_todos_os_blocos(cap))

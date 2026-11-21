@@ -582,6 +582,11 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
         if id_ not in leitor.itens:
             relatorio.aviso(f"espinha aponta para id inexistente: {id_}")
             continue
+        if id_ in na_espinha:
+            # A espinha que repete um item abria e não salvava ("dois capítulos com o
+            # mesmo arquivo"): a repetição fica de fora (RG-11, R-28).
+            relatorio.aviso(f"a espinha repete {leitor.itens[id_][0]}: a entrada repetida ficou de fora")
+            continue
         href, mime, _props = leitor.itens[id_]
         if id_ == nav_id:
             livro.nav_na_espinha = len(livro.capitulos)

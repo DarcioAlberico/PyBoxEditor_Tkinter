@@ -1050,6 +1050,18 @@ Estado: fechada (2026-11-21), em seis commits (`54813f1`, `a4ff7f2`, `5699a54`, 
   (`scratchpad\conferir_pasta_html.py`): todos viram pasta sem erro, e o `id` de item de
   lista que há no corpus (o do *100 Endgames*) chega à pasta.
 ### RG-11
+Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-10.
+- Commit 1 (R-28): `modelo.deduplicar_ids` — os blocos e as notas na ordem do capítulo, e
+  depois os ids dos `extras` (RG-10): o segundo `x` vira `x-2` (sem colidir com um `x-2`
+  que já exista), com aviso; o leitor de XHTML a chama ao fim de cada capítulo. A leitura
+  do EPUB deixa de fora, com aviso, a entrada repetida da espinha. Juntar capítulos
+  deduplica a marca de página pelo número. `tests/test_ids_e_espinha_repetidos.py`:
+  contra o código de antes, os quatro falham (a espinha com o capítulo duas vezes, que
+  não salvava; `x` e `x` sem renumerar; as duas marcas da página 27; o leitor sozinho). A
+  suíte deste commit rodou numa exportação limpa do índice dele (o `modelo.py` com só o
+  trecho do R-28), porque a primeira rodada foi invalidada: editei o worktree para o R-29
+  com ela em curso, e ela foi parada sem resultado. Suíte da exportação: 3819 passed, 26
+  skipped.
 ### RG-12
 ### RG-13
 ### RG-14
