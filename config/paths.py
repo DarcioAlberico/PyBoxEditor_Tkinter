@@ -102,6 +102,19 @@ def manifesto_do_corpus() -> Path:
     return projeto_dir() / "benchmarks" / "corpus_v2.json"
 
 
+def corpus_de_epubs() -> Path:
+    """A pasta dos EPUBs de terceiros com que se mede a ida e volta do editor (RG-10, R-26).
+
+    Os livros são do usuário e não entram no git: a pasta mora **ao lado** do projeto
+    (`../corpus_epub`), e `PYBOXEDITOR_CORPUS_EPUB` a reaponta — num worktree, por
+    exemplo, onde "ao lado" é outra pasta. A medida pula com aviso se ela não existe.
+    """
+    base = os.environ.get("PYBOXEDITOR_CORPUS_EPUB")
+    if base:
+        return Path(base)
+    return projeto_dir().parent / "corpus_epub"
+
+
 def dado_do_projeto(nome: str) -> Path:
     """Um arquivo ou pasta de dados que vive ao lado do código, sem depender do cwd.
 

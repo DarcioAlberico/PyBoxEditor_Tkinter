@@ -952,6 +952,29 @@ Estado: fechada (2026-11-21), em um commit. Base `d82f74a`, no worktree
   regeneração calada; o NCX de um sumário inteiro regenerado). Suíte do worktree: 3803
   passed, 26 skipped.
 ### RG-10
+Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
+- O corpus, escolhido pelo usuário em 2026-11-21: 12 EPUBs de seis produtores, copiados
+  (os originais ficam onde estavam) para `C:\Python-Chess2\corpus_epub`, ao lado do
+  projeto — Quality Chess (Adams & Hurtado *Think Like a Super-GM*, 2022; Flores Rios
+  *Chess Structures*, 2015, em português; Schandorff *GM Repertoire 7*, 2010), New In
+  Chess (Grooten *Finais de xadrez*, 2022; Sakaev & Landa vol. 1, 2016; Erwich *1001
+  Exercises*, 2021, em português), Chess Evolution (TMEM 1 e 2, 2016), Batsford (Gufeld &
+  Stetsko *Giuoco Piano*, 1996; Engqvist *300 Most Important Chess Positions*) e Kindle
+  sem DRM (*100 Endgames You Must Know*, *Imagination in Chess*). O Erwich e o Engqvist
+  propostos estavam no OneDrive, só na nuvem (o provedor não estava rodando): foram as
+  cópias locais dos mesmos livros.
+- Commit 1: `scripts/medidas/medir_ida_e_volta_epub.py` e `config.paths.corpus_de_epubs()`
+  (`../corpus_epub`, ou `PYBOXEDITOR_CORPUS_EPUB`; sem a pasta, avisa e sai 0). Lê e grava
+  cada livro sem edição e conta, por livro, os `elemento@atributo`, os elementos e os
+  atributos do OPF do original que faltam no gravado, e os arquivos do zip; guarda os
+  avisos de leitura e de gravação (a perda declarada). **Antes**, nos 12: 731 atributos,
+  1093 elementos, 65 atributos do OPF e 0 arquivos perdidos; os mais frequentes,
+  `body@class` 302, `li@class` 132, `html@imt-state` 90, `a@dir`/`a@lang` 36,
+  `body@dir`/`body@lang` 16, `html@dir` 16, `html@epub:prefix` 9, `li@id` 3; os elementos,
+  `b` 728 (todos do Grooten) e `p` 360 (todos do Schandorff), mais `style` 4 e `meta` 1; no
+  OPF, `xmlns:*` do `metadata`, `opf:role`/`opf:file-as`/`opf:scheme` dos `dc:*`, o
+  `guide` (`reference@*`), `spine@page-map` e `spine@page-progression-direction`
+  (`preview_ocr/ab/ida-e-volta-antes`).
 ### RG-11
 ### RG-12
 ### RG-13
