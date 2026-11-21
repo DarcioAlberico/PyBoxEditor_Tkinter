@@ -27,6 +27,9 @@ from core import coleta, livro
 from config.paths import (caminhos_modelo_linha, modelo_de_lingua, pasta_de_linhas,
                           pasta_de_linhas_sinteticas, relatorio_de_linhas)
 from core.services.pdf_service import DPI_PADRAO
+from core.log import logger
+
+log = logger(__name__)
 
 
 def _validar_dataset_adicional_linhas(caminho, treino, *, nome, outros=()):
@@ -245,16 +248,15 @@ class Treino:
         imagem = self.janela.image.copy()
         boxes = [b.copy() for b in self.janela.boxes]
 
-        # Fora da thread: mexe no léxico da sessão e no cache de suspeitas, que
-        # são estado da UI. É rápido — a página inteira é uma passada de
-        # `_fatiar` — e não tem por que disputar a vaga da tarefa de fundo.
-        palavras = self.janela.aprender_palavras_da_pagina()
-
         def trabalho(h):
             h.progress(0, len(boxes), "gravando amostras")
             return self.janela.learning_service.learn_from_boxes(imagem, boxes)
 
         def concluir(count):
+            # Aqui, na thread da UI e depois de as amostras gravarem (RG-13, R-19): o
+            # léxico aprendia antes da tarefa, e a gravação que falhava deixava as
+            # palavras da página no dicionário. Aprende o que se gravou, as cópias.
+            palavras = self.janela.aprender_palavras_da_pagina(boxes)
             aviso = f"Aprendizado concluído.\n{count} novos modelos adicionados."
             aviso += self.janela._frase_do_dicionario(palavras)
             messagebox.showinfo("Sucesso", aviso)
@@ -836,14 +838,14 @@ class Treino:
         if not output_dir:
             return
 
-        def trabalho(h):
-            images = []
+        def paginas(h):
+            """Uma página por vez (RG-13, R-19): o lote convertia o livro inteiro para a
+            memória antes de começar — 300 páginas a 300 dpi são gigabytes."""
             for n, fpath in enumerate(filepaths):
                 h.raise_if_cancelled()
-                ext = os.path.splitext(fpath)[1].lower()
-                h.progress(n + 1, len(filepaths), f"lendo {os.path.basename(fpath)}")
-
-                if ext == ".pdf":
+                nome = os.path.basename(fpath)
+                h.progress(n + 1, len(filepaths), f"lendo {nome}")
+                if os.path.splitext(fpath)[1].lower() == ".pdf":
                     # Sem tratamento especial de Poppler desde a F2.2: o PDF é
                     # renderizado pelo PyMuPDF, que não depende de binário
                     # externo. O que sobrar aqui é erro no arquivo, e a mensagem
@@ -851,30 +853,39 @@ class Treino:
                     # O mesmo dpi de `load_page`, e não um 200 solto: este
                     # caminho alimenta o treino, e treinar numa escala e
                     # reconhecer noutra é descasar as duas.
-                    pages = self.janela.pdf_service.convert_pdf_to_images(
-                        fpath, dpi=DPI_PADRAO)
-                    for i, page in enumerate(pages):
-                        images.append((f"{os.path.basename(fpath)}_pg{i+1}", page))
+                    for i, pagina in enumerate(self.janela.pdf_service.iterar_paginas(
+                            fpath, dpi=DPI_PADRAO)):
+                        yield f"{nome}_pg{i + 1}", pagina
                 else:
                     try:
-                        images.append((os.path.basename(fpath),
-                                       Image.open(fpath).convert("L")))
-                    except Exception:
+                        pagina = Image.open(fpath).convert("L")
+                    except Exception as e:
+                        # A imagem ilegível sumia sem ser contada; agora entra na conta
+                        # e no aviso do fim.
+                        log.warning("o lote pulou %s, que não abre como imagem: %s", fpath, e)
+                        ilegiveis.append(nome)
                         continue
+                    yield nome, pagina
 
+        ilegiveis = []
+
+        def trabalho(h):
             def progresso(nome, atual, total):
                 h.raise_if_cancelled()
-                h.progress(atual, total, f"{atual}/{total} — {nome}")
 
-            return self.janela.learning_service.batch_extract_and_classify(
-                images, output_dir, progress_callback=progresso
-            )
+            total = 0
+            for nome, pagina in paginas(h):
+                total += self.janela.learning_service.batch_extract_and_classify(
+                    [(nome, pagina)], output_dir, progress_callback=progresso)
+            return total
 
         def concluir(total_crops):
-            messagebox.showinfo(
-                "Concluído",
-                f"Processamento finalizado!\n{total_crops} caracteres extraídos em:\n{output_dir}"
-            )
+            texto = (f"Processamento finalizado!\n{total_crops} caracteres extraídos em:\n"
+                     f"{output_dir}")
+            if ilegiveis:
+                texto += (f"\n\n{len(ilegiveis)} imagem(ns) ilegível(is), pulada(s): "
+                          + ", ".join(ilegiveis[:5]) + (" …" if len(ilegiveis) > 5 else ""))
+            messagebox.showinfo("Concluído", texto)
 
         self.janela._run_task("Processamento em lote", trabalho, concluir)
 

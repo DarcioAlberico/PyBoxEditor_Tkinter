@@ -17,7 +17,7 @@ xref sob demanda e não decodifica página que ninguém pediu.
 """
 
 import os
-from typing import List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -143,3 +143,11 @@ class PDFService:
 
         with fitz.open(stream=dados, filetype="pdf") as doc:
             return [_para_pil(pagina, dpi, cinza=False) for pagina in doc]
+
+    @staticmethod
+    def iterar_paginas(path: str, dpi: int = DPI_PADRAO) -> Iterator[Image.Image]:
+        """As páginas do PDF uma a uma, em RGB como `convert_pdf_to_images`, sem guardar o
+        livro inteiro na memória (RG-13, R-19): é o que o lote usa."""
+        with fitz.open(path) as doc:
+            for pagina in doc:
+                yield _para_pil(pagina, dpi, cinza=False)

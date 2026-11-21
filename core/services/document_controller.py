@@ -31,6 +31,23 @@ class DocumentController:
         self.history = HistoryManager(max_history=max_history)
         self.autosave_writer = autosave_writer
         self.on_autosave = on_autosave
+        #: A posição do histórico em que a página está como no disco (aberta ou salva), ou
+        #: `None` quando não se sabe (RG-13, R-19).
+        self.posicao_salva: Optional[int] = None
+
+    def marcar_posicao_salva(self) -> None:
+        """A página, como está agora, é a do disco: desfazer até aqui a deixa limpa."""
+        self.posicao_salva = self.history.posicao
+
+    def _suja_pela_posicao(self) -> None:
+        """Suja é a posição do histórico diferente da salva (RG-13, R-19): o Ctrl+Z que volta
+        ao estado salvo limpa a página, e o Ctrl+Y que sai dele a suja."""
+        if self.session is None:
+            return
+        if self.posicao_salva is not None and self.history.posicao == self.posicao_salva:
+            self.session.mark_saved(self.page)
+        else:
+            self.session.mark_dirty(self.page)
 
     def open(self, path: str, num_pages: int = 1, is_pdf: bool = False, dpi: int = 0):
         self.session = DocumentSession(path, num_pages=num_pages, is_pdf=is_pdf, dpi=dpi)
@@ -86,6 +103,7 @@ class DocumentController:
         self.boxes = boxes
         self.selected_index = selected if selected is not None else -1
         self.store_current()
+        self._suja_pela_posicao()
         return True
 
     def redo(self) -> bool:
@@ -95,6 +113,7 @@ class DocumentController:
         self.boxes = boxes
         self.selected_index = selected if selected is not None else -1
         self.store_current()
+        self._suja_pela_posicao()
         return True
 
     @property

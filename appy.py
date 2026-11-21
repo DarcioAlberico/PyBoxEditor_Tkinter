@@ -121,11 +121,23 @@ def _instalar_relator_de_callbacks(root):
     **A caixa não se repete.** Um handler de movimento (`<B1-Motion>`) que
     falha, falha a cada pixel até o botão ser solto; com uma caixa modal por
     ocorrência, seriam dezenas empilhadas. A mesma exceção dentro de
-    `SILENCIO_APOS_REPETICAO_S` só vai para o log.
+    `SILENCIO_APOS_REPETICAO_S` também não vai mais para o log: grava-se a primeira,
+    e a contagem das repetições quando vier a próxima diferente (RG-13, R-19).
     """
-    ultima = {"chave": None, "quando": 0.0}
+    ultima = {"chave": None, "quando": 0.0, "repeticoes": 0}
 
     def relatar(tipo, valor, tb):
+        chave = (tipo.__name__, str(valor))
+        agora = time.monotonic()
+        if chave == ultima["chave"] and agora - ultima["quando"] < SILENCIO_APOS_REPETICAO_S:
+            # A repetição não grava de novo (RG-13, R-19): o arrasto que falha a cada
+            # pixel enchia o log com o mesmo traceback — trinta registros por arrasto.
+            ultima["quando"] = agora
+            ultima["repeticoes"] += 1
+            return
+        if ultima["repeticoes"]:
+            log.error("a exceção anterior se repetiu %d vez(es) em seguida", ultima["repeticoes"])
+        ultima.update(chave=chave, quando=agora, repeticoes=0)
         texto = "".join(traceback.format_exception(tipo, valor, tb))
         log.error("exceção num callback do Tk:\n%s", texto)
         try:
@@ -133,12 +145,6 @@ def _instalar_relator_de_callbacks(root):
         except OSError:
             caminho = "(não foi possível gravar o log)"
         print(texto, file=sys.stderr)
-        chave = (tipo.__name__, str(valor))
-        agora = time.monotonic()
-        if chave == ultima["chave"] and agora - ultima["quando"] < SILENCIO_APOS_REPETICAO_S:
-            ultima["quando"] = agora
-            return
-        ultima.update(chave=chave, quando=agora)
         try:
             messagebox.showerror(
                 "Erro inesperado",

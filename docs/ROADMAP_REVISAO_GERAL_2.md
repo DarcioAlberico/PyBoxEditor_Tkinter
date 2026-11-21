@@ -1118,7 +1118,8 @@ worktree `.claude/worktrees/onda5` (destacado, com os pesos copiados), o mesmo d
   meio, aplica nos dois. O teste do Ctrl+S (`test_trabalho_fora_da_interface.py`) segue
   verde. Suíte do worktree: 3840 passed, 26 skipped.
 ### RG-13
-Estado: em andamento (2026-11-21), no worktree da Onda 5, depois da RG-12.
+Estado: fechada (2026-11-21), em quatro commits (`7ee5b26`, `d8ab142`, `ce6f5ba` e o
+do R-19), no worktree da Onda 5, depois da RG-12.
 - Commit 1 (R-16): a rotulagem religa o pré-OCR em sucesso, falha, cancelamento e recusa
   (o `_run_task` que devolve `False` não chama desfecho nenhum); a geração de boxes, a
   página carregada e a página com erro conferem `winfo_exists`; a troca de página que a
@@ -1154,6 +1155,23 @@ Estado: em andamento (2026-11-21), no worktree da Onda 5, depois da RG-12.
   `bgerror` depois, e cancela antes os órfãos que outro teste deixou no interpretador —; a
   vigia morta no `PermissionError`; o cursor "watch"; a pasta que ficava). Suíte do
   worktree: 3854 passed, 26 skipped.
+- Commit 4 (R-19): suja passa a ser a posição do histórico diferente da salva — cada
+  entrada do `HistoryService` leva um id (`posicao`, que não muda com o corte do limite),
+  o `DocumentController` guarda a `posicao_salva` (marcada pela janela ao abrir, virar
+  para a página limpa e salvar, por Ctrl+S ou "Salvar todas"; `None` na página suja), e
+  o Ctrl+Z/Ctrl+Y que chega nela limpa a página e o que sai dela a suja. "Aprender com a
+  página" ensina o léxico no `concluir`, depois de as amostras gravarem, e das cópias. O
+  lote vai uma página por vez (`PDFService.iterar_paginas`, gerador que não guarda o
+  livro), uma chamada de `batch_extract_and_classify` por página, e a imagem que não abre
+  vai para o log (WARNING, com o nome) e para o aviso do fim ("N imagem(ns)
+  ilegível(is)"). O relator do Tk não grava de novo a mesma exceção dentro da janela de
+  silêncio — nem log, nem arquivo, nem `stderr` —, e conta as repetições quando vier a
+  próxima diferente. `tests/test_pequenos_da_janela.py`: contra o código de antes, os
+  cinco falham (desfazer até o estado aberto deixava a página suja; o léxico aprendia a
+  página cuja gravação falhou; o lote chamava uma vez com as duas imagens, `[2]` em vez de
+  `[1, 1]`; trinta registros de um arrasto; o `iterar_paginas` que não existia).
+  Suíte do worktree: 3859 passed, 26 skipped.
+- Próximo passo da revisão: a Onda 6 (a leitura: RG-14, RG-15, RG-16, RG-16b).
 ### RG-14
 ### RG-15
 ### RG-16

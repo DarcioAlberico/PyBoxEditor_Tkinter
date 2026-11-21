@@ -283,7 +283,19 @@ class Documento:
             self.janela.update_sidebar()
             self.janela.update_canvas()
 
+        self._marcar_posicao_salva()
         self.janela._update_title()
+
+    def _marcar_posicao_salva(self):
+        """Guarda a posição do histórico em que a página atual está como no disco, para
+        que desfazer até ela a deixe limpa (RG-13, R-19); a página suja não tem posição
+        salva conhecida."""
+        controlador = self.janela.document_controller
+        sessao = self.janela.session
+        if sessao is not None and self.janela.current_pdf_page not in sessao.dirty_pages():
+            controlador.marcar_posicao_salva()
+        else:
+            controlador.posicao_salva = None
 
     def abrir_documento(self, path=None):
         """
@@ -404,6 +416,7 @@ class Documento:
             # deve despejar os boxes da página anterior sobre a atual.
             self.janela.history.reset()
             self.janela.history.snapshot(self.janela.boxes, self.janela.selected_index)
+            self._marcar_posicao_salva()
 
             self.janela.update_sidebar()
             self.janela.update_canvas()
@@ -782,6 +795,8 @@ class Documento:
                 # Salva é só a página que continua igual ao que se gravou.
                 if [b.as_state() for b in sessao.boxes_for(page)] == [b.as_state() for b in copias[page]]:
                     sessao.mark_saved(page)
+            if sessao is self.janela.session:
+                self._marcar_posicao_salva()
             if not sessao.is_dirty():
                 self.janela._descartar_rascunho()
             self.janela._update_nav_controls()
@@ -840,6 +855,7 @@ class Documento:
         if self.janela.session is not None:
             if marcar_salva:
                 self.janela.session.mark_saved(self.janela.current_pdf_page)
+                self._marcar_posicao_salva()
             if not self.janela.session.is_dirty():
                 self.janela._descartar_rascunho()
             self.janela._update_nav_controls()

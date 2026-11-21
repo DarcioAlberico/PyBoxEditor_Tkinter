@@ -71,6 +71,7 @@ class HistoryManager:
         self._history.append({
             "boxes": self._guardar(boxes),
             "selected_index": selected_index,
+            "id": self.versao,
         })
 
         if len(self._history) > self._max_history:
@@ -97,6 +98,14 @@ class HistoryManager:
         self._index += 1
         estado = self._history[self._index]
         return self._restaurar(estado["boxes"]), estado["selected_index"]
+
+    @property
+    def posicao(self) -> int | None:
+        """Um id do estado corrente do histórico, que não muda com o corte do limite
+        (RG-13, R-19): é contra ele que se sabe se desfazer voltou ao estado salvo."""
+        if not 0 <= self._index < len(self._history):
+            return None
+        return self._history[self._index].get("id")
 
     def can_undo(self) -> bool:
         return self._index > 0
