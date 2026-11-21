@@ -331,7 +331,8 @@ class Exportacao:
                  if ao_exportar is not None and self.janela._editor_sobre(documento) else "")
         janela = DialogoRevisaoEditorial(
             self.janela, sessao, imagem_da_pagina=provedor.imagem,
-            abrir_diagrama=abrir_diagrama, ao_exportar=ao_exportar, aviso_da_exportacao=aviso)
+            abrir_diagrama=abrir_diagrama, ao_exportar=ao_exportar, aviso_da_exportacao=aviso,
+            ao_cancelar_tarefa=self.janela.task.cancel, tarefa_rodando=self.janela.task.is_running)
         janela.bind("<Destroy>", lambda e: provedor.fechar() if e.widget is janela else None)
         janela.mostrar()
 

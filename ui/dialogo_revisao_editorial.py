@@ -117,10 +117,16 @@ class DialogoRevisaoEditorial(tk.Toplevel):
                  abrir_diagrama: Optional[Callable[[ReviewItem, Optional[np.ndarray]],
                                                    Optional[str]]] = None,
                  ao_exportar: Optional[Callable[[Any], None]] = None,
-                 aviso_da_exportacao: str = ""):
+                 aviso_da_exportacao: str = "",
+                 ao_cancelar_tarefa: Optional[Callable[[], None]] = None,
+                 tarefa_rodando: Optional[Callable[[], bool]] = None):
         super().__init__(parent)
         tema.aplicar(self)
         self.session = session
+        #: O diálogo é modal (`grab_set`), e o Cancelar da barra de status da janela fica
+        #: atrás dele: a operação que ele dispara se cancela por aqui (RG-13, R-16).
+        self.ao_cancelar_tarefa = ao_cancelar_tarefa
+        self.tarefa_rodando = tarefa_rodando or (lambda: False)
         self.imagem_da_pagina = imagem_da_pagina
         self.abrir_diagrama = abrir_diagrama
         self.ao_exportar = ao_exportar
@@ -264,6 +270,10 @@ class DialogoRevisaoEditorial(tk.Toplevel):
             botao = ttk.Button(fileira, text=f"{label} [{key}]", command=command)
             botao.pack(side="left", padx=2)
             self.botoes[label] = botao
+        if self.ao_cancelar_tarefa is not None:
+            self.botoes["Cancelar operação"] = ttk.Button(navegacao, text="Cancelar operação",
+                                                          command=self._cancelar_tarefa)
+            self.botoes["Cancelar operação"].pack(side="right", padx=2)
         if self.ao_exportar is not None:
             self.btn_exportar = ttk.Button(navegacao, text="Exportar com as correções…",
                                            command=self._exportar)
@@ -550,8 +560,22 @@ class DialogoRevisaoEditorial(tk.Toplevel):
         if self.ao_exportar is not None:
             self.ao_exportar(self.session.document)
 
+    def _cancelar_tarefa(self) -> None:
+        if self.ao_cancelar_tarefa is not None and self.tarefa_rodando():
+            self.ao_cancelar_tarefa()
+
+    def _fechar(self) -> None:
+        """Fechar no meio cancela a operação que a revisão disparou (RG-13, R-16)."""
+        self._cancelar_tarefa()
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+
     def mostrar(self) -> "DialogoRevisaoEditorial":
         self.transient(self.master)
+        self.protocol("WM_DELETE_WINDOW", self._fechar)
         self.grab_set()
         return self
 

@@ -1118,6 +1118,16 @@ worktree `.claude/worktrees/onda5` (destacado, com os pesos copiados), o mesmo d
   meio, aplica nos dois. O teste do Ctrl+S (`test_trabalho_fora_da_interface.py`) segue
   verde. Suíte do worktree: 3840 passed, 26 skipped.
 ### RG-13
+Estado: em andamento (2026-11-21), no worktree da Onda 5, depois da RG-12.
+- Commit 1 (R-16): a rotulagem religa o pré-OCR em sucesso, falha, cancelamento e recusa
+  (o `_run_task` que devolve `False` não chama desfecho nenhum); a geração de boxes, a
+  página carregada e a página com erro conferem `winfo_exists`; a troca de página que a
+  janela recusa solta `_pagina_rodando`; fechar no meio cancela a tarefa que o diálogo
+  disparou. A revisão editorial, modal, ganha o próprio "Cancelar operação" (a janela
+  passa `task.cancel` e `task.is_running`) e cancela ao fechar. A caixa de conclusão fecha
+  em `finally`. `tests/test_dialogos_religam.py`: contra o código de antes, os sete falham
+  (os três desfechos do pré-OCR, o fechamento no meio, a bandeira presa, a revisão sem
+  Cancelar, a caixa que fica aberta). Suíte do worktree: 3847 passed, 26 skipped.
 ### RG-14
 ### RG-15
 ### RG-16

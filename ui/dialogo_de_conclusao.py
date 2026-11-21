@@ -101,9 +101,12 @@ class DialogoDeConclusao:
         for nome, acao in self.acoes:
             if nome == rotulo:
                 self.escolha = rotulo
-                resultado = acao(self.caminho)
-                self.fechar()
-                return resultado
+                # A caixa fecha mesmo se a ação levanta (RG-13, R-16): ficava aberta, com o
+                # `grab` prendendo a janela.
+                try:
+                    return acao(self.caminho)
+                finally:
+                    self.fechar()
         raise KeyError(f"ação desconhecida: {rotulo!r}")
 
     def fechar(self) -> None:

@@ -322,6 +322,8 @@ class DialogoRotulagem(tk.Toplevel):
                 imagem, arbitro=self.app._arbitro_de_corte())
 
         def concluir(boxes):
+            if not self.winfo_exists():
+                return                        # fechado no meio (RG-13, R-16)
             self.app.boxes = boxes
             self.app._commit_change()
             self.app.update_canvas()
@@ -338,6 +340,8 @@ class DialogoRotulagem(tk.Toplevel):
             self.after_idle(self._pre_ocr)
 
         def falhar(_erro):
+            if not self.winfo_exists():
+                return True
             self._geracao_rodando = False
             self.btn_ocr.config(state="normal")
             self.lbl_status.config(
@@ -346,8 +350,9 @@ class DialogoRotulagem(tk.Toplevel):
             self._atualizar_navegacao()
             return False
 
-        self.app._run_task("Gerando boxes para rotulagem", trabalho, concluir,
-                           ao_falhar=falhar, ao_cancelar=falhar)
+        if not self.app._run_task("Gerando boxes para rotulagem", trabalho, concluir,
+                                  ao_falhar=falhar, ao_cancelar=lambda: falhar(None)):
+            falhar(None)                      # a janela recusou: há outra operação rodando
 
     def _trocar_pagina(self, deslocamento):
         if self._pagina_rodando or self._geracao_rodando or self.app.task.is_running():
@@ -366,6 +371,10 @@ class DialogoRotulagem(tk.Toplevel):
             destino, ao_concluir=self._pagina_carregada,
             ao_falhar=lambda _erro: self._pagina_com_erro(),
             ao_cancelar=self._pagina_com_erro)
+        if self._pagina_rodando and not self.app.task.is_running():
+            # A janela recusou a troca (outra operação rodando): nenhum desfecho viria, e a
+            # navegação ficava presa (RG-13, R-16).
+            self._pagina_com_erro()
 
     def _ir_para_pagina(self):
         try:
@@ -409,6 +418,8 @@ class DialogoRotulagem(tk.Toplevel):
         self._mostrar()
 
     def _pagina_carregada(self):
+        if not self.winfo_exists():
+            return
         self._pagina_rodando = False
         self._linhas = linhas_da_pagina(self.app.boxes)
         self._pos = 0
@@ -421,6 +432,8 @@ class DialogoRotulagem(tk.Toplevel):
             self._gerar_boxes()
 
     def _pagina_com_erro(self):
+        if not self.winfo_exists():
+            return
         self._pagina_rodando = False
         self.lbl_status.config(text="Não foi possível carregar esta página.",
                                fg=tema.TEXTO_ERRO)
@@ -468,15 +481,29 @@ class DialogoRotulagem(tk.Toplevel):
                 h.progress(pos + 1, len(recortes), f"linha {pos + 1}/{len(recortes)}")
             return saida
 
+        def religar(erro=None):
+            # Em todo desfecho (RG-13, R-16): sem isto, a falha e o cancelamento deixavam o
+            # botão preso em "Lendo linhas…", e o diálogo fechado no meio levava o erro.
+            if not self.winfo_exists():
+                return True
+            self._ocr_rodando = False
+            self.btn_ocr.config(state="normal", text="Executar")
+            if erro is not None:
+                self.lbl_status.config(text=f"O pré-OCR falhou: {erro}", fg=tema.TEXTO_ERRO)
+            return False
+
         def concluir(saida):
+            if not self.winfo_exists():
+                return
             for pos, (texto, conf) in enumerate(saida):
                 self._ocr[pos] = texto
                 self._ocr[(pos, "conf")] = f"{conf:.0%}"
-            self._ocr_rodando = False
-            self.btn_ocr.config(state="normal", text="Executar")
+            religar()
             self._mostrar()
 
-        self.app._run_task("Pré-OCR das linhas", trabalho, concluir)
+        if not self.app._run_task("Pré-OCR das linhas", trabalho, concluir,
+                                  ao_falhar=religar, ao_cancelar=religar):
+            religar()
 
     def _ler_por_glifos(self, linha):
         """Reconstrói uma linha usando o reconhecedor neural por caractere.
@@ -598,6 +625,9 @@ class DialogoRotulagem(tk.Toplevel):
         self.lbl_status.config(text=f"{len(indices)} linha(s) salva(s) em {pasta}.")
 
     def _fechar(self):
+        # A tarefa que este diálogo disparou não segue sem ele (RG-13, R-16).
+        if self._ocr_rodando or self._geracao_rodando or self._pagina_rodando:
+            self.app.task.cancel()
         pendentes = self._confirmadas - self._salvas
         if pendentes and messagebox.askyesno(
                 "Dataset de treino", f"Há {len(pendentes)} linha(s) não salva(s).\n\n"
