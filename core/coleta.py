@@ -561,6 +561,26 @@ class Promocao:
     classes: int = 0
     ilegiveis: List[str] = field(default_factory=list)
     recusados: List[str] = field(default_factory=list)
+    #: Recortes que a classe já tinha, pixel a pixel (RG-05b, R-53): pulados.
+    repetidos: int = 0
+
+
+def _pixels_da_classe(data_dir: str, pasta: str) -> set:
+    """Forma e bytes de cada PNG que a classe já tem na base.
+
+    É a chave da repetição: o mesmo desenho em outro tamanho é outra amostra (F107:
+    o tamanho é o que separa `s` de `S`), então a forma entra junto dos bytes.
+    """
+    vistos = set()
+    caminho = os.path.join(data_dir, pasta)
+    if not os.path.isdir(caminho):
+        return vistos
+    for arquivo in os.listdir(caminho):
+        if arquivo.lower().endswith(".png"):
+            imagem = cv2.imread(os.path.join(caminho, arquivo), cv2.IMREAD_GRAYSCALE)
+            if imagem is not None:
+                vistos.add((imagem.shape, imagem.tobytes()))
+    return vistos
 
 
 def promover(pasta: str = PASTA_PADRAO, data_dir: Optional[str] = None,
@@ -603,6 +623,10 @@ def promover(pasta: str = PASTA_PADRAO, data_dir: Optional[str] = None,
             continue
 
         aprendidos = 0
+        # A janela promove com `apagar=False`: promover a mesma pasta duas vezes
+        # duplicava as amostras no disco (3 -> 6). O k-NN deduplica na leitura; o
+        # treino da rede, não (RG-05b, R-53).
+        na_base = _pixels_da_classe(learner.data_dir, nome)
         for arquivo in sorted(os.listdir(caminho)):
             if not arquivo.lower().endswith(".png"):
                 continue
@@ -617,8 +641,13 @@ def promover(pasta: str = PASTA_PADRAO, data_dir: Optional[str] = None,
             # livro. Depois de promovida, é o único lugar onde essa diferença
             # ainda existe, e é ela que diz quais amostras trocar quando um
             # livro com a letra finalmente aparecer.
-            learner.learn(imagem, char, nome=arquivo)
-            aprendidos += 1
+            chave = (imagem.shape, imagem.tobytes())
+            if chave in na_base:
+                resultado.repetidos += 1
+            else:
+                learner.learn(imagem, char, nome=arquivo)
+                na_base.add(chave)
+                aprendidos += 1
             if apagar:
                 try:
                     os.remove(completo)
@@ -629,4 +658,9 @@ def promover(pasta: str = PASTA_PADRAO, data_dir: Optional[str] = None,
             resultado.aprendidos += aprendidos
             resultado.classes += 1
 
+    # O cache sai em dia com o que se promoveu (RG-05b, R-53): sem isto, a sessão
+    # seguinte relia a base inteira — ou, pior, carregava o cache de outro learner,
+    # gravado depois, que dizia estar em dia sem estas amostras.
+    if resultado.aprendidos:
+        learner.salvar_cache()
     return resultado

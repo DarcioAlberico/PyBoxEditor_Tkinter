@@ -771,6 +771,19 @@ copiados), o mesmo da RG-05b e da RG-06; vai ao `master` com elas, no fim da Ond
   chega, `negativo`/`margem`/`moldura` perdidos); o quarto, o rascunho antigo de oito
   campos, já carregava e fica de guarda. Suíte do worktree: 3749 passed, 26 skipped.
 ### RG-05b
+Estado: em andamento (2026-11-21), no worktree da RG-05 (`.claude/worktrees/onda2`),
+depois dela.
+- Commit 1 (R-53): o `CharacterLearner` guarda a impressão digital esperada (a da carga
+  mais um por PNG que ele grava em `learn`), e `salvar_cache` grava essa, ou nada (INFO)
+  quando a do disco diverge — a sessão seguinte relê a base uma vez e grava o cache
+  certo; a promoção pula o recorte que a classe já tem (forma e bytes: o mesmo desenho em
+  outro tamanho é outra amostra), conta em `Promocao.repetidos` e salva o cache; a janela
+  promove pelo learner do serviço e diz quantos ficaram de fora. A matriz e as predições
+  não mudam (o que muda é quando o cache se grava), por isso sem A/B.
+  `tests/test_base_de_treino_uma_vez.py`: contra o código de antes, três dos quatro
+  falham (a sessão seguinte sem `b`, a base relida do disco depois da promoção, 3 → 6
+  no disco); o quarto, aprender e reabrir pelo cache, já passava e guarda o custo que o
+  cache existe para evitar. Suíte do worktree: 3753 passed, 26 skipped.
 ### RG-06
 ### RG-07
 ### RG-08

@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import uuid
 import glob
-from typing import Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional
 
 from core.log import logger
 
@@ -273,6 +273,9 @@ class CharacterLearner:
         self._chars: List[str] = []
         self._normas = np.zeros((0,), dtype=np.float32)
         self._cache_sujo = False
+        #: Quantos PNGs cada pasta de classe deve ter para a matriz estar em dia: a
+        #: impressão digital da carga mais o que este learner gravou (RG-05b, R-53).
+        self._esperado: Dict[str, int] = {}
         self.ensure_dir()
         self.load_references()
 
@@ -313,6 +316,7 @@ class CharacterLearner:
     def load_references(self):
         """Carrega a matriz de referências, do cache quando ele serve."""
         digital = self._impressao_digital()
+        self._lembrar_digital(digital)
 
         if self.usar_cache and os.path.isfile(self.caminho_do_cache):
             try:
@@ -386,12 +390,38 @@ class CharacterLearner:
             ids.append(i)
         self._ids = np.array(ids, dtype=np.int32)
 
+    def _lembrar_digital(self, digital) -> None:
+        self._esperado = {}
+        for linha in digital:
+            pasta, _, n = str(linha).rpartition("=")
+            self._esperado[pasta] = int(n)
+
+    def _digital_esperada(self) -> np.ndarray:
+        return np.array([f"{pasta}={n}" for pasta, n in sorted(self._esperado.items())])
+
     def salvar_cache(self, digital=None):
-        """Grava a matriz. Instantâneo — são 23 MB de uint8."""
+        """Grava a matriz. Instantâneo — são 23 MB de uint8.
+
+        **O cache diz estar em dia só com o que esta matriz viu** (RG-05b, R-53). A
+        impressão digital gravada era a do disco no momento de gravar: amostras que
+        outro learner pôs na base depois da carga (a promoção de recortes tinha o
+        seu) entravam na impressão sem entrar na matriz, e a sessão seguinte
+        carregava o cache sem elas. Agora a gravada é a da carga mais as amostras que
+        este learner gravou; e, se a do disco diverge dela, o cache não é gravado — a
+        sessão seguinte relê a base, uma vez, e grava o cache certo. Gravar "a da
+        carga" pura não serviria: depois de qualquer "Aprender", ela nunca bate com o
+        disco, e toda sessão releria a base inteira (os 141 s que o cache evita).
+        """
         if not self.usar_cache:
             return
         if digital is None:
-            digital = self._impressao_digital()
+            digital = self._digital_esperada()
+            if not np.array_equal(digital, self._impressao_digital()):
+                log.info("a base de %s mudou por fora deste programa desde a carga: o cache do "
+                         "k-NN não é gravado, e a próxima abertura relê a base", self.data_dir)
+                return
+        else:
+            self._lembrar_digital(digital)
         try:
             np.savez(self.caminho_do_cache,
                      X=self._X.astype(np.uint8),
@@ -478,6 +508,9 @@ class CharacterLearner:
         # aparecia: o `resize` já devolve array novo.
         if not cv2.imwrite(path, np.ascontiguousarray(img_gray)):
             raise IOError(f"Não foi possível gravar a amostra em {path}")
+        # Um PNG a mais na pasta que esta matriz conhece (RG-05b, R-53): é o que
+        # `salvar_cache` confere contra o disco.
+        self._esperado[safe_folder] = self._esperado.get(safe_folder, 0) + 1
 
         linha = img_resized.reshape(1, -1).astype(np.float32)
         if self.total and (linha == self._X).all(axis=1).any():

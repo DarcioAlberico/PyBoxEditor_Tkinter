@@ -208,11 +208,15 @@ class Treino:
 
         def trabalho(h):
             h.log("Lendo os recortes revistos...")
-            return coleta.promover(pasta, data_dir=self.janela.learning_service.data_dir)
+            # Pelo learner do serviço, o que a leitura usa (RG-05b, R-53): ele passa a
+            # conhecer os recortes na hora, e o cache que ele grava depois sai em dia.
+            return coleta.promover(pasta, learner=self.janela.learning_service._get_learner())
 
         def concluir(r):
             linhas = [f"{r.aprendidos} recorte(s) em {r.classes} classe(s) "
                       f"entraram na base."]
+            if r.repetidos:
+                linhas.append(f"{r.repetidos} recorte(s) já estavam na base e ficaram de fora.")
             if r.recusados:
                 linhas += ["", "Pastas recusadas por não serem rótulo:",
                            "  " + ", ".join(r.recusados[:8])]
