@@ -1004,6 +1004,14 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
   novo. `tests/test_ida_e_volta_do_pacote.py`: contra o código de antes, os dois falham
   (a espinha sem `page-progression-direction`, o `c1` renomeado para `c1.xhtml`); a
   segunda volta sai igual à primeira. Suíte do worktree: 3809 passed, 26 skipped.
+- Commit 4 (R-26, a codificação): o capítulo que não passa pelo analisador (o malformado,
+  que abre em modo código) é decodificado pela codificação que declara
+  (`_texto_pela_declaracao`), e a declaração passa a dizer `utf-8`, que é como ele será
+  gravado; codificação que o Python não conhece cai no UTF-8, como antes, com INFO. O
+  capítulo bem-formado já vinha certo: o `expat` do Python aceita qualquer codec, inclusive
+  o Windows-1252. `tests/test_codificacao_declarada.py`: contra o código de antes, um dos
+  três falha (o ISO-8859-1 malformado, com `A��o`); os outros dois guardam o caminho do
+  analisador. Suíte do worktree: 3812 passed, 26 skipped.
 ### RG-11
 ### RG-12
 ### RG-13

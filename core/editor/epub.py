@@ -452,6 +452,29 @@ class _LeitorDeOpf:
                 self.relatorio.aviso(f"pybox:pagina ilegível, ignorado: {erro}")
 
 
+_RE_CODIFICACAO_DECLARADA = re.compile(rb"""^(?:\xef\xbb\xbf)?<\?xml[^>]*?encoding\s*=\s*["']([A-Za-z0-9._-]+)["']""")
+
+
+def _texto_pela_declaracao(dados: bytes) -> str:
+    """
+    O XHTML que não passou pelo analisador, decodificado pela codificação que ele declara
+    (RG-10, R-26) — e não como UTF-8 com `replace`, que trocava cada letra acentuada de um
+    capítulo em ISO-8859-1 por U+FFFD. O texto vai ser gravado em UTF-8, e por isso a
+    declaração passa a dizer `utf-8`. Codificação que o Python não conhece: UTF-8, como antes.
+    """
+    achado = _RE_CODIFICACAO_DECLARADA.match(dados)
+    codificacao = achado.group(1).decode("ascii") if achado else "utf-8"
+    try:
+        texto = dados.decode(codificacao, errors="replace")
+    except LookupError:
+        log.info("codificação desconhecida %r; o capítulo é lido como UTF-8", codificacao)
+        texto = dados.decode("utf-8", errors="replace")
+    texto = texto.lstrip("﻿")
+    if achado:
+        texto = re.sub(r"""^(<\?xml[^>]*?encoding\s*=\s*)(["'])[A-Za-z0-9._-]+\2""", r"\1\2utf-8\2", texto, count=1)
+    return texto
+
+
 def _atributos_de(el: ET.Element, ignorar: Iterable[str] = ()) -> dict[str, str]:
     """Os atributos do elemento com o prefixo de volta (`xml:lang`, `opf:scheme`), menos os
     de `ignorar` e os de namespace que o escritor não declara."""
@@ -561,7 +584,7 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
         try:
             cap = xhtml.ler(dados, href, caixa)
         except ErroDeXhtml as erro:
-            texto = dados.decode("utf-8", errors="replace").lstrip("\ufeff")
+            texto = _texto_pela_declaracao(dados)
             cap = Capitulo(arquivo=href, texto_cru=texto, avisos=[f"XHTML mal-formado: {erro}"])
             relatorio.aviso(f"{href}: XHTML mal-formado ({erro}); aberto em modo código")
         cap.linear = linear
