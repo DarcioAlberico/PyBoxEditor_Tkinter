@@ -367,10 +367,10 @@ def test_o_xhtml_esperado_esta_no_golden():
     cap = gerador.capitulo(42)
     saida = xhtml.escrever(cap)
     caminho = os.path.join(DADOS, "capitulo.xhtml")
-    if not os.path.exists(caminho):
-        os.makedirs(DADOS, exist_ok=True)
-        with open(caminho, "w", encoding="utf-8", newline="\n") as f:
-            f.write(saida)
+    # O golden não se regrava sozinho: se ele some, o teste passaria contra a própria
+    # saída. Para regenerar de propósito, grave `xhtml.escrever(gerador.capitulo(42))`
+    # nesse caminho (UTF-8, LF) e confira o diff antes de commitar.
+    assert os.path.exists(caminho), f"golden ausente: {caminho}"
     with open(caminho, encoding="utf-8", newline="") as f:
         esperado = f.read().replace("\r\n", "\n")
     assert saida == esperado

@@ -590,7 +590,13 @@ diff do usuário).
   (na CI Linux pulam). Os 16 de display pulam com o motivo quando a falta de display é
   simulada (`raiz_tk` → `None`, `TEM_DISPLAY = False`, por um plugin de pytest de
   conferência): 16 skipped, 8 passed. Suíte da exportação limpa: 3637 passed, 28 skipped.
-- Próximo passo: commit 2 (as quatro asserções fracas e o golden).
+- Commit 2 (asserções e golden): `faixa_da_linha` confere o tamanho cortado na borda e o
+  miolo; a face confere tinta, fundo e glifos distintos para `a`, `s`, `o` (um `.notdef`
+  sai igual para os três); o zoom é conferido chamando o duplo-clique com um espião;
+  `plausivel` exige `is True` e o contraste sem o rei branco; o golden ausente falha em vez
+  de se regravar. Os cinco falham contra a função testada devolvendo um vazio do tipo
+  certo (plugin de conferência). Suíte da exportação limpa: 3637 passed, 28 skipped.
+- Próximo passo: commit 3 (`pytest.ini`, marcadores, `epubcheck`).
 ### RG-01b
 ### RG-02a
 ### RG-02b

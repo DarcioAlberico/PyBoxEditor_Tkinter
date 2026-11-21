@@ -269,9 +269,14 @@ def test_a_faixa_cobre_a_linha_com_margem():
 
 
 def test_a_faixa_nao_sai_da_pagina():
+    """O box maior que a página é cortado na borda: a tira é a página inteira, mais a margem."""
     pagina = np.full((20, 20), 128, dtype=np.uint8)
     bs = [BoxEntry("a", 0, 0, 40, 40)]
-    assert ldl.faixa_da_linha(pagina, bs) is not None
+    tira = ldl.faixa_da_linha(pagina, bs)
+    m = ldl.MARGEM
+    assert tira.shape == (20 + 2 * m, 20 + 2 * m)
+    assert (tira[m:m + 20, m:m + 20] == 128).all(), "o miolo é a página, sem nada de fora"
+    assert (tira[:m] == 255).all() and (tira[:, :m] == 255).all(), "a margem é branca"
 
 
 def test_faixa_de_linha_vazia():

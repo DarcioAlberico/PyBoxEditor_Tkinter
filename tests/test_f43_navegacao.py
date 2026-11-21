@@ -208,10 +208,22 @@ def test_selecao_nao_chama_mais_o_zoom():
 
 
 def test_zoom_continua_disponivel_sob_comando():
+    """O duplo-clique ainda enquadra o box selecionado: o zoom saiu da seleção, não do app."""
+    from types import SimpleNamespace
+
     from ui.canvas_view import CanvasView
 
-    assert hasattr(CanvasView, "zoom_to_box")
-    assert hasattr(CanvasView, "on_double_click")
+    pedidos = []
+    falso = SimpleNamespace(
+        controller=SimpleNamespace(image=object(), selected_index=3),
+        zoom_to_box=pedidos.append,
+    )
+    assert CanvasView.on_double_click(falso, None) == "break"
+    assert pedidos == [3]
+
+    falso.controller.selected_index = -1
+    CanvasView.on_double_click(falso, None)
+    assert pedidos == [3], "sem box selecionado, o duplo-clique não enquadra nada"
 
 
 # ----------------------------------------------------------------------

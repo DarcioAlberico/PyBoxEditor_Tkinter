@@ -196,7 +196,8 @@ def test_ocupadas_ignora_as_vazias():
 # ----------------------------------------------------------------------
 
 def test_posicao_com_dois_reis_e_plausivel():
-    assert _leitura({(0, 4): "k", (7, 4): "K"}).plausivel
+    assert _leitura({(0, 4): "k", (7, 4): "K"}).plausivel is True
+    assert _leitura({(0, 4): "k"}).plausivel is False, "sem o rei branco não é posição"
 
 
 @pytest.mark.parametrize("pecas,motivo", [

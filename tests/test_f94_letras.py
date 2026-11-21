@@ -166,8 +166,13 @@ def test_a_face_so_entra_se_desenhar_de_verdade():
     if not faces:
         pytest.skip("nenhuma face de letra do sistema disponível")
     for caminho in faces:
-        for controle in "aso":
-            assert il.desenhar(caminho, controle, 40) is not None, caminho
+        glifos = [il.desenhar(caminho, controle, 40) for controle in "aso"]
+        for glifo in glifos:
+            assert glifo is not None and glifo.size > 0, caminho
+            assert (glifo < 128).any() and (glifo > 128).any(), f"{caminho}: sem tinta ou sem fundo"
+        # um `.notdef` sai o mesmo retângulo para as três letras
+        a, s, o = glifos
+        assert not (a.shape == s.shape == o.shape and (a == s).all() and (s == o).all()), caminho
 
 
 def test_a_semente_desenha_a_letra_pedida():
