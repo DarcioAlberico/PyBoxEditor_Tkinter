@@ -606,6 +606,12 @@ class Metadados:
     ids: dict[str, str] = field(default_factory=dict)
     #: O `prefix` do `<package>`, além dos reservados e dos que o escritor declara sozinho.
     prefixos: dict[str, str] = field(default_factory=dict)
+    #: O livro veio de um EPUB que não foi o editor que escreveu (RG-10, R-51): o perigo e o
+    #: resumo de acessibilidade são da editora, e não do editor — sem declaração, `unknown`.
+    de_terceiro: bool = False
+    #: O `schema:accessibilitySummary` e os `schema:accessibilityHazard` que o livro de
+    #: terceiro declarava, por propriedade (`{"accessibilityHazard": ["flashing"]}`).
+    acessibilidade_declarada: dict[str, list[str]] = field(default_factory=dict)
     #: Os atributos dos elementos interpretados além do `id`, pela mesma chave de `ids`
     #: (`"identificador": {"opf:scheme": "ISBN"}`, `"titulo": {"xml:lang": "en"}`) (RG-10, R-26).
     atributos: dict[str, dict[str, str]] = field(default_factory=dict)

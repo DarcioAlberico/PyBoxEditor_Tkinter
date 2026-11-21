@@ -385,6 +385,7 @@ class _LeitorDeOpf:
         principal = next((el for el in identificadores if self.unico and el.get("id") == self.unico),
                          identificadores[0] if identificadores else None)
         vistos: set[str] = set()
+        declarado: dict[str, list[str]] = {}
         simples = {"title": "titulo", "language": "idioma", "publisher": "editora", "date": "data",
                    "description": "descricao", "rights": "direitos", "source": "fonte_impressa"}
         for el in elementos:
@@ -426,7 +427,11 @@ class _LeitorDeOpf:
                     guardar_id("colecao", el)
                 elif propriedade.startswith("schema:access") or propriedade in ("ibooks:specified-fonts",
                                                                                  "pageBreakSource"):
-                    continue      # calculados a cada gravação (§10.1)
+                    # Calculados a cada gravação (§10.1) — menos o que a editora declarou
+                    # sobre o próprio livro, que volta como veio (RG-10, R-51).
+                    if propriedade in ("schema:accessibilitySummary", "schema:accessibilityHazard"):
+                        declarado.setdefault(propriedade.split(":", 1)[1], []).append(texto)
+                    continue
                 elif propriedade.startswith(PREFIXO_PYBOX + ":"):
                     self._pybox(propriedade[len(PREFIXO_PYBOX) + 1:], texto)
                 elif el.get("name") == "cover":
@@ -440,6 +445,11 @@ class _LeitorDeOpf:
                 m.extras.append(("meta", self._atributos_verbatim(el), (el.text or "").strip()))
         m.prefixos = {p: u for p, u in self.prefixos.items()
                       if p not in PREFIXOS_RESERVADOS and p not in ("ibooks", PREFIXO_PYBOX)}
+        # O livro que o editor escreveu se reconhece pelo resumo que só ele põe; o resto é
+        # de terceiro, e o que ele declarou é dele (RG-10, R-51).
+        if not any(r.startswith(RESUMO_DO_EDITOR) for r in declarado.get("accessibilitySummary", [])):
+            m.de_terceiro = True
+            m.acessibilidade_declarada = declarado
         return m
 
     def _pybox(self, chave: str, valor: str) -> None:
@@ -453,6 +463,10 @@ class _LeitorDeOpf:
 
 
 _RE_CODIFICACAO_DECLARADA = re.compile(rb"""^(?:\xef\xbb\xbf)?<\?xml[^>]*?encoding\s*=\s*["']([A-Za-z0-9._-]+)["']""")
+
+
+#: O começo do `schema:accessibilitySummary` que o editor escreve no livro criado nele.
+RESUMO_DO_EDITOR = "Livro em texto corrido, editado no PyBoxEditor."
 
 
 def _texto_pela_declaracao(dados: bytes) -> str:
@@ -1038,8 +1052,18 @@ class _Escritor:
         if marcas:
             recursos += ["pageBreakMarkers", "printPageNumbers"]
         saida += [f'<meta property="schema:accessibilityFeature">{r}</meta>' for r in recursos]
+        m = livro.metadados
+        if m.de_terceiro:
+            # O que a editora declarou volta como veio; sem declaração de perigo, `unknown`:
+            # o editor não examinou o livro para afirmar `none` (RG-10, R-51). E nenhum resumo
+            # é inventado — o resumo do editor faria a próxima abertura tomar o livro por dele.
+            for perigo in m.acessibilidade_declarada.get("accessibilityHazard") or ["unknown"]:
+                saida.append(f'<meta property="schema:accessibilityHazard">{escape(perigo)}</meta>')
+            for resumo in m.acessibilidade_declarada.get("accessibilitySummary", []):
+                saida.append(f'<meta property="schema:accessibilitySummary">{escape(resumo)}</meta>')
+            return saida
         saida.append('<meta property="schema:accessibilityHazard">none</meta>')
-        resumo = "Livro em texto corrido, editado no PyBoxEditor."
+        resumo = RESUMO_DO_EDITOR
         if diagramas:
             resumo += " Os diagramas de xadrez trazem a posição descrita em texto alternativo."
         if marcas:

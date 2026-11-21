@@ -1012,6 +1012,18 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
   o Windows-1252. `tests/test_codificacao_declarada.py`: contra o código de antes, um dos
   três falha (o ISO-8859-1 malformado, com `A��o`); os outros dois guardam o caminho do
   analisador. Suíte do worktree: 3812 passed, 26 skipped.
+- Commit 5 (R-51): `Metadados.de_terceiro` e `acessibilidade_declarada`. Na leitura, o
+  `schema:accessibilitySummary` e o `schema:accessibilityHazard` do arquivo ficam guardados;
+  o livro cujo resumo começa pelo do editor (`RESUMO_DO_EDITOR`) é do editor, e o resto é
+  de terceiro. Na gravação, o de terceiro sai com o resumo e os perigos que declarou — sem
+  perigo declarado, `unknown`, e sem resumo inventado (o do editor faria a próxima abertura
+  tomá-lo por dele) —; o criado aqui segue `none` com o resumo calculado. `accessMode` e
+  `accessibilityFeature` continuam calculados; `conformsTo` e `certifiedBy` já voltavam
+  pelos extras dos metadados, e o teste os confere. A §10.1 da `SPEC_EDITOR.md` acompanha.
+  `tests/test_acessibilidade_da_editora.py`: contra o código de antes, os dois do livro de
+  terceiro falham (o resumo trocado e o `flashing` virando `none`; o sem declaração saindo
+  `none`); o do livro criado aqui passa nos dois, com o `test_editor_epub_completo.py:146`.
+  Suíte do worktree: 3815 passed, 26 skipped.
 ### RG-11
 ### RG-12
 ### RG-13

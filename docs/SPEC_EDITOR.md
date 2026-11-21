@@ -1230,8 +1230,11 @@ opcional com `<spine toc="ncx">` e `dtb:uid`; metadados com `file-as`, papéis, 
 acessibilidade **calculados**: `accessMode textual` sempre e `visual` quando há imagem;
 `accessModeSufficient textual` só se toda figura e diagrama têm `alt`; `pageBreakMarkers`
 (mais `printPageNumbers` legado) quando há `page-list`; `structuralNavigation` só com
-títulos de verdade; `accessibilityHazard none`; um `accessibilitySummary` que não repete
-as *features*; `ibooks:specified-fonts` com fonte embutida; `OrigemDoLivro` como
+títulos de verdade; no livro criado no editor, `accessibilityHazard none` e um
+`accessibilitySummary` que não repete as *features*; no livro de terceiro, o
+`accessibilitySummary`, o `accessibilityHazard`, o `conformsTo` e o `certifiedBy` que a
+editora declarou voltam como vieram, e sem perigo declarado sai `unknown`, sem resumo
+inventado (revisão geral 2, RG-10, R-51); `ibooks:specified-fonts` com fonte embutida; `OrigemDoLivro` como
 `<meta property="pybox:…">` com prefixo declarado. Fontes usadas copiadas com
 `@font-face` relativo; diagramas `png` em `Images/diag-<hash>.png`. Validação estrutural
 e `epubcheck`.
