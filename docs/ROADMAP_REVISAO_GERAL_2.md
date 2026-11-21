@@ -833,6 +833,14 @@ Onda 2, depois da RG-05b; a onda inteira vai ao `master` por `git merge --ff-onl
   mesmas 6 falhas da base.
 - Próximo passo da revisão: a Onda 3 (RG-07 em diante, o diário de revisão).
 ### RG-07
+Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktrees/onda3`
+(destacado, com os pesos copiados), o mesmo da RG-08.
+- Commit 1: `scripts/medidas/medir_lote_de_revisao.py` — 200 edições (`ReviewSession.edit`,
+  diário em memória) num documento de 300 páginas × 12 parágrafos, com os ids de evento e
+  o relógio fixos, para o documento final sair igual em toda rodada; grava
+  `documento_final.json` e `tempo.json`. Na base, nesta máquina: **17,16 s** (o revisor
+  mediu 54,6 s noutra condição; a régua da RG-08 é a desta máquina), em
+  `preview_ocr/ab/lote-RG-07-base` da árvore principal (ignorado pelo git).
 ### RG-08
 ### RG-09
 ### RG-10
