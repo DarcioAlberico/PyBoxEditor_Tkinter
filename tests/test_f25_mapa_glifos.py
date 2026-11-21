@@ -633,7 +633,6 @@ class _App:
     """MainWindow com os diálogos capturados e o modelo neural fora do caminho."""
 
     def __init__(self, entrada, simbolo="♘"):
-        import ui.main_window as mw
         from ui.main_window import MainWindow
 
         self.entrada = entrada

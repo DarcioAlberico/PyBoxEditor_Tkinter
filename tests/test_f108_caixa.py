@@ -212,7 +212,10 @@ def test_a_linha_do_livro_sai_com_a_caixa_arrumada():
     """
     texto = "the biShop"
     img, boxes = _pagina_com(texto)
-    ler = lambda r, i=iter(texto): (next(i), 0.99)
+    letras = iter(texto)
+
+    def ler(_recorte):
+        return next(letras), 0.99
 
     saida, _fracos, pesos, _lac, _cx = livro._texto_da_linha(
         img, boxes, ler, conf_minima=0.5)

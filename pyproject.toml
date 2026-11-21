@@ -61,6 +61,7 @@ select = ["E", "F"]
 ignore = ["E402"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["E501"]
+# Nos testes, `l` é "linha" (`for l in linhas`), a grafia da casa: o E741 só pega isso lá.
+"tests/**" = ["E501", "E741"]
 # As medições de uma fase (scripts/medidas/) não são produto: só as regras de erro valem lá.
 "scripts/medidas/**" = ["E741", "E702", "E731"]

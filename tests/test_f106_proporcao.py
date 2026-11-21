@@ -10,7 +10,6 @@ devolve a leitura como estava, em vez de apagá-la.
 
 import cv2
 import numpy as np
-import pytest
 
 from core import proporcao
 from core.box_model import BoxEntry

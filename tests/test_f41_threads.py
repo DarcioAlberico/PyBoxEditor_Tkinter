@@ -20,7 +20,7 @@ from conftest import raiz_tk
 
 import tkinter as tk
 
-from core.services.task_service import BackgroundTask, Cancelled
+from core.services.task_service import BackgroundTask
 
 
 # ----------------------------------------------------------------------

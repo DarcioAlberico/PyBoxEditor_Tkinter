@@ -17,14 +17,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from conftest import raiz_tk
 
-import tkinter as tk
 from tkinter import messagebox
 from PIL import Image
 
 from core.box_model import BoxEntry
 from core.services.document_service import (
     DocumentSession, _GravadorAssincrono, caminho_sidecar)
-from ui import confidence as cf
 
 
 def _esperar_arquivo(caminho, limite=5.0):

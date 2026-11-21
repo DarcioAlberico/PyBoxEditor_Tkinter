@@ -215,7 +215,6 @@ def test_so_a_acao_neural_passa_a_poda():
     O neural a passa, com as candidatas pela porta do serviço, e o laço das
     duas ações a entrega a `ler_pagina` depois de `preparar` carregar o modelo.
     """
-    from ui.main_window import MainWindow
     from ui.reconhecimento import Reconhecimento
 
     neural = inspect.getsource(Reconhecimento.generate_and_fill_neural)

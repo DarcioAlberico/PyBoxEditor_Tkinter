@@ -275,7 +275,6 @@ def test_gravar_sobre_lista_editada_a_mao_preserva_a_edicao(tmp_path, lex):
 
 def _janela():
     """MainWindow com os diálogos neutralizados, ou None sem display."""
-    import tkinter as tk
     from tkinter import messagebox
     from conftest import raiz_tk
 

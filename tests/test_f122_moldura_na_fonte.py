@@ -18,7 +18,6 @@ Rodar sem pytest:      python tests/test_f122_moldura_na_fonte.py
 
 import os
 import re
-import shutil
 import sys
 import tempfile
 import zipfile

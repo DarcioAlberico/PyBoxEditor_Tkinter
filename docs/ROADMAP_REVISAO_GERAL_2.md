@@ -580,8 +580,10 @@ e ele conta com o corte de cima para baixo nos boxes empilhados. É anterior à 
 fica com o usuário; o passo 10 compara com estas seis.
 
 ### RG-01
-Estado: em andamento. Base `a2bfc82`, na árvore principal (os arquivos da fase não têm
-diff do usuário).
+Estado: fechada (2026-11-20). Base `a2bfc82`, na árvore principal (os arquivos da fase não
+têm diff do usuário); commits `6c824cc`, `f784a74`, `cec0d9e` e o do commit 4. Um desvio
+do pronto, registrado: "os 11 de dado aparecem SKIPPED na exportação limpa" vale para 6 —
+os outros 5 dependem de arquivo rastreado ou de fonte do Windows, e rodam de verdade aqui.
 - Commit 1 (os `return` nus): `tests/test_testes_honestos.py` falhou primeiro com os 29
   `return` de 27 testes, a contagem da spec; trocados por `pytest.skip` com motivo. Na
   exportação limpa do `HEAD` pulam 6 dos 11 de dado — `training_data/`,
@@ -602,7 +604,16 @@ diff do usuário).
   `pytest --strict-markers --collect-only` sem erro (3719 coletados, com o teste não
   rastreado do usuário). Suíte da exportação limpa: 3637 passed, 28 skipped; `slow and not
   gui`: 10 passed, 8 skipped.
-- Próximo passo: commit 4 (`ruff check tests` limpo).
+- Commit 4 (lint dos testes): os 63 erros do `ruff check tests` zerados — 25 F401 pelo
+  `--fix`, conferidos um a um (sobras como o `from ui.main_window import MainWindow` que a
+  PD-22 deixou órfão nos testes de fonte; nenhum era o objeto do teste); 4 F841 que eram
+  sobras (um `binarize` sem uso, um `TemporaryDirectory` vazio, um `rng`, um `win`); 2
+  E731 viraram `def`; os 32 E741 são `l` de "linha", ignorados em `tests/**` no
+  `pyproject.toml`. O `CLAUDE.md` passa a mandar o `ruff` com `tests` e diz das marcas e
+  do `pytest.skip`. Os 27 arquivos tocados: 720 passed. `compileall` limpo. Suíte da
+  exportação limpa: 3637 passed, 28 skipped; `slow and not gui`: 10 passed, 8 skipped.
+- O `ci.yml:37` (o lint de `tests` na CI) fica para a RG-02b, como o roadmap diz.
+- Próximo passo da revisão: a RG-02a (a RG-01b corre fora do caminho crítico).
 ### RG-01b
 ### RG-02a
 ### RG-02b

@@ -33,7 +33,6 @@ def _logits_de_confianca(confiancas, acertou, num_classes=5, semente=7):
     Monta a classe 0 como vencedora com probabilidade `c` e espalha o resto; se
     `acertou` for falso, a máscara de aceitáveis aponta para outra classe.
     """
-    rng = np.random.RandomState(semente)
     n = len(confiancas)
     logits = np.zeros((n, num_classes), dtype=np.float64)
     aceitaveis = np.zeros((n, num_classes), dtype=bool)

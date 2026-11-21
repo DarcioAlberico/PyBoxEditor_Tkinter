@@ -30,7 +30,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from core import exportar, livro, trama
+from core import exportar, livro
 from core.box_model import BoxEntry
 from core.livro import PaginaExtraida, Paragrafo, Tabela
 from core.services.box_service import BoxService

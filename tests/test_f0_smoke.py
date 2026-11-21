@@ -59,7 +59,6 @@ def test_box_entry_copy():
 
 def test_update_sidebar_com_boxes():
     """Era: o app morria ao renderizar a lista assim que existia 1 box."""
-    import tkinter as tk
     from ui.main_window import MainWindow
 
     root = raiz_tk()
@@ -190,7 +189,6 @@ def test_undo_redo_no_fluxo_do_editor():
     entrava no histórico, e o redo devolvia o estado velho — a alteração
     sumia para sempre.
     """
-    import tkinter as tk
     from ui.main_window import MainWindow
 
     root = raiz_tk()

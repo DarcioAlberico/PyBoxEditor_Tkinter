@@ -229,7 +229,6 @@ def test_as_duas_acoes_e_a_exportacao_passam_o_mesmo_idioma():
     duas ações «Detectar e Preencher». Um caminho sem `idioma=` seria a tela
     voltando a competir com o `É` num livro em inglês.
     """
-    from ui.main_window import MainWindow
     from ui.reconhecimento import Reconhecimento
 
     for acao in ("generate_and_fill_neural", "generate_and_fill_combined"):

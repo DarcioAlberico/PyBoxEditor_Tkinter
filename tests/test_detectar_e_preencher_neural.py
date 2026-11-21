@@ -155,7 +155,7 @@ def test_as_duas_acoes_isentam_so_o_easyocr():
     então não há como isentar por fonte ali.
     """
     from core.searchable_pdf import _ler_boxes
-    from ui.main_window import FONTES_SEM_TRAVA, MainWindow
+    from ui.main_window import FONTES_SEM_TRAVA
     from ui.reconhecimento import Reconhecimento
 
     assert FONTES_SEM_TRAVA == frozenset({"easyocr"})
@@ -218,7 +218,6 @@ def test_o_trabalho_tambem_recusa_um_modelo_que_sumiu_no_caminho():
     `preparar` é a rede de segurança para a carga que falha **depois** dela.
     Ambas têm de estar na fonte — o caminho sem rede não pode existir.
     """
-    from ui.main_window import MainWindow
     from ui.reconhecimento import Reconhecimento
 
     fonte = inspect.getsource(Reconhecimento.generate_and_fill_neural)

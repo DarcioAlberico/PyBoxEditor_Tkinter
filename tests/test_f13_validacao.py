@@ -119,8 +119,6 @@ def test_split_nao_repete_indice_entre_conjuntos():
 # ----------------------------------------------------------------------
 
 def _modelo_e_dados(n_por_classe=20):
-    with tempfile.TemporaryDirectory() as tmp:
-        pass
     dados = np.zeros((2 * n_por_classe, 32, 32), dtype=np.uint8)
     dados[:] = 255
     dados[:n_por_classe][:, 8:24, 8:24] = 0

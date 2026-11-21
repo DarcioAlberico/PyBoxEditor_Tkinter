@@ -32,8 +32,7 @@ from tkinter import filedialog, messagebox
 
 from core import chess_pdf_processor as cpp
 from core import relatorio_pdf
-from core.chess_pdf_processor import (DEFAULT_MAPPING_PROFILE,
-                                      analisar_substituicao,
+from core.chess_pdf_processor import (analisar_substituicao,
                                       substitute_chess_glyphs)
 
 

@@ -27,7 +27,7 @@ import fitz
 import numpy as np
 
 from core import coleta, livro
-from core.learner import CharacterLearner, char_to_folder
+from core.learner import char_to_folder
 
 
 _serie = itertools.count()

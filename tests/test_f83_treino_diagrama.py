@@ -638,7 +638,6 @@ def test_falha_ao_gravar_nao_derruba_a_janela(tmp_path, monkeypatch):
 # ----------------------------------------------------------------------
 
 def test_o_menu_tem_o_treino_de_diagramas():
-    import tkinter as tk
     from tkinter import messagebox
     from conftest import raiz_tk
     from ui.main_window import MainWindow

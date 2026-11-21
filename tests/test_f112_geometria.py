@@ -365,7 +365,8 @@ def test_o_livro_poda_a_linha_antes_de_montar_o_texto(monkeypatch):
     monkeypatch.setattr(gl, "carregar_tabela", lambda *a, **k: TABELA)
     img, caixas = _linha([(c, 0) for c in "cosa"])
     coletados = []
-    candidatas = lambda _recorte, _k: [("O", .9), ("o", .08)]
+    def candidatas(_recorte, _k):
+        return [("O", .9), ("o", .08)]
     texto, fracos, pesos, _lac, cx = livro._texto_da_linha(
         img, caixas, _ler([("c", .95), ("O", .9), ("s", .95), ("a", .95)]),
         0.5, coletor=lambda r, c, conf, p: coletados.append(c),

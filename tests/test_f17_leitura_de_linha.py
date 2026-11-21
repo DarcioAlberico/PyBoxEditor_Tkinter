@@ -247,7 +247,6 @@ def test_nenhum_caminho_de_producao_filtra_a_linha():
     import inspect
 
     from core.searchable_pdf import _ler_boxes
-    from ui.main_window import MainWindow
     from ui.reconhecimento import Reconhecimento
 
     acao = inspect.getsource(Reconhecimento._preencher_por_linha)

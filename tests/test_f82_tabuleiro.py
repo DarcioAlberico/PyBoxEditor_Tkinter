@@ -22,7 +22,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pytest
 
-from core import diagrama
 from core.diagrama import Casa, Leitura
 from core.tabuleiro_edicao import AVISO_CONVENCAO, TabuleiroEdicao
 

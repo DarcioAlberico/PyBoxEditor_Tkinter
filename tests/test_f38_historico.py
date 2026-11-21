@@ -281,7 +281,6 @@ def test_snapshot_de_pagina_grande_e_rapido():
     boxes) para não virar teste instável em máquina ocupada. O que ele pega é
     a volta de uma cópia profunda, que custaria ~15 ms.
     """
-    import time
 
     boxes = [BoxEntry("e", i, 0, i + 8, 12, confidence=0.9, source="neural")
              for i in range(2000)]

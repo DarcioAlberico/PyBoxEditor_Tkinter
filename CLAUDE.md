@@ -17,7 +17,11 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   contra o módulo velho e o teste fica vermelho sem defeito nenhum.
 - O gate da CI (`.github/workflows/ci.yml`) é `compileall`, `ruff check core ui appy.py
   config scripts` (E e F, 120 colunas), a coleta, o wheel e os dois passos do pytest, em
-  Linux com Xvfb. Rode o `ruff` antes de todo commit.
+  Linux com Xvfb. Rode o `ruff` antes de todo commit, com `tests` junto (`ruff check core
+  ui appy.py config scripts tests`): os testes estão limpos desde a RG-01, e a CI passa a
+  conferi-los na RG-02b. O `pytest.ini` tem `--strict-markers`: marca nova se registra lá.
+  Teste sem o dado ou o display de que precisa sai por `pytest.skip("motivo")`, nunca por
+  `return` (`tests/test_testes_honestos.py` recusa).
 - Antes de um push, exporte o `HEAD` limpo (`git archive HEAD | tar -x -C pasta`) e rode a
   suíte lá: sem o `custom_model.pth`, sem arquivos sem rastreio — é o que a CI vê. Testes
   que dependem de dado fora do git pulam com `skipif`, nunca falham.

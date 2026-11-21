@@ -223,7 +223,6 @@ def test_bloco_sem_texto_dentro_fica_como_estava():
     """Sombra, filete e moldura também são blocos largos."""
     img = _pagina(600, 300)
     img[100:200, 50:550] = 30              # barra chapada, sem nada dentro
-    th = preprocess.binarize(img, "auto")
     bloco = BoxEntry("", 50, 100, 550, 200)
 
     novas, lidos = trama.aplicar(img, [bloco], ESCALA)

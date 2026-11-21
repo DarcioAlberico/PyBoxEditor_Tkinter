@@ -275,14 +275,13 @@ def test_o_menu_notacao_lista_tudo_e_desliga_o_que_nao_da_para_escrever():
     família virou submenu, todo NAG virou item, e clicável é só quem tem símbolo
     **e** fonte.
     """
-    import tkinter as tk
     from ui.main_window import MainWindow
 
     janela = raiz_tk()
     if janela is None:
         pytest.skip("sem display")
     try:
-        win = MainWindow(janela)
+        MainWindow(janela)          # monta a barra de menus na janela
         menubar = janela.nametowidget(janela.cget("menu"))
         # A barra é criada sem `tearoff=0`, então a entrada 0 é o tracejado de
         # destacar o menu e não tem rótulo nenhum. Perguntar pelo tipo evita o
