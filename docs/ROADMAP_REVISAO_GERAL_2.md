@@ -952,7 +952,8 @@ Estado: fechada (2026-11-21), em um commit. Base `d82f74a`, no worktree
   regeneração calada; o NCX de um sumário inteiro regenerado). Suíte do worktree: 3803
   passed, 26 skipped.
 ### RG-10
-Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
+Estado: fechada (2026-11-21), em seis commits (`54813f1`, `a4ff7f2`, `5699a54`, `e21352b`,
+`26802bf` e o da medida de depois), no worktree da Onda 4, depois da RG-09.
 - O corpus, escolhido pelo usuário em 2026-11-21: 12 EPUBs de seis produtores, copiados
   (os originais ficam onde estavam) para `C:\Python-Chess2\corpus_epub`, ao lado do
   projeto — Quality Chess (Adams & Hurtado *Think Like a Super-GM*, 2022; Flores Rios
@@ -1024,6 +1025,30 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-09.
   terceiro falham (o resumo trocado e o `flashing` virando `none`; o sem declaração saindo
   `none`); o do livro criado aqui passa nos dois, com o `test_editor_epub_completo.py:146`.
   Suíte do worktree: 3815 passed, 26 skipped.
+- Commit 6 (a medida de depois): nos mesmos 12 livros, **126 atributos** (eram 731), 1093
+  elementos (iguais), **54 atributos do OPF** (eram 65) e 0 arquivos perdidos
+  (`preview_ocr/ab/ida-e-volta-depois`). Livro a livro, nove dos doze saem com 0
+  atributos perdidos. O que sobra, arquivo por arquivo (`scratchpad\onde_perde.py` da
+  sessão):
+  - **Grooten, 121 atributos, todos no `nav.xhtml`**, mais 4 `<style>` e 1 `<meta>` da
+    cabeça dele (cada capítulo tem os mesmos e os guarda; o total perdido é exatamente o de
+    um arquivo): o nav de terceiro é regenerado por decisão da §10.1, sem aviso — **perda
+    não declarada**, a **PD-25**;
+  - **Grooten, 708 dos 728 `<b>`**: o `<b>` em volta de um `<span>` com atributo que o
+    dialeto não conhece (os `data-imt-*` da extensão Immersive Translate) — o `span` vira
+    ilha inline e o negrito de fora some, sem aviso: **perda não declarada**, a **PD-24**;
+  - **Schandorff, 360 `<p>`**: viram 45 diagramas (`figure` + `pre`) e 640 `strong` — a
+    conversão desenhada dos diagramas em texto (F120), não perda;
+  - **Gufeld, 5 `html@lang`**: o `lang=""` vazio, que não diz nada (o escritor não grava
+    atributo vazio);
+  - **no OPF, 54**: as declarações `xmlns:*` (o escritor declara onde usa), o `opf:role` e
+    o `opf:file-as` (gravados como `<meta refines>`, o equivalente do EPUB 3), o `guide`
+    (vira `landmarks`) — conversão do EPUB 2 para o 3, não perda.
+  As duas perdas não declaradas que sobram entraram no `ROADMAP_PENDENCIAS.md` como
+  **PD-24** (o formato do trecho em volta de ilha inline) e **PD-25** (avisar, ou levar, o
+  que o nav de terceiro tinha além do sumário). `html_io.escrever_pasta` reconferida nos 12
+  (`scratchpad\conferir_pasta_html.py`): todos viram pasta sem erro, e o `id` de item de
+  lista que há no corpus (o do *100 Endgames*) chega à pasta.
 ### RG-11
 ### RG-12
 ### RG-13
