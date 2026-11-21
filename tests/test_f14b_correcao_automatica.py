@@ -13,6 +13,7 @@ Aqui o mesmo diálogo passa a oferecer o conserto, e o "sim" do usuário é a
 Rodar sem pytest:      python tests/test_f14b_correcao_automatica.py
 """
 
+import pytest
 import os
 import sys
 import tempfile
@@ -159,7 +160,7 @@ def test_treino_recusado_pergunta_em_vez_de_mostrar_traceback():
     uma lista que o usuário não tinha como responder de dentro do app.
     """
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=False) as app:
         app.win._treinar_rede(epochs=1)
         app.aguardar()
@@ -174,7 +175,7 @@ def test_treino_recusado_pergunta_em_vez_de_mostrar_traceback():
 def test_sim_corrige_a_base_e_treina_sozinho():
     """O ponto da fase: um clique entre o erro e o treino."""
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=True) as app:
         antes = sum(len(os.listdir(os.path.join(app.base, d)))
                     for d in os.listdir(app.base))
@@ -196,7 +197,7 @@ def test_sim_corrige_a_base_e_treina_sozinho():
 def test_nao_corrige_sem_o_usuario_mandar():
     """A base é dado do usuário: o pedido de treino não autoriza mexer nela."""
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=False) as app:
         app.win._treinar_rede(epochs=1)
         app.aguardar()
@@ -213,7 +214,7 @@ def test_correcao_incompleta_nao_finge_que_deu_certo():
     sabendo — anunciar "corrigido!" e travar de novo é o pior dos dois mundos.
     """
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=True) as app:
         app.win.learning_service.sanear_dados = lambda **k: ["nada feito"]
 
@@ -232,7 +233,7 @@ def test_recusa_depois_da_correcao_nao_vira_laco():
     correção resolve, e reperguntar seria um vaivém sem fim.
     """
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=True) as app:
         def sempre_recusa(epochs=20, callback=None, should_stop=None, **k):
             app.treinos.append(epochs)
@@ -257,7 +258,7 @@ def test_recusa_depois_da_correcao_nao_vira_laco():
 def test_verificar_base_oferece_o_conserto():
     """O diálogo da verificação era um beco: listava os 4 erros e o botão OK."""
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=True) as app:
         app.win.verificar_base_treino()
         app.aguardar()
@@ -269,7 +270,7 @@ def test_verificar_base_oferece_o_conserto():
 
 def test_verificar_base_sa_nao_pergunta_nada():
     if _sem_display():
-        return
+        pytest.skip("sem display para o Tk")
     with _App(resposta=True) as app:
         app.win.learning_service.sanear_dados()
         app.perguntas.clear()

@@ -570,9 +570,27 @@ commit de base, worktree, onde estão as medidas de antes, commits, o que foi me
 antes e depois, a contagem da suíte e o próximo passo. Cada fase edita só a sua.
 
 ### Commit dos documentos
-Estado: aguardando aprovação do usuário.
+Estado: fechada. Commit `a2bfc82` (2026-11-20), com a lista de documentos do README; sem
+push. Suíte da exportação limpa: 3640 passed, 22 skipped. Base do AbbyChessCraft (`91a4576`)
+contra o `core` da árvore principal: 2915 passed, 6 failed, 3 skipped (97 s). Cinco das
+falhas são de leiaute Qt dele (`test_espaco.py` ×4, `test_estilo.py`); a sexta,
+`test_editar_boxes.py::test_dividir_empilhados_de_verdade_continua_no_eixo_do_core`, falha
+também contra o `HEAD` limpo: o `split_box` daqui parte sempre lado a lado desde o `97e3d98`,
+e ele conta com o corte de cima para baixo nos boxes empilhados. É anterior à revisão e
+fica com o usuário; o passo 10 compara com estas seis.
 
 ### RG-01
+Estado: em andamento. Base `a2bfc82`, na árvore principal (os arquivos da fase não têm
+diff do usuário).
+- Commit 1 (os `return` nus): `tests/test_testes_honestos.py` falhou primeiro com os 29
+  `return` de 27 testes, a contagem da spec; trocados por `pytest.skip` com motivo. Na
+  exportação limpa do `HEAD` pulam 6 dos 11 de dado — `training_data/`,
+  `ilovepdf_pages-to-jpg/*0021.jpg` e a página 0108 ficam fora do git; os outros cinco
+  dependem do `model_meta.json`, que é rastreado, e de fontes do Windows, presentes aqui
+  (na CI Linux pulam). Os 16 de display pulam com o motivo quando a falta de display é
+  simulada (`raiz_tk` → `None`, `TEM_DISPLAY = False`, por um plugin de pytest de
+  conferência): 16 skipped, 8 passed. Suíte da exportação limpa: 3637 passed, 28 skipped.
+- Próximo passo: commit 2 (as quatro asserções fracas e o golden).
 ### RG-01b
 ### RG-02a
 ### RG-02b

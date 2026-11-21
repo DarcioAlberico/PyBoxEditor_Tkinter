@@ -12,6 +12,7 @@ Duas coisas nesta fase:
 Rodar sem pytest:      python tests/test_f15_preprocess.py
 """
 
+import pytest
 import os
 import sys
 
@@ -381,11 +382,11 @@ def test_pagina_real_separa_sem_cortes_falsos():
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cand = glob.glob(os.path.join(raiz, "ilovepdf_pages-to-jpg", "*0021.jpg"))
     if not cand:
-        return
+        pytest.skip("a página de referência ilovepdf_pages-to-jpg/*0021.jpg não existe (fica fora do git)")
 
     img = cv2.imread(cand[0], cv2.IMREAD_GRAYSCALE)
     if img is None:
-        return
+        pytest.skip("a página de referência *0021.jpg não se lê")
     h, w = img.shape
     rec = Image.fromarray(img[int(h * 0.20):int(h * 0.80), int(w * 0.05):int(w * 0.95)])
 
@@ -491,7 +492,7 @@ def test_pagina_real_descarte_nao_perde_caractere():
 
     img, rotulados = _pagina_0108()
     if img is None:
-        return
+        pytest.skip("a página de referência 0108 não existe (fica fora do git)")
 
     com = BoxService.generate_boxes_opencv(img, separar_colados=False,
                                            descartar_nao_texto=True)
@@ -575,7 +576,7 @@ def test_pagina_0108_escala_local_reduz_cortes_falsos():
 
     img, rotulados = _pagina_0108()
     if img is None:
-        return
+        pytest.skip("a página de referência 0108 não existe (fica fora do git)")
 
     antes = classificar_cortes(*_pais_e_filhos(img, "global"), rotulados)
     depois = classificar_cortes(*_pais_e_filhos(img, "local"), rotulados)
@@ -625,7 +626,7 @@ def test_pagina_0108_escala_local_parte_menos_figurinas():
     """
     img, rotulados = _pagina_0108()
     if img is None:
-        return
+        pytest.skip("a página de referência 0108 não existe (fica fora do git)")
 
     antes, total = _figurinas_partidas(img, rotulados, "global")
     depois, _ = _figurinas_partidas(img, rotulados, "local")

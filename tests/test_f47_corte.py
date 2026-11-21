@@ -16,6 +16,7 @@ e o que se afirma é o eixo e o lugar do corte.
 Rodar sem pytest:      python tests/test_f47_corte.py
 """
 
+import pytest
 import os
 import sys
 
@@ -499,7 +500,7 @@ def test_a_seta_existe_na_fonte_da_lista():
 
     caminho = r"C:\Windows\Fonts\consola.ttf"
     if not os.path.exists(caminho):
-        return                      # sem a fonte não há o que medir
+        pytest.skip("a fonte consola.ttf do Windows não existe nesta máquina")
 
     fonte = ImageFont.truetype(caminho, 20)
 

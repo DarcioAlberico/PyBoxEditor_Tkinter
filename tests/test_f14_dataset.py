@@ -9,6 +9,7 @@ verdade. O treino rodava, reportava acurácia alta e ninguém via nada.
 Rodar sem pytest:      python tests/test_f14_dataset.py
 """
 
+import pytest
 import json
 import os
 import sys
@@ -464,7 +465,7 @@ def test_base_real_esta_sanada():
     real = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "training_data")
     if not os.path.isdir(real):
-        return          # base não distribuída com o código
+        pytest.skip("a base training_data/ não existe (fica fora do git)")
     graves = [p for p in validar_dataset(real, checar_pngs=False) if p.grave]
     assert not graves, f"a base real voltou a ter problemas: {graves[:3]}"
 
@@ -484,7 +485,7 @@ def test_metadado_do_modelo_corrigido():
     meta_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "model_meta.json")
     if not os.path.isfile(meta_path):
-        return
+        pytest.skip("model_meta.json não existe (fica fora do git)")
     with open(meta_path, encoding="utf-8") as f:
         meta = json.load(f)
 
@@ -557,7 +558,7 @@ def test_modelo_emite_exatamente_essas_figurinas():
     meta_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "model_meta.json")
     if not os.path.isfile(meta_path):
-        return
+        pytest.skip("model_meta.json não existe (fica fora do git)")
     with open(meta_path, encoding="utf-8") as f:
         emitiveis = set(json.load(f)["idx_to_char"].values())
 

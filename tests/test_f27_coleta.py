@@ -14,6 +14,7 @@ que a guarda de sessão do `conftest` protege na base de ocupação.
 Rodar sem pytest:      python tests/test_f27_coleta.py
 """
 
+import pytest
 import csv
 import itertools
 import os
@@ -705,7 +706,7 @@ def test_o_dialogo_do_teto_nao_confunde_em_branco_com_cancelar():
 
     win, raiz, originais = _janela()
     if win is None:
-        return                      # sem display; o resto do arquivo não usa Tk
+        pytest.skip("sem display para o Tk")
     try:
         from ui.main_window import MainWindow
 
@@ -733,7 +734,7 @@ def test_teto_invalido_pergunta_de_novo_em_vez_de_derrubar_a_acao():
 
     win, raiz, originais = _janela()
     if win is None:
-        return
+        pytest.skip("sem display para o Tk")
     try:
         respostas, vistos = iter(["l00", "250"]), []
 

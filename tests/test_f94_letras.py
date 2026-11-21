@@ -16,6 +16,7 @@ frouxa dele, que deixou passar 31 borrões em 58 e foi substituída por mediçã
 Rodar sem pytest:      python tests/test_f94_letras.py
 """
 
+import pytest
 import os
 import sys
 import tempfile
@@ -163,7 +164,7 @@ def test_a_face_so_entra_se_desenhar_de_verdade():
     """
     faces = il.faces_disponiveis()
     if not faces:
-        return                      # máquina sem as faces do Windows
+        pytest.skip("nenhuma face de letra do sistema disponível")
     for caminho in faces:
         for controle in "aso":
             assert il.desenhar(caminho, controle, 40) is not None, caminho
@@ -172,7 +173,7 @@ def test_a_face_so_entra_se_desenhar_de_verdade():
 def test_a_semente_desenha_a_letra_pedida():
     faces = il.faces_disponiveis()
     if not faces:
-        return
+        pytest.skip("nenhuma face de letra do sistema disponível")
     saiu = {ch for ch, _face, corte in
             il.semear_da_fonte("Šńž", faces[:2], corpos=(40,))
             if corte is not None}

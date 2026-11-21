@@ -19,6 +19,7 @@ a janela inteira.
 Rodar sem pytest:      python tests/test_f43_navegacao.py
 """
 
+import pytest
 import os
 import sys
 import tkinter as tk
@@ -81,7 +82,7 @@ def _canvas(boxes, largura=400, altura=300):
 def test_nao_mexe_no_zoom():
     """O ponto da fase: rolar não é re-enquadrar."""
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     boxes = [BoxEntry("", 10, 10, 30, 40), BoxEntry("", 1500, 1500, 1520, 1530)]
     raiz, cv, _ = _canvas(boxes)
     try:
@@ -95,7 +96,7 @@ def test_nao_mexe_no_zoom():
 def test_box_ja_visivel_nao_rola():
     """Rolar sem necessidade é o próprio defeito que a fase veio corrigir."""
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     boxes = [BoxEntry("", 100, 100, 120, 130)]
     raiz, cv, ctrl = _canvas(boxes)
     try:
@@ -110,7 +111,7 @@ def test_box_ja_visivel_nao_rola():
 
 def test_rola_o_suficiente_para_o_box_aparecer():
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     boxes = [BoxEntry("", 1500, 1500, 1520, 1530)]
     raiz, cv, _ = _canvas(boxes, largura=400, altura=300)
     try:
@@ -136,7 +137,7 @@ def test_rola_o_minimo_e_nao_centraliza():
     borda deve subir só o necessário, ficando perto da borda — não no meio.
     """
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     caixa = BoxEntry("", 50, 0, 70, 0)
     raiz, cv, _ = _canvas([caixa], largura=400, altura=300)
     try:
@@ -160,7 +161,7 @@ def test_rola_o_minimo_e_nao_centraliza():
 def test_box_maior_que_a_janela_e_centralizado():
     """Encostar numa borda deixaria a outra ponta fora de qualquer jeito."""
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     raiz, cv, _ = _canvas([BoxEntry("", 0, 0, 900, 900)], largura=400, altura=300)
     try:
         cv.zoom = 1.0
@@ -174,7 +175,7 @@ def test_box_maior_que_a_janela_e_centralizado():
 
 def test_indice_invalido_nao_explode():
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     raiz, cv, _ = _canvas([BoxEntry("", 0, 0, 10, 10)])
     try:
         cv.garantir_visivel(-1)
@@ -185,7 +186,7 @@ def test_indice_invalido_nao_explode():
 
 def test_sem_imagem_nao_explode():
     if not TEM_DISPLAY:
-        return
+        pytest.skip("sem display para o Tk")
     raiz, cv, ctrl = _canvas([BoxEntry("", 0, 0, 10, 10)])
     try:
         ctrl.image = None

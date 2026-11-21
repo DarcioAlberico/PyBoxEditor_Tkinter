@@ -9,6 +9,7 @@ esquerda... Numa página real do Kasparov isso fazia a partida saltar do lance
 Rodar sem pytest:      python tests/test_f16_colunas.py
 """
 
+import pytest
 import os
 import sys
 
@@ -219,11 +220,11 @@ def test_pagina_real_do_livro():
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidatos = glob.glob(os.path.join(raiz, "ilovepdf_pages-to-jpg", "*0021.jpg"))
     if not candidatos:
-        return          # scans não distribuídos com o código
+        pytest.skip("a página de referência ilovepdf_pages-to-jpg/*0021.jpg não existe (fica fora do git)")
 
     img = cv2.imread(candidatos[0], cv2.IMREAD_GRAYSCALE)
     if img is None:
-        return
+        pytest.skip("a página de referência *0021.jpg não se lê")
     h, w = img.shape
     rec = img[int(h * 0.44):int(h * 0.60), int(w * 0.06):int(w * 0.94)]
 
