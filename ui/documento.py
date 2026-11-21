@@ -728,6 +728,9 @@ class Documento:
         img_atual = self.janela.image.copy() if self.janela.image is not None else None
         pagina_atual = self.janela.current_pdf_page
         sessao = self.janela.session
+        # Cópias, como no Ctrl+S (RG-12, R-15): a thread lia as listas vivas, e a página
+        # editada durante a gravação saía como salva com a edição fora do arquivo.
+        copias = {page: [b.copy() for b in sessao.boxes_for(page)] for page in paginas}
 
         def trabalho(h):
             salvos, falhas = [], []
@@ -747,7 +750,7 @@ class Documento:
                     continue
 
                 destino = sessao.page_stem(page) + ".box"
-                erro = self.janela._write_box_pair(destino, img, sessao.boxes_for(page))
+                erro = self.janela._write_box_pair(destino, img, copias[page])
                 if erro:
                     falhas.append(f"pág {page + 1}: {erro}")
                 else:
@@ -757,7 +760,9 @@ class Documento:
         def concluir(resultado):
             salvos, falhas = resultado
             for page, _ in salvos:
-                sessao.mark_saved(page)
+                # Salva é só a página que continua igual ao que se gravou.
+                if [b.as_state() for b in sessao.boxes_for(page)] == [b.as_state() for b in copias[page]]:
+                    sessao.mark_saved(page)
             if not sessao.is_dirty():
                 self.janela._descartar_rascunho()
             self.janela._update_nav_controls()
@@ -766,7 +771,7 @@ class Documento:
             # é estado da UI, e a thread não pode tocá-los. Só as páginas que
             # **gravaram** — quem falhou não terminou.
             palavras = self.janela.aprender_palavras_das_paginas(
-                [sessao.boxes_for(page) for page, _ in salvos])
+                [copias[page] for page, _ in salvos])
             self.janela._relatar_salvamento([d for _, d in salvos], falhas, palavras)
             if palavras:
                 self.janela.update_sidebar()

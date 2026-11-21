@@ -1099,13 +1099,24 @@ worktree da Onda 4, depois da RG-10; a onda inteira vai ao `master` por `merge -
   mesmas 6 falhas da base.
 - Próximo passo da revisão: a Onda 5 (tarefa sobre estado vivo).
 ### RG-12
-Estado: em andamento (2026-11-21). Base `6ab5455`, no worktree `.claude/worktrees/onda5`
-(destacado, com os pesos copiados), o mesmo da RG-13.
+Estado: fechada (2026-11-21), em dois commits (`c807be7` e o do R-15). Base `6ab5455`, no
+worktree `.claude/worktrees/onda5` (destacado, com os pesos copiados), o mesmo da RG-13.
 - Commit 1 (R-14): o `runner` de `BackgroundTask` loga o erro com o traceback
   (`log.error(..., exc_info=True)`, com o nome da função de trabalho) antes de entregá-lo à
   janela; o cancelamento não vira erro. `tests/test_tarefa_loga_o_erro.py`: contra o código
   de antes, o da tarefa que levanta falha (nenhum registro com traceback); o do
   cancelamento já passava e fica de guarda. Suíte do worktree: 3836 passed, 26 skipped.
+- Commit 2 (R-15): "Preencher boxes" guarda os boxes do começo e aplica o resultado a cada
+  um deles por identidade, só no que ainda está na página; a detecção de boxes guarda a
+  página e a `HistoryService.versao` (nova: cresce a cada snapshot, undo, redo e reset) e,
+  se alguma mudou, descarta o resultado e avisa; "Salvar todas" grava cópias tiradas na
+  thread da janela e marca salva só a página que continua igual à cópia, e o léxico
+  aprende das cópias, o que foi gravado. A edição não é travada.
+  `tests/test_tarefa_sobre_estado_vivo.py`: contra o código de antes, três dos quatro
+  falham (`['a', 'b']` em vez de `['b', 'c']`; a detecção que apagou a edição do meio; o
+  `.box` com a edição feita depois de mandar salvar); o quarto, a detecção sem edição no
+  meio, aplica nos dois. O teste do Ctrl+S (`test_trabalho_fora_da_interface.py`) segue
+  verde. Suíte do worktree: 3840 passed, 26 skipped.
 ### RG-13
 ### RG-14
 ### RG-15

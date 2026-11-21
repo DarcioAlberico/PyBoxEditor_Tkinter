@@ -40,6 +40,9 @@ class HistoryManager:
     def __init__(self, max_history: int = 50):
         self._history: List[dict] = []
         self._index: int = -1
+        #: Cresce a cada mudança do histórico (snapshot, undo, redo, reset): quem começa
+        #: uma tarefa guarda o número, e na volta sabe se a página mudou no meio (RG-12, R-15).
+        self.versao = 0
         self._max_history = max_history
 
     # ------------------------------------------------------------------
@@ -61,6 +64,7 @@ class HistoryManager:
         Salva o estado atual. Descarta o futuro, se havia (undo seguido de
         mutação).
         """
+        self.versao += 1
         if self._index < len(self._history) - 1:
             self._history = self._history[:self._index + 1]
 
@@ -79,6 +83,7 @@ class HistoryManager:
         if self._index <= 0:
             return None, None
 
+        self.versao += 1
         self._index -= 1
         estado = self._history[self._index]
         return self._restaurar(estado["boxes"]), estado["selected_index"]
@@ -88,6 +93,7 @@ class HistoryManager:
         if self._index >= len(self._history) - 1:
             return None, None
 
+        self.versao += 1
         self._index += 1
         estado = self._history[self._index]
         return self._restaurar(estado["boxes"]), estado["selected_index"]
@@ -100,5 +106,6 @@ class HistoryManager:
 
     def reset(self):
         """Limpa o histórico (ex.: ao abrir outra imagem)."""
+        self.versao += 1
         self._history = []
         self._index = -1

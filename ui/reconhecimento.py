@@ -368,6 +368,9 @@ class Reconhecimento:
             messagebox.showinfo("Aviso", "Carregue uma imagem primeiro.")
             return
         imagem = self.janela.image
+        # A página e a versão do histórico no começo (RG-12, R-15): a detecção troca os boxes
+        # da página inteira, e não pode passar por cima do que se editou enquanto ela rodava.
+        versao, pagina = self.janela.history.versao, self.janela.current_pdf_page
 
         def trabalho(h):
             h.log("Segmentando a página...")
@@ -379,6 +382,12 @@ class Reconhecimento:
             return boxes
 
         def aplicar(boxes):
+            if self.janela.history.versao != versao or self.janela.current_pdf_page != pagina:
+                messagebox.showinfo(
+                    "Gerar boxes",
+                    "A página mudou enquanto os boxes eram detectados: a detecção foi descartada, "
+                    "e a página ficou como você a deixou. Rode de novo para detectar sobre ela.")
+                return
             self.janela.boxes = boxes
             self.janela._commit_change()
             self.janela.update_canvas()
@@ -771,6 +780,9 @@ class Reconhecimento:
             return
 
         recortes = self.janela._recortes_dos_boxes()
+        # Os boxes do começo, os próprios objetos (RG-12, R-15): o resultado volta para
+        # cada um deles, e não para quem estiver na mesma posição da lista no fim.
+        alvos = list(self.janela.boxes)
         total = len(recortes)
 
         def trabalho(h):
@@ -789,7 +801,12 @@ class Reconhecimento:
         def aplicar(saida):
             resultados = saida["resultados"]
             fontes = {}
-            for b, (char, fonte, conf) in zip(self.janela.boxes, resultados):
+            # Só o box que ainda está na página recebe o caractere lido para ele: apagar um
+            # box no meio deslocava o caractere de todos os seguintes.
+            na_pagina = {id(b) for b in self.janela.boxes}
+            for b, (char, fonte, conf) in zip(alvos, resultados):
+                if id(b) not in na_pagina:
+                    continue
                 b.char = char
                 b.source = fonte if char else ""
                 b.confidence = conf
