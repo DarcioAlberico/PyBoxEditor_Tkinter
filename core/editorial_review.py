@@ -30,6 +30,7 @@ from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
 from core.editorial_model import (
+    AplicacaoDeRevisao,
     FAIXAS_DO_TEXTO,
     DECISION_STATUSES,
     EditorialDocument,
@@ -351,6 +352,10 @@ class ReviewJournal:
         #: identidade no nome (RG-07, R-10). Os eventos deles continuam valendo.
         self.anteriores = tuple(Path(p) for p in anteriores if self.path is None or Path(p) != self.path)
         self._events: list[ReviewEvent] = []
+        #: Até onde `read_cauda` já leu cada arquivo, em bytes, e os ids já entregues.
+        self._deslocamentos: dict[Path, int] = {}
+        self._entregues: set[str] = set()
+        self._entregues_em_memoria = 0
 
     def append(self, event: ReviewEvent) -> ReviewEvent:
         self.append_lote([event])
@@ -375,6 +380,30 @@ class ReviewJournal:
             stream.flush()
             os.fsync(stream.fileno())
 
+    def read_cauda(self) -> tuple[ReviewEvent, ...]:
+        """
+        Os eventos acrescentados desde a última `read_cauda` — a primeira lê tudo (RG-08,
+        R-13). É o que a ponte do editor relê a cada salvamento: reler o diário inteiro
+        fazia cada Ctrl+S custar o diário todo. Ler só a cauda, e não nada, é o que deixa o
+        salvamento ver o evento que o diálogo de revisão acrescentou com o editor aberto. A
+        linha ainda sem `\n` no fim fica para a próxima; o arquivo que encolheu (trocado
+        por outro) é relido do começo.
+        """
+        if self.path is None:
+            novos = self._events[self._entregues_em_memoria:]
+            self._entregues_em_memoria = len(self._events)
+            return tuple(novos)
+        eventos: list[ReviewEvent] = []
+        for caminho in self.anteriores + (self.path,):
+            desde = self._deslocamentos.get(caminho, 0)
+            lidos, ate = _ler_diario_desde(caminho, desde)
+            self._deslocamentos[caminho] = ate
+            for event in lidos:
+                if event.event_id not in self._entregues:
+                    self._entregues.add(event.event_id)
+                    eventos.append(event)
+        return tuple(eventos)
+
     def read(self) -> tuple[ReviewEvent, ...]:
         if self.path is None:
             return tuple(self._events)
@@ -391,7 +420,26 @@ class ReviewJournal:
 def _ler_diario(caminho: Path) -> list[ReviewEvent]:
     if not caminho.exists():
         return []
-    texto = caminho.read_bytes().decode("utf-8", errors="replace")
+    return _eventos_de(caminho, caminho.read_bytes(), 1)
+
+
+def _ler_diario_desde(caminho: Path, desde: int) -> tuple[list[ReviewEvent], int]:
+    """Os eventos das linhas completas a partir do byte `desde`, e até onde se leu."""
+    try:
+        tamanho = caminho.stat().st_size
+    except OSError:
+        return [], 0
+    if tamanho < desde:
+        desde = 0
+    with caminho.open("rb") as stream:
+        stream.seek(desde)
+        dados = stream.read()
+    fim = dados.rfind(b"\n") + 1
+    return _eventos_de(caminho, dados[:fim], None), desde + fim
+
+
+def _eventos_de(caminho: Path, dados: bytes, primeira: int | None) -> list[ReviewEvent]:
+    texto = dados.decode("utf-8", errors="replace")
     eventos = []
     for numero, linha in enumerate(texto.split("\n"), start=1):
         if not linha.strip():
@@ -399,7 +447,8 @@ def _ler_diario(caminho: Path) -> list[ReviewEvent]:
         try:
             eventos.append(ReviewEvent.from_dict(json.loads(linha)))
         except (ValueError, KeyError, TypeError) as erro:
-            log.warning("diário %s: a linha %d não se lê e foi pulada (%s)", caminho, numero, erro)
+            onde = f"a linha {numero}" if primeira else "uma linha da cauda"
+            log.warning("diário %s: %s não se lê e foi pulada (%s)", caminho, onde, erro)
     return eventos
 
 
@@ -603,13 +652,14 @@ class ReviewSession:
         que não existe, ou um evento que o documento recusa, levanta sem gravar nada —
         antes, o lote aplicava a metade e levantava, e o diário ficava com ela.
         """
-        documento = self.document
+        # Uma cópia do documento para o lote inteiro, validada uma vez (RG-08, R-13).
+        aplicacao = AplicacaoDeRevisao(self.document)
         eventos: list[ReviewEvent] = []
         for target_id, after, status, reason_codes, metadata in pedidos:
-            page_id, block = _bloco_em(documento, target_id)
+            page_id, block = aplicacao.bloco(target_id)
             metadata = dict(metadata or {})
             event = ReviewEvent(
-                event_id=uuid4().hex, document_id=documento.document_id,
+                event_id=uuid4().hex, document_id=self.document.document_id,
                 page_id=page_id, target_id=target_id,
                 before=copy.deepcopy(block.decision.value), after=copy.deepcopy(after),
                 status=status, reason_codes=tuple(reason_codes), user=self.user,
@@ -620,8 +670,9 @@ class ReviewSession:
                 before_metadata=_metadata_de_antes(block, metadata, after != block.decision.value),
                 before_reason_codes=tuple(block.decision.reason_codes),
             )
-            documento = documento.apply_review(event)
+            aplicacao.aplicar(event)
             eventos.append(event)
+        documento = aplicacao.concluir()
         self.journal.append_lote(eventos)
         self.document = documento
         return documento
@@ -773,7 +824,7 @@ class ReviewSession:
 
     @classmethod
     def from_journal(cls, document: EditorialDocument, journal: ReviewJournal, *,
-                     user: str = "editor", model_version: str = "") -> "ReviewSession":
+                     user: str = "editor", model_version: str = "", cauda: bool = False) -> "ReviewSession":
         """
         A sessão com o que o diário já decidiu (RG-07, R-10). Não levanta pelo que o
         diário traz: o evento de outro documento é pulado, e o conflito de valor se
@@ -783,12 +834,15 @@ class ReviewSession:
         alvo é pulado com WARNING, e os outros aplicam. Um evento que tem sucessor nunca
         se aplica sozinho: a leitura que volta ao texto antigo não ressuscita a correção
         velha por cima da nova (invariante 2). O que se pulou fica em `avisos`.
+
+        Com `cauda`, lê só o que o diário recebeu desde a última leitura por ele (RG-08,
+        R-13): `document` já traz o que veio antes.
         """
         session = cls(document, journal=journal, user=user, model_version=model_version)
         ja = {item.event_id for item in session.document.review_events}
         deste: list[ReviewEvent] = []
         de_outro = 0
-        for event in journal.read():
+        for event in (journal.read_cauda() if cauda else journal.read()):
             if event.document_id != document.document_id:
                 de_outro += 1
             elif event.event_id not in ja:
@@ -815,9 +869,12 @@ class ReviewSession:
                                 f"as correções do diário para ele ficaram de fora")
             else:
                 aplicar.update(event.event_id for event in cadeia)
-        for event in deste:
-            if event.event_id in aplicar:
-                session.document = session.document.apply_review(event)
+        # Todos de uma vez, sobre uma cópia (RG-08, R-13): era uma cópia e uma validação
+        # do documento inteiro por evento.
+        # Sem evento novo, nada se copia: é o caso de cada Ctrl+S que só lê a cauda.
+        novos = [e for e in deste if e.event_id in aplicar]
+        if novos:
+            session.document = session.document.apply_reviews(novos)
         return session
 
     def _avisar(self, aviso: str) -> None:

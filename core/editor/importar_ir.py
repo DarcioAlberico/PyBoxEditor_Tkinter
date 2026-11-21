@@ -564,6 +564,8 @@ class RelatorioDaPonte:
     novos: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
     documento: Any = None
+    #: O diário aberto, para o salvamento seguinte reler só a cauda (RG-08, R-13).
+    journal: Any = None
 
     @property
     def eventos(self) -> int:
@@ -581,8 +583,8 @@ class RelatorioDaPonte:
         return saida
 
 
-def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, user: str = "editor") \
-        -> RelatorioDaPonte:
+def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, user: str = "editor",
+                   journal: Any = None) -> RelatorioDaPonte:
     """
     Grava no diário os eventos das mudanças do livro (DEC-10, AC-008) e devolve o relatório,
     com o documento projetado (`sessao.document`) em `documento`. O diário passa pela regra
@@ -591,9 +593,17 @@ def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, u
     """
     from core.editorial_review import Pedido, ReviewSession, abrir_diario
 
-    journal, avisos_do_diario = abrir_diario(diario or "", documento)
-    relatorio = RelatorioDaPonte(diario=str(journal.path) if journal.path is not None else "")
-    sessao = ReviewSession.from_journal(documento, journal, user=user)
+    aberto, avisos_do_diario = abrir_diario(diario or "", documento)
+    # O diário do salvamento anterior, se é o mesmo arquivo: lê-se só a cauda dele, e o
+    # `documento` já traz o resto (RG-08, R-13) — reler e reaplicar o diário inteiro fazia
+    # cada Ctrl+S custar a sessão toda.
+    # A primeira `read_cauda` de um diário recém-aberto lê tudo, e marca até onde leu.
+    if journal is not None and journal.path == aberto.path and journal.path is not None:
+        avisos_do_diario = []
+    else:
+        journal = aberto
+    relatorio = RelatorioDaPonte(diario=str(journal.path) if journal.path is not None else "", journal=journal)
+    sessao = ReviewSession.from_journal(documento, journal, user=user, cauda=True)
     relatorio.avisos.extend(avisos_do_diario + sessao.avisos)
     principais, _fundidas, novos, avisos, _em_codigo = _blocos_com_origem(livro)
     relatorio.avisos.extend(avisos)

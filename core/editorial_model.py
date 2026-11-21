@@ -11,7 +11,7 @@ import copy
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 
 SCHEMA = "pyboxeditor.editorial-document/v1"
@@ -488,15 +488,53 @@ class EditorialDocument:
         return cls.from_dict(valor)
 
     def apply_review(self, event: ReviewEvent) -> "EditorialDocument":
-        if event.document_id != self.document_id:
+        return self.apply_reviews([event])
+
+    def apply_reviews(self, events: Iterable[ReviewEvent]) -> "EditorialDocument":
+        """
+        Os eventos aplicados, em ordem, sobre **uma** cópia, validada uma vez (RG-08,
+        R-13). Copiar e validar o documento a cada evento, e conferir o id repetido
+        varrendo todos os eventos, fazia reabrir 200 edições num documento de 300 páginas
+        custar 18 s. A cópia continua: o que sai é uma foto, e a exportação em segundo
+        plano depende disso. Um evento recusado levanta, e este documento fica como estava.
+        """
+        aplicacao = AplicacaoDeRevisao(self)
+        for event in events:
+            aplicacao.aplicar(event)
+        return aplicacao.concluir()
+
+
+class AplicacaoDeRevisao:
+    """
+    Eventos aplicados a uma cópia do documento, um a um, com os blocos e os ids indexados
+    (RG-08, R-13). `bloco` dá o estado corrente de um alvo — o que a sessão precisa para
+    montar o evento seguinte do mesmo lote —, e `concluir` valida e devolve a cópia.
+    """
+
+    def __init__(self, documento: "EditorialDocument"):
+        self.documento = copy.deepcopy(documento)
+        self._paginas = {page.page_id for page in self.documento.pages}
+        self._blocos = {(page.page_id, block.id): block
+                        for page in self.documento.pages for block in page.blocks}
+        self._por_alvo = {block.id: (page.page_id, block)
+                          for page in reversed(self.documento.pages) for block in page.blocks}
+        self._ids = {item.event_id for item in self.documento.review_events}
+
+    def bloco(self, target_id: str) -> tuple[str, EditorialBlock]:
+        """`(page_id, bloco)` do alvo, no estado corrente da cópia; `KeyError` se não existe."""
+        try:
+            return self._por_alvo[target_id]
+        except KeyError:
+            raise KeyError(f"alvo editorial inexistente: {target_id}") from None
+
+    def aplicar(self, event: ReviewEvent) -> None:
+        if event.document_id != self.documento.document_id:
             raise ValueError("evento pertence a outro documento")
-        if any(item.event_id == event.event_id for item in self.review_events):
+        if event.event_id in self._ids:
             raise ValueError(f"evento já aplicado: {event.event_id}")
-        atualizado = copy.deepcopy(self)
-        pagina = next((item for item in atualizado.pages if item.page_id == event.page_id), None)
-        if pagina is None:
+        if event.page_id not in self._paginas:
             raise ValueError(f"alvo do evento referencia página inexistente: {event.page_id}")
-        bloco = next((item for item in pagina.blocks if item.id == event.target_id), None)
+        bloco = self._blocos.get((event.page_id, event.target_id))
         if bloco is None:
             raise ValueError(f"alvo do evento inexistente: {event.target_id}")
         if bloco.decision.value != event.before:
@@ -512,9 +550,12 @@ class EditorialDocument:
             original_value=original,
         )
         _fundir_metadata(bloco, event)
-        atualizado.review_events.append(event)
-        atualizado.validate()
-        return atualizado
+        self._ids.add(event.event_id)
+        self.documento.review_events.append(event)
+
+    def concluir(self) -> "EditorialDocument":
+        self.documento.validate()
+        return self.documento
 
 
 def _motivos_da_decisao(codigos: tuple[str, ...]) -> tuple[str, ...]:

@@ -145,6 +145,9 @@ class Projeto:
                 self.relatorio.aviso(f"documento editorial ilegível, ponte desligada: {caminho} ({erro})")
             return False
         self.diario = self.livro.origem.diario or importar_ir.caminho_do_diario(self.documento_editorial, caminho)
+        # O documento veio do disco, sem os eventos: o salvamento seguinte relê o diário
+        # inteiro, e não só a cauda do que a ponte anterior já tinha lido (RG-08, R-13).
+        self.ponte = None
         return True
 
     @classmethod
@@ -187,7 +190,9 @@ class Projeto:
         for velho in {rascunho_antigo, self.caminho_do_rascunho()}:
             _apagar(velho)
         if self.documento_editorial is not None:
-            self.ponte = importar_ir.gravar_eventos(self.livro, self.documento_editorial, self.diario)
+            anterior = self.ponte.journal if self.ponte is not None else None
+            self.ponte = importar_ir.gravar_eventos(self.livro, self.documento_editorial, self.diario,
+                                                    journal=anterior)
             self.documento_editorial = self.ponte.documento
             relatorio.avisos.extend(self.ponte.linhas())
             relatorio.metadados["ponte"] = {"eventos": self.ponte.eventos, "editados": self.ponte.editados,

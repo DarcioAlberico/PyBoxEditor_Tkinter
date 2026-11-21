@@ -898,7 +898,8 @@ Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktree
 - Estado: fechada (2026-11-21), em cinco commits (`d48bb09`, `a1dbce8`, `0acb649`,
   `a0400c7`, `98140f6`), no worktree da Onda 3.
 ### RG-08
-Estado: em andamento (2026-11-21), no worktree da Onda 3, sobre a RG-07 (`98140f6`).
+Estado: fechada (2026-11-21), em dois commits (`b370e06` e o do R-13), no worktree da
+Onda 3, sobre a RG-07 (`98140f6`); a onda inteira vai ao `master` por `merge --ff-only`.
 - Commit 1 (abertura): a régua corrigida. O `medir_lote_de_revisao.py` da RG-07 media 200
   edições interativas, e cada edição é uma foto nova do documento por natureza — não é
   o que o R-13 conserta. Agora ele mede, com os mesmos 200 eventos: `interativo` (a
@@ -907,6 +908,32 @@ Estado: em andamento (2026-11-21), no worktree da Onda 3, sobre a RG-07 (`98140f
   o documento **reaberto**. Antes, nesta máquina: interativo 18,14 s, **reabrir 18,41 s,
   lote 19,30 s**; uma segunda rodada, 17,90/18,50/20,33 s, com o `documento_final.json`
   igual byte a byte (`preview_ocr/ab/lote-RG-08-antes` e `-antes2`).
+- Commit 2 (R-13): `EditorialDocument.apply_reviews` e `AplicacaoDeRevisao` — uma cópia
+  por lote, os blocos e os ids indexados, uma validação no fim; `apply_review` é o lote de
+  um. A sessão monta os eventos do lote sobre o aplicador (`bloco` dá o estado corrente
+  do alvo), e `from_journal` aplica tudo de uma vez — e nada, sem cópia, quando não há
+  evento novo. `ReviewJournal.read_cauda` lê só o que o diário recebeu desde a última
+  leitura (a linha sem `\n` fica para a próxima; o arquivo que encolheu é relido do
+  começo); a ponte lê sempre por ela, devolve o diário em `RelatorioDaPonte.journal`, e
+  o `Projeto` o passa ao salvamento seguinte (e o esquece ao religar o documento).
+  `tests/test_lote_de_revisao_em_tempo_linear.py`: os seis falham contra a abertura (a
+  API nova não existe; a prova de comportamento é a medida). Medido nesta máquina: a
+  régua dá **reabrir 18,41 → 0,11 s e lote 19,30 → 0,11 s**, com o `documento_final.json`
+  igual byte a byte ao de antes (`preview_ocr/ab/lote-RG-08-depois`); o interativo segue
+  em 18,55 s, por natureza. O Ctrl+S do Dvoretsky inteiro convertido pela camada (816
+  páginas, 11.935 blocos; `scripts/pdf_para_editor.py --camada sempre`, 79 s), por
+  `scratchpad\medir_ctrl_s_dvoretsky.py` da sessão: o salvamento com 200 edições cai de
+  **295,2 s (ponte 266,5 s) para 34,0 s (ponte 1,4 s)**; o de uma edição com 200 a 202
+  anteriores fica igual — 30,9/31,2/31,0 s antes (ponte 1,6/1,3/1,3 s), 30,8/30,4/30,8 s
+  depois (ponte 1,5/1,2/1,3 s): ler a cauda poupa a releitura das linhas, que com 200 é
+  barata, e sobra a foto do documento, que a spec manda manter; os ~30 s do salvamento são
+  a gravação do EPUB, fora do R-13. Uma primeira versão copiava o documento mesmo sem
+  evento novo na cauda e deixava a ponte do salvamento de um evento em 2,9 s; corrigida
+  antes do commit. Suíte do worktree: 3798 passed, 26 skipped; `slow and not gui`: 11
+  passed, 7 skipped.
+- AbbyChessCraft contra o `core` do worktree, no fim da onda (passo 10): 2915 passed e as
+  mesmas 6 falhas da base.
+- Próximo passo da revisão: a Onda 4 (a fidelidade do editor).
 ### RG-09
 ### RG-10
 ### RG-11
