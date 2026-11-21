@@ -117,14 +117,23 @@ class Historico:
         return [c for c, p in self._pilhas.items() if p.desfazer or p.refazer]
 
 
+#: O id do ponto cujo `antes`/`depois` é o XHTML inteiro do capítulo em modo código
+#: (`Capitulo.texto_cru`), e não blocos (RG-11, R-29).
+XHTML_DO_CAPITULO = "#texto_cru"
+
+
 def aplicar(capitulo: Any, ponto: Ponto, sentido: str = "antes") -> list[str]:
     """
     Põe no capítulo os blocos de `ponto.antes` (desfazer) ou `ponto.depois` (refazer),
     pelo id: bloco que existe é trocado no lugar; bloco que não existe mais volta ao
     fim (ou na posição do vizinho anterior, quando ela é conhecida); bloco que só
     existe do outro lado é removido. Devolve os ids tocados. Vale para notas também.
+    O ponto do capítulo em modo código troca o `texto_cru` inteiro.
     """
     alvo = ponto.antes if sentido == "antes" else ponto.depois
+    if ponto.ids == (XHTML_DO_CAPITULO,):
+        capitulo.texto_cru = alvo[0]
+        return [XHTML_DO_CAPITULO]
     outro = ponto.depois if sentido == "antes" else ponto.antes
     por_id = {getattr(b, "id"): b for b in alvo}
     ids_do_outro = {getattr(b, "id") for b in outro}

@@ -97,7 +97,7 @@ def test_epub_com_entrada_grande_demais_e_recusado_sem_ler(tmp_path, tetos_peque
 
 def test_opf_com_entidade_do_html_abre(tmp_path):
     livro, _relatorio = epub.ler(_epub(tmp_path / "nbsp.epub", titulo="Xadrez&nbsp;Básico &mdash; 1"))
-    assert livro.metadados.titulo == "Xadrez Básico — 1"
+    assert livro.metadados.titulo == "Xadrez\u00a0Básico — 1"
 
 
 def test_os_tetos_de_verdade_cabem_um_livro_e_recusam_a_bomba():

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import copy
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Sequence
 
@@ -46,7 +47,95 @@ ROTULOS_DOS_ESCOPOS = {"selecao": "Seleção", "capitulo": "Capítulo atual", "l
                        "marcados": "Arquivos marcados", "abas": "Abas abertas", "marcado": "Texto marcado"}
 NBSP = "\u00a0"
 LIMITE_DO_HISTORICO = 20
-_RE_QUANTIFICADOR = re.compile(r"(\*|\+|\?|\{\d*,?\d*\})(?![?+])")
+_RE_REPETICAO = re.compile(r"\{\d+(?:,\d*)?\}|\{,\d+\}")
+
+
+def _quantificadores_minimos(padrao: str) -> str:
+    """
+    O regex com cada quantificador guloso trocado pelo mínimo (`*` → `*?`), lendo a sintaxe
+    do `re` e não por regex sobre regex (RG-11, R-29): o escape (`\\*` é literal), a classe
+    (`[*+?]` não tem quantificador) e o cabeçalho de grupo (o `?` de `(?:` não é
+    quantificador) ficam como estão. Antes, `a\\*b` virava `a\\*?b` e `(?:x)` virava
+    `(??:x)`, que nem compila.
+    """
+    saida: list[str] = []
+    i, n = 0, len(padrao)
+    em_classe = False
+    while i < n:
+        c = padrao[i]
+        if c == "\\":
+            saida.append(padrao[i:i + 2])
+            i += 2
+            continue
+        if em_classe:
+            saida.append(c)
+            em_classe = c != "]"
+            i += 1
+            continue
+        if c == "[":
+            saida.append(c)
+            i += 1
+            if i < n and padrao[i] == "^":
+                saida.append("^")
+                i += 1
+            if i < n and padrao[i] == "]":         # o `]` logo depois do `[` é literal
+                saida.append("]")
+                i += 1
+            em_classe = True
+            continue
+        if c == "(" and padrao[i + 1:i + 2] == "?":
+            saida.append("(?")
+            i += 2
+            continue
+        repeticao = _RE_REPETICAO.match(padrao, i) if c == "{" else None
+        if c in "*+?" or repeticao:
+            quantificador = repeticao.group(0) if repeticao else c
+            saida.append(quantificador)
+            i += len(quantificador)
+            if i < n and padrao[i] in "?+":         # já mínimo, ou possessivo
+                saida.append(padrao[i])
+                i += 1
+            else:
+                saida.append("?")
+            continue
+        saida.append(c)
+        i += 1
+    return "".join(saida)
+
+
+def _nfc_com_mapa(texto: str) -> tuple[str, list[int] | None]:
+    """
+    O texto em NFC e, para cada posição dele, a posição no texto original (mais a do fim),
+    ou `None` se ele já está em NFC (RG-11, R-29): sem o mapa, a troca de uma busca feita em
+    NFC cairia no lugar errado do texto em NFD.
+    """
+    if unicodedata.is_normalized("NFC", texto):
+        return texto, None
+    partes: list[str] = []
+    mapa: list[int] = []
+    i, n = 0, len(texto)
+    while i < n:
+        j = i + 1
+        while j < n and unicodedata.combining(texto[j]):
+            j += 1
+        pedaco = unicodedata.normalize("NFC", texto[i:j])
+        partes.append(pedaco)
+        mapa.extend([i] * len(pedaco))
+        i = j
+    mapa.append(n)
+    return "".join(partes), mapa
+
+
+def _casamentos(padrao: re.Pattern, texto: str):
+    """`(ini, fim, casamento)` no texto original, buscando na forma NFC dele."""
+    normal, mapa = _nfc_com_mapa(texto)
+    for m in padrao.finditer(normal):
+        if m.end() == m.start():
+            continue              # um casamento vazio não é ocorrência
+        if mapa is None:
+            yield m.start(), m.end(), m
+        else:
+            yield mapa[m.start()], mapa[m.end()], m
 
 
 # ----------------------------------------------------------------------
@@ -107,9 +196,11 @@ def compilar(opcoes: Opcoes) -> re.Pattern:
     """O `re.Pattern` das opções; um regex inválido é `ValueError` com a mensagem do `re`."""
     if not opcoes.texto:
         raise ValueError("digite o que procurar")
-    padrao = opcoes.texto if opcoes.regex else re.escape(opcoes.texto)
+    # O padrão em NFC, como o texto em que se busca (RG-11, R-29).
+    texto = unicodedata.normalize("NFC", opcoes.texto)
+    padrao = texto if opcoes.regex else re.escape(texto)
     if opcoes.regex and opcoes.minimo:
-        padrao = _RE_QUANTIFICADOR.sub(lambda m: m.group(1) + "?", padrao)
+        padrao = _quantificadores_minimos(padrao)
     if opcoes.espaco_casa_nbsp:
         padrao = _com_nbsp(padrao, opcoes.regex)
     if opcoes.palavra_inteira:
@@ -269,11 +360,9 @@ def _contexto(texto: str, ini: int, fim: int, folga: int = 30) -> str:
 def procurar_em_alvos(alvos: Sequence[Alvo], padrao: re.Pattern) -> list[Ocorrencia]:
     saida: list[Ocorrencia] = []
     for alvo in alvos:
-        for m in padrao.finditer(alvo.texto):
-            if m.end() == m.start():
-                continue              # um casamento vazio não é ocorrência
-            saida.append(Ocorrencia(alvo.arquivo, m.start(), m.end(), m.group(0), alvo, m,
-                                    contexto=_contexto(alvo.texto, m.start(), m.end())))
+        for ini, fim, m in _casamentos(padrao, alvo.texto):
+            saida.append(Ocorrencia(alvo.arquivo, ini, fim, alvo.texto[ini:fim], alvo, m,
+                                    contexto=_contexto(alvo.texto, ini, fim)))
     return saida
 
 
@@ -286,13 +375,11 @@ def procurar_no_cru(texto: str, padrao: re.Pattern, arquivo: str = "") -> list[O
             inicios.append(k + 1)
     import bisect
 
-    for m in padrao.finditer(texto):
-        if m.end() == m.start():
-            continue
-        linha = bisect.bisect_right(inicios, m.start())
-        coluna = m.start() - inicios[linha - 1] + 1
-        saida.append(Ocorrencia(arquivo, m.start(), m.end(), m.group(0), None, m, linha, coluna,
-                                _contexto(texto, m.start(), m.end())))
+    for ini, fim, m in _casamentos(padrao, texto):
+        linha = bisect.bisect_right(inicios, ini)
+        coluna = ini - inicios[linha - 1] + 1
+        saida.append(Ocorrencia(arquivo, ini, fim, texto[ini:fim], None, m, linha, coluna,
+                                _contexto(texto, ini, fim)))
     return saida
 
 
@@ -483,7 +570,10 @@ def substituir_tudo_no_capitulo(cap: Capitulo, padrao: re.Pattern, substituto: s
     if cap.texto_cru is not None:
         novo, n = substituir_tudo_no_cru(cap.texto_cru, padrao, substituto, opcoes, filtro)
         if n and historico is not None:
-            historico.ponto(cap.arquivo, [], [], [], rotulo="substituir (código)")
+            # O XHTML do capítulo antes e depois (RG-11, R-29): o ponto saía vazio, e
+            # desfazer a troca não devolvia nada.
+            from core.editor.historico import XHTML_DO_CAPITULO
+            historico.ponto(cap.arquivo, [XHTML_DO_CAPITULO], [cap.texto_cru], [novo], rotulo="substituir (código)")
         cap.texto_cru = novo
         return n
     antes: dict[str, Any] = {}

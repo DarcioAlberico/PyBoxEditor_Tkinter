@@ -658,7 +658,37 @@ class JanelaDoEditor(tk.Toplevel):
         comando = editor.comandos.get(nome)
         if comando is None:
             raise ValueError(f"{nome} não existe no modo {self.modo_atual()}.")
-        return comando()
+        resultado = comando()
+        if nome in ("desfazer", "refazer") and resultado is False and aba is not None and aba.modo == "codigo":
+            return self._desfazer_xhtml_pelo_historico(aba, nome)
+        return resultado
+
+    def _desfazer_xhtml_pelo_historico(self, aba: Aba, nome: str) -> bool:
+        """
+        A aba em modo código desfaz pela pilha do widget; o "Substituir tudo" do livro, que
+        trocou o XHTML do capítulo sem a aba, deixa o ponto no histórico do projeto, com o
+        XHTML de antes e de depois (RG-11, R-29). Esgotada a pilha do widget, é esse ponto.
+        """
+        from core.editor import historico as historico_mod
+
+        projeto = self.projeto
+        if projeto is None:
+            return False
+        pilha = projeto.historico.desfazer if nome == "desfazer" else projeto.historico.refazer
+        ponto = pilha(aba.arquivo)
+        if ponto is None:
+            return False
+        if ponto.ids != (historico_mod.XHTML_DO_CAPITULO,):
+            # Não é deste modo: volta à pilha de onde saiu.
+            (projeto.historico.refazer if nome == "desfazer" else projeto.historico.desfazer)(aba.arquivo)
+            return False
+        cap = projeto.livro.capitulo(aba.arquivo)
+        if cap is None:
+            return False
+        historico_mod.aplicar(cap, ponto, "antes" if nome == "desfazer" else "depois")
+        aba.widget.carregar(cap.texto_cru or "")
+        projeto.marcar_sujo()
+        return True
 
     def _texto_ativo(self) -> TextoRico:
         """O `TextoRico` que recebe formatação e texto: a célula de tabela com o foco, ou o capítulo."""

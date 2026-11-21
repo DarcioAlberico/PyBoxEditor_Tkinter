@@ -1006,23 +1006,35 @@ def mudar_caixa(paragrafo: Paragrafo, ini: int, fim: int, modo: str) -> Paragraf
     if modo not in ("maiusculas", "minusculas", "primeira", "alternar"):
         raise ValueError(f"modo de caixa inválido: {modo!r}")
     trechos = _partir(_partir(paragrafo.trechos, ini), fim)
+    # O começo de palavra se decide no parágrafo inteiro, e não no trecho (RG-11, R-29):
+    # `nimzo` + **w** + `itsch` virava `NimzoWItsch`.
+    corrido = "".join(("\n" if t.quebra_antes else "") + t.texto for t in trechos)
     novos: list[Trecho] = []
+    andado = 0
     for trecho, dentro in _no_intervalo(trechos, ini, fim):
+        inicio = andado + (1 if trecho.quebra_antes else 0)
+        andado = inicio + len(trecho.texto)
         if dentro and not trecho.ilha:
             trecho = copy.copy(trecho)
-            trecho.texto = _com_a_caixa(trecho.texto, modo)
+            trecho.texto = _com_a_caixa(trecho.texto, modo, corrido[inicio - 1] if inicio > 0 else " ")
         novos.append(trecho)
     paragrafo.trechos = trechos_normalizados(novos)
     return paragrafo
 
 
-def _com_a_caixa(texto: str, modo: str) -> str:
+def _com_a_caixa(texto: str, modo: str, antes: str = " ") -> str:
+    """`antes` é o caractere que precede o texto no parágrafo: com ele, `primeira` sabe se o
+    começo do trecho é começo de palavra."""
     if modo == "maiusculas":
         return texto.upper()
     if modo == "minusculas":
         return texto.lower()
     if modo == "primeira":
-        return re.sub(r"(^|(?<=\s))(\S)", lambda m: m.group(1) + m.group(2).upper(), texto.lower())
+        saida = []
+        for c in texto.lower():
+            saida.append(c.upper() if antes.isspace() and not c.isspace() else c)
+            antes = c
+        return "".join(saida)
     return "".join(c.lower() if c.isupper() else c.upper() for c in texto)
 
 

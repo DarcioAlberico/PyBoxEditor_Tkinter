@@ -1062,6 +1062,26 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-10.
   trecho do R-28), porque a primeira rodada foi invalidada: editei o worktree para o R-29
   com ela em curso, e ela foi parada sem resultado. Suíte da exportação: 3819 passed, 26
   skipped.
+- Commit 2 (R-29), os cinco itens:
+  - o quantificador mínimo por um leitor da sintaxe do `re` (`_quantificadores_minimos`:
+    escape, classe e cabeçalho de grupo ficam; `{m,n}` conta; o que já é mínimo ou
+    possessivo não dobra), e não mais por regex sobre o regex;
+  - a busca em NFC: o padrão e o texto em NFC, com o mapa de deslocamentos de volta ao
+    texto original (`_nfc_com_mapa`), na busca dos blocos e na do código;
+  - "Substituir tudo" num capítulo em modo código grava o XHTML de antes e de depois
+    (`historico.XHTML_DO_CAPITULO`; `historico.aplicar` troca o `texto_cru`), e a aba em
+    modo código, quando a pilha do widget se esgota, desfaz e refaz por esse ponto;
+  - a caixa por palavra decide o começo de palavra no parágrafo inteiro, atravessando os
+    trechos;
+  - a aspa depois de qualquer espaço, o inseparável também, abre.
+  De passagem, três testes meus (este, `test_diario_leitura_tolerante.py` da RG-07 e
+  `test_teto_de_pacote.py` da RG-04) tinham U+00A0, U+2028 ou U+0301 literais, invisíveis
+  na leitura; viraram escapes. `tests/test_busca_e_substituicao_rg11.py`: contra o código
+  de antes, oito dos dez do `core` falham (o `(?:` e o `(?P<` que não compilavam; o `\*`
+  que virava opcional; o `.+` que não ficava mínimo; o `café` em NFD; o ponto vazio; o
+  `NimzoWItsch`; a aspa); os dois que passavam (a classe `[*+?]` e o `{2,3}`) guardam o
+  que já estava certo; o da janela confere o Ctrl+Z. Suíte da exportação deste commit:
+  3830 passed, 26 skipped.
 ### RG-12
 ### RG-13
 ### RG-14

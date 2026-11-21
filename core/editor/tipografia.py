@@ -88,13 +88,14 @@ def _aspas(texto: str, idioma: str) -> list[Troca]:
         i = m.start()
         anterior = texto[i - 1] if i > 0 else " "
         seguinte = texto[i + 1] if i + 1 < len(texto) else " "
+        # Depois de qualquer espaço — o inseparável também — a aspa abre (RG-11, R-29).
         if m.group(0) == '"':
-            abre = anterior in _ABRE_ANTES
+            abre = anterior in _ABRE_ANTES or anterior.isspace()
             saida.append(Troca(i, i + 1, '"', abre_d if abre else fecha_d, "aspas"))
             continue
         if anterior.isalpha() and seguinte.isalpha():
             saida.append(Troca(i, i + 1, "'", "’", "aspas"))           # o apóstrofo: Black's
-        elif anterior in _ABRE_ANTES and not seguinte.isspace():
+        elif (anterior in _ABRE_ANTES or anterior.isspace()) and not seguinte.isspace():
             saida.append(Troca(i, i + 1, "'", abre_s, "aspas"))
         else:
             saida.append(Troca(i, i + 1, "'", fecha_s, "aspas"))

@@ -1,7 +1,7 @@
 """O diário de revisão se lê mesmo com o que a escrita deixou pela metade (RG-07, R-09).
 
 - `read` usava `splitlines()`, que quebra também em U+2028: editar um bloco para
-  `Hello world` tornava o diário ilegível para sempre.
+  `Hello\u2028world` tornava o diário ilegível para sempre.
 - Uma linha truncada no fim (queda no meio da escrita) levantava `JSONDecodeError`, e a
   janela abria uma sessão vazia, sem log, que continuava gravando no arquivo corrompido —
   o evento seguinte saía colado na linha quebrada.
@@ -26,12 +26,12 @@ def _documento():
 def test_o_separador_de_linha_unicode_nao_quebra_o_diario(tmp_path):
     caminho = tmp_path / "saida.review.jsonl"
     sessao = ReviewSession(_documento(), journal=ReviewJournal(caminho))
-    sessao.edit("b0", "Hello world")
+    sessao.edit("b0", "Hello\u2028world")
     sessao.edit("b1", "outro")
     eventos = ReviewJournal(caminho).read()
-    assert [e.after for e in eventos] == ["Hello world", "outro"]
+    assert [e.after for e in eventos] == ["Hello\u2028world", "outro"]
     reaberta = ReviewSession.from_journal(_documento(), ReviewJournal(caminho))
-    assert reaberta.document.pages[0].blocks[0].decision.value == "Hello world"
+    assert reaberta.document.pages[0].blocks[0].decision.value == "Hello\u2028world"
 
 
 def test_a_linha_truncada_e_pulada_e_o_evento_seguinte_e_lido(tmp_path, caplog):
