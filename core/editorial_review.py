@@ -345,8 +345,11 @@ class ReviewJournal:
     fim apagaria o evento do outro. Cada gravação termina em `fsync`.
     """
 
-    def __init__(self, path: str | Path | None = None):
+    def __init__(self, path: str | Path | None = None, *, anteriores: Iterable[str | Path] = ()):
         self.path = Path(path) if path is not None else None
+        #: Diários lidos **antes** de `path` e nunca escritos: o de nome sem sha, anterior à
+        #: identidade no nome (RG-07, R-10). Os eventos deles continuam valendo.
+        self.anteriores = tuple(Path(p) for p in anteriores if self.path is None or Path(p) != self.path)
         self._events: list[ReviewEvent] = []
 
     def append(self, event: ReviewEvent) -> ReviewEvent:
@@ -368,18 +371,99 @@ class ReviewJournal:
     def read(self) -> tuple[ReviewEvent, ...]:
         if self.path is None:
             return tuple(self._events)
-        if not self.path.exists():
-            return ()
-        texto = self.path.read_bytes().decode("utf-8", errors="replace")
-        eventos = []
-        for numero, linha in enumerate(texto.split("\n"), start=1):
-            if not linha.strip():
-                continue
-            try:
-                eventos.append(ReviewEvent.from_dict(json.loads(linha)))
-            except (ValueError, KeyError, TypeError) as erro:
-                log.warning("diário %s: a linha %d não se lê e foi pulada (%s)", self.path, numero, erro)
+        eventos: list[ReviewEvent] = []
+        vistos: set[str] = set()
+        for caminho in self.anteriores + (self.path,):
+            for event in _ler_diario(caminho):
+                if event.event_id not in vistos:
+                    vistos.add(event.event_id)
+                    eventos.append(event)
         return tuple(eventos)
+
+
+def _ler_diario(caminho: Path) -> list[ReviewEvent]:
+    if not caminho.exists():
+        return []
+    texto = caminho.read_bytes().decode("utf-8", errors="replace")
+    eventos = []
+    for numero, linha in enumerate(texto.split("\n"), start=1):
+        if not linha.strip():
+            continue
+        try:
+            eventos.append(ReviewEvent.from_dict(json.loads(linha)))
+        except (ValueError, KeyError, TypeError) as erro:
+            log.warning("diário %s: a linha %d não se lê e foi pulada (%s)", caminho, numero, erro)
+    return eventos
+
+
+#: O sufixo do diário de revisão; o nome com identidade é `<saida>.<sha12>.review.jsonl`.
+SUFIXO_DO_DIARIO = ".review.jsonl"
+_SHA_NO_NOME = re.compile(r"\.([0-9a-f]{12})$")
+
+
+@dataclass(frozen=True)
+class CaminhosDoDiario:
+    """Onde a sessão de um documento grava o diário e o que ela lê, na ordem."""
+
+    escrita: str
+    leitura: tuple[str, ...]
+    aviso: str = ""
+
+
+def caminhos_do_diario(caminho: str, sha256: str) -> CaminhosDoDiario:
+    """
+    A regra do nome do diário (RG-07, R-10): **a identidade vai no nome**,
+    `<saida>.<sha12>.review.jsonl`, com os doze primeiros dígitos do `source_sha256`.
+
+    `caminho` é o guardado (`review_journal_path` no JSON, `origem.diario` no EPUB) ou o
+    derivado da saída, e passa pela regra — não por cima dela. O diário de nome sem sha
+    é lido antes do com sha e nunca escrito: regravá-lo carimbaria o sha atual num
+    diário que pode ser de outro livro de mesmo nome, e uma linha de cabeçalho quebraria
+    quem conta as linhas. O de sha **diferente** é de outro documento: não é lido nem
+    escrito, e o aviso diz para onde as revisões deste vão. Documento sem `source_sha256`
+    não tem identidade, e o nome fica como era.
+    """
+    if not caminho:
+        return CaminhosDoDiario("", ())
+    texto = os.fspath(caminho)
+    base = texto[:-len(SUFIXO_DO_DIARIO)] if texto.endswith(SUFIXO_DO_DIARIO) else os.path.splitext(texto)[0]
+    achado = _SHA_NO_NOME.search(base)
+    do_nome = ""
+    if achado:
+        base, do_nome = base[:achado.start()], achado.group(1)
+    sha12 = (sha256 or "")[:12].lower()
+    if not sha12:
+        return CaminhosDoDiario(texto, (texto,))
+    legado = base + SUFIXO_DO_DIARIO
+    escrita = f"{base}.{sha12}{SUFIXO_DO_DIARIO}"
+    outros = [p for p in _diarios_com_sha(base) if p != escrita]
+    aviso = ""
+    if (do_nome and do_nome != sha12) or outros:
+        de_outro = texto if do_nome and do_nome != sha12 else outros[0]
+        aviso = (f"o diário {de_outro} é de outro documento (outra origem): fica como está, "
+                 f"e as revisões deste vão para {escrita}")
+    return CaminhosDoDiario(escrita, (legado, escrita), aviso)
+
+
+def _diarios_com_sha(base: str) -> list[str]:
+    pasta, nome = os.path.split(base)
+    try:
+        nomes = os.listdir(pasta or ".")
+    except OSError:
+        return []
+    padrao = re.compile(re.escape(nome) + r"\.[0-9a-f]{12}" + re.escape(SUFIXO_DO_DIARIO) + "$")
+    return sorted(os.path.join(pasta, n) for n in nomes if padrao.match(n))
+
+
+def abrir_diario(caminho: str, documento: EditorialDocument) -> tuple[ReviewJournal, list[str]]:
+    """O diário do `documento` pela regra do nome, e os avisos dela (RG-07, R-10)."""
+    caminhos = caminhos_do_diario(caminho, documento.source_sha256)
+    if not caminhos.escrita:
+        return ReviewJournal(), []
+    avisos = [caminhos.aviso] if caminhos.aviso else []
+    for aviso in avisos:
+        log.warning("%s", aviso)
+    return ReviewJournal(caminhos.escrita, anteriores=caminhos.leitura), avisos
 
 
 def _termina_em_quebra(caminho: Path) -> bool:
@@ -454,6 +538,8 @@ class ReviewSession:
         self.journal = journal or ReviewJournal()
         self.user = user
         self.model_version = model_version or document.model_manifest
+        #: O que `from_journal` deixou de aplicar, em frases (RG-07, R-10).
+        self.avisos: list[str] = []
 
     @property
     def queue(self) -> ReviewQueue:
@@ -613,8 +699,52 @@ class ReviewSession:
     @classmethod
     def from_journal(cls, document: EditorialDocument, journal: ReviewJournal, *,
                      user: str = "editor", model_version: str = "") -> "ReviewSession":
+        """
+        A sessão com o que o diário já decidiu (RG-07, R-10). Não levanta pelo que o
+        diário traz: o evento de outro documento é pulado, e o conflito de valor se
+        resolve **por alvo**, pela cadeia que termina no último evento gravado — os
+        eventos seguidos em que o valor anterior de cada um é o posterior do outro. Se o
+        valor anterior do primeiro da cadeia confere com o bloco, ela aplica; se não, o
+        alvo é pulado com WARNING, e os outros aplicam. Um evento que tem sucessor nunca
+        se aplica sozinho: a leitura que volta ao texto antigo não ressuscita a correção
+        velha por cima da nova (invariante 2). O que se pulou fica em `avisos`.
+        """
         session = cls(document, journal=journal, user=user, model_version=model_version)
+        ja = {item.event_id for item in session.document.review_events}
+        deste: list[ReviewEvent] = []
+        de_outro = 0
         for event in journal.read():
-            if not any(item.event_id == event.event_id for item in session.document.review_events):
+            if event.document_id != document.document_id:
+                de_outro += 1
+            elif event.event_id not in ja:
+                ja.add(event.event_id)
+                deste.append(event)
+        if de_outro:
+            session._avisar(f"{de_outro} evento(s) do diário são de outro documento e ficaram de fora")
+        por_alvo: dict[tuple[str, str], list[ReviewEvent]] = {}
+        for event in deste:
+            por_alvo.setdefault((event.page_id, event.target_id), []).append(event)
+        valores = {(page.page_id, block.id): block.decision.value
+                   for page in session.document.pages for block in page.blocks}
+        aplicar: set[str] = set()
+        for (page_id, alvo), eventos in por_alvo.items():
+            inicio = len(eventos) - 1
+            while inicio > 0 and eventos[inicio - 1].after == eventos[inicio].before:
+                inicio -= 1
+            cadeia = eventos[inicio:]
+            if (page_id, alvo) not in valores:
+                session._avisar(f"o alvo {alvo} do diário não existe neste documento; "
+                                f"{len(eventos)} evento(s) ficaram de fora")
+            elif valores[(page_id, alvo)] != cadeia[0].before:
+                session._avisar(f"o bloco {alvo} foi lido de outro jeito desde a revisão: "
+                                f"as correções do diário para ele ficaram de fora")
+            else:
+                aplicar.update(event.event_id for event in cadeia)
+        for event in deste:
+            if event.event_id in aplicar:
                 session.document = session.document.apply_review(event)
         return session
+
+    def _avisar(self, aviso: str) -> None:
+        log.warning("%s", aviso)
+        self.avisos.append(aviso)

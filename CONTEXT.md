@@ -117,3 +117,6 @@ de implementação pertencem às specs e aos ADRs.
     RG-03).
 18. Nenhum caminho vindo de pacote ou de HTML importado sai da raiz dele: a raiz do
     pacote, ou a pasta que o usuário escolheu (revisão geral 2, RG-04).
+19. O diário de revisão é de um documento só: a identidade vai no nome
+    (`<saida>.<sha12>.review.jsonl`), o diário de outro documento nunca recebe escrita, e
+    uma correção que tem sucessora nunca se aplica sozinha (revisão geral 2, RG-07).

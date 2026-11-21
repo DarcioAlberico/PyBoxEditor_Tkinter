@@ -338,14 +338,18 @@ def ler(caminho: str, *, dividir: str = "titulo") -> tuple[Livro, RelatorioDeCon
 
 
 def caminho_do_diario(documento: EditorialDocument, caminho: str = "") -> str:
-    """O diário do pipeline (`review_journal_path`), ou o `<arquivo>.review.jsonl` ao lado do JSON/EPUB (DEC-10)."""
+    """
+    Onde a ponte grava: o diário do pipeline (`review_journal_path`), ou o do arquivo ao
+    lado do JSON/EPUB (DEC-10) — pela regra do nome com identidade,
+    `<saida>.<sha12>.review.jsonl` (RG-07, R-10; `editorial_review.caminhos_do_diario`).
+    """
+    from core.editorial_review import caminhos_do_diario
+
     diario = str(documento.metadata.get("review_journal_path") or "")
-    if diario:
-        return diario
-    if caminho:
+    if not diario and caminho:
         base, _ext = os.path.splitext(os.fspath(caminho))
-        return base + SUFIXO_DO_DIARIO
-    return ""
+        diario = base + SUFIXO_DO_DIARIO
+    return caminhos_do_diario(diario, documento.source_sha256).escrita
 
 
 # ----------------------------------------------------------------------
@@ -523,18 +527,16 @@ def gravar_eventos(livro: Livro, documento: EditorialDocument, diario: str, *, u
         -> RelatorioDaPonte:
     """
     Grava no diário os eventos das mudanças do livro (DEC-10, AC-008) e devolve o relatório,
-    com o documento projetado (`sessao.document`) em `documento`. O diário de **outro**
-    documento no mesmo caminho é ignorado (não se aplica, não se apaga), com aviso.
+    com o documento projetado (`sessao.document`) em `documento`. O diário passa pela regra
+    do nome com identidade (RG-07, R-10): o de **outro** documento não se aplica nem se
+    escreve, e o conflito de valor pula só o alvo dele — os dois com aviso.
     """
-    from core.editorial_review import ReviewJournal, ReviewSession
+    from core.editorial_review import ReviewSession, abrir_diario
 
-    relatorio = RelatorioDaPonte(diario=diario or "")
-    journal = ReviewJournal(diario) if diario else ReviewJournal()
-    try:
-        sessao = ReviewSession.from_journal(documento, journal, user=user)
-    except (ValueError, KeyError) as erro:
-        sessao = ReviewSession(documento, journal=journal, user=user)
-        relatorio.avisos.append(f"o diário {diario} não é deste documento e foi ignorado ({erro})")
+    journal, avisos_do_diario = abrir_diario(diario or "", documento)
+    relatorio = RelatorioDaPonte(diario=str(journal.path) if journal.path is not None else "")
+    sessao = ReviewSession.from_journal(documento, journal, user=user)
+    relatorio.avisos.extend(avisos_do_diario + sessao.avisos)
     principais, _fundidas, novos, avisos = _blocos_com_origem(livro)
     relatorio.avisos.extend(avisos)
     relatorio.novos = [b.id for b in novos]

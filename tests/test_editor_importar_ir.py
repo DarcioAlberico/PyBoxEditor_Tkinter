@@ -387,7 +387,7 @@ def test_o_diagrama_e_a_tabela_viajam_inteiros_e_o_diario_alheio_e_ignorado(tmp_
     outro = documento_sintetico("outro")
     ReviewSession(outro, journal=ReviewJournal(diario)).accept("block-doc-p0001-b0001")   # outro document_id
     ponte = importar_ir.gravar_eventos(livro, doc, diario)
-    assert any("não é deste documento" in a for a in ponte.avisos) and ponte.eventos == 3
+    assert any("outro documento" in a for a in ponte.avisos) and ponte.eventos == 3
     assert len(ponte.documento.review_events) == 3
     # sem diário (caminho vazio): a sessão grava só na memória
     ponte2 = importar_ir.gravar_eventos(livro, doc, "")

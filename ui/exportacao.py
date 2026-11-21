@@ -194,8 +194,11 @@ class Exportacao:
 
         def concluir(resultado):
             arquivos, documento, extrator, pipeline = resultado
-            documento.metadata["review_journal_path"] = str(
-                Path(arquivos[0]).with_suffix(".review.jsonl"))
+            # O diário leva a identidade do documento no nome (RG-07, R-10): reexportar
+            # outro livro para o mesmo destino não reabre o diário do primeiro.
+            from core.editorial_review import caminhos_do_diario
+            documento.metadata["review_journal_path"] = caminhos_do_diario(
+                str(Path(arquivos[0]).with_suffix(".review.jsonl")), documento.source_sha256).escrita
             self.janela.documento_editorial = documento
             # O que a revisão precisa para **voltar** ao arquivo: o leitor
             # com as páginas lidas (o EPUB/DOCX sai delas), a fachada (os
@@ -289,15 +292,17 @@ class Exportacao:
             )
             return
         from core.editorial_legacy import ProvedorDePaginas, leitura_de_fen
-        from core.editorial_review import ReviewJournal, ReviewSession
+        from core.editorial_review import ReviewSession, abrir_diario
         from ui.dialogo_revisao_editorial import DialogoRevisaoEditorial
-        journal = ReviewJournal(documento.metadata.get("review_journal_path"))
-        try:
-            sessao = ReviewSession.from_journal(documento, journal)
-        except (ValueError, KeyError):
-            # O diário no mesmo caminho é de outra exportação (outro
-            # documento, outros blocos): não se aplica, e não se apaga.
-            sessao = ReviewSession(documento, journal=journal)
+        # O diário pela regra do nome (RG-07, R-10): o de outro documento não se aplica
+        # nem se escreve, e o conflito de valor pula só o alvo dele. Os três casos que o
+        # `except` de antes tratava igual — com uma sessão vazia, sem aviso — agora se
+        # separam, e o que ficou de fora é dito ao usuário.
+        journal, avisos = abrir_diario(str(documento.metadata.get("review_journal_path") or ""), documento)
+        sessao = ReviewSession.from_journal(documento, journal)
+        avisos += sessao.avisos
+        if avisos:
+            messagebox.showwarning("Revisão editorial", "\n\n".join(avisos[:8]))
         provedor = ProvedorDePaginas(documento)
 
         def abrir_diagrama(item, imagem):

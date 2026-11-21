@@ -27,11 +27,13 @@ from tests.test_fila_de_suspeitas import _pagina, _pdf
 class _App:
     def __enter__(self):
         from ui.main_window import MainWindow
-        self._info, self._erro, self._sim = (messagebox.showinfo, messagebox.showerror,
-                                             messagebox.askyesno)
+        self._info, self._erro, self._sim, self._aviso = (messagebox.showinfo, messagebox.showerror,
+                                                          messagebox.askyesno, messagebox.showwarning)
         self.avisos = []
         messagebox.showinfo = lambda t="", m="", *a, **k: self.avisos.append(m)
         messagebox.showerror = lambda t="", m="", *a, **k: self.avisos.append(m)
+        # O aviso do diário de outro documento (RG-07, R-10) é caixa modal de verdade.
+        messagebox.showwarning = lambda t="", m="", *a, **k: self.avisos.append(m)
         messagebox.askyesno = lambda *a, **k: True
         self.root = raiz_tk()
         if self.root is None:
@@ -43,8 +45,8 @@ class _App:
         return self
 
     def __exit__(self, *a):
-        messagebox.showinfo, messagebox.showerror, messagebox.askyesno = (
-            self._info, self._erro, self._sim)
+        messagebox.showinfo, messagebox.showerror, messagebox.askyesno, messagebox.showwarning = (
+            self._info, self._erro, self._sim, self._aviso)
         try:
             self.win.task.shutdown()
             self.root.destroy()
@@ -196,4 +198,5 @@ def test_o_diario_de_outro_documento_no_mesmo_caminho_nao_derruba_a_acao(tmp_pat
         app.win.revisar_documento_editorial_action()
         janela = _Janela.instancias[-1]
         assert janela.session.document.review_events == []
+        assert any("outro documento" in aviso for aviso in app.avisos), "o diário alheio não foi avisado"
 

@@ -847,6 +847,23 @@ Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktree
   `tests/test_diario_leitura_tolerante.py`: contra o código de antes, os três falham (o
   `JSONDecodeError` do U+2028 e o da linha truncada; nenhum `fsync`). Os sete testes que
   contam linhas do diário seguem verdes. Suíte do worktree: 3773 passed, 26 skipped.
+- Commit 3 (R-10): `editorial_review.caminhos_do_diario`/`abrir_diario` — a escrita vai
+  para `<saida>.<sha12>.review.jsonl`; o diário sem sha no nome é lido antes e nunca
+  escrito (`ReviewJournal(anteriores=…)`, sem evento repetido); o de sha diferente, no
+  caminho guardado ou ao lado, não é lido nem escrito, com aviso; sem `source_sha256` o
+  nome fica como era (o documento sintético dos testes, que por isso continuam contando
+  as linhas do mesmo arquivo). `from_journal` não levanta mais pelo diário: pula o evento
+  de outro `document_id` e resolve o conflito de valor por alvo, pela cadeia que termina
+  no último evento; o que ficou de fora vai para `ReviewSession.avisos` e WARNING. A
+  janela grava o `review_journal_path` pela regra e mostra os avisos ao abrir a revisão;
+  a ponte do editor (`caminho_do_diario`, `gravar_eventos`) usa a mesma regra para o
+  caminho guardado no JSON e no EPUB. Os dois `except (ValueError, KeyError)` saíram. A
+  I-19 entrou no `CONTEXT.md`. `tests/test_diario_com_identidade.py`: contra o código de
+  antes (com as funções novas imitando o nome único de antes), os oito falham. Dois
+  testes antigos mudaram: `test_editor_importar_ir.py` conferia a frase do aviso antigo
+  ("não é deste documento"), e o `_App` de `test_revisao_na_janela.py` não capturava
+  `showwarning` — o aviso novo abria a caixa de verdade e o teste esperava 137 s; agora
+  ele captura e o teste confere o aviso. Suíte do worktree: 3781 passed, 26 skipped.
 ### RG-08
 ### RG-09
 ### RG-10
