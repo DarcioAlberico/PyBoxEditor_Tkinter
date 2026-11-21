@@ -656,6 +656,15 @@ idênticos, só o tempo do `relatorio.json` varia.
 - Próximo passo da revisão: a RG-03 (a RG-01b e a RG-02b correm fora do caminho crítico).
 ### RG-02b
 ### RG-03
+Estado: em andamento. Base `b5f3dbd`, no worktree `.claude/worktrees/rg03` (destacado, com
+`custom_model.pth` e `text_line_model.*` copiados; `model_meta.json` igual ao do `HEAD`),
+porque a fase toca o `lexico`, cujo `_ler` o AbbyChessCraft usa sob contrato (passo 10).
+- Commit 1 (o módulo): `core/escrita_atomica.py` com três formas — `gravar_atomico`,
+  `escrita_atomica` (arquivo aberto) e `caminho_temporario` (para a biblioteca que grava
+  por nome: `torch.save`, `fitz`, `python-docx`, `Pillow`, `zipfile`) —, a terceira além
+  das duas da spec, porque metade dos 25 pontos grava assim. `tests/test_escrita_atomica.py`
+  falhou primeiro (módulo ausente); 15 passed, 1 skipped (o do modo do arquivo, que o
+  Windows não guarda, roda na CI). Suíte do worktree: 3672 passed, 26 skipped.
 ### RG-04
 ### RG-05
 ### RG-05b
