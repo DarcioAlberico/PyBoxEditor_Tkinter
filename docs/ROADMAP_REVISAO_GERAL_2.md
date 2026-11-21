@@ -1050,7 +1050,8 @@ Estado: fechada (2026-11-21), em seis commits (`54813f1`, `a4ff7f2`, `5699a54`, 
   (`scratchpad\conferir_pasta_html.py`): todos viram pasta sem erro, e o `id` de item de
   lista que há no corpus (o do *100 Endgames*) chega à pasta.
 ### RG-11
-Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-10.
+Estado: fechada (2026-11-21), em três commits (`72674a2`, `7817824` e o do R-30), no
+worktree da Onda 4, depois da RG-10; a onda inteira vai ao `master` por `merge --ff-only`.
 - Commit 1 (R-28): `modelo.deduplicar_ids` — os blocos e as notas na ordem do capítulo, e
   depois os ids dos `extras` (RG-10): o segundo `x` vira `x-2` (sem colidir com um `x-2`
   que já exista), com aviso; o leitor de XHTML a chama ao fim de cada capítulo. A leitura
@@ -1082,6 +1083,21 @@ Estado: em andamento (2026-11-21), no worktree da Onda 4, depois da RG-10.
   `NimzoWItsch`; a aspa); os dois que passavam (a classe `[*+?]` e o `{2,3}`) guardam o
   que já estava certo; o da janela confere o Ctrl+Z. Suíte da exportação deste commit:
   3830 passed, 26 skipped.
+- Commit 3 (R-30): `xadrez.Linha` — a posição ao longo da linha com a pilha das variantes,
+  que guarda a posição de antes da variante **e** a de antes do lance (para `1.e4 (1.d4)
+  (1.c4)` sair as duas do mesmo lugar) — passa a ser o percurso de `segmentos` (que jogava
+  os lances da variante no tabuleiro da linha e não dava profundidade ao `1.` que abre
+  partida), `posicao_apos` e `validar`. O `pgn_io` segue com a árvore de nós do
+  `chess.pgn`, que já tinha pilha, e ganha o que faltava: a variante aberta antes do
+  primeiro lance pende dele (o lance seguinte da linha é promovido a principal), e o
+  cabeçalho sai numa linha (`_uma_linha`). `tests/test_notacao_com_variantes.py`: contra o
+  código de antes, os quatro falham (a partida partida em dois pela variante; a segunda
+  variante seguida dada como ilegal; a variante virando a linha do PGN; o `[White
+  "Kasparov,` partido). Suíte do worktree: 3834 passed, 26 skipped; `slow and not gui`: 11
+  passed, 7 skipped.
+- AbbyChessCraft contra o `core` do worktree, no fim da onda (passo 10): 2915 passed e as
+  mesmas 6 falhas da base.
+- Próximo passo da revisão: a Onda 5 (tarefa sobre estado vivo).
 ### RG-12
 ### RG-13
 ### RG-14

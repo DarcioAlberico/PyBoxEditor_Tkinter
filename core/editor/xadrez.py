@@ -181,17 +181,17 @@ def segmentos(blocos: Sequence[Bloco]) -> list[Segmento]:
     """
     saida: list[Segmento] = []
     atual: Segmento | None = None
-    board = _novo_board("")
+    linha = Linha()
     houve_lance = False
 
     def abrir(i: int, fen: str = "", diagrama_id: str = "", aviso: str = "") -> None:
-        nonlocal atual, board, houve_lance
+        nonlocal atual, houve_lance
         if atual is not None:
             atual.fim = i
             if atual.fim > atual.inicio:
                 saida.append(atual)
         atual = Segmento(inicio=i, fim=i, fen_inicial=fen, diagrama_id=diagrama_id, aviso=aviso)
-        board = _novo_board(fen)
+        linha.reiniciar(fen)
         houve_lance = False
 
     for i, bloco in enumerate(blocos):
@@ -200,7 +200,7 @@ def segmentos(blocos: Sequence[Bloco]) -> list[Segmento]:
             continue
         if isinstance(bloco, Diagrama):
             posicao = _posicao_do_fen(bloco.fen)
-            if atual is None or posicao != board.board_fen():
+            if atual is None or posicao != linha.board.board_fen():
                 aviso = ""
                 if atual is not None and houve_lance:
                     rotulo = f"diagrama {bloco.numero}" if bloco.numero is not None else f"diagrama {bloco.id}"
@@ -212,16 +212,61 @@ def segmentos(blocos: Sequence[Bloco]) -> list[Segmento]:
         if atual is None:
             abrir(i)
         for token in tokens(_texto_de_notacao(bloco)):
-            if token.tipo == "numero" and token.numero == 1 and token.lado == "w" and houve_lance:
+            # O lance da variante não anda no tabuleiro da linha (RG-11, R-30): era ele que
+            # fazia o diagrama seguinte "não bater", e a partida se partir ao meio.
+            if token.tipo == "numero" and token.numero == 1 and token.lado == "w" and houve_lance \
+                    and linha.profundidade == 0:
                 abrir(i)
+            elif token.tipo == "abre":
+                linha.abre()
+            elif token.tipo == "fecha":
+                linha.fecha()
             elif token.tipo == "lance":
                 houve_lance = True
-                board, _ok = _jogar(board, token.texto)
+                linha.jogar(token.texto)
     if atual is not None:
         atual.fim = len(blocos)
         if atual.fim > atual.inicio:
             saida.append(atual)
     return saida
+
+
+class Linha:
+    """
+    A posição ao longo de uma linha de jogo com variantes — o percurso de tokens que
+    `segmentos`, `posicao_apos` e `validar` faziam cada um do seu jeito (RG-11, R-30).
+
+    `abre` volta à posição de antes do último lance (a variante é alternativa a ele);
+    `fecha` devolve a posição de antes da variante **e** a de antes do lance, para a
+    variante seguinte — `1.e4 (1.d4) (1.c4)` — sair do mesmo lugar. A variante aberta
+    antes de qualquer lance pende do primeiro lance: sai da posição inicial.
+    """
+
+    def __init__(self, fen: str = ""):
+        self.reiniciar(fen)
+
+    def reiniciar(self, fen: str = "") -> None:
+        self.board = _novo_board(fen)
+        self.anterior = self.board
+        self.pilha: list[tuple[Any, Any]] = []
+
+    @property
+    def profundidade(self) -> int:
+        return len(self.pilha)
+
+    def abre(self) -> None:
+        self.pilha.append((self.board, self.anterior))
+        self.board = self.anterior
+
+    def fecha(self) -> None:
+        if self.pilha:
+            self.board, self.anterior = self.pilha.pop()
+
+    def jogar(self, lance: str) -> bool:
+        novo, deu = _jogar(self.board, lance)
+        if deu:
+            self.anterior, self.board = self.board, novo
+        return deu
 
 
 def _novo_board(fen: str):
@@ -280,18 +325,15 @@ def posicao_apos(blocos: Sequence[Bloco], ate: tuple[int, int]) -> Posicao:
     segmento = next((s for s in segmentos(blocos) if s.inicio <= i_alvo < s.fim), None)
     if segmento is None:
         return Posicao(_novo_board(""), "w", None, ["o cursor não está numa linha de jogo"])
-    board = _novo_board(segmento.fen_inicial)
-    pilha: list[Any] = []                   # a posição anterior ao lance que abriu cada variante
-    anterior = board                        # a posição antes do último lance jogado
+    linha = Linha(segmento.fen_inicial)
     avisos: list[str] = [segmento.aviso] if segmento.aviso else []
-    erro: str | None = None
     for i in range(segmento.inicio, min(segmento.fim, i_alvo + 1)):
         bloco = blocos[i]
         if isinstance(bloco, Diagrama):
-            if i != segmento.inicio and _posicao_do_fen(bloco.fen) != board.board_fen():
+            if i != segmento.inicio and _posicao_do_fen(bloco.fen) != linha.board.board_fen():
                 rotulo = f"diagrama {bloco.numero}" if bloco.numero is not None else f"diagrama {bloco.id}"
                 avisos.append(f"{rotulo} não bate com a linha; a linha continua dele")
-                board = _novo_board(bloco.fen)
+                linha.reiniciar(bloco.fen)
             continue
         if not e_notacao(bloco):
             continue
@@ -299,21 +341,14 @@ def posicao_apos(blocos: Sequence[Bloco], ate: tuple[int, int]) -> Posicao:
             if i == i_alvo and token.inicio >= desloc_alvo:
                 break
             if token.tipo == "abre":
-                pilha.append(board)
-                board = anterior
+                linha.abre()
             elif token.tipo == "fecha":
-                if pilha:
-                    board = pilha.pop()
-                    anterior = board
-            elif token.tipo == "lance":
-                novo, deu = _jogar(board, token.texto)
-                if not deu:
-                    erro = token.texto
-                    return Posicao(board, "w" if board.turn else "b", erro, avisos, board.fullmove_number)
-                anterior, board = board, novo
-        if erro:
-            break
-    return Posicao(board, "w" if board.turn else "b", erro, avisos, board.fullmove_number)
+                linha.fecha()
+            elif token.tipo == "lance" and not linha.jogar(token.texto):
+                board = linha.board
+                return Posicao(board, "w" if board.turn else "b", token.texto, avisos, board.fullmove_number)
+    board = linha.board
+    return Posicao(board, "w" if board.turn else "b", None, avisos, board.fullmove_number)
 
 
 # ----------------------------------------------------------------------
@@ -389,32 +424,25 @@ def validar(blocos: Sequence[Bloco]) -> list[Problema]:
     """
     problemas: list[Problema] = []
     for segmento in segmentos(blocos):
-        board = _novo_board(segmento.fen_inicial)
-        pilha: list[Any] = []
-        anterior = board
+        linha = Linha(segmento.fen_inicial)
         # depois de um erro a linha continua com o lance sugerido (quando há um só) para
         # não marcar todo lance seguinte como ilegal por arrasto
         for i in range(segmento.inicio, segmento.fim):
             bloco = blocos[i]
             if isinstance(bloco, Diagrama):
-                if i != segmento.inicio and _posicao_do_fen(bloco.fen) != board.board_fen():
-                    board = _novo_board(bloco.fen)
-                    anterior = board
+                if i != segmento.inicio and _posicao_do_fen(bloco.fen) != linha.board.board_fen():
+                    linha.reiniciar(bloco.fen)
                 continue
             if not e_notacao(bloco):
                 continue
             for token in tokens(_texto_de_notacao(bloco)):
                 if token.tipo == "abre":
-                    pilha.append(board)
-                    board = anterior
+                    linha.abre()
                 elif token.tipo == "fecha":
-                    if pilha:
-                        board = pilha.pop()
-                        anterior = board
+                    linha.fecha()
                 elif token.tipo == "lance":
-                    novo, deu = _jogar(board, token.texto)
-                    if deu:
-                        anterior, board = board, novo
+                    board = linha.board
+                    if linha.jogar(token.texto):
                         continue
                     lido = lance_em_san(token.texto).rstrip("+#!?")
                     melhor, empatados, custo = melhor_lance_legal(board, lido)
@@ -422,7 +450,7 @@ def validar(blocos: Sequence[Bloco]) -> list[Problema]:
                     mensagem = f"{token.texto} não é legal aqui" + (f"; talvez {sugestao}" if sugestao else "")
                     problemas.append(Problema(i, bloco.id, token.inicio, token.fim, token.texto, sugestao, mensagem))
                     if sugestao:
-                        anterior, board = board, _jogar(board, sugestao)[0]
+                        linha.jogar(sugestao)
     return problemas
 
 

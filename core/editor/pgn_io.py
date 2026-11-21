@@ -45,6 +45,10 @@ class Partida:
     lances: int = 0
 
 
+def _uma_linha(valor: str) -> str:
+    return " ".join(str(valor).split())
+
+
 def cabecalho_proximo(blocos: Sequence[Bloco], inicio: int) -> tuple[str, str]:
     """`(White, Black)` do "Nome – Nome" no título/cabeçalho mais próximo antes (ou no começo) do segmento."""
     for k in range(inicio, -1, -1):
@@ -104,12 +108,14 @@ class _Escritor:
             k += 1
             game = chess.pgn.Game()
             white, black = cabecalho_proximo(blocos, seg.inicio)
-            game.headers["Event"] = _evento(self.livro, self.cap)
+            # O cabeçalho do PGN é uma linha só (RG-11, R-30): o título com quebra deixava o
+            # arquivo inválido.
+            game.headers["Event"] = _uma_linha(_evento(self.livro, self.cap))
             game.headers["Site"] = "?"
             game.headers["Date"] = "????.??.??"
             game.headers["Round"] = str(k)
-            game.headers["White"] = white
-            game.headers["Black"] = black
+            game.headers["White"] = _uma_linha(white)
+            game.headers["Black"] = _uma_linha(black)
             game.headers["Result"] = "*"
             if seg.fen_inicial:
                 import chess
@@ -129,6 +135,7 @@ class _Escritor:
     def _lances(self, game: Any, blocos: Sequence[Bloco], numero: int) -> str:
         node = game
         pilha: list[Any] = []
+        variante_na_raiz = False
         resultado = "*"
         comentario: list[str] = []
 
@@ -165,6 +172,11 @@ class _Escritor:
                 if token.tipo == "abre":
                     fechar_comentario()
                     pilha.append(node)
+                    if node.parent is None:
+                        # A variante aberta antes do primeiro lance pende do primeiro lance
+                        # (RG-11, R-30): ela sai da raiz, e o lance seguinte da linha é que
+                        # vira o principal — antes, a variante virava a linha da partida.
+                        variante_na_raiz = True
                     node = node.parent if node.parent is not None else node
                     continue
                 if token.tipo == "fecha":
@@ -200,6 +212,9 @@ class _Escritor:
                         fechar_comentario()
                         return resultado
                     node = node.add_variation(movimento)
+                    if variante_na_raiz and not pilha and node.parent is game:
+                        game.promote_to_main(movimento)
+                        variante_na_raiz = False
             resto = texto[cursor:].strip()
             if resto:
                 comentario.append(resto)
