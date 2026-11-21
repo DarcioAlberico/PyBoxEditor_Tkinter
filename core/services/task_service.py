@@ -105,6 +105,9 @@ class BackgroundTask:
             except Cancelled:
                 fila.put(("cancelled", None))
             except Exception as e:  # noqa: BLE001 — reportado à UI
+                # A janela mostra a mensagem numa linha; o traceback vai ao log, para quem
+                # depura saber de onde ela veio (RG-12, R-14).
+                _log.error("a tarefa %s falhou: %s", getattr(fn, "__name__", "?"), e, exc_info=True)
                 fila.put(("error", e))
             else:
                 fila.put(("done", resultado))

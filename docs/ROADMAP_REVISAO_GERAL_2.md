@@ -1099,6 +1099,13 @@ worktree da Onda 4, depois da RG-10; a onda inteira vai ao `master` por `merge -
   mesmas 6 falhas da base.
 - Próximo passo da revisão: a Onda 5 (tarefa sobre estado vivo).
 ### RG-12
+Estado: em andamento (2026-11-21). Base `6ab5455`, no worktree `.claude/worktrees/onda5`
+(destacado, com os pesos copiados), o mesmo da RG-13.
+- Commit 1 (R-14): o `runner` de `BackgroundTask` loga o erro com o traceback
+  (`log.error(..., exc_info=True)`, com o nome da função de trabalho) antes de entregá-lo à
+  janela; o cancelamento não vira erro. `tests/test_tarefa_loga_o_erro.py`: contra o código
+  de antes, o da tarefa que levanta falha (nenhum registro com traceback); o do
+  cancelamento já passava e fica de guarda. Suíte do worktree: 3836 passed, 26 skipped.
 ### RG-13
 ### RG-14
 ### RG-15
