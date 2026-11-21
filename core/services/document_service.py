@@ -7,7 +7,9 @@ from typing import Dict, List, Optional, Set
 
 from core.box_model import BoxEntry
 
-from core.log import logger
+import logging
+
+from core.log import logger, uma_vez
 
 log = logger(__name__)
 
@@ -79,11 +81,40 @@ class _GravadorAssincrono:
                     json.dump(payload, f, ensure_ascii=False)
                 self._erro = None
             except Exception as e:      # noqa: BLE001 — consultado pela UI
+                # A barra de status, sobrescrita logo, não basta (RG-05, R-04): o log
+                # guarda a primeira falha de cada rascunho, e o título da janela diz
+                # enquanto ela durar.
+                uma_vez(log, f"rascunho:{caminho}", logging.WARNING,
+                        "o rascunho %s não foi gravado: %s", caminho, e)
                 self._erro = e
 
     @property
     def ultimo_erro(self):
         return self._erro
+
+
+def _estado_no_rascunho(b: BoxEntry) -> tuple:
+    """O box no rascunho: caractere, coordenadas, confiança, origem e ângulo."""
+    return (b.char, b.x1, b.y1, b.x2, b.y2, round(b.confidence, 4),
+            b.source, getattr(b, "angulo", 0))
+
+
+def _box_do_rascunho(it, f: float) -> Optional[BoxEntry]:
+    """Um box do rascunho, reescalado por `f`; `None` se o item não se lê."""
+    try:
+        char, x1, y1, x2, y2 = it[0], int(it[1]), int(it[2]), int(it[3]), int(it[4])
+        conf = float(it[5]) if len(it) > 5 else 0.0
+        origem = it[6] if len(it) > 6 else ""
+        # Rascunho gravado antes da F8.1 não tem o oitavo campo, e
+        # a ausência dele quer dizer exatamente ângulo zero.
+        angulo = int(it[7]) if len(it) > 7 else 0
+    except (TypeError, ValueError, IndexError):
+        return None
+    if f != 1.0:
+        x1, y1 = int(round(x1 * f)), int(round(y1 * f))
+        x2, y2 = int(round(x2 * f)), int(round(y2 * f))
+    return BoxEntry(char, x1, y1, x2, y2, confidence=conf, source=origem or "",
+                    angulo=angulo if angulo in (0, 90, 180, 270) else 0)
 
 
 class DocumentSession:
@@ -133,8 +164,17 @@ class DocumentSession:
         return sorted(p for p, boxes in self._pages.items() if boxes)
 
     def dirty_pages(self) -> List[int]:
-        """Páginas com alterações não salvas (e que ainda têm algo a salvar)."""
-        return sorted(p for p in self._dirty if self._pages.get(p))
+        """Páginas com alterações não salvas — inclusive a que ficou sem boxes.
+
+        A página esvaziada contava como limpa (RG-05, R-04): "Nada para salvar", o
+        `.box` antigo ficava no disco e o rascunho velho voltava a oferecer os boxes
+        apagados. Salvá-la grava o `.box` vazio.
+        """
+        return sorted(self._dirty)
+
+    def pages_to_save(self) -> List[int]:
+        """O que "Salvar todas" grava: as páginas com boxes e as esvaziadas."""
+        return sorted(set(self.pages_with_boxes()) | self._dirty)
 
     def is_dirty(self) -> bool:
         return bool(self.dirty_pages())
@@ -183,12 +223,9 @@ class DocumentSession:
         """
         paginas = {}
         for pagina, boxes in self._pages.items():
-            if boxes:
-                paginas[str(pagina)] = [
-                    (b.char, b.x1, b.y1, b.x2, b.y2, round(b.confidence, 4),
-                     b.source, getattr(b, "angulo", 0))
-                    for b in boxes
-                ]
+            if boxes or pagina in self._dirty:
+                # A página esvaziada entra, vazia (RG-05, R-04).
+                paginas[str(pagina)] = [_estado_no_rascunho(b) for b in boxes]
         return {
             "schema": SCHEMA,
             "documento": os.path.basename(self.path),
@@ -207,7 +244,7 @@ class DocumentSession:
     def autosave(self, gravador: _GravadorAssincrono) -> Optional[str]:
         """Agenda a gravação do rascunho. Devolve o caminho, ou None se não há
         o que gravar."""
-        if not self.pages_with_boxes():
+        if not self.pages_with_boxes() and not self._dirty:
             return None
         destino = self.sidecar()
         gravador.agendar(destino, self.montar_payload())
@@ -218,8 +255,12 @@ class DocumentSession:
         ou quando o usuário decidiu descartá-lo."""
         try:
             os.remove(self.sidecar())
+        except FileNotFoundError:
+            pass
         except OSError as erro:
-            log.debug("o rascunho %s não foi apagado: %s", self.sidecar(), erro)
+            # O rascunho que fica volta como "recuperar trabalho" (RG-05, R-04).
+            log.warning("o rascunho %s não foi apagado e pode ser oferecido de novo: %s",
+                        self.sidecar(), erro)
 
     def fator_de_escala(self, payload: dict) -> float:
         """
@@ -254,23 +295,13 @@ class DocumentSession:
             except (TypeError, ValueError):
                 continue
             boxes = []
-            for it in itens:
-                try:
-                    char, x1, y1, x2, y2 = it[0], int(it[1]), int(it[2]), int(it[3]), int(it[4])
-                    conf = float(it[5]) if len(it) > 5 else 0.0
-                    origem = it[6] if len(it) > 6 else ""
-                    # Rascunho gravado antes da F8.1 não tem o oitavo campo, e
-                    # a ausência dele quer dizer exatamente ângulo zero.
-                    angulo = int(it[7]) if len(it) > 7 else 0
-                except (TypeError, ValueError, IndexError):
-                    continue
-                if f != 1.0:
-                    x1, y1 = int(round(x1 * f)), int(round(y1 * f))
-                    x2, y2 = int(round(x2 * f)), int(round(y2 * f))
-                boxes.append(BoxEntry(char, x1, y1, x2, y2,
-                                      confidence=conf, source=origem or "",
-                                      angulo=angulo if angulo in (0, 90, 180, 270) else 0))
-            if boxes:
+            for it in itens or []:
+                box = _box_do_rascunho(it, f)
+                if box is not None:
+                    boxes.append(box)
+            # A lista vazia é a página que o usuário esvaziou (R-04): ela volta vazia,
+            # e não com os boxes do `.box` antigo.
+            if boxes or not itens:
                 self._pages[indice] = boxes
 
         for p in payload.get("sujas", []) or []:

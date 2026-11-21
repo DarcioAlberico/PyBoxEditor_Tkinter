@@ -49,6 +49,9 @@ class Documento:
 
     def __init__(self, janela):
         self.janela = janela
+        #: A sessão cujo rascunho o usuário aceitou descartar e que ainda não foi trocada
+        #: (RG-05, R-04): o rascunho só some quando a sessão nova existe, ou no `destroy`.
+        self._descarte_pendente = None
 
     def _autosave_threshold_reached(self):
         self.janela._mudancas_desde_autosave += 1
@@ -81,10 +84,15 @@ class Documento:
                 base += f" — {nome}"
             if self.janela.session.is_dirty():
                 base += " *"
+            # A falha do rascunho fica à vista enquanto durar (RG-05, R-04): a barra
+            # de status é sobrescrita na mensagem seguinte.
+            if getattr(getattr(self.janela, "_gravador", None), "ultimo_erro", None) is not None:
+                base += " — rascunho não gravado"
         self.janela.parent.title(base)
 
     def _confirm_discard(self) -> bool:
         """True se pode prosseguir (nada pendente, ou o usuário aceitou perder)."""
+        self._descarte_pendente = None
         if self.janela.session is None or not self.janela.session.is_dirty():
             return True
 
@@ -106,9 +114,18 @@ class Documento:
         )
         if descartar:
             # O usuário aceitou perder: manter o rascunho o ressuscitaria na
-            # próxima abertura, o que seria pior que a perda escolhida.
-            self.janela._descartar_rascunho()
+            # próxima abertura, o que seria pior que a perda escolhida. Mas ainda não
+            # perdeu (RG-05, R-04): o seletor de arquivo pode ser cancelado, e o PDF
+            # escolhido pode não abrir — o trabalho continua na tela. O rascunho sai
+            # em `_efetivar_descarte`, quando a sessão nova existe ou a janela fecha.
+            self._descarte_pendente = self.janela.session
         return descartar
+
+    def _efetivar_descarte(self):
+        """Apaga o rascunho que o usuário aceitou descartar, agora que ele saiu da sessão."""
+        sessao, self._descarte_pendente = self._descarte_pendente, None
+        if sessao is not None:
+            sessao.remover_autosave()
 
     def _gravar_rascunho(self):
         """
@@ -125,6 +142,7 @@ class Documento:
             erro = self.janela._gravador.ultimo_erro
             if erro is not None:
                 self.janela.status.set(f"Falha ao gravar rascunho: {erro}")
+            self.janela._update_title()
 
     def _descartar_rascunho(self):
         """Some com o rascunho: ou o trabalho foi salvo de verdade, ou o
@@ -180,13 +198,14 @@ class Documento:
                 return
             self.janela.task.cancel()
         if self.janela._confirm_discard():
+            self._efetivar_descarte()
             self.janela.gravar_estado_da_janela()
             self.janela.task.shutdown()
             self.janela.parent.destroy()
 
     def salvar_rascunho_agora(self):
         """Força a gravação do rascunho (menu / Ctrl+B)."""
-        if self.janela.session is None or not self.janela.session.pages_with_boxes():
+        if self.janela.session is None or not self.janela.session.pages_to_save():
             self.janela.status.set("Nada para gravar no rascunho.")
             return "break"
         self.janela._gravar_rascunho()
@@ -214,6 +233,7 @@ class Documento:
         self.janela.pdf_service.close()
 
         self.janela.session = self.janela.document_controller.open(path, num_pages=1, is_pdf=False)
+        self._efetivar_descarte()
         self.janela.navigation.reset(1)
         self.janela._esquecer_lexico()
         self.janela.current_pdf_page = 0
@@ -295,6 +315,7 @@ class Documento:
         self.janela.session = self.janela.document_controller.open(
             path, num_pages=num_pages, is_pdf=True, dpi=DPI_PADRAO
         )
+        self._efetivar_descarte()
         self.janela.navigation.reset(num_pages)
         self.janela._esquecer_lexico()
         self.janela.boxes = []
@@ -618,7 +639,10 @@ class Documento:
         return os.path.dirname(base), os.path.basename(base) + ext
 
     def save_box_file(self):
-        if self.janela.image is None or not self.janela.boxes:
+        # A página esvaziada tem o que salvar: o `.box` vazio (RG-05, R-04).
+        esvaziada = (self.janela.session is not None
+                     and self.janela.current_pdf_page in self.janela.session.dirty_pages())
+        if self.janela.image is None or not (self.janela.boxes or esvaziada):
             messagebox.showinfo("Aviso", "Nada para salvar.")
             return
 
@@ -694,7 +718,7 @@ class Documento:
             messagebox.showinfo("Aviso", "Nenhum documento aberto.")
             return
 
-        paginas = self.janela.session.pages_with_boxes()
+        paginas = self.janela.session.pages_to_save()
         if not paginas:
             messagebox.showinfo("Aviso", "Nenhuma página tem boxes para salvar.")
             return

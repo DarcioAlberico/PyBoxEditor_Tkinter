@@ -748,6 +748,19 @@ Estado: em andamento (2026-11-21). Base `15af852`, no worktree `.claude/worktree
   arquivo vira `{'x': 1}`, sem `.corrompido`, a busca do primeiro editor apagada pelo
   layout do segundo, as três ilegíveis e a opção nova apagadas). Suíte do worktree: 3737
   passed, 26 skipped.
+- Commit 3 (R-04): "Descartar" deixa o descarte pendente (`Documento._descarte_pendente`),
+  e o rascunho só sai em `_efetivar_descarte`, quando a sessão nova existe (antes do
+  `_tentar_recuperar`, para o mesmo arquivo reaberto não oferecer o que se descartou) ou
+  no `_on_close`, antes do `destroy`; a falha do gravador vai ao log (WARNING, `uma_vez`
+  por rascunho) e ao título ("rascunho não gravado") enquanto durar; a de
+  `remover_autosave` é WARNING, salvo o arquivo que já não existe; a página esvaziada
+  conta como suja (`dirty_pages` sem o filtro de "tem boxes"), entra no rascunho vazia,
+  volta vazia e salva o `.box` vazio, pelo Ctrl+S e pelo "Salvar todas"
+  (`pages_to_save`). No editor, o `OSError` do rascunho ao fechar pela principal loga e
+  segue para a guarda, e o rascunho mais velho que o EPUB é oferecido com o aviso.
+  `tests/test_rascunho_nao_some_antes_da_hora.py`: contra o código de antes, sete dos oito
+  falham; o oitavo (fechar a janela com "Descartar" apaga o rascunho) já passava e fica de
+  guarda. Suíte do worktree: 3745 passed, 26 skipped.
 ### RG-05b
 ### RG-06
 ### RG-07

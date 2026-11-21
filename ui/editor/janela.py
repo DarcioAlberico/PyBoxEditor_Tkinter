@@ -754,9 +754,15 @@ class JanelaDoEditor(tk.Toplevel):
         projeto: Projeto | None = None
         if pendentes:
             dados = Rascunho.ler(pendentes[0])
+            aviso = ""
+            if _mais_novo(caminho, pendentes[0]):
+                # Editado por fora depois do rascunho (RG-05, R-04): restaurar e salvar
+                # sobrescreveria a edição de fora.
+                aviso = ("\n\nAtenção: o livro no disco é mais novo que este rascunho — foi "
+                         "gravado depois dele. Restaurar e salvar desfaz o que mudou no arquivo.")
             resposta = self.caixas.pergunta(
                 f"Há um rascunho de {dados.get('quando', '?')} para este livro, gravado sem salvar.\n"
-                "Restaurar o rascunho? (Não abre o arquivo como está no disco.)", cancelar=False)
+                f"Restaurar o rascunho? (Não abre o arquivo como está no disco.){aviso}", cancelar=False)
             if resposta:
                 projeto = Rascunho.restaurar(pendentes[0], relogio=self.relogio)
         if projeto is None:
@@ -2907,7 +2913,12 @@ class JanelaDoEditor(tk.Toplevel):
         if self.winfo_exists():
             if self._sujo() and self.rascunho is not None:
                 self._sincronizar_tudo()
-                self.rascunho.gravar()
+                try:
+                    self.rascunho.gravar()
+                except OSError as erro:
+                    # O disco cheio não pode prender a janela (RG-05, R-04): a guarda
+                    # logo abaixo ainda pergunta se salva.
+                    self.log.warning("o rascunho não foi gravado ao fechar: %s", erro)
             if not self.fechar():
                 return
         if anterior:
@@ -2993,6 +3004,14 @@ def _por_em(paned: ttk.PanedWindow, posicao: int, widget: tk.Misc) -> None:
         paned.add(widget, weight=1)
     else:
         paned.insert(posicao, widget, weight=1)
+
+
+def _mais_novo(livro: str, rascunho: str) -> bool:
+    """O `livro` foi gravado depois do `rascunho` (RG-05, R-04); sem data, não se sabe."""
+    try:
+        return os.path.getmtime(livro) > os.path.getmtime(rascunho)
+    except OSError:
+        return False
 
 
 def _copiar_capitulo(de: Capitulo, para: Capitulo) -> None:
