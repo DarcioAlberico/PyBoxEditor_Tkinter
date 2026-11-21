@@ -1138,6 +1138,22 @@ Estado: em andamento (2026-11-21), no worktree da Onda 5, depois da RG-12.
   os três falham (a tarefa cancelada pelo descarte recusado, a janela destruída com a
   thread no meio, a página que não virou sem aviso); o `test_f37_paginas.py` da PgDn
   segue verde. Suíte do worktree: 3850 passed, 26 skipped.
+- Commit 3 (R-18): `JanelaDoEditor._cancelar_afters`, chamada no `fechar` antes do
+  `destroy`, cancela todo `after` cujo comando é da janela ou de um widget dela — e não só
+  os três que a spec citava: a medida (`scratchpad\after_depois_de_fechar.py` da sessão)
+  achou, depois de fechar, o `esvaziar` do painel de mensagens e dois
+  `_ajustar_propriedades`, cada um disparando um `bgerror` ("invalid command name"). A
+  vigia de "Abrir com…" segue com o `OSError` do `open` (INFO, tenta na próxima volta) e
+  reagenda em `finally`. A validação do EPUB vai para uma tarefa, sobre uma foto do livro
+  tirada na thread da interface, e o cursor volta em todo desfecho; o resultado fica em
+  `operacoes.ultima_validacao`, e o `test_editor_validacao.py`, que esperava a resposta
+  síncrona, passa a esperar a tarefa. A pasta do `mkdtemp` sai no fechamento do editor.
+  `tests/test_editor_sem_after_orfao.py`: contra o código de antes, os quatro falham (o
+  `…esvaziar` órfão — a primeira versão do teste chamava `raiz.update()` antes de conferir,
+  o órfão disparava ali e o teste passava por acaso; agora confere antes e captura o
+  `bgerror` depois, e cancela antes os órfãos que outro teste deixou no interpretador —; a
+  vigia morta no `PermissionError`; o cursor "watch"; a pasta que ficava). Suíte do
+  worktree: 3854 passed, 26 skipped.
 ### RG-14
 ### RG-15
 ### RG-16

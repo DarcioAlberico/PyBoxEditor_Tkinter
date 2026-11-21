@@ -2983,6 +2983,32 @@ class JanelaDoEditor(tk.Toplevel):
         else:
             self.parent.destroy()
 
+    def _cancelar_afters(self) -> int:
+        """
+        Cancela todo `after` agendado pela janela ou por um widget dela (RG-13, R-18) — o
+        painel de mensagens que se reagenda a cada 200 ms, o `_ajustar_propriedades`, a
+        reconciliação do texto. Sem isto, o editor embutido fechado deixava `after` cujo
+        comando o `destroy` apaga, e cada um disparava um `bgerror` ("invalid command
+        name …esvaziar"). Devolve quantos cancelou.
+        """
+        comandos: set[str] = set()
+        pilha: list[tk.Misc] = [self]
+        while pilha:
+            widget = pilha.pop()
+            comandos.update(getattr(widget, "_tclCommands", None) or ())
+            pilha.extend(widget.winfo_children())
+        cancelados = 0
+        for ident in self.tk.splitlist(self.tk.call("after", "info")):
+            try:
+                script = self.tk.splitlist(self.tk.call("after", "info", ident))[0]
+            except tk.TclError:
+                continue                               # já disparou
+            partes = self.tk.splitlist(script) if script else ()
+            if partes and partes[0] in comandos:
+                self.tk.call("after", "cancel", ident)
+                cancelados += 1
+        return cancelados
+
     def fechar(self) -> bool:
         """A guarda (resposta injetável em `caixas.pergunta`); `True` quando fechou."""
         if not self.winfo_exists():
@@ -3013,6 +3039,7 @@ class JanelaDoEditor(tk.Toplevel):
             self.task.shutdown()
         except Exception:      # noqa: BLE001 — um controlador emprestado pode já estar fechado
             pass
+        self._cancelar_afters()
         self.destroy()
         if self.ao_fechar is not None:
             self.ao_fechar()

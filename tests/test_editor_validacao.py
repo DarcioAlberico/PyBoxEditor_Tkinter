@@ -74,6 +74,21 @@ def test_com_o_epubcheck_simulado_os_erros_vem_com_arquivo_e_linha(tmp_path):
     assert r2.sem_java and "Java not found" in r2.saida
 
 
+def _validar(t, limite=20.0):
+    """A validação roda numa tarefa (RG-13, R-18): espera ela concluir e devolve o resultado."""
+    import time
+
+    t.j.operacoes.ultima_validacao = None
+    t.j.executar("validar_epub")
+    fim = time.time() + limite
+    t.raiz.update()
+    while t.j.task.is_running() and time.time() < fim:
+        t.raiz.update()
+        time.sleep(0.01)
+    t.raiz.update()
+    return t.j.operacoes.ultima_validacao
+
+
 def test_na_janela_a_validacao_preenche_o_painel_e_ativar_vai_a_linha():
     with Janela() as t:
         j = t.j
@@ -87,7 +102,7 @@ def test_na_janela_a_validacao_preenche_o_painel_e_ativar_vai_a_linha():
 
         j.operacoes.comando_do_epubcheck = lambda: ["epubcheck-de-mentira"]
         j.operacoes.correr_epubcheck = correr
-        resultado = j.executar("validar_epub")
+        resultado = _validar(t)
         assert resultado is not None and not resultado.valido
         assert j.inferior.select() == str(j.validacao) and len(j.validacao) == 2
         item = j.validacao.itens[0]
@@ -97,7 +112,7 @@ def test_na_janela_a_validacao_preenche_o_painel_e_ativar_vai_a_linha():
         assert aba.arquivo == "cap2.xhtml" and aba.modo == "codigo" and aba.widget.posicao[0] == 7
         # sem Java: a mensagem entra no painel e no registro
         j.operacoes.comando_do_epubcheck = lambda: None
-        resultado = j.executar("validar_epub")
+        resultado = _validar(t)
         assert resultado.sem_java and any("Java" in r.mensagem for r in j.validacao.itens)
         assert j.mensagens.contem("Instale o Java")
 

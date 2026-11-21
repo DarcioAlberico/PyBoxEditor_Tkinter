@@ -59,6 +59,8 @@ class OperacoesDoLivro:
         self.vigiados: dict[str, tuple[str, float]] = {}      # caminho temporário → (href, mtime)
         self._vigia_id: str | None = None
         self._pasta_temporaria: str | None = None
+        #: O resultado da última validação, quando a tarefa dela concluiu (RG-13, R-18).
+        self.ultima_validacao: Any = None
         j = self
         self.comandos: dict[str, Callable[..., Any]] = {
             "abrir_do_navegador": j.abrir_do_navegador, "reordenar_capitulos": j.reordenar_capitulos,
@@ -594,9 +596,12 @@ class OperacoesDoLivro:
 
     def _vigiar(self) -> None:
         self._vigia_id = None
-        self.verificar_vigiados()
-        if self.vigiados and self.j.winfo_exists():
-            self._agendar_vigia()
+        try:
+            self.verificar_vigiados()
+        finally:
+            # A vigia segue mesmo se uma volta falhar (RG-13, R-18).
+            if self.vigiados and self.j.winfo_exists():
+                self._agendar_vigia()
 
     def verificar_vigiados(self) -> list[str]:
         """Os arquivos abertos fora que mudaram no disco voltam para o livro; devolve os hrefs que voltaram."""
@@ -613,8 +618,14 @@ class OperacoesDoLivro:
                 continue
             if atual == mtime:
                 continue
-            with open(caminho, "rb") as f:
-                dados = f.read()
+            try:
+                with open(caminho, "rb") as f:
+                    dados = f.read()
+            except OSError as erro:
+                # O programa de fora ainda segura o arquivo (o `PermissionError` do Windows):
+                # a próxima volta tenta de novo, e a vigia não morre (RG-13, R-18).
+                j.log.info("%s ainda não se lê (%s); tento na próxima volta", caminho, erro)
+                continue
             self.vigiados[caminho] = (href, atual)
             livro = j.projeto.livro
             cap = livro.capitulo(href)
@@ -696,27 +707,52 @@ class OperacoesDoLivro:
 
     def validar_epub(self) -> Any:
         """`Alt+F9`: o livro como está agora, gravado numa cópia temporária, passa pelo `epubcheck`."""
+        import copy
+
         j = self.j
         projeto = j._exigir_projeto()
         j._validar_abas_de_codigo()
         j._sincronizar_tudo()
         caminho = os.path.join(self.pasta_temporaria(), "validar.epub")
-        zip_antes = projeto.livro.zip_de_origem
+        # Gravar e rodar o epubcheck levam segundos: vão para uma tarefa, sobre uma foto do
+        # livro tirada aqui, na thread da interface (RG-13, R-18). Antes rodavam na thread
+        # do Tk, e o cursor ficava "watch" quando `escrever` levantava.
+        livro = copy.deepcopy(projeto.livro)
+        ncx = j._preferencia("ncx", None)
+        comando = self.comando_do_epubcheck() or []
+        correr = self.correr_epubcheck
+
+        def trabalho(_h):
+            epub.escrever(livro, caminho, ncx=ncx, destino=False)
+            return validacao.validar(caminho, livro.opf, comando=comando, correr=correr)
+
+        def voltar(*_a) -> None:
+            try:
+                j.configure(cursor="")
+            except tk.TclError:
+                pass
+
+        def concluir(resultado: Any) -> None:
+            voltar()
+            if j.winfo_exists():
+                self._mostrar_validacao(resultado)
+
+        def falhou(erro: BaseException) -> None:
+            voltar()
+            j.log.error("A validação não rodou: %s", erro)
+            j.status(f"A validação não rodou: {erro}")
+
         j.status("Validando com o epubcheck…")
         j.configure(cursor="watch")
-        try:
-            j.update_idletasks()
-        except Exception:      # noqa: BLE001
-            pass
-        try:
-            epub.escrever(projeto.livro, caminho, ncx=j._preferencia("ncx", None), destino=False)
-        finally:
-            projeto.livro.zip_de_origem = zip_antes
-        try:
-            resultado = validacao.validar(caminho, projeto.livro.opf, comando=self.comando_do_epubcheck() or [],
-                                          correr=self.correr_epubcheck)
-        finally:
-            j.configure(cursor="")
+        if not j.task.start(trabalho, on_done=concluir, on_error=falhou, on_cancel=voltar):
+            voltar()
+            j.status("Aguarde: há outra operação em andamento.")
+        return None
+
+    def _mostrar_validacao(self, resultado: Any) -> Any:
+        """O resultado da validação nos painéis, na barra de status e no registro."""
+        j = self.j
+        self.ultima_validacao = resultado
         itens = [Resultado("", "estrutura", f"✖ {p}", {}) for p in resultado.estrutura]
         for m in resultado.mensagens:
             if m.gravidade in ("USAGE", "INFO", "SUPPRESSED"):
@@ -1099,6 +1135,12 @@ class OperacoesDoLivro:
                 pass
             self._vigia_id = None
         self.vigiados.clear()
+        # A pasta do `mkdtemp` (a validação, o "Abrir com…") sai com o editor (RG-13, R-18).
+        if self._pasta_temporaria is not None:
+            import shutil
+
+            shutil.rmtree(self._pasta_temporaria, ignore_errors=True)
+            self._pasta_temporaria = None
 
 
 def agora() -> float:
