@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -38,6 +39,9 @@ from core.editorial_model import (
     SourceRef,
 )
 from core.editorial_suspeitas import PESOS, PROCEDENCIA, descrever_codigos
+from core.log import logger
+
+log = logger(__name__)
 
 
 _KIND_PRIORITY = {
@@ -329,7 +333,17 @@ def build_review_queue(document: EditorialDocument, *,
 
 
 class ReviewJournal:
-    """Persistência JSONL append-only; cada linha é um evento completo."""
+    """Persistência JSONL append-only; cada linha é um evento completo.
+
+    **A leitura tolera o que a escrita deixou pela metade** (RG-07, R-09). As linhas se
+    separam só por `\\n` — `splitlines()` quebrava também em U+2028, e um bloco editado
+    para `Hello\\u2028world` tornava o diário ilegível —, e a linha que não se lê (a
+    truncada por uma queda no meio da escrita) é pulada com WARNING, sem derrubar as
+    outras. Antes de acrescentar, se o arquivo não termina em `\\n`, vai um `\\n`: o
+    evento novo não sai colado na linha quebrada. **Sem truncar**: a ponte do
+    `appy --editor` e o diálogo de revisão podem escrever no mesmo diário, e cortar o
+    fim apagaria o evento do outro. Cada gravação termina em `fsync`.
+    """
 
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path is not None else None
@@ -338,18 +352,40 @@ class ReviewJournal:
     def append(self, event: ReviewEvent) -> ReviewEvent:
         self._events.append(event)
         if self.path is not None:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+            self._gravar([event])
         return event
+
+    def _gravar(self, events: Iterable[ReviewEvent]) -> None:
+        linhas = "".join(json.dumps(event.to_dict(), ensure_ascii=False) + "\n" for event in events)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("ab") as stream:
+            if stream.tell() and not _termina_em_quebra(self.path):
+                stream.write(b"\n")
+            stream.write(linhas.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
 
     def read(self) -> tuple[ReviewEvent, ...]:
         if self.path is None:
             return tuple(self._events)
         if not self.path.exists():
             return ()
-        return tuple(ReviewEvent.from_dict(json.loads(line)) for line in
-                     self.path.read_text(encoding="utf-8").splitlines() if line.strip())
+        texto = self.path.read_bytes().decode("utf-8", errors="replace")
+        eventos = []
+        for numero, linha in enumerate(texto.split("\n"), start=1):
+            if not linha.strip():
+                continue
+            try:
+                eventos.append(ReviewEvent.from_dict(json.loads(linha)))
+            except (ValueError, KeyError, TypeError) as erro:
+                log.warning("diário %s: a linha %d não se lê e foi pulada (%s)", self.path, numero, erro)
+        return tuple(eventos)
+
+
+def _termina_em_quebra(caminho: Path) -> bool:
+    with caminho.open("rb") as stream:
+        stream.seek(-1, os.SEEK_END)
+        return stream.read(1) == b"\n"
 
 
 def _metadata_de_antes(block: EditorialBlock, metadata: Mapping[str, Any],

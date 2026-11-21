@@ -841,6 +841,12 @@ Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktree
   `documento_final.json` e `tempo.json`. Na base, nesta máquina: **17,16 s** (o revisor
   mediu 54,6 s noutra condição; a régua da RG-08 é a desta máquina), em
   `preview_ocr/ab/lote-RG-07-base` da árvore principal (ignorado pelo git).
+- Commit 2 (R-09): `ReviewJournal.read` separa as linhas só por `\n` e pula a que não se
+  lê com WARNING (o número da linha e o erro); a gravação, se o arquivo não termina em
+  `\n`, escreve um antes do evento, sem truncar nada, e termina em `fsync`.
+  `tests/test_diario_leitura_tolerante.py`: contra o código de antes, os três falham (o
+  `JSONDecodeError` do U+2028 e o da linha truncada; nenhum `fsync`). Os sete testes que
+  contam linhas do diário seguem verdes. Suíte do worktree: 3773 passed, 26 skipped.
 ### RG-08
 ### RG-09
 ### RG-10
