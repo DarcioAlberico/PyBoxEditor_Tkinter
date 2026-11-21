@@ -735,6 +735,19 @@ Estado: em andamento (2026-11-21). Base `15af852`, no worktree `.claude/worktree
   contra o código de antes, três dos quatro falham pelo motivo certo (o byte 25 do PNG, o
   tipo de cor, passa de RGB a cinza; no Ctrl+S, no "Salvar todas" e com `Pagina.PNG`); o
   quarto, o par com outro nome, já passava. Suíte do worktree: 3730 passed, 26 skipped.
+- Commit 2 (R-02): o `Settings` separa o arquivo que não abre (`OSError`: não é regravado,
+  WARNING) do que não é JSON (trocado, com a cópia em `settings.json.corrompido`); o
+  `save()` mescla um nível abaixo quando o disco e o valor novo são dicionários, o que
+  cobre os três gravadores da chave `editor` (`janela.py`, `clipes.py`, `projeto.py`) sem
+  API nova. As buscas salvas: o item que esta versão não lê (sem nome, escopo
+  desconhecido, não dicionário) fica em `Colecao.ilegiveis` e volta ao disco como veio; a
+  opção desconhecida de uma busca que se lê continua ignorada ao rodar (ED-06b) e volta ao
+  disco com ela (`BuscaSalva.desconhecidas`, `como_dict`). O
+  `test_fase9_settings_atomicos.py` passa a conferir o `.corrompido`.
+  `tests/test_preferencias_nao_se_perdem.py`: contra o código de antes, os sete falham (o
+  arquivo vira `{'x': 1}`, sem `.corrompido`, a busca do primeiro editor apagada pelo
+  layout do segundo, as três ilegíveis e a opção nova apagadas). Suíte do worktree: 3737
+  passed, 26 skipped.
 ### RG-05b
 ### RG-06
 ### RG-07

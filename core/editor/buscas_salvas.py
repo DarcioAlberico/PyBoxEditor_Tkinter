@@ -18,6 +18,9 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Callable, Sequence
 
 from core.editor.busca import Opcoes
+from core.log import logger
+
+log = logger(__name__)
 
 CHAVE = "buscas_salvas"
 VERSAO = 1
@@ -29,20 +32,40 @@ class BuscaSalva:
     nome: str
     grupo: str = ""
     opcoes: dict[str, Any] = field(default_factory=dict)
+    #: As opções que esta versão não conhece (de uma versão mais nova): a busca roda sem
+    #: elas, como sempre (ED-06b), e elas voltam ao disco com a busca (RG-05, R-02).
+    desconhecidas: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         self.nome = str(self.nome).strip()
         if not self.nome:
             raise ValueError("a busca salva precisa de um nome")
         self.grupo = str(self.grupo or "").strip()
-        self.opcoes = {k: v for k, v in dict(self.opcoes).items() if k in _CAMPOS_DE_OPCOES}
+        opcoes = dict(self.opcoes)
+        self.desconhecidas = {**self.desconhecidas,
+                              **{k: v for k, v in opcoes.items() if k not in _CAMPOS_DE_OPCOES}}
+        self.opcoes = {k: v for k, v in opcoes.items() if k in _CAMPOS_DE_OPCOES}
 
     def como_opcoes(self) -> Opcoes:
         return Opcoes(**self.opcoes)
 
+    def como_dict(self) -> dict[str, Any]:
+        """O que vai às preferências e ao JSON: as opções desconhecidas voltam junto."""
+        return {"nome": self.nome, "grupo": self.grupo, "opcoes": {**self.desconhecidas, **self.opcoes}}
+
     @classmethod
     def de_opcoes(cls, nome: str, opcoes: Opcoes, grupo: str = "") -> "BuscaSalva":
         return cls(nome, grupo, asdict(opcoes))
+
+
+def _ler_busca(item: Any) -> BuscaSalva | None:
+    """A busca de um item das preferências, ou `None` quando esta versão não a lê."""
+    try:
+        busca = BuscaSalva(**{k: item[k] for k in ("nome", "grupo", "opcoes") if k in item})
+        busca.como_opcoes()
+    except (TypeError, ValueError):
+        return None
+    return busca
 
 
 @dataclass
@@ -70,25 +93,34 @@ class Resumo:
 class Colecao:
     """As buscas salvas, na ordem em que foram guardadas; `gravar` as põe nas preferências."""
 
-    def __init__(self, buscas: Sequence[BuscaSalva] = (), gravador: Callable[[list[dict]], Any] | None = None):
+    def __init__(self, buscas: Sequence[BuscaSalva] = (), gravador: Callable[[list[dict]], Any] | None = None,
+                 ilegiveis: Sequence[Any] = ()):
         self.buscas: list[BuscaSalva] = list(buscas)
         self.gravador = gravador
+        #: Os itens das preferências que esta versão não lê (sem nome, um escopo que ela não
+        #: conhece): não são oferecidos e voltam ao disco como vieram, depois das buscas —
+        #: descartá-los ao carregar os apagava no `gravar` seguinte (RG-05, R-02).
+        self.ilegiveis: list[Any] = list(ilegiveis)
 
     # -- persistência --------------------------------------------------------
 
     @classmethod
     def carregar(cls, dados: Any, gravador: Callable[[list[dict]], Any] | None = None) -> "Colecao":
         """De `Settings.get("editor")["buscas_salvas"]` (ou de qualquer lista de dicionários)."""
-        buscas = []
+        buscas, ilegiveis = [], []
         for item in (dados or []):
-            try:
-                buscas.append(BuscaSalva(**{k: item[k] for k in ("nome", "grupo", "opcoes") if k in item}))
-            except (TypeError, ValueError):
-                continue
-        return cls(buscas, gravador)
+            busca = _ler_busca(item)
+            if busca is None:
+                ilegiveis.append(item)
+            else:
+                buscas.append(busca)
+        if ilegiveis:
+            log.warning("%d busca(s) salva(s) não se leem nesta versão: ficam guardadas como vieram, "
+                        "sem aparecer na lista", len(ilegiveis))
+        return cls(buscas, gravador, ilegiveis)
 
     def como_lista(self) -> list[dict]:
-        return [asdict(b) for b in self.buscas]
+        return [b.como_dict() for b in self.buscas] + list(self.ilegiveis)
 
     def gravar(self) -> None:
         if self.gravador is not None:
@@ -116,6 +148,9 @@ class Colecao:
 
     def guardar(self, busca: BuscaSalva) -> BuscaSalva:
         """Acrescenta, ou troca a de mesmo nome; grava."""
+        # A ilegível de mesmo nome sai: o nome volta a ser de uma busca só.
+        self.ilegiveis = [i for i in self.ilegiveis
+                          if not (isinstance(i, dict) and str(i.get("nome", "")).strip() == busca.nome)]
         existente = self.por_nome(busca.nome)
         if existente is not None:
             self.buscas[self.buscas.index(existente)] = busca
@@ -155,7 +190,7 @@ class Colecao:
 
     def exportar_json(self, caminho: str, nomes: Sequence[str] | None = None) -> int:
         escolhidas = [b for b in self.buscas if nomes is None or b.nome in set(nomes)]
-        dados = {"formato": "pybox-buscas", "versao": VERSAO, "buscas": [asdict(b) for b in escolhidas]}
+        dados = {"formato": "pybox-buscas", "versao": VERSAO, "buscas": [b.como_dict() for b in escolhidas]}
         from core.escrita_atomica import gravar_atomico
         gravar_atomico(caminho, json.dumps(dados, ensure_ascii=False, indent=2))
         return len(escolhidas)

@@ -72,6 +72,8 @@ def test_arquivo_que_nao_se_le_na_hora_de_gravar_recebe_o_que_a_instancia_sabe(t
     """
     Sem o que mesclar, vai o que a instância tem, como antes — e não só as chaves que
     ela mudou, o que zeraria as outras preferências por causa de um arquivo ilegível.
+    O que não era JSON fica ao lado, em `.corrompido` (RG-05, R-02); o arquivo que não
+    abre, esse não é regravado (`test_preferencias_nao_se_perdem.py`).
     O arquivo que sumiu, esse sim é o estado do disco: fica só o que se gravou depois.
     """
     caminho = tmp_path / "settings.json"
@@ -81,6 +83,7 @@ def test_arquivo_que_nao_se_le_na_hora_de_gravar_recebe_o_que_a_instancia_sabe(t
     settings.set("idioma", "pt")
     settings.save()
     assert _no_disco(caminho) == {"tema": "claro", "idioma": "pt"}
+    assert (tmp_path / "settings.json.corrompido").read_text(encoding="utf-8") == "{ quebrado"
 
     caminho.unlink()
     settings.set("zoom", 2)
