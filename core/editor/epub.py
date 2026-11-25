@@ -643,7 +643,15 @@ def _ler_do_zip(z: zipfile.ZipFile, caminho: str, relatorio: RelatorioDeConversa
     # Sumário e marcos: do nav; sem nav, do NCX e do guide.
     if livro.nav and nome_no_zip(livro, livro.nav) in nomes:
         try:
-            livro.sumario, livro.marcos, _paginas = sumario.ler_nav(z.read(nome_no_zip(livro, livro.nav)), livro.nav)
+            texto_do_nav = z.read(nome_no_zip(livro, livro.nav))
+            livro.sumario, livro.marcos, _paginas = sumario.ler_nav(texto_do_nav, livro.nav)
+            perdas = sumario.perdas_do_nav(texto_do_nav)
+            if perdas:
+                # O nav é regenerado ao salvar (§10.1); o que ele tem além do sumário é
+                # perda, e a perda é declarada aqui, na abertura (PD-25).
+                relatorio.aviso(f"{livro.nav}: o nav é refeito ao salvar, só com o sumário, os marcos e a "
+                                f"lista de páginas; fica de fora o resto do nav de origem: "
+                                f"{', '.join(perdas)}")
         except ErroDeXhtml as erro:
             relatorio.aviso(f"{livro.nav} mal-formado ({erro}); sumário refeito dos títulos")
     elif livro.nav:

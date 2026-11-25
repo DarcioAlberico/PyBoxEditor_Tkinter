@@ -10,6 +10,7 @@ Rodar sem pytest:      python tests/test_editor_epub.py
 
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -367,6 +368,39 @@ def test_o_xhtml_escrito_com_espaco_no_nome_codifica_o_href_e_o_leitor_decodific
     assert 'href="cap%202.xhtml#a"' in texto and 'src="../Images/foto%201.png"' in texto
     relido = xhtml.ler(texto, cap.arquivo)
     assert relido.blocos[0].trechos[0].link == "Text/cap 2.xhtml#a" and relido.blocos[1].recurso == "Images/foto 1.png"
+
+
+def test_o_nav_de_terceiro_avisa_o_que_fica_de_fora(tmp_path):
+    """
+    PD-25: o nav é refeito a cada gravação (SPEC_EDITOR §10.1), e o que o de origem tinha
+    além do sumário sumia sem aviso — no Grooten, 4 `<style>`, 1 `<meta>` e os `lang`,
+    `dir` e `data-imt-*` dos links. A abertura declara a perda; o nav do próprio editor,
+    com marcos e lista de páginas, não tem nada a declarar.
+    """
+    from core.editor import sumario
+
+    completo = livros.livro_completo()
+    assert sumario.perdas_do_nav(sumario.escrever_nav(completo)) == []
+
+    proprio = str(tmp_path / "proprio.epub")
+    epub.escrever(livros.livro_de_teste(), proprio)
+    _livro, relatorio = epub.ler(proprio)
+    assert not [a for a in relatorio.avisos if "nav é refeito" in a], relatorio.avisos
+
+    de_fora = str(tmp_path / "de-fora.epub")
+    with zipfile.ZipFile(proprio) as z, zipfile.ZipFile(de_fora, "w") as saida:
+        for item in z.infolist():
+            dados = z.read(item.filename)
+            if item.filename.endswith("nav.xhtml"):
+                texto = dados.decode("utf-8").replace(
+                    "<head>", '<head>\n<meta name="x" content="y"/>\n<style>a{}</style>\n<style>b{}</style>')
+                dados = texto.replace("<a href=", '<a dir="ltr" lang="pt" href=').encode("utf-8")
+            saida.writestr(item, dados)
+    livro, relatorio = epub.ler(de_fora)
+    aviso, = [a for a in relatorio.avisos if "nav é refeito" in a]
+    assert "2 <style>" in aviso and "1 <meta>" in aviso
+    assert re.search(r"\d+ atributos? dir", aviso) and re.search(r"\d+ atributos? lang", aviso)
+    assert [e.rotulo for e in livro.sumario] == [e.rotulo for e in _livro.sumario]
 
 
 if __name__ == "__main__":

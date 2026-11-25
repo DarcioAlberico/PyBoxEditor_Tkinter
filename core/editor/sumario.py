@@ -208,6 +208,48 @@ def ler_nav(texto: str | bytes, nav: str) -> tuple[Sumario, list[tuple[str, str]
     return sumario, marcos, paginas
 
 
+#: O que `escrever_nav` gera: os elementos e, por elemento, os atributos (PD-25).
+_DO_NAV_GERADO = {
+    "html": {"xmlns", "xmlns:epub", "lang", "xml:lang"}, "head": set(), "title": set(), "body": set(),
+    "nav": {"epub:type", "id", "hidden"}, "h1": set(), "ol": set(), "li": set(), "span": set(),
+    "a": {"href", "epub:type"},
+}
+
+
+def perdas_do_nav(texto: str | bytes) -> list[str]:
+    """
+    O que um `nav.xhtml` de origem tem além do que `escrever_nav` regenera (PD-25), já
+    contado para o aviso: `["4 <style>", "1 <meta>", "36 atributos dir", …]`, os mais
+    frequentes primeiro. Lista vazia quando o nav é como o do próprio editor.
+
+    O nav é regenerado de propósito a cada gravação (SPEC_EDITOR §10.1): o sumário, os
+    marcos e a lista de páginas saem do modelo. O resto do nav de origem — a cabeça com
+    `<style>` e `<meta>`, os `lang`/`dir`/`data-*` que um tradutor de navegador põe nos
+    links — não tem onde morar no modelo, e esta conta é o que torna a perda declarada.
+    """
+    from collections import Counter
+
+    from core.editor import xhtml
+
+    elementos: Counter = Counter()
+    atributos: Counter = Counter()
+
+    def visitar(no: xhtml.No) -> None:
+        nome = no.nome.split("}")[-1]
+        if nome not in _DO_NAV_GERADO:
+            elementos[nome] += 1
+            return
+        for atributo in no.attrs:
+            if atributo not in _DO_NAV_GERADO[nome] and not atributo.startswith("xmlns:"):
+                atributos[atributo] += 1
+        for filho in no.elementos():
+            visitar(filho)
+
+    visitar(xhtml.analisar(texto).raiz)
+    return ([f"{n} <{nome}>" for nome, n in elementos.most_common()]
+            + [f"{n} atributo{'s' if n > 1 else ''} {nome}" for nome, n in atributos.most_common()])
+
+
 # ----------------------------------------------------------------------
 # toc.ncx (compatibilidade)
 # ----------------------------------------------------------------------
