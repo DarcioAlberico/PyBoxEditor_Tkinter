@@ -289,7 +289,7 @@ def _confianca_media(imagem, caixas: Sequence[BoxEntry], angulo: int,
     ângulo, e não derruba a geração de boxes da página: sem confiança nenhuma o de pé ganha, que é o estado
     anterior a esta fase. Falhar aqui não pode custar a página inteira.
     """
-    # Tardio: só para o nome do erro; a ordem de leitura importa este módulo sem o OpenCV.
+    # Tardio: só para o nome do erro.
     import cv2
 
     arr = np.asarray(imagem)

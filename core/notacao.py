@@ -41,7 +41,6 @@ from typing import List, Optional, Sequence, Tuple
 import chess
 
 from core.box_model import BoxEntry
-from core.services.box_service import BoxService
 
 
 # Figurina -> letra. O livro usa um conjunto só para os dois lados (ver F1.1),
@@ -190,6 +189,9 @@ def _linhas_de_boxes(boxes: Sequence[BoxEntry],
     # tratando páginas em duas colunas, F1.6), então dá para recuperar o índice
     # original por identidade em vez de reimplementar a ordenação aqui.
     posicao = {id(b): i for i, b in enumerate(boxes)}
+    # Tardio: o `BoxService` traz o OpenCV, e só a ordem da página o pede — a peneira de
+    # notação, que a ortografia do editor usa, fica leve (RG-20, R-46).
+    from core.services.box_service import BoxService
     ordenados = BoxService.sort_boxes_reading_order(list(boxes), deteccao)
 
     linhas: List[List[BoxEntry]] = []

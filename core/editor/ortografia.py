@@ -6,9 +6,9 @@ A ortografia do livro: o que é palavra, o que fica fora, e o léxico de cada id
 
 Um livro de xadrez é metade notação, e a notação não é palavra: `12.Nf3`, `♘c6`, `±`,
 `1-0` e `O-O` nunca chegam ao dicionário. A peneira é a mesma de
-`core/notacao.py: e_token_de_notacao` — **copiada**, e não importada, porque
-`core.notacao` traz `box_service` e o OpenCV, e o editor precisa abrir sem eles
-(DEC-07); `tests/test_editor_ortografia.py` confere que a cópia não divergiu. Fica de
+`core/notacao.py: e_token_de_notacao` — era uma cópia até a RG-20, porque `core.notacao`
+trazia o OpenCV, e o editor precisa abrir sem ele (DEC-07); hoje só a ordem da página o
+traz, quando se pede. Fica de
 fora também o que o **modelo** já diz que não é prosa: o trecho com `papel` de lance,
 NAG, figurina, jogador ou abertura, o trecho em `codigo`, a ilha, e o número. Palavra
 toda em maiúsculas (`FIDE`, `ECO`) também fica — é a opção "ignorar MAIÚSCULAS" de
@@ -40,19 +40,11 @@ from typing import Any, Callable, Sequence
 from core.editor import busca, modelo
 from core.editor.busca import Alvo
 from core.editor.modelo import Capitulo, Livro, Paragrafo, Trecho
+from core.notacao import GLIFOS_DE_XADREZ, e_token_de_notacao
 
-#: Cópia de `core/notacao.py` (ver o cabeçalho): as figurinas e as peneiras de notação.
-FIGURINAS = "♔♕♖♗♘♙♚♛♜♝♞♟"
-_PECAS_SAN = "KQRBN" + FIGURINAS
-RE_LANCE_ESTRITO = re.compile(
-    r"^(?:\d{1,3}\.(?:\.\.)?)?"
-    r"(?:[" + _PECAS_SAN + r"]?[a-h]?[1-8]?x?[a-h][1-8](?:=[" + _PECAS_SAN + r"])?"
-    r"|[O0]-[O0](?:-[O0])?)"
-    r"[+#]?[!?]{0,2}[±∓⩱⩲=∞]?$")
-RE_NUMERO_DE_LANCE = re.compile(r"^\d{1,3}\.(?:\.\.)?$")
-RE_SINAL_DE_AVALIACAO = re.compile(r"^[+\-±∓⩱⩲=∞!?#□■△▼]+$")
-RE_RESULTADO = re.compile(r"^(?:1[-–—]0|0[-–—]1|½[-–—]½|1/2[-–—]1/2)$")
-_PONTUACAO_DE_BORDA = ",;:.)(\"'“”‘’"
+#: As figurinas e a peneira de notação são as de `core/notacao.py` (RG-20).
+FIGURINAS = GLIFOS_DE_XADREZ
+e_notacao = e_token_de_notacao
 #: Pontuação que cerca uma palavra e não faz parte dela (a `BORDAS` do léxico, mais o que o editor usa).
 BORDAS = ".,;:!?()[]{}\"'‘’“”«»–—-*+…/\\"
 PAPEIS_FORA = ("lance", "nag", "figurina", "jogador", "abertura")
@@ -61,20 +53,6 @@ _RE_APOSTROFO = re.compile(r"['’]")
 _RE_HIFEN = re.compile(r"[-‐‑]")
 _RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PASTA_DOS_LEXICOS = os.path.join(_RAIZ, "assets", "lexico")
-
-
-def e_notacao(token: str) -> bool:
-    """A cópia de `notacao.e_token_de_notacao`: lance, número de lance, sinal ou resultado."""
-    if not token:
-        return False
-    if any(c in FIGURINAS for c in token):
-        return True
-    if RE_NUMERO_DE_LANCE.match(token) or RE_SINAL_DE_AVALIACAO.match(token):
-        return True
-    nucleo = token.strip(_PONTUACAO_DE_BORDA)
-    if not nucleo:
-        return False
-    return RE_LANCE_ESTRITO.match(nucleo) is not None or RE_RESULTADO.match(nucleo) is not None
 
 
 def nucleo(token: str) -> tuple[str, int]:

@@ -1375,6 +1375,20 @@ Estado: fechada (2026-11-25), num commit. Base `65a096b`, worktree `.claude/work
 - A/B das quatro páginas idêntico (`RG-18-antes`/`RG-18-depois`); rodada
   `benchmarks/rodadas/2026-11-25-1815.json`, 0,91% página a página. Suíte: 4102 passed.
 ### RG-20
+Estado: fechada (2026-11-25), num commit, com **uma entrega trocada**. Base `af84e67`, o mesmo
+worktree.
+- `core/notacao.py` importa o `BoxService` só dentro de `_linhas_de_boxes`, que é quem pede a
+  ordem da página; a `ortografia` toma `e_token_de_notacao` e os glifos de `notacao`, e a cópia
+  saiu. `tests/test_ortografia_leve.py`: importar `core.editor.ortografia` (e `core.notacao`)
+  não põe `cv2`, `torch` nem o `box_service` em `sys.modules`; contra o código de antes falha na
+  `notacao`. O teste da cópia passa a dizer que é a mesma função.
+- **O módulo leve da ordem de leitura foi feito, medido e recusado**: as 950 linhas mudaram de
+  lugar linha a linha, com o `BoxService` herdando a classe, e a suíte do AbbyChessCraft foi a 8
+  falhas — as duas novas, `test_a_pagina_de_uma_coluna_detecta_as_colunas_uma_vez`, observam a
+  ordem e a detecção **pelo `BoxService`**, e a chamada do `core` deixava de passar por ele. O
+  import tardio dá o mesmo aceite sem mudar o dono da ordem, e um teste daqui fixa isso.
+- A/B das quatro páginas idêntico (`RG-20-depois`). Suíte: 4105 passed. AbbyChessCraft: 2915
+  passed, 6 failed, os mesmos seis da base.
 ### RG-19
 
 ## Re-análises deste documento

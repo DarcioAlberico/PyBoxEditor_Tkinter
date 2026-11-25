@@ -1,7 +1,7 @@
 """
 Testes de `core/editor/ortografia.py` e `ui/editor/ortografia.py` (ED-06; SPEC_EDITOR
 §8.13): `verificar` acusa só `knigt` em "The knigt plays 12.Nf3 ♘c6 ±" (AC-ED06-3), a
-peneira de notação copiada bate com `core.notacao.e_token_de_notacao`, o `lang="pt"`
+peneira de notação é a `core.notacao.e_token_de_notacao`, o `lang="pt"`
 usa o léxico `pt` (vazio até a ED-06b → nada acusado), "Adicionar" grava em
 `livro.lexico.txt`, e o `F7` com respostas injetadas (Ignorar / Ignorar todas /
 Adicionar / Trocar) altera só o que deve — mais o sublinhado `orto`, o modo código em
@@ -59,13 +59,11 @@ def test_ac3_verificar_acusa_so_knigt_na_frase_com_notacao_figurina_e_nag():
     assert suspeitas[0].alvo.caminho == ("bloco",)
 
 
-def test_a_peneira_copiada_bate_com_a_de_core_notacao():
+def test_a_peneira_e_a_de_core_notacao():
+    """Era uma cópia até a RG-20 (R-46): agora é a mesma função, e não há o que divergir."""
     from core import notacao
-
-    tokens = ("12.Nf3", "Nf3", "e4", "exd5", "O-O", "0-0-0", "1-0", "½-½", "+-", "!?", "±", "Nimzowitsch", "12...",
-              "3.", "e4!", "Bxf7+", "knight", "a1]d", "hello", "Kb1", "12.Nf3,", "(Nf3)", "♘c6", "=", "Ke2#",
-              "e8=Q", "cavalo", "ECO", "1/2-1/2", "12.", "...", "a-b", "Nimzo-Indian", "Black's")
-    assert [ortografia.e_notacao(t) for t in tokens] == [notacao.e_token_de_notacao(t) for t in tokens]
+    assert ortografia.e_notacao is notacao.e_token_de_notacao
+    assert ortografia.FIGURINAS is notacao.GLIFOS_DE_XADREZ
 
 
 def test_ficam_fora_numeros_maiusculas_codigo_ilha_e_os_papeis_de_xadrez():
