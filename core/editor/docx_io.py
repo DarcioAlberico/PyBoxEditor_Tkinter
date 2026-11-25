@@ -1009,6 +1009,12 @@ class _Escritor:
             if trecho.ilha:
                 run = p.add_run(_texto_da_ilha(trecho.ilha))
                 run.style = self.doc.styles["Ilha"]
+                # O formato de onde a ilha está (PD-24) vale para o texto dela.
+                run.bold = True if (trecho.negrito or negrito) else None
+                run.italic = True if trecho.italico else None
+                run.underline = True if trecho.sublinhado else None
+                if trecho.tachado:
+                    run.font.strike = True
                 self.relatorio.aviso(f"{self._capitulo_atual.arquivo if self._capitulo_atual else ''}: ilha inline "
                                      f"saiu como texto no estilo Ilha")
                 continue

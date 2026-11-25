@@ -291,6 +291,22 @@ def test_o_golden_do_livro_completo_nao_mudou(tmp_path):
         assert _canonico(partes[parte]) == esperado, f"{parte} mudou — se foi de propósito, regrave o golden"
 
 
+def test_a_ilha_inline_leva_o_negrito_de_onde_esta(tmp_path):
+    """PD-24 no DOCX: a ilha sai como texto no estilo Ilha, com o negrito do trecho."""
+    livro = editor_livros.livro_de_teste()
+    livro.capitulos[0].blocos.append(m.Paragrafo(trechos=[
+        m.Trecho(texto="Ab", negrito=True), m.Trecho(ilha='<span data-imt-x="1">cd</span>', negrito=True),
+        m.Trecho(ilha='<span data-imt-x="1">ef</span>')]))
+    caminho, _relatorio = _escrever(tmp_path, livro)
+    doc = _partes(caminho)["word/document.xml"]
+    runs = {}
+    for run in re.findall(r"<w:r>(?:(?!</w:r>).)*</w:r>", doc, re.S):
+        texto = re.search(r"<w:t[^>]*>([^<]*)</w:t>", run)
+        if '<w:rStyle w:val="Ilha"/>' in run and texto:
+            runs[texto.group(1)] = run
+    assert "<w:b/>" in runs["cd"] and "<w:b/>" not in runs["ef"]
+
+
 if __name__ == "__main__":
     if "--gravar-golden" in sys.argv:
         import tempfile

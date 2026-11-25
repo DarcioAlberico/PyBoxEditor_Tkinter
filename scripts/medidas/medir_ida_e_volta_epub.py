@@ -9,7 +9,10 @@ original com o gravado e conta, por livro:
 - **atributos perdidos**, por `elemento@atributo` — ocorrências no original menos no
   gravado, somadas sobre os XHTML de mesmo nome (o `id` e o `class` de `li`, `td`, `img`,
   `body`… que o leitor aceitava e descartava);
-- **elementos perdidos**, por nome, do mesmo jeito;
+- **elementos perdidos**, por nome, do mesmo jeito — pelo nome **canônico** do dialeto
+  (`dialeto.SINONIMOS_INLINE`): o `<b>` que volta `<strong>` é o mesmo negrito, e contá-lo
+  como perdido escondia o que se perdia de verdade (PD-24: dos 728 `<b>` do Grooten, 708
+  sumiam e 20 voltavam como `<strong>`);
 - **atributos perdidos do OPF** (o `itemref`, o `item`, os `dc:*`), do mesmo jeito;
 - **arquivos perdidos**: entradas do zip original que não estão no gravado.
 
@@ -39,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from config.paths import corpus_de_epubs  # noqa: E402
 from core.editor import epub  # noqa: E402
+from core.editor.dialeto import SINONIMOS_INLINE  # noqa: E402
 
 #: Atributos que o escritor regenera de propósito, e cuja falta não é perda do livro.
 _REGENERADOS = {"xmlns", "xmlns:epub", "xml:lang"}
@@ -51,6 +55,7 @@ class _Contador(HTMLParser):
         self.atributos: Counter = Counter()
 
     def handle_starttag(self, tag, attrs):
+        tag = SINONIMOS_INLINE.get(tag, tag)
         self.elementos[tag] += 1
         for nome, _valor in attrs:
             if nome not in _REGENERADOS:

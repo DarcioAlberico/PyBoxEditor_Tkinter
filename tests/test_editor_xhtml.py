@@ -376,5 +376,24 @@ def test_o_xhtml_esperado_esta_no_golden():
     assert saida == esperado
 
 
+def test_o_formato_em_volta_de_uma_ilha_inline_volta_com_ela():
+    """
+    PD-24: o `<b>` em volta de um `<span>` que o dialeto não conhece (o `data-imt-…` da
+    extensão Immersive Translate) sumia calado — 708 dos 728 do Grooten (*Finais de
+    xadrez*, NIC 2022). A ilha leva o formato de onde está, e o escritor a embrulha nele;
+    o link em volta dela continua link. Comentário não tem formato.
+    """
+    fonte = ('<p><b>Ab<span class="f9" data-imt-x="1">cd</span>ef</b> e '
+             '<a href="c2.xhtml"><span data-imt-x="1">ir</span></a> e <i><!-- c --></i></p>')
+    blocos = xhtml.ler_fragmento(fonte)
+    ilhas = [t for t in blocos[0].trechos if t.ilha]
+    assert [(t.negrito, t.link) for t in ilhas] == [(True, ""), (False, "c2.xhtml"), (False, "")]
+    escrito = xhtml.escrever_fragmento(blocos)
+    assert '<strong>Ab</strong><strong><span class="f9" data-imt-x="1">cd</span></strong><strong>ef</strong>' in escrito
+    assert '<a href="c2.xhtml"><span data-imt-x="1">ir</span></a>' in escrito
+    assert "<!-- c -->" in escrito and "<em><!--" not in escrito
+    assert xhtml.escrever_fragmento(xhtml.ler_fragmento(escrito)) == escrito
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

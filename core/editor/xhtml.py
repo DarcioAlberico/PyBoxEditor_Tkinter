@@ -880,7 +880,7 @@ class _Leitor:
                 self._aplicar_pendente(trecho, pendente)
                 saida.append(trecho)
             elif isinstance(filho, (Comentario, PI)):
-                saida.append(self._ilha_inline(self.doc.cru(filho), estado, pendente))
+                saida.append(self._ilha_inline(self.doc.cru(filho), None, pendente))
             elif filho.nome == "br" and not filho.attrs:
                 if pendente["quebra_antes"]:
                     saida.append(Trecho(quebra_antes=True))
@@ -911,8 +911,15 @@ class _Leitor:
         pendente["quebra_antes"] = False
         pendente["pagina"] = None
 
-    def _ilha_inline(self, cru: str, estado: Trecho, pendente: dict[str, Any]) -> Trecho:
-        trecho = Trecho(ilha=_entidades_numericas(cru))
+    def _ilha_inline(self, cru: str, estado: Trecho | None, pendente: dict[str, Any]) -> Trecho:
+        """
+        O elemento inline que o dialeto não conhece, byte a byte, **com o formato de onde
+        ele está** (PD-24): o `<b>` em volta de um `<span data-imt-…>` volta como
+        `<strong>` em volta da ilha, e o link em volta dela continua link. Comentário e
+        instrução de processamento (`estado=None`) não têm formato.
+        """
+        trecho = _copia(estado) if estado is not None else Trecho()
+        trecho.ilha = _entidades_numericas(cru)
         self._aplicar_pendente(trecho, pendente)
         return trecho
 
@@ -1563,7 +1570,8 @@ class _Escritor:
             if trecho.quebra_antes:
                 partes.append("<br/>")
             if trecho.ilha:
-                partes.append(self._ilha(trecho.ilha))
+                abre, fecha = self._camadas(trecho)
+                partes.append(abre + self._ilha(trecho.ilha) + fecha)
                 continue
             if trecho.nota:
                 numero = self.numeros_de_nota.get(trecho.nota, 0)
@@ -1579,6 +1587,11 @@ class _Escritor:
         # Onde o texto vira nó XML (RG-04, R-07): o capítulo saía mal formado com um
         # `\x0c`, e um surrogate solto levantava `UnicodeEncodeError` ao gravar.
         texto = escape(texto_legal_em_xml(t.texto, "texto do editor"))
+        abre, fecha = self._camadas(t)
+        return abre + texto + fecha
+
+    def _camadas(self, t: Trecho) -> tuple[str, str]:
+        """A abertura e o fechamento do formato de `t` — os mesmos em volta do texto e da ilha."""
         camadas: list[tuple[str, str]] = []   # (abertura, fechamento), de fora para dentro
         if t.link:
             attrs: dict[str, str] = {}
@@ -1599,9 +1612,7 @@ class _Escritor:
             camadas.append((f"<{elemento}>", f"</{elemento}>"))
         if t.codigo:
             camadas.append(("<code>", "</code>"))
-        abre = "".join(a for a, _ in camadas)
-        fecha = "".join(f for _, f in reversed(camadas))
-        return abre + texto + fecha
+        return "".join(a for a, _ in camadas), "".join(f for _, f in reversed(camadas))
 
     def _span(self, t: Trecho) -> str:
         classes: list[str] = []
