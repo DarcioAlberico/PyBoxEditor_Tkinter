@@ -104,7 +104,8 @@ de implementação pertencem às specs e aos ADRs.
 8. Todo diagrama materializado tem estado de revisão e referência à imagem de
    origem, mesmo quando aceito automaticamente.
 9. Eventos de revisão não apagam decisões anteriores; desfazer também é evento.
-10. Todos os formatos percorrem a mesma sequência ordenada de blocos editoriais.
+10. Todos os formatos percorrem a mesma sequência ordenada de blocos editoriais, e as
+    páginas na ordem do `page_index`, que o documento fixa ao ser construído (RG-17).
 11. Uma saída limpa pode ocultar a auditoria visualmente, mas nunca a destrói no
     documento editorial ou no diário de revisão.
 12. Dados sintéticos não substituem holdout real nem podem contaminar sua medição.

@@ -717,13 +717,8 @@ def pagina_editorial_para_extraida(page: EditorialPage, *,
 def documento_para_paginas_extraidas(documento: EditorialDocument, *,
                                      incluir_rejeitados: bool = False,
                                      estado_da_revisao: bool = False) -> list[Any]:
-    """As páginas do documento **na ordem em que ele as traz**.
-
-    Não ordenada por `page_index`, e é o que a volta exige: quem exporta uma
-    seleção de páginas passa a lista na ordem que quer, e o EPUB numera os
-    arquivos por ela. Ordenar aqui trocaria a ordem do livro exportado num
-    round-trip — e o `page_index` continua sendo o número impresso, que é
-    outra coisa.
+    """As páginas do documento, na ordem dele: a do `page_index`, que é a mesma em todos os
+    formatos (RG-17, R-32).
     """
     return [pagina_editorial_para_extraida(page, incluir_rejeitados=incluir_rejeitados,
                                            estado_da_revisao=estado_da_revisao)

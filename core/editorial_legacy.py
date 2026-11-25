@@ -431,7 +431,7 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
     livro. O que não foi tocado fica como o leitor deixou — inclusive as
     medidas de negrito e lacuna, que o texto novo já não acompanha e que
     por isso são esquecidas no parágrafo mexido. As páginas originais não
-    são alteradas: o que sai são cópias.
+    são alteradas: o que sai são cópias, na ordem do documento (`page_index`).
 
     **Página que não está em `paginas` volta do próprio documento**
     (`pagina_editorial_para_extraida`), e é o que permite exportar o EPUB ou o
@@ -499,7 +499,9 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
             destino.blocos[ordem] = _bloco_revisado(destino.blocos[ordem], block, opcoes)
         for ordem in sorted(set(remover), reverse=True):
             del destino.blocos[ordem]
-    return [saida[numero] for numero in ordem_das_paginas]
+    # A ordem do documento, e não a de quem leu: `extrair(paginas=[5, 2])` sai 2 e 5 em
+    # todos os formatos (RG-17, R-32).
+    return [saida[numero] for numero in sorted(ordem_das_paginas)]
 
 
 def _fen_revisado(block: Any) -> bool:

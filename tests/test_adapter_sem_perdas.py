@@ -105,7 +105,8 @@ def test_o_round_trip_devolve_a_pagina_igual():
 def test_o_epub_do_round_trip_e_byte_identico(tmp_path, monkeypatch):
     """O outro critério: o arquivo entregue não muda por ter passado pelo IR."""
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
-    paginas = [_pagina(), _pagina_de_imagem()]
+    # Na ordem do documento (RG-17, R-32): a de leitura fora de ordem o IR desfaz.
+    paginas = [_pagina_de_imagem(), _pagina()]
     documento = paginas_extraidas_para_documento(paginas, document_id="book",
                                                  title="Livro")
     volta = documento_para_paginas_extraidas(documento)

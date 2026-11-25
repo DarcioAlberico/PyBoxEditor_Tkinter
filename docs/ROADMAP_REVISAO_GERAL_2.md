@@ -1301,6 +1301,16 @@ no master em `ffc3ec3`), o mesmo worktree.
   passed. AbbyChessCraft: 2915 passed, 6 failed, os mesmos seis da base.
 - A Onda 6 está fechada. Próximo passo da revisão: a Onda 7 (RG-17, a exportação editorial).
 ### RG-17
+Estado: em andamento (2026-11-25). Base `a56ebbc`, worktree `.claude/worktrees/onda7`
+(destacado, com os pesos copiados). A fase não mexe na leitura: sem A/B.
+- Commit 1 (R-32): `EditorialDocument` ordena as páginas por `page_index` na construção
+  (estável), `aplicar_revisao` devolve na mesma ordem, e o HTML, o TXT e o PDF deixam de
+  ordenar por conta própria; a invariante 10 do `CONTEXT.md` diz a ordem.
+  `tests/test_uma_ordem_de_paginas.py`, com as páginas 9, 2 e 5 nos seis formatos, pela
+  fachada (com leitura e de volta do IR) e pelo exportador: contra o código de antes falham o
+  EPUB, o DOCX e o JSON; HTML, TXT e PDF já ordenavam. O `test_adapter_sem_perdas` que
+  comparava byte a byte um EPUB de páginas fora de ordem passa a dá-las em ordem. Suíte: 4020
+  passed.
 ### RG-18
 ### RG-20
 ### RG-19

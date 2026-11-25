@@ -351,7 +351,7 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
 
 def _html_body(document: EditorialDocument, options: ExportOptions) -> str:
     pages = []
-    for page in sorted(document.pages, key=lambda item: item.page_index):
+    for page in document.pages:
         blocks = "\n".join(_block_html(block, options)
                              for block in sorted(page.blocks, key=lambda item: item.order))
         pages.append(f'<section id="page-{page.page_index + 1}" data-page="{page.page_index + 1}">{blocks}</section>')
@@ -366,7 +366,7 @@ def _html_body(document: EditorialDocument, options: ExportOptions) -> str:
 
 def _text_document(document: EditorialDocument) -> str:
     lines: list[str] = []
-    for page in sorted(document.pages, key=lambda item: item.page_index):
+    for page in document.pages:
         for block in sorted(page.blocks, key=lambda item: item.order):
             texto = texto_do_bloco(block)
             if texto:
@@ -409,7 +409,8 @@ def _gravar_atomico(caminho: Path, conteudo: str) -> None:
 
 
 class EditorialExporter:
-    """Exportador único: todos os destinos percorrem a mesma ordem de blocos."""
+    """Exportador único: todos os destinos percorrem a mesma ordem — as páginas na do
+    documento (`EditorialDocument` ordena por `page_index`), os blocos na de `order`."""
 
     def export(self, document: EditorialDocument, target: str | Path,
                options: ExportOptions | None = None) -> ExportReport:
@@ -496,7 +497,7 @@ class EditorialExporter:
             warnings.append(f"sem fonte de xadrez para a camada de texto ({error}); "
                             "as figurinas saem como ·")
         escrita = {"fontname": FONTE_DA_CAMADA} if fonte_da_camada else {}
-        for page_model in sorted(document.pages, key=lambda item: item.page_index):
+        for page_model in document.pages:
             if page_model.page_index >= len(pdf):
                 # Página fora do PDF: contada como falha e anunciada — o
                 # `continue` mudo deixava página em branco com "0 falhas".

@@ -399,7 +399,10 @@ class EditorialDocument:
         self.document_id = _required(self.document_id, "document_id")
         self.title = str(self.title)
         self.language = str(self.language)
-        self.pages = list(self.pages)
+        # **Uma ordem de páginas para todos os formatos** (RG-17, R-32; invariante 10): quem
+        # ordena é o documento, aqui, e nenhum exportador reordena. Estável, para as páginas
+        # de mesmo índice ficarem como chegaram.
+        self.pages = sorted(self.pages, key=lambda page: page.page_index)
         self.schema = str(self.schema)
         self.pipeline_version = str(self.pipeline_version or "")
         self.source_sha256 = str(self.source_sha256 or "")
