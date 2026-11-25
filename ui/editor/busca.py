@@ -467,8 +467,8 @@ class Buscador:
         self.atual = ocorrencia
         try:
             aba.widget.foco()
-        except Exception:      # noqa: BLE001 — uma janela escondida não dá foco
-            pass
+        except (tk.TclError, AttributeError) as erro:      # uma janela escondida não dá foco
+            j.log.debug("o resultado não recebeu o foco: %s", erro)
 
     # -- substituir ---------------------------------------------------------
 
@@ -671,8 +671,8 @@ class Buscador:
         try:
             j.navegador.focus(arquivo)
             j.navegador.selection_set(arquivo)
-        except Exception:      # noqa: BLE001 — a entrada pode não existir mais
-            pass
+        except tk.TclError as erro:      # a entrada pode não existir mais
+            j.log.debug("%s não está mais no navegador: %s", arquivo, erro)
         j.status(f"{arquivo}: {'marcado' if marcado else 'desmarcado'} para a busca ({len(marcados)} marcado(s))")
         return marcado
 

@@ -20,6 +20,9 @@ import cv2
 import numpy as np
 
 from core.learner import NomeDePastaInvalido, char_to_folder, folder_to_char
+from core.log import logger
+
+log = logger(__name__)
 
 
 MIN_AMOSTRAS_POR_CLASSE = 10
@@ -80,7 +83,8 @@ def png_legivel(caminho: str) -> bool:
     try:
         with open(caminho, "rb") as f:
             dados = f.read()
-    except OSError:
+    except OSError as erro:
+        log.warning("a amostra %s não se lê e conta como ilegível: %s", caminho, erro)
         return False
     if not dados:
         return False
@@ -107,7 +111,9 @@ def nome_canonico(pasta: str) -> Optional[str]:
     """
     try:
         char = folder_to_char(pasta, strict=True)
-    except NomeDePastaInvalido:
+    except NomeDePastaInvalido as erro:
+        # Quem chama mostra o problema; o porquê fica para quem depura.
+        log.debug("a pasta %r não é nome de classe: %s", pasta, erro)
         return None
     if not char:
         return None

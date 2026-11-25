@@ -520,7 +520,8 @@ class Documento:
         """
         try:
             pasta = self.janela._configuracoes().get(CHAVE_DO_DIRETORIO_DE_ENTRADA)
-        except Exception:  # noqa: BLE001 — preferência que não abre não barra a ação
+        except Exception as erro:  # noqa: BLE001 — preferência que não abre não barra a ação
+            log.warning("a pasta da última vez não se leu: %s", erro)
             pasta = None
         escolhido = filedialog.askopenfilename(
             title=titulo, filetypes=tipos,
@@ -531,8 +532,8 @@ class Documento:
                 configuracoes.set(CHAVE_DO_DIRETORIO_DE_ENTRADA,
                                   os.path.dirname(os.path.abspath(escolhido)))
                 configuracoes.save()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as erro:  # noqa: BLE001 — nem a que não grava
+                log.warning("a pasta %s não ficou guardada: %s", os.path.dirname(escolhido), erro)
         return escolhido
 
     def _maximizada(self) -> bool:
@@ -564,8 +565,8 @@ class Documento:
             configuracoes.set(self.janela.CHAVE_DA_JANELA, self.janela._estado_da_janela(
                 anterior if isinstance(anterior, dict) else None))
             configuracoes.save()
-        except Exception:  # noqa: BLE001 — preferência que não grava não barra o fechamento
-            pass
+        except Exception as erro:  # noqa: BLE001 — preferência que não grava não barra o fechamento
+            log.warning("a geometria e os filtros da janela não ficaram guardados: %s", erro)
 
     def _geometria_que_cabe(self, geometria) -> bool:
         """A geometria gravada ainda cabe na tela de agora? Numa tela menor —
@@ -588,7 +589,8 @@ class Documento:
         """
         try:
             estado = self.janela._configuracoes().get(self.janela.CHAVE_DA_JANELA)
-        except Exception:  # noqa: BLE001
+        except Exception as erro:  # noqa: BLE001 — preferência que não abre não barra a janela
+            log.warning("a geometria e os filtros da janela não se leram: %s", erro)
             return
         if not isinstance(estado, dict):
             return

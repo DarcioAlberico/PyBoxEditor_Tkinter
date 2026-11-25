@@ -14,6 +14,7 @@ do processo) e `mostrar_progresso` (a janelinha).
 from __future__ import annotations
 
 import os
+import tkinter as tk
 from typing import Any, Callable
 
 from core.editor import abrir_pdf as ap
@@ -193,8 +194,8 @@ class LeituraDePdf:
         if self._agendado is not None:
             try:
                 self.j.after_cancel(self._agendado)
-            except Exception:      # noqa: BLE001
-                pass
+            except (tk.TclError, ValueError) as erro:      # o agendamento já disparou
+                self.j.log.debug("o agendamento não se cancelou: %s", erro)
             self._agendado = None
         if self.tarefa is not None:
             self.tarefa.cancelar()

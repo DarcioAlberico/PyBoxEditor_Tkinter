@@ -16,6 +16,7 @@ import base64
 import copy
 import html
 import json
+import logging
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +26,7 @@ import fitz
 
 from core.editorial_model import EditorialBlock, EditorialDocument
 
-from core.log import logger
+from core.log import logger, uma_vez
 
 log = logger(__name__)
 
@@ -234,7 +235,9 @@ def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
             continue
         try:
             base64.b64decode(str(encoded), validate=True)
-        except (ValueError, TypeError):
+        except ValueError as erro:
+            log.warning("a imagem guardada do diagrama %s não se lê (%s); ele sai desenhado do FEN",
+                        block.id, erro)
             continue
         return str(encoded), "recorte"
     desenhada = _imagem_desenhada(block)
@@ -326,6 +329,14 @@ def _audit(block: EditorialBlock, options: ExportOptions) -> str:
             f"</details>")
 
 
+def _faixa_torta(block: EditorialBlock, chave: str, item: Any) -> None:
+    """A ênfase que não se lê sai do arquivo; uma vez por bloco, que cada formato pergunta
+    por ela."""
+    uma_vez(log, f"faixa:{block.id}:{chave}", logging.WARNING,
+            "o bloco %s tem uma faixa de %s que não se lê (%r); esse trecho sai sem a marca",
+            block.id, "negrito" if chave == "bold_spans" else "itálico", item)
+
+
 def trechos_em_negrito(texto: str, block: EditorialBlock) -> list[tuple[str, bool]]:
     """
     O texto partido nos trechos em negrito e nos de fora deles.
@@ -341,6 +352,7 @@ def trechos_em_negrito(texto: str, block: EditorialBlock) -> list[tuple[str, boo
         try:
             inicio, fim = int(item[0]), int(item[1])
         except (TypeError, ValueError, IndexError):
+            _faixa_torta(block, "bold_spans", item)
             continue
         faixas.append((inicio, fim))
     saida: list[tuple[str, bool]] = []
@@ -365,6 +377,7 @@ def faixas_do_estilo(block: EditorialBlock, chave: str) -> list[tuple[int, int]]
         try:
             faixas.append((int(item[0]), int(item[1])))
         except (TypeError, ValueError, IndexError):
+            _faixa_torta(block, chave, item)
             continue
     return faixas
 

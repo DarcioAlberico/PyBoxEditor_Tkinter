@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
@@ -15,7 +16,10 @@ from core import vertical
 from config.paths import caminhos_modelo_linha, pasta_de_linhas
 from ui import tema
 from core.linha_trainer import modelo_utilizavel
+from core.log import logger
 from ui import fontes
+
+log = logger(__name__)
 
 
 def _simbolos_da_paleta() -> tuple[str, ...]:
@@ -525,7 +529,10 @@ class DialogoRotulagem(tk.Toplevel):
                 confiancas.append(float(conf))
             texto = self._inserir_espacos(linha, chars)
             return texto, sum(confiancas) / max(1, len(confiancas))
-        except Exception:
+        except (RuntimeError, ValueError, OSError, cv2.error) as erro:
+            # O modelo que não abre e o recorte que não serve; a linha fica por rotular.
+            log.warning("a linha não se leu pelos glifos (%s: %s); fica por rotular",
+                        type(erro).__name__, erro)
             return "", 0.0
 
     @staticmethod

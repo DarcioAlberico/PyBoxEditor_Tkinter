@@ -36,8 +36,11 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from core import coleta, livro, render_diagrama
 from core.exportar import CORPO_PADRAO_PT
+from core.log import logger
 from ui import tema
 from ui.dialogo_do_diagrama import PainelDoDiagrama
+
+log = logger(__name__)
 
 #: Os formatos que cada ação oferece: (extensão, rótulo).
 FORMATOS_DE_LIVRO = (("epub", "EPUB (leitor de livros)"),
@@ -191,7 +194,8 @@ class DialogoDeExportacao:
         if self.configuracoes is not None:
             try:
                 self._settings = self.configuracoes()
-            except Exception:  # noqa: BLE001 — preferência que não abre não barra a exportação
+            except Exception as erro:  # noqa: BLE001 — preferência que não abre não barra a exportação
+                log.warning("as opções da última exportação não se leram: %s", erro)
                 self._settings = None
         dados = self._settings.get(CHAVE_DAS_OPCOES, {}) if self._settings else {}
         opcoes = OpcoesDeExportacao.de_settings(dados)
@@ -586,9 +590,9 @@ class DialogoDeExportacao:
             self._settings.set(CHAVE_DO_DIRETORIO_DE_SAIDA,
                                os.path.dirname(os.path.abspath(opcoes.saida)))
             self._settings.save()
-        except OSError:
-            # A preferência que não grava não barra a exportação.
-            pass
+        except OSError as erro:
+            # A preferência que não grava não barra a exportação, mas some.
+            log.warning("as opções desta exportação não ficaram guardadas: %s", erro)
 
     def _confirmar(self):
         opcoes, _erro = self._montar()

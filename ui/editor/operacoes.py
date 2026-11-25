@@ -1131,8 +1131,8 @@ class OperacoesDoLivro:
         if self._vigia_id is not None:
             try:
                 self.j.after_cancel(self._vigia_id)
-            except Exception:      # noqa: BLE001
-                pass
+            except (tk.TclError, ValueError) as erro:      # o agendamento já disparou
+                self.j.log.debug("o agendamento não se cancelou: %s", erro)
             self._vigia_id = None
         self.vigiados.clear()
         # A pasta do `mkdtemp` (a validação, o "Abrir com…") sai com o editor (RG-13, R-18).

@@ -65,6 +65,7 @@ from __future__ import annotations
 import copy
 import re
 import time
+import logging
 import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable, Iterable, Sequence
@@ -77,12 +78,15 @@ from core.editor.modelo import (Bloco, Capitulo, Citacao, Diagrama, Figura, Ilha
 from ui.editor import dump as dump_mod
 from ui.editor import proxy as proxy_mod
 from ui.editor import tags as T
+from core.log import logger, uma_vez
 from ui.editor.calha import Calha
 from ui.editor.dump import ID_DA_FAIXA, FaixaDeNotas
 from ui.editor.objetos import ContextoDeObjetos, RegistroDeObjetos, criar_objeto
 from ui.editor.tabela import LIMITE as LIMITE_DE_CELULAS
 from ui.editor.tabela import GradeDeTabela
 from ui.editor.tags import EstiloDeTela, Estilos, Fontes
+
+log = logger(__name__)
 
 BINDTAG = "EditorAtalhosTexto"
 MARCA_DE_INSERCAO = "fim_ins"
@@ -1302,8 +1306,9 @@ class TextoRico(ttk.Frame):
             return
         try:
             self.ao_fechar_token(bloco_id, desloc - 1)
-        except Exception:      # noqa: BLE001 — um gancho que falha não pode travar a digitação
-            pass
+        except Exception as erro:      # noqa: BLE001 — um gancho que falha não pode travar a digitação
+            uma_vez(log, "gancho-do-token", logging.WARNING,
+                    "o gancho do token falhou (%s: %s): as figurinas ao digitar param", type(erro).__name__, erro)
 
     def inserir_formatado(self, texto: str, **atributos: Any) -> bool:
         """Insere `texto` já com os atributos de trecho (`papel`, `nag`, `familia`, `ref`, `link`…)."""

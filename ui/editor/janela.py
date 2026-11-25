@@ -3037,8 +3037,8 @@ class JanelaDoEditor(tk.Toplevel):
         self.mensagens.desinstalar(self.log)
         try:
             self.task.shutdown()
-        except Exception:      # noqa: BLE001 — um controlador emprestado pode já estar fechado
-            pass
+        except (RuntimeError, tk.TclError) as erro:      # um controlador emprestado pode já estar fechado
+            self.log.info("as tarefas do editor já estavam encerradas: %s", erro)
         self._cancelar_afters()
         self.destroy()
         if self.ao_fechar is not None:

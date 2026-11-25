@@ -301,27 +301,41 @@ class DocumentSession:
         """
         f = self.fator_de_escala(payload)
         paginas = payload.get("paginas", {}) or {}
+        recuperadas = boxes_perdidos = 0
+        paginas_perdidas: List[str] = []
         for chave, itens in paginas.items():
             try:
                 indice = int(chave)
             except (TypeError, ValueError):
+                paginas_perdidas.append(str(chave))
                 continue
             boxes = []
             for it in itens or []:
                 box = _box_do_rascunho(it, f)
                 if box is not None:
                     boxes.append(box)
+                else:
+                    boxes_perdidos += 1
             # A lista vazia é a página que o usuário esvaziou (R-04): ela volta vazia,
             # e não com os boxes do `.box` antigo.
             if boxes or not itens:
                 self._pages[indice] = boxes
+                recuperadas += 1
+            else:
+                paginas_perdidas.append(str(chave))
 
         for p in payload.get("sujas", []) or []:
             try:
                 self._dirty.add(int(p))
             except (TypeError, ValueError):
-                continue
-        return len(paginas)
+                log.warning("o rascunho marca como não salva uma página que não existe: %r", p)
+        if paginas_perdidas or boxes_perdidos:
+            # A página descartada contava como recuperada, e a barra de status dizia que o
+            # trabalho tinha voltado (RG-18, R-37).
+            log.warning("do rascunho ficaram de fora %d página(s) (%s) e %d box(es) que não se leem",
+                        len(paginas_perdidas), ", ".join(paginas_perdidas[:5]) or "nenhuma",
+                        boxes_perdidos)
+        return recuperadas
 
     @staticmethod
     def ler_autosave(documento: str) -> Optional[dict]:

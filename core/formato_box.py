@@ -64,9 +64,13 @@ guardar uma ideia. Quando a F47 for revisitada e a margem voltar, ela entra
 como décimo primeiro campo, pela mesma regra.
 """
 
+import logging
 from typing import List, Optional, Sequence
 
 from core.box_model import BoxEntry
+from core.log import logger, uma_vez
+
+log = logger(__name__)
 
 
 #: Primeiro campo de um box sem caractere.
@@ -133,6 +137,13 @@ def formatar_linha(box: BoxEntry, altura: int, pagina: int = 0) -> str:
     return f"{linha} {angulo}" if angulo else linha
 
 
+def _campo_estranho(nome: str, valor: str) -> None:
+    """Um campo da nossa extensão com valor de outro programa: ignorado, e dito uma vez por
+    campo — o arquivo de terceiro o traz em toda linha."""
+    uma_vez(log, f"campo:{nome}", logging.INFO,
+            "um .box traz %r no lugar do campo %s; o campo foi ignorado", valor, nome)
+
+
 def analisar_linha(linha: str, altura: int,
                    origem_inferior: bool = True) -> Optional[BoxEntry]:
     """
@@ -161,6 +172,7 @@ def analisar_linha(linha: str, altura: int,
             try:
                 candidato = int(campos[6]) % 360
             except ValueError:
+                _campo_estranho("ângulo", campos[6])
                 candidato = 0
             angulo = candidato if candidato in (0, 90, 180, 270) else 0
         if len(campos) >= 8:
@@ -173,6 +185,7 @@ def analisar_linha(linha: str, altura: int,
             try:
                 confianca = float(campos[9])
             except ValueError:
+                _campo_estranho("confiança", campos[9])
                 fonte, confianca = "", 0.0
             if not 0.0 <= confianca <= 1.0:
                 fonte, confianca = "", 0.0
@@ -202,11 +215,17 @@ def ler(caminho: str, altura: int,
 def ler_texto(texto: str, altura: int,
               origem_inferior: bool = True) -> List[BoxEntry]:
     """Igual a `ler`, a partir do conteúdo já em memória."""
-    saida = []
+    saida, perdidas = [], []
     for linha in texto.splitlines():
         box = analisar_linha(linha, altura, origem_inferior)
         if box is not None:
             saida.append(box)
+        elif linha.strip():
+            perdidas.append(linha.strip())
+    if perdidas:
+        # O box que não se lê some da página ao salvar por cima (RG-18, R-37).
+        log.warning("%d linha(s) do .box não são boxes e ficaram de fora; a primeira: %r",
+                    len(perdidas), perdidas[0][:60])
     return saida
 
 

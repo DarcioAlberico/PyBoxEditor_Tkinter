@@ -16,7 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping
 
+from core.log import logger
 from core.ocr_language import LanguageModel, TERMOS_XADREZ
+
+log = logger(__name__)
 
 
 CALIBRATION_SCHEMA = "pyboxeditor.ocr-line-calibration/v1"
@@ -173,7 +176,8 @@ def preparar_engines(service=None, *, preparar_pesos: bool = True,
             service.preparar_easyocr(("en", "pt"))
             estados[1].prepared = True
             estados[1].message = "pesos en + pt preparados"
-        except Exception as erro:
+        except Exception as erro:  # noqa: BLE001 — a engine fica sem peso, e o estado diz
+            log.warning("o EasyOCR ficou sem os pesos: %s", erro, exc_info=True)
             estados[1].message = f"falha ao preparar pesos: {erro}"
     if preparar_pesos and service is not None and estados[2].available:
         preparar_paddle = getattr(service, "preparar_paddleocr", None)
@@ -184,7 +188,8 @@ def preparar_engines(service=None, *, preparar_pesos: bool = True,
                 preparar_paddle(("en", "pt"))
                 estados[2].prepared = True
                 estados[2].message = "pesos en + pt preparados"
-            except Exception as erro:
+            except Exception as erro:  # noqa: BLE001 — idem
+                log.warning("o PaddleOCR ficou sem os pesos: %s", erro, exc_info=True)
                 estados[2].message = f"falha ao preparar pesos: {erro}"
     # Tesseract e PaddleOCR carregam seus dados pelo próprio sistema/API; não
     # há fine-tuning seguro deles dentro do treinador CRNN deste projeto.

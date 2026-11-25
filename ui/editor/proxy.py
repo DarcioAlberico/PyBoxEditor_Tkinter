@@ -78,8 +78,8 @@ def instalar(texto: tk.Text, antes: Callable[[str, tuple[str, ...]], Any] | None
             tcl.eval(f"catch {{rename {w} {{}}}}")
             for nome in (w + "_antes", w + "_depois"):
                 tcl.deletecommand(nome)
-        except Exception:      # noqa: BLE001 — o widget ja esta indo embora; nada aqui pode falhar alto
-            pass
+        except tk.TclError as erro:      # o widget já está indo embora
+            _log.debug("o proxy de %s não se desinstalou: %s", w, erro)
 
     texto.bind("<Destroy>", desinstalar, add="+")
     return original

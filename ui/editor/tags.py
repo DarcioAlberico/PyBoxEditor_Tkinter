@@ -39,6 +39,7 @@ aceita, mas o olho não.
 from __future__ import annotations
 
 import re
+import tkinter as tk
 from dataclasses import dataclass, field
 from tkinter import font as tkfont
 from typing import Any, Iterable
@@ -501,8 +502,8 @@ def configurar_fonte(texto: Any, tag: str, atributos: dict[str, Any], fontes: Fo
     for de_tela in ("sel", "sel-objeto", "suspeito", "notacao-ilegal", "orto"):
         try:
             texto.tag_raise(de_tela)
-        except Exception:      # noqa: BLE001 — a tag pode não existir ainda
-            pass
+        except tk.TclError:      # a tag pode não existir ainda
+            continue
 
 
 def _px(em: float, tela: EstiloDeTela) -> int:

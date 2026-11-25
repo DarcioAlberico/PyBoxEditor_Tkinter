@@ -26,7 +26,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable
 
+from core.log import logger
 from ui.editor.barra import AnelDeFoco
+
+log = logger(__name__)
 
 ESTILOS = ("corpo", "primeira", "titulo1", "titulo2", "titulo3", "titulo4", "titulo5", "titulo6", "notacao",
            "comentario", "legenda", "citacao", "nota", "destaque", "epigrafe", "assinatura", "cabecalho-diagrama")
@@ -214,8 +217,9 @@ class PainelDePropriedades(ttk.Frame):
             if self.descrever_suspeita is not None:
                 try:
                     motivos, leituras = self.descrever_suspeita(objeto)
-                except Exception:      # noqa: BLE001 — o painel mostra os códigos e segue
-                    pass
+                except Exception as erro:      # noqa: BLE001 — o painel mostra os códigos e segue
+                    log.warning("os motivos da suspeita não se leram (%s: %s); o painel mostra só o código",
+                                type(erro).__name__, erro)
             linha = self._fixo("Suspeito:", "\n".join(motivos) or str(extras["data-suspeito"]), linha)
             if leituras:
                 linha = self._texto_fixo("Leituras:", leituras, linha)

@@ -1,5 +1,6 @@
 import cv2
 import json
+import logging
 import threading
 import unicodedata
 import numpy as np
@@ -10,7 +11,7 @@ from PIL import Image
 from core import alfabeto, preprocess, proporcao
 from core.box_model import SEM_MARGEM
 
-from core.log import logger
+from core.log import logger, uma_vez
 
 log = logger(__name__)
 
@@ -187,6 +188,16 @@ def _primeiro_grafema(texto: str) -> str:
     while fim < len(texto) and unicodedata.combining(texto[fim]):
         fim += 1
     return unicodedata.normalize("NFC", texto[:fim])
+
+
+def _sem_confianca(valor) -> None:
+    uma_vez(log, "paddle-confianca", logging.WARNING,
+            "o PaddleOCR respondeu sem confiança (%r); a leitura vale 0", valor)
+
+
+def _recorte_recusado(erro: Exception) -> None:
+    uma_vez(log, "paddle-recorte", logging.WARNING, "o PaddleOCR recusou um recorte (%s: %s); ele "
+            "e os outros assim saem vazios", type(erro).__name__, erro)
 
 
 #: A área, em pixels, abaixo da qual o componente da página texturizada é ponto da trama.
@@ -794,7 +805,9 @@ class OCRService:
         if isinstance(dados, str):
             try:
                 dados = json.loads(dados)
-            except (TypeError, ValueError):
+            except ValueError as erro:
+                uma_vez(log, "paddle-json", logging.WARNING,
+                        "o PaddleOCR respondeu um JSON que não se lê (%s); a leitura saiu vazia", erro)
                 dados = None
         if isinstance(dados, dict):
             dados = dados.get("res", dados)
@@ -815,6 +828,7 @@ class OCRService:
                     texto = texto[:1]
                 return texto, max(0.0, min(1.0, float(confianca)))
             except (TypeError, ValueError):
+                _sem_confianca(confianca)
                 texto = str(texto or "").strip()
                 return (texto[:1] if apenas_primeiro else texto), 0.0
 
@@ -828,6 +842,7 @@ class OCRService:
                     try:
                         confianca = float(leitura[1]) if len(leitura) > 1 else 0.0
                     except (TypeError, ValueError):
+                        _sem_confianca(leitura[1])
                         confianca = 0.0
                     if apenas_primeiro:
                         texto = texto[:1]
@@ -852,9 +867,11 @@ class OCRService:
                 resultados = model.predict(input=imagem, batch_size=1)
             except TypeError:
                 resultados = model.predict(imagem)
-        except (IndexError, KeyError, TypeError, ValueError):
+        except (IndexError, ValueError) as erro:
             # Um recorte vazio/incompatível não pode abortar o preenchimento da
-            # página inteira; os outros boxes continuam sendo processados.
+            # página inteira; os outros boxes continuam sendo processados. O `KeyError` e
+            # o `TypeError` não são do recorte, e sobem (RG-18, R-37).
+            _recorte_recusado(erro)
             return "", 0.0
         try:
             primeiro = next(iter(resultados))
@@ -877,7 +894,10 @@ class OCRService:
             except TypeError:
                 resultados = model.predict(imagem)
             primeiro = next(iter(resultados))
-        except (StopIteration, IndexError, KeyError, TypeError, ValueError):
+        except StopIteration:
+            return "", 0.0
+        except (IndexError, ValueError) as erro:
+            _recorte_recusado(erro)
             return "", 0.0
         return self._resultado_paddle(primeiro, apenas_primeiro=False)
 

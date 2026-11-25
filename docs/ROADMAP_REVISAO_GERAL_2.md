@@ -1355,6 +1355,25 @@ Base `a56ebbc`, worktree `.claude/worktrees/onda7`
   mesmos seis da base (o `Paragrafo` ganhou um campo no fim, com padrão).
 - A Onda 7 está fechada. Próximo passo da revisão: a Onda 8 (RG-18 e RG-20, depois a RG-19).
 ### RG-18
+Estado: fechada (2026-11-25), num commit. Base `65a096b`, worktree `.claude/worktrees/onda8`
+(destacado, com os pesos copiados), o mesmo da RG-20 e da RG-19.
+- Os `except` largos de `ui` de corpo só `pass`: 17 em 2026-11-20, **16 ao abrir** (o do cursor
+  em `operacoes.py` já tinha ido na RG-13) e **1 ao fechar**, o do rótulo de espera em
+  `ui/editor/xadrez.py`, justificado na lista nominal que a varredura por AST confere.
+- Cada item da lista fala: WARNING onde a saída ou a preferência muda (o árbitro do texto
+  girado, a amostra que não se lê, a linha que não é box, o rascunho, os pesos do EasyOCR e do
+  Paddle, o recorte recusado, a imagem e a ênfase do IR, a preferência que não grava ou não se
+  lê, a sondagem da camada, os motivos da suspeita, o gancho do token), INFO no que se espera e
+  DEBUG no que só interessa a quem depura; `uma_vez` no que se repete. As capturas se
+  estreitaram ao que o comentário justifica: o cancelamento e o erro de programa passam pelo
+  árbitro, e o `KeyError`/`TypeError` do Paddle sobem. Duas contas se corrigem: `prune` só soma
+  o byte que saiu, e `aplicar_payload` só conta a página que voltou (a barra de status dizia
+  recuperada a descartada).
+- `tests/test_silencios_que_falam.py`: contra o código de antes, 28 dos 30 falham (os outros são
+  guardas do silêncio: o arquivo inteiro não avisa). Na primeira suíte, um dos testes falhou por
+  outro ter posto o tronco do log em INFO; consertado no teste.
+- A/B das quatro páginas idêntico (`RG-18-antes`/`RG-18-depois`); rodada
+  `benchmarks/rodadas/2026-11-25-1815.json`, 0,91% página a página. Suíte: 4102 passed.
 ### RG-20
 ### RG-19
 

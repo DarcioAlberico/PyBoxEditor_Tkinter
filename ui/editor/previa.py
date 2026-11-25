@@ -23,6 +23,9 @@ from typing import Any, Callable
 
 from core.editor import xhtml
 from core.editor import previa_story as ps
+from core.log import logger
+
+log = logger(__name__)
 
 ATRASO_PADRAO_MS = 300
 #: Cor do contorno do bloco sob o cursor do código.
@@ -147,8 +150,8 @@ class Previa(ttk.Frame):
         if self._doc is not None:
             try:
                 self._doc.close()
-            except Exception:      # noqa: BLE001
-                pass
+            except (ValueError, RuntimeError) as erro:      # o PyMuPDF, no documento já fechado
+                log.debug("o PDF não fechou: %s", erro)
         self.desenho = desenho
         self._doc = fitz.open("pdf", desenho.pdf)
         self._imagens.clear()
@@ -274,8 +277,8 @@ class Previa(ttk.Frame):
         if self._doc is not None:
             try:
                 self._doc.close()
-            except Exception:      # noqa: BLE001
-                pass
+            except (ValueError, RuntimeError) as erro:      # o PyMuPDF, no documento já fechado
+                log.debug("o PDF não fechou: %s", erro)
             self._doc = None
         super().destroy()
 

@@ -53,11 +53,15 @@ existir no material, e não por não dar.
 """
 
 import bisect
+import logging
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from core.box_model import BoxEntry
+from core.log import logger, uma_vez
+
+log = logger(__name__)
 
 
 #: Ângulos de texto girado que esta fase reconhece.
@@ -281,19 +285,27 @@ def _confianca_media(imagem, caixas: Sequence[BoxEntry], angulo: int,
     """
     Confiança média do árbitro na pilha, endireitada por `angulo`.
 
-    Árbitro que levanta devolve 0 para este ângulo, e não derruba a geração de
-    boxes da página: sem confiança nenhuma o de pé ganha, que é o estado
+    Árbitro que levanta (`RuntimeError`, `ValueError` ou erro do OpenCV) devolve 0 para este
+    ângulo, e não derruba a geração de boxes da página: sem confiança nenhuma o de pé ganha, que é o estado
     anterior a esta fase. Falhar aqui não pode custar a página inteira.
     """
+    # Tardio: só para o nome do erro; a ordem de leitura importa este módulo sem o OpenCV.
+    import cv2
+
     arr = np.asarray(imagem)
     confs = []
     for b in caixas:
         recorte = arr[b.y1:b.y2, b.x1:b.x2]
         if recorte.size == 0 or min(recorte.shape[:2]) < 3:
             continue
+        de_pe = endireitar(recorte, angulo)
         try:
-            confs.append(float(arbitro(endireitar(recorte, angulo))[1]))
-        except Exception:
+            confs.append(float(arbitro(de_pe)[1]))
+        except (RuntimeError, ValueError, cv2.error) as erro:
+            # Só o que a rede levanta com um recorte que não serve: o erro de programa e o
+            # cancelamento sobem (RG-18, R-37).
+            uma_vez(log, "arbitro", logging.WARNING, "o árbitro do texto girado falhou (%s: %s); "
+                    "os rótulos em pé ficam como estão", type(erro).__name__, erro)
             return 0.0
     return float(np.mean(confs)) if confs else 0.0
 

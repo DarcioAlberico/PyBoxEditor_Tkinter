@@ -15,8 +15,11 @@ from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 
+from core.log import logger
 from core.ocr_result import PageResult
 from core.services.task_service import Cancelled
+
+log = logger(__name__)
 
 
 class OCRCancelled(Cancelled):
@@ -207,10 +210,13 @@ class OCRCache:
             bytes_removed = 0
             for arquivo in sorted(remover, key=lambda item: item.name):
                 try:
-                    bytes_removed += arquivo.stat().st_size
+                    tamanho = arquivo.stat().st_size
                     arquivo.unlink()
-                except OSError:
-                    pass
+                except OSError as erro:
+                    # Contado depois de sair: somava o que ficou (RG-18, R-37).
+                    log.info("o cache %s não saiu: %s", arquivo, erro)
+                else:
+                    bytes_removed += tamanho
             remaining = [item for item in arquivos if item.exists()]
             return {"removed": len(arquivos) - len(remaining),
                     "remaining": len(remaining),

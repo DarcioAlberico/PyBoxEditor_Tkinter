@@ -20,7 +20,10 @@ from tkinter import filedialog, ttk
 from typing import Any, Callable
 
 from core.editor import abrir_pdf as ap
+from core.log import logger
 from ui.editor.dialogos import _Dialogo
+
+log = logger(__name__)
 
 LARGURA_DA_MINIATURA = 84
 ALTURA_DA_MINIATURA = 118
@@ -321,8 +324,8 @@ class DialogoAbrirPdf(_Dialogo):
         if self._doc is not None:
             try:
                 self._doc.close()
-            except Exception:      # noqa: BLE001
-                pass
+            except (ValueError, RuntimeError) as erro:      # o PyMuPDF, no documento já fechado
+                log.debug("o PDF não fechou: %s", erro)
             self._doc = None
         super()._fechar()
 

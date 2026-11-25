@@ -32,7 +32,10 @@ from core import coleta, exportar, livro, pdf_nativo
 from core.editorial_legacy import OpcoesDeLeitura, pipeline_de_producao
 from core.editorial_pipeline import DocumentSource, ExportOptions, ProcessOptions
 from core.linha_trainer import modelo_utilizavel
+from core.log import logger
 from ui.dialogo_de_exportacao import FORMATOS_DE_LIVRO, FORMATOS_EDITORIAIS
+
+log = logger(__name__)
 
 
 def _linhas_das_falhas(paginas) -> list[str]:
@@ -96,7 +99,9 @@ class Exportacao:
                 # caixa diz quantas páginas sairiam do próprio arquivo antes de ler.
                 try:
                     camada = pdf_nativo.amostrar(entrada)
-                except Exception:  # noqa: BLE001 — a sondagem que falha não barra a exportação
+                except Exception as erro:  # noqa: BLE001 — a sondagem que falha não barra a exportação
+                    log.warning("a camada de texto de %s não se examinou (%s: %s); a caixa não a "
+                                "oferece, e o livro vai ao OCR", entrada, type(erro).__name__, erro)
                     camada = None
             return idioma, camada, self.janela.ocr_service.tesseract_disponivel(idioma or "en")
 
