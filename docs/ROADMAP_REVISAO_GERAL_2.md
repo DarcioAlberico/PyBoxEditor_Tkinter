@@ -2,7 +2,7 @@
 
 Versão: 0.6 (veredito dos críticos e cinco re-análises aplicados)
 Data: 2026-11-20
-Estado: fechada em 2026-11-25 (RG-01b e RG-02b transferidas para a PD-26 e a PD-27; o push, a pedir)
+Estado: fechada em 2026-11-25 (RG-01b e RG-02b transferidas para a PD-26 e a PD-27; push em 2026-11-25, CI verde)
 Base: `master` em `6627e30`
 Spec: [SPEC_REVISAO_GERAL_2.md](SPEC_REVISAO_GERAL_2.md) (requisitos `R-nn`; veredito na §7)
 
@@ -1437,8 +1437,9 @@ Estado: fechada (2026-11-25), num commit. Base `74cd52c`, o mesmo worktree.
   pulados da exportação limpa são dado fora do git (livros, pesos, bases), com motivo. A suíte
   limpa deixa um aviso de thread do Tk (`main thread is not in main loop`), que não investiguei.
 - AbbyChessCraft contra o worktree: 2915 passed, 6 failed, os mesmos seis da base.
-- **A revisão geral 2 fecha aqui**, com o push por pedir ao usuário: ele leva os commits locais,
-  e a CI se registra depois dele.
+- **A revisão geral 2 fecha aqui.** Push autorizado pelo usuário em 2026-11-25, `c1d8656..a4b339a`
+  (69 commits); CI run 45708187952 verde de primeira em 3.11, 3.12 e 3.13: 4097 passed, 37
+  pulados na suíte e 5 passed, 13 pulados nos de desempenho, em cada versão.
 
 ## Re-análises deste documento
 
