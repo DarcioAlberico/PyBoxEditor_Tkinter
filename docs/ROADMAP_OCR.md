@@ -1348,6 +1348,17 @@ Rodada do corpus (`benchmarks/rodadas/2026-11-19-1805.json`): CER total **0,91%*
 comparação com a rodada anterior cruza as duas réguas, e por isso o antes
 que vale é o re-medido acima.
 
+### As passadas de livro valem também no OCR (RG-14)
+
+Data: 2026-11-25. `juntar_entre_paginas` e `lados_pelos_lances` só rodavam no caminho da
+camada; agora os dois caminhos chamam `pdf_nativo.passadas_de_livro`. No OCR elas precisaram
+de prova: a página só continua a anterior se abrir por palavra do dicionário, e o lado pelo
+lance só vale se o lance de depois do diagrama é jogável na posição. Yusupov inteiro: 6 lados
+lidos, os 6 certos pelo triângulo impresso (sem a prova, 9 com 3 errados), nenhuma junção
+(sem a prova, 4 falsas), FEN 531 de 540 como antes; Aagaard pp. 10–70: 8 lados, 8 certos, e 3
+junções verdadeiras. Uma página que levanta sai como imagem e vai para a fila, em vez de
+derrubar o livro. Registro: RG-14 do `ROADMAP_REVISAO_GERAL_2.md`.
+
 ### Próximo passo
 
 Conferir as outras três referências contra o livro impresso continua em

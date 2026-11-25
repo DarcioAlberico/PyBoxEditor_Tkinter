@@ -283,6 +283,9 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
     altura = int(getattr(pagina, "altura", 0) or 0)
     roteamento = list(getattr(pagina, "roteamento", []) or [])
     motor_indisponivel = str(getattr(pagina, "motor_indisponivel", "") or "")
+    # A página cuja leitura levantou (RG-14): o que ela tem — a imagem no lugar do
+    # texto — vai inteiro para a fila, com o motivo.
+    falha = str(getattr(pagina, "falha", "") or "")
     evidence: list[Evidence] = []
     blocks: list[EditorialBlock] = []
     for order, legado in enumerate(pagina.blocos):
@@ -401,6 +404,9 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
             kind = "unknown"
             style = {}
             metadata = {"legacy_type": tipo}
+        if falha:
+            status = "unresolved"
+            motivos.append(Motivo("page_failed", f"{descrever('page_failed')}: {falha}"))
         # A evidência do bloco inteiro: 1,0 no que o leitor decidiu, 0 no
         # diagrama que o porteiro recusou — a confiança é o que ordena a
         # fila, e o recorte sem posição tem de vir antes de qualquer linha.
@@ -446,6 +452,8 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
             "leitura": leitura,
         }
     }
+    if falha:                  # só quando há: o IR das outras páginas continua o de antes
+        observations["legacy_page"]["falha"] = falha
     # `image_width`/`dpi` no metadata da página é o que o PDF pesquisável lê
     # para converter as caixas (pixels) em pontos; `warnings` é o que a fila
     # de revisão lê — a página em que o motor de prosa faltou é suspeita
@@ -459,6 +467,8 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
         metadata_pagina["dpi"] = int(pagina.dpi)
     warnings = ([f"motor de prosa indisponível: {motor_indisponivel}"]
                 if motor_indisponivel else [])
+    if falha:
+        warnings.append(f"a página não pôde ser lida: {falha}")
     return EditorialPage(
         page_id=page_id, page_index=indice, source_refs=[pagina_ref], blocks=blocks,
         evidence=evidence, observations=observations, warnings=warnings,
@@ -668,6 +678,7 @@ def montar_pagina_extraida(page: EditorialPage, blocos: Sequence[Any]) -> Any:
     pagina.roteamento = [dict(item) for item in legado.get("roteamento") or []]
     pagina.motor_indisponivel = str(legado.get("motor_indisponivel") or "")
     pagina.leitura = str(legado.get("leitura") or "imagem")
+    pagina.falha = str(legado.get("falha") or "")
     if not pagina.largura:
         pagina.largura = int(page.metadata.get("image_width") or 0)
     if not pagina.altura:

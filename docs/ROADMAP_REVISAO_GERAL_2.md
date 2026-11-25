@@ -1173,6 +1173,46 @@ do R-19), no worktree da Onda 5, depois da RG-12.
   Suíte do worktree: 3859 passed, 26 skipped.
 - Próximo passo da revisão: a Onda 6 (a leitura: RG-14, RG-15, RG-16, RG-16b).
 ### RG-14
+Estado: em andamento (2026-11-25). Base `ffc3ec3` — o trabalho do usuário em `core/livro.py`
+(o lance descritivo), commitado por ele ter aprovado na abertura da onda; não há diff dele na
+árvore, e o passo 9 deixa de valer. Worktree `.claude/worktrees/onda6` (destacado, com os
+pesos). Medidas de antes: `preview_ocr/ab/RG-14-antes` e `RG-14-antes2` (idênticas, só o
+`tempo_s` varia), `preview_ocr/ab/rodadas/2026-11-25-1341.json` (corpus 0,91%),
+`2026-11-25-1350.json` (o mesmo com `--usar-ensemble`, 0,91%) e
+`preview_ocr/ab/RG-14-yusupov-antes` (o livro inteiro).
+- Commit 1 (R-20): `pdf_nativo.passadas_de_livro`, pública, chamada pelos dois caminhos —
+  legendas e mobília da camada, as passadas da imagem (cabeçalhos, coladas, negrito, por
+  `da_imagem`), e por fim `juntar_entre_paginas` e `lados_pelos_lances`, que só rodavam sem
+  OCR; as assinaturas ficam, com um `lex=None` novo e por nome na primeira. O guarda por
+  página: a da camada que levanta (a régua também, `avaliar_com_guarda`) vai ao OCR, a do
+  OCR sai como imagem com o motivo em `PaginaExtraida.falha` (campo novo, com padrão; no IR,
+  só quando há), que vai para a fila (`page_failed`), os avisos e as duas conclusões;
+  `Cancelled` passa; e se nenhuma página se lê, o primeiro erro sobe. O registro que vem da
+  página seguinte vira `-1`. A página com falha não se junta nem passa lance adiante.
+  - **O que o Yusupov inteiro mostrou** (`scripts/medidas/medir_passadas_de_livro.py`, 264
+    páginas, novo; antes: 0 junções, 0 lados, 531 FEN de 540): ligadas como estavam, as duas
+    passadas faziam **4 junções, as 4 falsas** (`olutions`, `xercises` duas vezes e `nn`: o
+    título sem a inicial), e **9 lados, 3 errados** contra o triângulo que o livro imprime ao
+    lado de cada diagrama (pp. 88, 179 e 248 — a 248 piorava). Pela regra do "se piora", uma
+    rodada de diagnóstico: a página da imagem só se junta se abrir por palavra do dicionário
+    (a de uma ou duas letras, de uma lista; sem dicionário, nada se junta), e
+    `lado_a_jogar.pelo_lance` exige que o lance de depois seja **jogável** na posição — nos
+    três casos errados ele é impossível. Depois: **0 junções** (a rodada gravada tem 1, o
+    `nn`, que a lista das curtas tirou em seguida; a regra só retira), **6 lados, os 6 certos
+    pelo triângulo impresso**, FEN 531 de 540, texto das páginas igual. No Aagaard pp. 10–70:
+    **3 junções, as 3 verdadeiras, e 8 lados, 8 de 8 certos** pelo triângulo. Nos dois livros,
+    14 lados que saíam por convenção agora saem lidos. No Dvoretsky pela camada (815 páginas,
+    1.273 diagramas) nenhum lado vem do lance, e nada muda; o *Odds & Ends*, de que a régua
+    nasceu, não está nesta máquina — os casos dele na suíte seguem verdes (um tabuleiro de
+    teste ganhou o peão do lance seguinte, que a régua nova confere).
+  - Achado da fase: `livro._cortar` devolvia `ndarray` em `pesos`/`lacunas`, e
+    `juntar_entre_paginas` pedia `typecode` — no OCR, o livro com cabeçalho corrente cairia
+    fora do guarda. `_cortar` devolve `array`, e a soma não depende do tipo.
+  - A/B das quatro páginas idêntico (`RG-14-depois`), corpus 0,91% página a página.
+    `tests/test_passadas_de_livro.py`: contra o código de antes falham os do guarda, da falha
+    na fila e na conclusão, das passadas no OCR, do título sem inicial, do lance impossível e
+    do cabeçalho cortado; os quatro que passam (o cancelamento no `livro.extrair`, o livro em
+    que nada se lê e o `-1` no adaptador) são guardas. Suíte: 3928 passed.
 ### RG-15
 ### RG-16
 ### RG-16b

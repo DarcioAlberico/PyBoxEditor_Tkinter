@@ -3436,10 +3436,12 @@ def _cortar(p: Paragrafo, inicio: int, fim: int) -> None:
     refaz.
     """
     p.texto = p.texto[:inicio] + p.texto[fim:]
+    # `array`, e não `ndarray`: é o tipo do campo, e `pdf_nativo.juntar_entre_paginas`
+    # soma os vetores de dois parágrafos (RG-14).
     if p.pesos is not None:
-        p.pesos = np.concatenate([p.pesos[:inicio], p.pesos[fim:]])
+        p.pesos = negrito.vetor([*p.pesos[:inicio], *p.pesos[fim:]])
     if p.lacunas is not None:
-        p.lacunas = np.concatenate([p.lacunas[:inicio], p.lacunas[fim:]])
+        p.lacunas = negrito.vetor([*p.lacunas[:inicio], *p.lacunas[fim:]])
     tamanho = fim - inicio
     # `registros` anda em paralelo a `inicios`: a linha que sai leva o
     # registro dela junto, senão o parágrafo apontaria para a linha errada.
@@ -4422,6 +4424,27 @@ def titulo_e_autor(caminho: str) -> Tuple[str, str]:
     return titulo, autor
 
 
+def _pagina_com_falha(page: fitz.Page, numero: int, erro: Exception, *, dpi: int,
+                      dpi_figura: int) -> PaginaExtraida:
+    """A página cuja leitura levantou (RG-14, R-20): sai como imagem, com o motivo em
+    `falha`, que a conclusão e a fila de revisão mostram. Se nem a imagem sai, fica uma
+    frase no lugar — o que o livro não pode é perder a página calado."""
+    falha = f"{type(erro).__name__}: {erro}"
+    log.warning("Página %d: a leitura falhou (%s); ela sai como imagem.", numero + 1, falha,
+                exc_info=erro)
+    try:
+        img = _pagina_cinza(page, dpi)
+        png, larg, alt = _png_do_recorte(img, (0, 0, img.shape[1], img.shape[0]), dpi, dpi_figura)
+        return PaginaExtraida(numero=numero, blocos=[Figura(png, larg, alt, origem="pagina")],
+                              altura=int(img.shape[0]), largura=int(img.shape[1]),
+                              dpi=int(dpi), falha=falha)
+    except Exception as outro:  # noqa: BLE001 — a página já falhou; o livro segue
+        log.warning("Página %d: nem a imagem dela saiu (%s: %s).", numero + 1,
+                    type(outro).__name__, outro)
+        return PaginaExtraida(numero=numero, falha=falha,
+                              blocos=[Paragrafo(f"[página {numero + 1} não lida]")])
+
+
 def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
             paginas: Optional[Sequence[int]] = None,
             conf_minima: float = CONF_MINIMA, dpi_figura: int = DPI_FIGURA,
@@ -4457,11 +4480,17 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
     `candidatas` liga a caixa pela geometria da linha (F112) — ver
     `extrair_pagina`. `None` é o padrão pela razão do `probabilidade`: quem
     chama sem ela lê como antes, e a exportação a passa.
+
+    **Uma página que levanta não derruba o livro** (RG-14, R-20): a da camada vai ao
+    OCR, e a do OCR sai como imagem, com o motivo em `PaginaExtraida.falha`. O
+    cancelamento (`Cancelled`, F119) passa; e se nenhuma página se lê — o modelo que
+    não carrega —, o primeiro erro sobe, em vez de um livro só de imagens.
     """
     import os
     if not os.path.exists(input_pdf):
         raise FileNotFoundError(f"Arquivo não encontrado: {input_pdf}")
     from core import pdf_nativo
+    from core.services.task_service import Cancelled
     if camada not in pdf_nativo.MODOS:
         raise ValueError(f"modo de camada inválido: {camada!r} "
                          f"(use um de {pdf_nativo.MODOS})")
@@ -4473,73 +4502,96 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
     try:
         carimbo = pdf_nativo.produtor(doc) if camada != "nunca" else ""
         numeros = list(range(len(doc))) if paginas is None else list(paginas)
-        saida = []
+        saida: List[PaginaExtraida] = []
+        primeiro_erro: Optional[Exception] = None
         for i, numero in enumerate(numeros):
             if progress_callback:
                 progress_callback(i, len(numeros))
             veredito = None
             if camada != "nunca":
-                veredito = pdf_nativo.avaliar_pagina(doc[numero], numero=numero,
-                                                     produtor=carimbo)
+                veredito = pdf_nativo.avaliar_com_guarda(doc[numero], numero=numero,
+                                                         produtor=carimbo)
                 if veredito.aceita or (camada == "sempre" and veredito.tem_texto):
-                    saida.append(pdf_nativo.extrair_pagina(
-                        doc[numero], numero=numero, dpi=dpi, dpi_figura=dpi_figura,
-                        idioma=idioma_ocr, lex=lex, diagramas=diagramas,
-                        coordenadas=coordenadas, fonte=fonte,
-                        lado_do_diagrama=lado_do_diagrama, moldura=moldura,
-                        cantos=cantos))
-                    continue
-            saida.append(extrair_pagina(doc[numero], classificar, numero=numero,
-                                        dpi=dpi, conf_minima=conf_minima,
-                                        dpi_figura=dpi_figura, coletor=coletor,
-                                        ler_pagina=ler_pagina,
-                                        ler_faixa=ler_faixa,
-                                        idioma_ocr=idioma_ocr,
-                                        fusao=fusao,
-                                        diagramas=diagramas,
-                                        coordenadas=coordenadas, fonte=fonte,
-                                        lado_do_diagrama=lado_do_diagrama,
-                                        moldura=moldura, cantos=cantos,
-                                        lex=lex,
-                                        probabilidade=probabilidade,
-                                        candidatas=candidatas))
+                    try:
+                        saida.append(pdf_nativo.extrair_pagina(
+                            doc[numero], numero=numero, dpi=dpi, dpi_figura=dpi_figura,
+                            idioma=idioma_ocr, lex=lex, diagramas=diagramas,
+                            coordenadas=coordenadas, fonte=fonte,
+                            lado_do_diagrama=lado_do_diagrama, moldura=moldura,
+                            cantos=cantos))
+                        continue
+                    except Cancelled:
+                        raise
+                    except Exception as erro:  # noqa: BLE001 — a página vai ao OCR
+                        log.warning("Página %d: a leitura da camada falhou (%s: %s); vai ao OCR.",
+                                    numero + 1, type(erro).__name__, erro)
+            try:
+                saida.append(extrair_pagina(doc[numero], classificar, numero=numero,
+                                            dpi=dpi, conf_minima=conf_minima,
+                                            dpi_figura=dpi_figura, coletor=coletor,
+                                            ler_pagina=ler_pagina,
+                                            ler_faixa=ler_faixa,
+                                            idioma_ocr=idioma_ocr,
+                                            fusao=fusao,
+                                            diagramas=diagramas,
+                                            coordenadas=coordenadas, fonte=fonte,
+                                            lado_do_diagrama=lado_do_diagrama,
+                                            moldura=moldura, cantos=cantos,
+                                            lex=lex,
+                                            probabilidade=probabilidade,
+                                            candidatas=candidatas))
+            except Cancelled:
+                raise
+            except Exception as erro:  # noqa: BLE001 — a página sai como imagem, e o livro segue
+                primeiro_erro = primeiro_erro or erro
+                saida.append(_pagina_com_falha(doc[numero], numero, erro, dpi=dpi,
+                                               dpi_figura=dpi_figura))
+                continue
             if veredito is not None and veredito.clearscan:
                 # A página que o ClearScan já tinha lido: a prosa dele conserta
                 # a palavra que o OCR errou (PD-14). Só com a camada ligada, que
                 # é o modo da exportação; os instrumentos leem em "nunca".
-                camada_da_pagina = pdf_nativo.extrair_pagina(
-                    doc[numero], numero=numero, idioma=idioma_ocr,
-                    diagramas="recorte")
-                reparar_pela_camada(saida[-1], camada_da_pagina.texto, lex)
+                try:
+                    camada_da_pagina = pdf_nativo.extrair_pagina(
+                        doc[numero], numero=numero, idioma=idioma_ocr,
+                        diagramas="recorte")
+                    reparar_pela_camada(saida[-1], camada_da_pagina.texto, lex)
+                except Cancelled:
+                    raise
+                except Exception as erro:  # noqa: BLE001 — fica o que o OCR leu
+                    log.warning("Página %d: o reparo pela camada falhou (%s: %s); fica a leitura "
+                                "do OCR.", numero + 1, type(erro).__name__, erro)
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
-        if camada != "nunca":
-            # A legenda que a paginação mandou para a página seguinte volta ao
-            # diagrama da camada, e a mobília da camada sai pela régua dela,
-            # que tem a prova do vão (`pdf_nativo.retirar_mobilia`); a de baixo
-            # não olha as páginas da camada.
-            pdf_nativo.ligar_legendas(saida, idioma=idioma_ocr,
-                                      lado_do_diagrama=lado_do_diagrama,
-                                      moldura=moldura, cantos=cantos)
-            pdf_nativo.retirar_mobilia(saida)
-        # **O cabeçalho de página sai antes de tudo** (F109): ele não é prosa,
-        # e o que vem depois — o vocabulário do livro, o negrito — mede-se
-        # sobre a prosa. Só o livro inteiro o reconhece, e é por isso que ele
-        # não sai no `extrair_pagina`.
-        retirar_cabecalhos(saida)
-        # **Repartido com o livro inteiro por vocabulário** (F115), pela mesma
-        # razão que o negrito é remarcado logo abaixo: o portão que decide se
-        # `of`+`positions` pode ser um corte é "estas duas palavras existem
-        # neste livro", e numa página só quase nada existe duas vezes. Também é
-        # idempotente — o que já foi partido está no dicionário, e a primeira
-        # condição de `partir_colada` o recusa.
-        partir_coladas(saida, lex)
-        # **Remarcado com o livro inteiro por referência** (F105). Cada página
-        # já saiu marcada contra si mesma, que é o melhor que dá para fazer
-        # quando só há uma; com todas, o peso redondo de cada caractere é
-        # estimado sobre muito mais texto, e a marcação passa de 90,2% para
-        # 96,7% de acerto. A marcação é idempotente — esta é a que vale.
-        negrito.marcar(saida)
+        if primeiro_erro is not None and all(p.falha for p in saida):
+            raise primeiro_erro
+
+        def da_imagem(paginas_do_livro):
+            # **O cabeçalho de página sai antes de tudo** (F109): ele não é prosa,
+            # e o que vem depois — o vocabulário do livro, o negrito — mede-se
+            # sobre a prosa. Só o livro inteiro o reconhece, e é por isso que ele
+            # não sai no `extrair_pagina`.
+            retirar_cabecalhos(paginas_do_livro)
+            # **Repartido com o livro inteiro por vocabulário** (F115), pela mesma
+            # razão que o negrito é remarcado logo abaixo: o portão que decide se
+            # `of`+`positions` pode ser um corte é "estas duas palavras existem
+            # neste livro", e numa página só quase nada existe duas vezes. Também é
+            # idempotente — o que já foi partido está no dicionário, e a primeira
+            # condição de `partir_colada` o recusa.
+            partir_coladas(paginas_do_livro, lex)
+            # **Remarcado com o livro inteiro por referência** (F105). Cada página
+            # já saiu marcada contra si mesma, que é o melhor que dá para fazer
+            # quando só há uma; com todas, o peso redondo de cada caractere é
+            # estimado sobre muito mais texto, e a marcação passa de 90,2% para
+            # 96,7% de acerto. A marcação é idempotente — esta é a que vale.
+            negrito.marcar(paginas_do_livro)
+
+        pdf_nativo.passadas_de_livro(saida, idioma=idioma_ocr,
+                                     lado_do_diagrama=lado_do_diagrama,
+                                     moldura=moldura, cantos=cantos,
+                                     # Sem dicionário não há prova, e nada se junta.
+                                     lex=lex if lex is not None else lexico.Lexico(),
+                                     da_imagem=da_imagem)
         return saida
     finally:
         doc.close()

@@ -61,6 +61,7 @@ from core.pagina import (COMO_NO_LIVRO, DPI_FIGURA, MARGEM_DE_PAGINA, MODOS_DE_D
                          PAGINAS_DE_CABECALHO, SALTO_DE_PARAGRAFO, TONS_DA_FIGURA, Figura,
                          PaginaExtraida, Paragrafo, _coluna_de)
 from core.box_model import BoxEntry
+from core.services.task_service import Cancelled
 
 log = logger(__name__)
 
@@ -2753,7 +2754,30 @@ def _soltos_na_margem(pagina: "PaginaExtraida"
     return saida
 
 
-def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"]) -> int:
+def _com_falha(pagina) -> bool:
+    """A página que não se leu (RG-14): o que ela tem no lugar do texto não continua nada."""
+    return bool(getattr(pagina, "falha", ""))
+
+
+#: As palavras de uma e duas letras que abrem a continuação de uma frase, em inglês e em
+#: português.
+PALAVRAS_CURTAS = frozenset(
+    "a an as at be by do go he if in is it me my no of on or so to up us we "
+    "e o é à ao da de em eu já me na os se só te um".split())
+
+
+def _continua_de_verdade(depois: "Paragrafo", lex) -> bool:
+    """A primeira palavra do parágrafo lido da **imagem** é palavra do dicionário?
+
+    No OCR a minúscula que abre a página pode ser o título sem a inicial: no Yusupov
+    inteiro, as quatro junções que a régua da minúscula fazia eram `olutions`, `xercises`
+    (duas) e `nn` — nenhuma continuação de frase. A palavra de uma ou duas letras sai da
+    lista, e não do dicionário, que tem `nn` e `ng`."""
+    nucleo, _inicio = lexico.nucleo((depois.texto.split() or [""])[0])
+    return nucleo in PALAVRAS_CURTAS if len(nucleo) < 3 else lex.conhece(nucleo)
+
+
+def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"], *, lex=None) -> int:
     """
     O parágrafo que a paginação partiu volta a ser um só, na página onde começa.
 
@@ -2766,10 +2790,15 @@ def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"]) -> int:
     está: sem o dicionário, juntar `well-` com `known` ou tirar o hífen de
     `counter-` seria chute. Vale para a camada e para o OCR, que montam o
     mesmo `Paragrafo`. Devolve quantos parágrafos voltaram.
+
+    Com `lex`, a página lida da imagem só continua a anterior se abrir por palavra do
+    dicionário (`_continua_de_verdade`); sem ele, vale a régua da letra.
     """
     juntados = 0
     for atual, seguinte in zip(paginas, paginas[1:]):
         if seguinte.numero != atual.numero + 1 or not atual.blocos or not seguinte.blocos:
+            continue
+        if _com_falha(atual) or _com_falha(seguinte):
             continue
         antes, depois = atual.blocos[-1], seguinte.blocos[0]
         if not (isinstance(antes, Paragrafo) and isinstance(depois, Paragrafo)
@@ -2777,6 +2806,9 @@ def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"]) -> int:
             continue
         fim, comeco = antes.texto.rstrip(), depois.texto.lstrip()
         if not fim or not comeco[:1].islower() or fim[-1] in ".!?:;-":
+            continue
+        if (lex is not None and getattr(seguinte, "leitura", LEITURA_IMAGEM) == LEITURA_IMAGEM
+                and not _continua_de_verdade(depois, lex)):
             continue
         # As marcas de `depois` contam do texto dele com o espaço da esquerda.
         deslocamento = len(fim) + 1 - (len(depois.texto) - len(comeco))
@@ -2786,13 +2818,15 @@ def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"]) -> int:
                                                for a, z in depois.italico]
         if antes.inicios and depois.inicios:
             antes.inicios = list(antes.inicios) + [i + deslocamento for i in depois.inicios]
-            antes.registros = list(antes.registros) + list(depois.registros)
+            # O registro indexa o roteamento da **própria** página: o que vem da
+            # seguinte não aponta linha nenhuma desta (RG-14, R-20).
+            antes.registros = list(antes.registros) + [-1] * len(depois.registros)
         for nome in ("pesos", "lacunas"):
             a, b = getattr(antes, nome), getattr(depois, nome)
             if (a is not None and b is not None and len(a) == len(antes.texto)
                     and len(b) == len(depois.texto) and fim == antes.texto
                     and comeco == depois.texto):
-                setattr(antes, nome, a + array(a.typecode, [float("nan")]) + b)
+                setattr(antes, nome, array("f", [*a, float("nan"), *b]))
             else:
                 setattr(antes, nome, None)
         antes.texto = f"{fim} {comeco}"
@@ -2835,9 +2869,11 @@ def lados_pelos_lances(paginas: Sequence["PaginaExtraida"], *,
     trechos: List[List[object]] = []
     anterior: Optional[int] = None
     for pagina in paginas:
-        if anterior is None or pagina.numero != anterior + 1:
+        # A página que não se leu pode ter o lance que faltava: a sequência
+        # recomeça depois dela, como na página que não foi pedida.
+        if anterior is None or pagina.numero != anterior + 1 or _com_falha(pagina):
             trechos.append([])
-        anterior = pagina.numero
+        anterior = None if _com_falha(pagina) else pagina.numero
         trechos[-1].extend(pagina.blocos)
     achados = 0
     for blocos in trechos:
@@ -2862,6 +2898,38 @@ def lados_pelos_lances(paginas: Sequence["PaginaExtraida"], *,
                 trocar_lado(bloco, lado, lado_do_diagrama, moldura, cantos, origem="lance")
                 achados += 1
     return achados
+
+
+def passadas_de_livro(paginas: Sequence["PaginaExtraida"], *, idioma: str = "en",
+                      lado_do_diagrama: int = render_diagrama.LADO_PADRAO,
+                      moldura=render_diagrama.MOLDURA_PADRAO,
+                      cantos: str = render_diagrama.CANTO_PADRAO, lex=None,
+                      da_imagem: Optional[Callable] = None) -> None:
+    """
+    As passadas que só o livro inteiro responde, na ordem em que valem (RG-14, R-20).
+
+    **Um lugar só, para os dois caminhos** — `extrair`, aqui, e `livro.extrair`. Até a
+    RG-14 cada um tinha a sua lista, e `juntar_entre_paginas` e `lados_pelos_lances`,
+    que servem aos dois, só rodavam no caminho sem OCR.
+
+    1. a legenda que a paginação separou volta ao diagrama (`ligar_legendas`), antes de
+       qualquer passada de cabeçalho — `16-2` no alto da página tem a forma de um;
+    2. a mobília da camada sai pela régua do vão (`retirar_mobilia`); as duas só olham
+       as páginas da camada;
+    3. `da_imagem(paginas)`, as passadas de quem leu a imagem (cabeçalhos, coladas,
+       negrito), que medem o caractere e moram em `core/livro.py`;
+    4. por fim o parágrafo partido entre páginas e o lado pelos lances: já sem o
+       cabeçalho entre o fim de uma página e o começo da outra, e com o negrito de cada
+       página marcado. A página da imagem só se junta com a prova de `lex`.
+    """
+    ligar_legendas(paginas, idioma=idioma, lado_do_diagrama=lado_do_diagrama,
+                   moldura=moldura, cantos=cantos)
+    retirar_mobilia(paginas)
+    if da_imagem is not None:
+        da_imagem(paginas)
+    juntar_entre_paginas(paginas, lex=lex)
+    lados_pelos_lances(paginas, lado_do_diagrama=lado_do_diagrama, moldura=moldura,
+                       cantos=cantos)
 
 
 def trocar_lado(figura: "Figura", lado: str, lado_do_diagrama: int,
@@ -2968,6 +3036,19 @@ def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:
     return primeiro if n1 >= VANTAGEM_DE_IDIOMA * max(1, n2) else None
 
 
+def avaliar_com_guarda(page, *, numero: int, produtor: str) -> Veredito:
+    """`avaliar_pagina`, com a página que levanta recusada: ela vai ao OCR, e não derruba
+    o livro (RG-14, R-20)."""
+    try:
+        return avaliar_pagina(page, numero=numero, produtor=produtor)
+    except Cancelled:
+        raise
+    except Exception as erro:  # noqa: BLE001 — a página vai ao OCR, e não o livro
+        log.warning("Página %d: a régua da camada falhou (%s: %s); vai ao OCR.",
+                    numero + 1, type(erro).__name__, erro)
+        return Veredito(numero, False, f"a régua da camada falhou: {erro}")
+
+
 def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
             dpi: int = 300, dpi_figura: int = DPI_FIGURA,
             idioma: Optional[str] = None, lex=None, diagramas: str = "render",
@@ -3004,7 +3085,7 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
             if progress_callback:
                 progress_callback(i, len(numeros))
             page = doc[numero]
-            veredito = avaliar_pagina(page, numero=numero, produtor=carimbo)
+            veredito = avaliar_com_guarda(page, numero=numero, produtor=carimbo)
             if veredito.aceita or (forcar and veredito.tem_texto):
                 try:
                     lidas.append(extrair_pagina(
@@ -3013,6 +3094,8 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
                         coordenadas=coordenadas, fonte=fonte,
                         lado_do_diagrama=lado_do_diagrama, moldura=moldura,
                         cantos=cantos))
+                except Cancelled:
+                    raise
                 except Exception as erro:  # noqa: BLE001 — a página vai ao OCR, e não o livro
                     # Uma página que a camada não monta não derruba o livro: ela
                     # sai recusada, com o motivo, e quem chama a manda ao OCR.
@@ -3024,16 +3107,8 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
             vereditos.append(veredito)
         if progress_callback:
             progress_callback(len(numeros), len(numeros))
-    # As duas passadas do livro inteiro, nesta ordem (ver `ligar_legendas`): a
-    # legenda que a paginação separou volta ao diagrama, e o cabeçalho corrente
-    # e o número de página saem — a repetição na margem só existe com várias
-    # páginas.
-    ligar_legendas(lidas, idioma=idioma, lado_do_diagrama=lado_do_diagrama,
-                   moldura=moldura, cantos=cantos)
-    retirar_mobilia(lidas)
-    juntar_entre_paginas(lidas)
-    lados_pelos_lances(lidas, lado_do_diagrama=lado_do_diagrama, moldura=moldura,
-                       cantos=cantos)
+    passadas_de_livro(lidas, idioma=idioma, lado_do_diagrama=lado_do_diagrama,
+                      moldura=moldura, cantos=cantos)
     return Extracao(lidas, vereditos)
 
 

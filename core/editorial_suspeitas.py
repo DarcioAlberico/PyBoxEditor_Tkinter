@@ -42,6 +42,7 @@ CONFIANCA_SEM_MEDIDA = 0.9
 #: lance vem antes do que muda a palavra, e o que muda a palavra vem antes do
 #: sinal estranho.
 PESOS = {
+    "page_failed": 1.00,
     "fen_invalid": 0.95,
     "line_lost": 0.90,
     "diagram_uncertain": 0.80,
@@ -79,6 +80,7 @@ MOTIVOS = {
     "engine_garbage": "«{token}» traz um sinal que não é de prosa",
     "stray_mark": "a linha é só um sinal: «{token}»",
     "motor_indisponivel": "o motor de prosa faltou nesta página; ela saiu só com a cadeia própria",
+    "page_failed": "a página não pôde ser lida e saiu como imagem",
     "diagram_uncertain": "o modelo não confiou na leitura do diagrama e a figura saiu recortada",
     "orientation_missing": "não há coordenadas impressas que digam o lado do tabuleiro",
     "side_to_move_legalidade": "o lado a jogar foi inferido pela legalidade da posição; confirme",

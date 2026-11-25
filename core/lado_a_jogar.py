@@ -284,6 +284,45 @@ def _lance_confere(san: str, cor: str, casas: dict[str, str]) -> bool:
     return casas.get(destino) == (letra if cor == "w" else letra.lower())
 
 
+_RE_PARTES_DO_LANCE = re.compile(
+    rf"([{_PECAS_DO_LANCE}]?)([a-h]?)([1-8]?)[x:]?([a-h][1-8])=?([QRBN♕♖♗♘]?)")
+
+
+def _lance_legal(fen: str, lado: str, san: str) -> bool:
+    """`san` é jogável na posição, com `lado` a jogar? O `x` não é exigido — o OCR o perde
+    —, e o roque pede só o rei e a torre na casa de origem (o FEN do diagrama não diz se
+    já se moveram)."""
+    import chess
+
+    casas = _casas(fen)
+    if re.fullmatch(_ROQUE, san):
+        fila, rei, torre = ("1", "K", "R") if lado == "w" else ("8", "k", "r")
+        longo = san.count(san[1]) >= 2
+        return casas.get("e" + fila) == rei and casas.get(("a" if longo else "h") + fila) == torre
+    partes = _RE_PARTES_DO_LANCE.fullmatch(san)
+    if partes is None:
+        return False
+    letra, coluna, fila, destino, promocao = partes.groups()
+    peca = chess.PIECE_SYMBOLS.index((_LETRA_DA_FIGURINA.get(letra, letra) or "P").lower())
+    promovida = _LETRA_DA_FIGURINA.get(promocao, promocao)
+    tabuleiro = chess.Board(None)
+    tabuleiro.set_board_fen(str(fen).split()[0])
+    tabuleiro.turn = lado == "w"
+    alvo = chess.parse_square(destino)
+    # A tomada en passant: a casa de chegada vazia, com o peão do outro atrás dela.
+    atras = alvo + (-8 if lado == "w" else 8)
+    if (peca == chess.PAWN and coluna and chess.square_rank(alvo) == (5 if lado == "w" else 2)
+            and tabuleiro.piece_at(alvo) is None
+            and tabuleiro.piece_at(atras) == chess.Piece(chess.PAWN, lado != "w")):
+        tabuleiro.ep_square = alvo
+    return any(
+        m.to_square == alvo and tabuleiro.piece_type_at(m.from_square) == peca
+        and (not coluna or chess.FILE_NAMES[chess.square_file(m.from_square)] == coluna)
+        and (not fila or chess.RANK_NAMES[chess.square_rank(m.from_square)] == fila)
+        and (not promovida or m.promotion == chess.PIECE_SYMBOLS.index(promovida.lower()))
+        for m in tabuleiro.legal_moves)
+
+
 def tem_lance(texto: Optional[str]) -> bool:
     """O texto tem um lance numerado (`12.♕xc4`, `16...d3`)?"""
     return bool(_LANCE_NUMERADO.search(str(texto or "")))
@@ -307,6 +346,12 @@ def pelo_lance(texto: str, fen: str, seguinte: Optional[str] = None) -> Optional
     de `10...♘b6`, `11.`. A peça na casa de chegada confere por coincidência
     — no Dvoretsky, um rei que voltou à casa de um exemplo anterior —, a
     numeração que continua não: o exemplo novo recomeça em `1.`.
+
+    **E esse próximo lance tem de ser jogável na posição** (RG-14): a numeração também
+    coincide. Medido no Yusupov inteiro pelo OCR, contra o triângulo que o livro imprime
+    ao lado de cada diagrama: sem esta régua, três lados de nove saíam errados — nas pp.
+    88 e 179 o texto de antes da figura é uma variante, na p. 248 é a solução de outro
+    exercício —, e nos três o lance seguinte é impossível no tabuleiro.
     """
     achados = list(_LANCE_NUMERADO.finditer(str(texto or "")))
     casas = _casas(fen)
@@ -328,6 +373,8 @@ def pelo_lance(texto: str, fen: str, seguinte: Optional[str] = None) -> Optional
             return None
         esperado = (numero, True) if lado == "b" else (numero + 1, False)
         if (int(proximo.group(1)), proximo.group(2) != ".") != esperado:
+            return None
+        if not _lance_legal(fen, lado, proximo.group(3)):
             return None
     return lado
 

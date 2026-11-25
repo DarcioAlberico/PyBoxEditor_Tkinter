@@ -35,6 +35,20 @@ from core.linha_trainer import modelo_utilizavel
 from ui.dialogo_de_exportacao import FORMATOS_DE_LIVRO, FORMATOS_EDITORIAIS
 
 
+def _linhas_das_falhas(paginas) -> list[str]:
+    """As páginas que não se leram, para a caixa de conclusão (RG-14, R-20): o livro saiu
+    sem o texto delas, e quem exporta precisa saber quais são."""
+    com_falha = [p for p in paginas if p.falha]
+    if not com_falha:
+        return []
+    numeros = ", ".join(str(p.numero + 1) for p in com_falha[:8])
+    if len(com_falha) > 8:
+        numeros += f" e mais {len(com_falha) - 8}"
+    motivo, _n = collections.Counter(p.falha for p in com_falha).most_common(1)[0]
+    return [f"ATENÇÃO: {len(com_falha)} página(s) não puderam ser lidas — {numeros} — e "
+            f"saíram como imagem. Motivo: {motivo}"]
+
+
 class Exportacao:
     """As ações de exportar da janela principal; `janela` é a `MainWindow`."""
 
@@ -226,6 +240,7 @@ class Exportacao:
             if coletor is not None:
                 linhas += ["", f"Para revisão: {coletor.resumo()}",
                            f"em {os.path.abspath(coletor.pasta)}"]
+            linhas += _linhas_das_falhas(extrator.ultimas_paginas)
             if sem_motor:
                 linhas.append(f"ATENÇÃO: o motor de prosa faltou em {sem_motor} "
                               f"página(s) — elas saíram só com a cadeia própria.")
@@ -612,6 +627,7 @@ class Exportacao:
                 linhas.append(f"Linhas lidas: {fontes.get('glyph', 0)} só pela "
                               f"cadeia própria, {fundidas} com a prosa do "
                               f"Tesseract e os lances da cadeia.")
+            linhas += _linhas_das_falhas(paginas)
             # **A página em que o motor faltou tem de aparecer**: até aqui a
             # falha do Tesseract devolvia `[]` e a página saía "normal" — só
             # com a cadeia própria, 20 vezes pior na prosa, sem uma linha de

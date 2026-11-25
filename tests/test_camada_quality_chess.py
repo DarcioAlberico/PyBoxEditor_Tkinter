@@ -290,7 +290,7 @@ def test_o_sinal_da_fonte_tt_no_texto_continua_texto():
 # ----------------------------------------------------------------------
 
 def test_o_n_de_novidade_nao_e_promocao():
-    fen = "4k3/8/8/3p4/8/8/8/4K3 w - - 0 1"
+    fen = "4k3/8/8/3p4/8/8/4P3/4K3 w - - 0 1"
     assert lado_a_jogar.pelo_lance("16...d5N", fen, "17.e4") == "w"
     assert lado_a_jogar.pelo_lance("16. ...d5", fen, "17.e4") == "w"
     assert lado_a_jogar.pelo_lance("40.b8=Q", "1Q2k3/8/8/8/8/8/8/4K3 w - - 0 1") == "b"

@@ -283,6 +283,9 @@ class PaginaExtraida:
     #: alimenta a coleta nem a fila de revisão — o relatório da exportação
     #: conta quantas vieram de cada caminho, para isso não acontecer calado.
     leitura: str = "imagem"
+    #: O motivo, quando a leitura da página **levantou** (RG-14, R-20): ela sai como
+    #: imagem, em vez de derrubar o livro, e a conclusão e a fila de revisão a mostram.
+    falha: str = ""
 
     @property
     def texto(self) -> str:
