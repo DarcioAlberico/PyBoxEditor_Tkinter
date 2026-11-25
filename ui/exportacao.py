@@ -268,22 +268,23 @@ class Exportacao:
 
         Um caminho só, a fachada (PD-21): EPUB e DOCX saem do escritor de
         produção (`exportar.exportar`) sobre as `PaginaExtraida` da leitura —
-        `paginas`, cruas —, com a revisão do documento aplicada pela própria
-        fachada e as opções da caixa (fonte do diagrama, corpo, moldura); os
-        outros formatos saem do IR. É o mesmo caminho da primeira gravação e da
+        `paginas`, cruas, a que se aplica aqui a revisão do documento (RG-17: a
+        `ExportOptions` só leva páginas revisadas) —, com as opções da caixa (fonte
+        do diagrama, corpo, moldura); os outros formatos saem do IR. É o mesmo caminho da primeira gravação e da
         regravação depois da revisão — o que muda entre as duas é o documento.
         Roda fora da thread da interface.
         """
-        from core.editorial_legacy import OpcoesDeFigura
+        from core.editorial_legacy import OpcoesDeFigura, aplicar_revisao
 
         saida, formato, idioma = opcoes.saida, opcoes.formato, opcoes.idioma
         e_pdf = origem.lower().endswith(".pdf")
         titulo, autor = (livro.titulo_e_autor(origem) if e_pdf
                          else (os.path.splitext(os.path.basename(origem))[0], ""))
+        figura = OpcoesDeFigura(fonte=opcoes.fonte, moldura=opcoes.moldura, cantos=opcoes.cantos)
+        revisadas = (aplicar_revisao(paginas, documento, opcoes=figura)
+                     if paginas and formato in ("epub", "docx") else ())
         return pipeline.export(documento, saida, ExportOptions(
-            format=formato, paginas=paginas,
-            figura=OpcoesDeFigura(fonte=opcoes.fonte, moldura=opcoes.moldura,
-                                  cantos=opcoes.cantos),
+            format=formato, paginas=revisadas, figura=figura,
             escritor={"titulo": titulo, "autor": autor,
                       "diagramas": opcoes.diagramas_no_arquivo, "corpo_pt": opcoes.corpo_pt,
                       "moldura": opcoes.moldura, "cantos": opcoes.cantos,

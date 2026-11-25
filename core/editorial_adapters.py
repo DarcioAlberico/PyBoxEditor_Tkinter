@@ -46,6 +46,10 @@ _ORIGEM_NO_IR = {"legenda": "legend", "legalidade": "legalidade", "lance": "lanc
                  "usuario": "manual"}
 
 
+#: Os tipos de bloco de texto que são papel, e não prosa (`Paragrafo.papel`).
+PAPEIS_DO_PARAGRAFO = frozenset({"header", "footer", "caption"})
+
+
 def _kind(region_type: str) -> str:
     return {
         "body": "paragraph", "quote": "paragraph", "heading": "heading",
@@ -304,7 +308,9 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
         reason_codes = ["legacy_adapter"]
         if tipo == "Paragrafo":
             texto = str(legado.texto)
-            kind = "heading" if legado.titulo else "paragraph"
+            papel = str(getattr(legado, "papel", "") or "")
+            kind = ("heading" if legado.titulo
+                    else papel if papel in PAPEIS_DO_PARAGRAFO else "paragraph")
             value: Any = texto
             style = {
                 "heading_level": legado.nivel if legado.titulo else None,
@@ -639,6 +645,8 @@ def _bloco_de_volta(block: EditorialBlock, *, estado_da_revisao: bool = False) -
         pe=_inteiro_ou_nada(block.metadata.get("bottom")),
         inicios=[int(i) for i in block.metadata.get("line_starts") or []],
         registros=[int(i) for i in block.metadata.get("routing_rows") or []],
+        # O cabeçalho voltava parágrafo comum, e entrava no corpo do livro (RG-17, R-36).
+        papel=block.kind if block.kind in PAPEIS_DO_PARAGRAFO else "",
     )
 
 

@@ -34,8 +34,11 @@ from core import lado_a_jogar as lado_jogar
 from core import livro, render_diagrama
 from core.diagrama import Casa, Leitura
 from core.editorial_adapters import blocos_de_volta, montar_pagina_extraida
-from core.editorial_export import (lado_revisado, orientacao_revisada, posicao_do_fen,
+from core.editorial_export import (faixas_do_estilo, lado_revisado, orientacao_revisada, posicao_do_fen,
                                    posicao_revisada, revisao_pendente)
+from core.log import logger
+
+log = logger(__name__)
 
 
 @dataclass
@@ -282,7 +285,9 @@ class ProvedorDePaginas:
     página rasterizada a `pagina.dpi` em cinza —, e não a imagem: um livro
     inteiro não cabe no JSON. Quem quer o recorte de uma linha rasteriza a
     página de novo, pelo mesmo caminho (`livro._pagina_cinza`), e as caixas
-    caem no lugar. A origem vem de `documento.metadata["source_path"]`.
+    caem no lugar. A origem vem de `documento.metadata["source_path"]`, e tem de ser o
+    arquivo que se leu: com outro PDF no mesmo caminho, o recorte mostrado seria de outro
+    livro (`source_sha256`, a identidade da RG-07 — RG-17, R-36).
     """
 
     def __init__(self, documento: Any, *, caminho: str | Path | None = None):
@@ -291,6 +296,22 @@ class ProvedorDePaginas:
         self.caminho = Path(origem) if origem else None
         self._memoria: "OrderedDict[int, np.ndarray]" = OrderedDict()
         self._doc = None
+        self._origem_confere: Optional[bool] = None
+
+    def _confere(self) -> bool:
+        """O arquivo no caminho é o que se leu? Pergunta-se uma vez; sem `source_sha256` no
+        documento, ou com outro arquivo dado à mão, não há o que conferir."""
+        if self._origem_confere is None:
+            esperado = str(getattr(self.documento, "source_sha256", "") or "")
+            self._origem_confere = True
+            if esperado:
+                from core.editorial_pipeline import DocumentSource
+                achado = DocumentSource.from_path(self.caminho).sha256
+                self._origem_confere = achado == esperado
+                if not self._origem_confere:
+                    log.warning("%s não é o arquivo que se leu (o conteúdo mudou): a revisão "
+                                "segue sem a imagem da página.", self.caminho)
+        return self._origem_confere
 
     def dpi_da_pagina(self, page_index: int) -> int:
         for page in self.documento.pages:
@@ -313,6 +334,8 @@ class ProvedorDePaginas:
         if self.caminho is None or not self.caminho.exists():
             return None
         try:
+            if not self._confere():
+                return None
             # A imagem solta (PNG, JPG) passa pelo `fitz` como o PDF: é como
             # `livro.extrair` a abre, e é o que deixa as caixas na escala.
             doc = self._abrir()
@@ -320,7 +343,9 @@ class ProvedorDePaginas:
                 return None
             dpi = self.dpi_da_pagina(page_index) or 300
             imagem = livro._pagina_cinza(doc[page_index], dpi)
-        except Exception:  # noqa: BLE001 — sem imagem a fila mostra só texto
+        except Exception as erro:  # noqa: BLE001 — sem imagem a fila mostra só texto
+            log.warning("a imagem da página %d não saiu de %s (%s: %s); a revisão mostra só o texto.",
+                        page_index + 1, self.caminho, type(erro).__name__, erro)
             return None
         self._memoria[page_index] = imagem
         while len(self._memoria) > PAGINAS_EM_MEMORIA:
@@ -532,17 +557,6 @@ def _ordem_do_bloco(block_id: str) -> Optional[int]:
     return int(fim) if sep and fim.isdigit() else None
 
 
-def _faixas(block: Any, chave: str) -> list[tuple[int, int]]:
-    """As faixas de `block.style[chave]` como o `Paragrafo` as guarda."""
-    saida = []
-    for item in block.style.get(chave) or []:
-        try:
-            saida.append((int(item[0]), int(item[1])))
-        except (TypeError, ValueError, IndexError):
-            continue
-    return saida
-
-
 def _bloco_revisado(legado: Any, block: Any, opcoes: OpcoesDeFigura) -> Any:
     valor = block.decision.value
     if isinstance(legado, livro.Paragrafo) and isinstance(valor, str):
@@ -552,8 +566,8 @@ def _bloco_revisado(legado: Any, block: Any, opcoes: OpcoesDeFigura) -> Any:
         # então o que está em `block.style` é sempre do texto que está em
         # `value`. O parágrafo editado na fila, sem faixas, sai em redondo, como
         # saía.
-        negrito = _faixas(block, "bold_spans")
-        italico = _faixas(block, "italic_spans")
+        negrito = faixas_do_estilo(block, "bold_spans")
+        italico = faixas_do_estilo(block, "italic_spans")
         texto_mudou = valor != legado.texto
         if (not texto_mudou and negrito == list(legado.negrito)
                 and italico == list(getattr(legado, "italico", None) or [])):

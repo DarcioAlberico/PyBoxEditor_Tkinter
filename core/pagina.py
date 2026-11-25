@@ -96,6 +96,10 @@ class Paragrafo:
     #: recorte da linha e as alternativas dela por aqui, e sem isto o
     #: parágrafo já pronto não sabia mais de que linhas tinha saído.
     registros: List[int] = field(default_factory=list)
+    #: O papel do parágrafo que não é prosa — `"header"`, `"footer"` ou `"caption"` — quando a
+    #: página volta de um IR que o diz (RG-17, R-36); vazio no texto corrido, que é tudo o que
+    #: o leitor produz. O cabeçalho e o rodapé ficam na página e fora do corpo do livro.
+    papel: str = ""
 
     @property
     def linhas_impressas(self) -> int:

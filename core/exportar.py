@@ -457,6 +457,15 @@ def simbolos_sem_fonte(texto: str) -> str:
     return "".join(c for c in precisa if c not in cobertos)
 
 
+#: Os papéis que ficam na página e não entram no corpo do livro (`Paragrafo.papel`).
+FORA_DO_CORPO = frozenset({"header", "footer"})
+
+
+def fora_do_corpo(bloco) -> bool:
+    """O cabeçalho e o rodapé que o IR marcou (RG-17, R-36)."""
+    return getattr(bloco, "papel", "") in FORA_DO_CORPO
+
+
 def _filas_retangulares(tabela: Tabela) -> List[List[str]]:
     """As filas da tabela com o mesmo número de células — o da maior —, as curtas completadas
     com vazio; `[]` na tabela sem célula nenhuma, que não se escreve (RG-17, R-33). O DOCX
@@ -483,6 +492,8 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
     titulos = 0
     primeiro = True
     for bloco in pagina.blocos:
+        if fora_do_corpo(bloco):
+            continue
         if isinstance(bloco, Tabela):
             # **Sem `<th>`, e não é descuido.** Nada aqui sabe se a primeira
             # fila é cabeçalho: o que se mediu foi a grade, e a grade não diz o
@@ -543,7 +554,9 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                              f"{texto}</h{nivel}>")
                 primeiro = True
                 continue
-            classe = ' class="primeira"' if primeiro else ""
+            # A legenda, como o parágrafo que abre a seção, não tem recuo.
+            legenda = getattr(bloco, "papel", "") == "caption"
+            classe = ' class="primeira"' if primeiro or legenda else ""
             corpo.append(f"<p{classe}>{texto}</p>")
             primeiro = False
     return (
@@ -1279,6 +1292,15 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         vao.paragraph_format.line_spacing = Pt(1)
         vao.paragraph_format.first_line_indent = Pt(0)
 
+    def como_legenda(p) -> None:
+        """Centrado, sem recuo, no estilo de legenda do modelo."""
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.first_line_indent = Pt(0)
+        try:
+            p.style = doc.styles["Caption"]
+        except KeyError:
+            log.debug("DOCX: o modelo não tem o estilo Caption; a legenda sai no estilo normal")
+
     def legenda_da_figura(bloco: Figura) -> None:
         """
         A ressalva visível sob o diagrama que ninguém conferiu (PD-21): o mesmo
@@ -1286,13 +1308,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         Word a acham. Só sai quando `revisao_pendente` é verdadeiro — o livro
         exportado direto da leitura não ganha legenda nenhuma.
         """
-        p = escrever_paragrafo(_ressalva(bloco))
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.first_line_indent = Pt(0)
-        try:
-            p.style = doc.styles["Caption"]
-        except KeyError:
-            log.debug("DOCX: o modelo não tem o estilo Caption; a ressalva sai no estilo normal")
+        como_legenda(escrever_paragrafo(_ressalva(bloco)))
 
     # A casa é o quadrado do em, então o corpo da fonte **é** a casa: o que o
     # usuário pediu em pontos entra aqui sem conta nenhuma (F97). Era derivado
@@ -1309,6 +1325,8 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
         if i:
             doc.add_page_break()
         for bloco in pagina.blocos:
+            if fora_do_corpo(bloco):
+                continue
             if isinstance(bloco, Figura) and em_texto(bloco):
                 usadas[bloco.fonte] = None
                 primeiro = True
@@ -1390,6 +1408,9 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 if bloco.titulo:
                     p.style = doc.styles["Heading 1" if bloco.nivel == 1
                                          else "Heading 2"]
+                    primeiro = True
+                elif getattr(bloco, "papel", "") == "caption":
+                    como_legenda(p)
                     primeiro = True
                 elif primeiro:
                     p.paragraph_format.first_line_indent = Pt(0)

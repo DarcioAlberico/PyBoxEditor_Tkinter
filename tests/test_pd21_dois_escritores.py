@@ -214,10 +214,10 @@ def test_a_fachada_escreve_o_mesmo_epub_das_paginas_do_leitor_e_de_volta_do_ir(
         assert "OEBPS/content.xhtml" not in arquivo.namelist()
 
 
-def test_a_fachada_aplica_a_revisao_uma_vez_sobre_as_paginas_que_recebe(tmp_path):
-    """A janela passa as páginas cruas do seu extrator e a fachada aplica a
-    revisão: o bloco rejeitado sai, o texto revisado entra, e as páginas
-    passadas ficam como estavam."""
+def test_a_fachada_escreve_as_paginas_revisadas_que_recebe(tmp_path):
+    """`ExportOptions.paginas` são páginas **revisadas** (RG-17, R-36), e quem as tem aplica a
+    revisão (`aplicar_revisao`): o bloco rejeitado sai, o texto revisado entra, e as páginas
+    do leitor ficam como estavam."""
     from core.editorial_review import ReviewSession
 
     paginas = [_pagina()]
@@ -227,7 +227,7 @@ def test_a_fachada_aplica_a_revisao_uma_vez_sobre_as_paginas_que_recebe(tmp_path
     sessao.reject("block-livro-p0001-b0003")
     relatorio = EditorialPipeline().export(
         sessao.document, tmp_path / "revisado.epub",
-        OpcoesDaFachada(format="epub", paginas=paginas,
+        OpcoesDaFachada(format="epub", paginas=aplicar_revisao(paginas, sessao.document),
                         escritor={"titulo": "Livro", "autor": "Ninguém"}))
     assert relatorio.metadata["paginas"] == "leitor"
     xhtml = _xhtml(tmp_path / "revisado.epub")

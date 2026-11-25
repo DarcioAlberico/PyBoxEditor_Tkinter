@@ -34,6 +34,13 @@ from core.editorial_adapters import (
     pagina_extraida_para_pagina,
     page_result_para_pagina,
 )
+# Uma só `ExportOptions` (RG-17, R-36): a daqui tinha `paginas` cruas, e a outra, revisadas.
+from core.editorial_export import (
+    EXPORT_FORMATS,
+    EditorialExporter,
+    ExportOptions,
+    ExportReport,
+)
 from core.editorial_model import EditorialDocument, EditorialPage, ReviewEvent
 from core.ocr_result import (
     LineResult,
@@ -56,7 +63,12 @@ from core.preprocess import PreprocessConfig, preparar_adaptativo
 # de versão invalida caches das fases anteriores.
 PIPELINE_VERSION = "editorial-pipeline/v4"
 SUPPORTED_SOURCE_KINDS = frozenset({"auto", "pdf", "image", "memory"})
-SUPPORTED_EXPORTS = frozenset({"json", "html", "txt", "epub", "docx", "pdf"})
+SUPPORTED_EXPORTS = EXPORT_FORMATS
+
+
+def _page_id(page_index: int) -> str:
+    """O id da página da origem, um por página."""
+    return f"page-{page_index:04d}"
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -357,6 +369,10 @@ class PageEvidence:
                                  "image_height": self.height})
 
     @property
+    def page_id(self) -> str:
+        return _page_id(self.page_index)
+
+    @property
     def cache_key(self) -> str:
         return f"{self.document_id}:{self.page_index}:{self.raster_hash}:{_sha256_bytes(self.text_layer.encode())}"
 
@@ -450,45 +466,6 @@ class ProcessOptions:
             return Path(self.cache_dir)
         from config.paths import cache_ocr_dir
         return cache_ocr_dir()
-
-
-@dataclass(frozen=True)
-class ExportOptions:
-    format: str = "json"
-    include_diagnostics: bool = True
-    mode: str = "clean"
-    #: As `PaginaExtraida` da leitura, **cruas**, quando quem exporta as tem à
-    #: mão (a janela passa as do seu extrator). EPUB e DOCX saem delas, com a
-    #: revisão do documento aplicada pela fachada
-    #: (`editorial_legacy.aplicar_revisao`); vazio, valem as do próprio
-    #: `legacy_extractor`, e sem nenhuma as páginas voltam do IR (PD-21).
-    paginas: Sequence[Any] = ()
-    #: Como redesenhar o diagrama cujo FEN a revisão mudou
-    #: (`editorial_legacy.OpcoesDeFigura`); `None` é o padrão do livro.
-    figura: Any = None
-    #: O que `exportar.exportar` recebe além das páginas: `titulo`, `autor`,
-    #: `diagramas`, `corpo_pt`, `moldura`, `cantos`, `idioma`.
-    escritor: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        formato = str(self.format).casefold().lstrip(".")
-        if formato not in SUPPORTED_EXPORTS:
-            raise ValueError(f"formato editorial não suportado na Fase 2: {formato!r}")
-        modo = str(self.mode).casefold()
-        if modo not in {"faithful", "clean", "hybrid"}:
-            raise ValueError(f"modo editorial não suportado: {modo!r}")
-        object.__setattr__(self, "format", formato)
-        object.__setattr__(self, "mode", modo)
-        object.__setattr__(self, "paginas", tuple(self.paginas))
-        object.__setattr__(self, "escritor", dict(self.escritor))
-
-
-@dataclass(frozen=True)
-class ExportReport:
-    format: str
-    files: tuple[str, ...]
-    warnings: tuple[str, ...] = ()
-    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -767,6 +744,13 @@ def _raster_specs(evidence: PageEvidence, options: ProcessOptions) -> list[dict[
             for region in layout.regions]
 
 
+def _page_id_da_origem(page: PageResult) -> str:
+    """De que página da origem este resultado saiu — o que o leitor lhe deu como `page_id` é
+    dele, e o do cache de antes da RG-17 só traz o índice."""
+    guardado = page.metadata.get("source_page_id")
+    return str(guardado) if guardado else _page_id(int(page.metadata.get("page_index", -1)))
+
+
 class EditorialPipeline:
     """Fachada única para inspeção, processamento, revisão e exportação base.
 
@@ -880,15 +864,14 @@ class EditorialPipeline:
             trabalhos(), token=token,
             config_key=options.cache_key(self.pipeline_version),
         )
-        por_id = {int(page.metadata.get("page_index", -1)): page
-                  for page in resultado.results}
+        por_id = {_page_id_da_origem(page): page for page in resultado.results}
         paginas: list[EditorialPage] = []
         inspecoes: list[PageInspection] = []
         for ordem, evidence in enumerate(leves):
-            page = por_id.get(evidence.page_index)
+            page = por_id.get(evidence.page_id)
             if page is None:
                 mensagem = resultado.errors.get(str(ordem), "página não processada")
-                page = PageResult(f"page-{evidence.page_index:04d}", warnings=[mensagem])
+                page = PageResult(evidence.page_id, warnings=[mensagem])
                 self._enrich_page(page, evidence, options, error=mensagem)
             inspecoes.append(PageInspection.da_pagina(page))
             paginas.append(page_result_para_pagina(
@@ -919,7 +902,7 @@ class EditorialPipeline:
 
     def export(self, document: EditorialDocument, target: str | Path | "ExportTarget",
                options: ExportOptions | None = None) -> ExportReport:
-        options = options or ExportOptions()
+        options = options or ExportOptions(format="json")
         caminho = Path(target.path if isinstance(target, ExportTarget) else target)
         formato = (target.format if isinstance(target, ExportTarget) and target.format
                     else options.format).casefold().lstrip(".")
@@ -934,31 +917,24 @@ class EditorialPipeline:
             # fachada acrescenta são as páginas da leitura, quando as tem, com a
             # revisão do documento aplicada — era o `_export_legacy`, um caminho
             # à parte.
-            from core.editorial_export import EditorialExporter, ExportOptions as EditorialExportOptions
             paginas: list[Any] = []
             if formato in {"epub", "docx"}:
                 paginas = self._paginas_da_leitura(document, options)
-            report = EditorialExporter().export(
-                document, caminho,
-                EditorialExportOptions(
-                    format=formato, mode=options.mode,
-                    include_diagnostics=options.include_diagnostics,
-                    source_pdf=document.metadata.get("source_path") or None,
-                    paginas=paginas, figura=options.figura, escritor=options.escritor,
-                ),
-            )
-            return ExportReport(report.format, report.files, report.warnings, report.metadata)
+            return EditorialExporter().export(document, caminho, replace(
+                options, format=formato, paginas=paginas,
+                source_pdf=options.source_pdf or document.metadata.get("source_path") or None))
         document.save_json(caminho)
         return ExportReport(formato, (str(caminho),), metadata={"schema": document.schema})
 
     def _paginas_da_leitura(self, document: EditorialDocument,
                             options: ExportOptions) -> list[Any]:
         """As `PaginaExtraida` em que EPUB e DOCX se escrevem, com a revisão do
-        documento aplicada — as de `options.paginas` ou as da última leitura do
-        `legacy_extractor`; vazio quando não há leitura (o IR de outra sessão,
-        a biblioteca), e aí o exportador as traz de volta do IR (PD-21)."""
-        lidas = list(options.paginas) or list(
-            getattr(self.legacy_extractor, "ultimas_paginas", ()) or ())
+        documento aplicada: as de `options.paginas`, que já a trazem, ou as da última leitura
+        do `legacy_extractor`, em que se aplica aqui; vazio quando não há leitura (o IR de
+        outra sessão, a biblioteca), e aí o exportador as traz de volta do IR (PD-21)."""
+        if options.paginas:
+            return list(options.paginas)
+        lidas = list(getattr(self.legacy_extractor, "ultimas_paginas", ()) or ())
         if not lidas:
             return []
         from core.editorial_legacy import aplicar_revisao
@@ -998,17 +974,17 @@ class EditorialPipeline:
                         token: CancellationToken) -> PageResult:
         token.raise_if_cancelled()
         if options.engine == "none":
-            return PageResult(f"page-{evidence.page_index:04d}",
+            return PageResult(evidence.page_id,
                               warnings=["engine desabilitado; OCR não executado"])
         if evidence.raster is None:
-            return PageResult(f"page-{evidence.page_index:04d}",
+            return PageResult(evidence.page_id,
                               warnings=["raster ausente; OCR não executado"])
         try:
             from core.services.ocr_service import OCRService
             registros = OCRService().tesseract_pagina_detalhada_conf(
                 evidence.raster, options.language)
         except Exception as error:  # noqa: BLE001 — este método existe para degradar com aviso
-            return PageResult(f"page-{evidence.page_index:04d}",
+            return PageResult(evidence.page_id,
                               warnings=[f"engine indisponível: {error}"])
         regions = []
         lines = []
@@ -1032,7 +1008,7 @@ class EditorialPipeline:
                                         line_ids=[line_id], text=texto,
                                         metadata={"source": "tesseract"}))
         return PageResult(
-            page_id=f"page-{evidence.page_index:04d}",
+            page_id=evidence.page_id,
             text="\n".join(line.text for line in lines),
             confidence=(sum(line.confidence for line in lines) / len(lines)
                         if lines else 0.0), regions=regions, lines=lines, words=words,
@@ -1056,6 +1032,7 @@ class EditorialPipeline:
             "layout_routing": [self.router.decide(region).to_dict()
                                for region in _regioes_dos_specs(specs)],
             "document_id": evidence.document_id, "page_index": evidence.page_index,
+            "source_page_id": evidence.page_id,
             "source_sha256": evidence.metadata.get("source_sha256", evidence.raster_hash),
             "image_hash": evidence.raster_hash,
             "source_kind": evidence.source_kind, "dpi": evidence.raster_dpi,

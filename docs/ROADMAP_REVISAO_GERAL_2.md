@@ -1301,7 +1301,8 @@ no master em `ffc3ec3`), o mesmo worktree.
   passed. AbbyChessCraft: 2915 passed, 6 failed, os mesmos seis da base.
 - A Onda 6 está fechada. Próximo passo da revisão: a Onda 7 (RG-17, a exportação editorial).
 ### RG-17
-Estado: em andamento (2026-11-25). Base `a56ebbc`, worktree `.claude/worktrees/onda7`
+Estado: fechada (2026-11-25), em quatro commits (`c3cfe35`, `3ed62ab`, `9f4d52c` e o do R-36).
+Base `a56ebbc`, worktree `.claude/worktrees/onda7`
 (destacado, com os pesos copiados). A fase não mexe na leitura: sem A/B.
 - Commit 1 (R-32): `EditorialDocument` ordena as páginas por `page_index` na construção
   (estável), `aplicar_revisao` devolve na mesma ordem, e o HTML, o TXT e o PDF deixam de
@@ -1337,6 +1338,22 @@ Estado: em andamento (2026-11-25). Base `a56ebbc`, worktree `.claude/worktrees/o
     lado. Numa execução avulsa, `test_dialogo_revisao_editorial` teve uma falha que não se
     repetiu em dez (cinco no código novo, cinco no de antes) nem na suíte; a mensagem não foi
     guardada. Suíte: 4061 passed.
+- Commit 4 (R-36): `Paragrafo.papel` (`header`/`footer`/`caption`) volta do IR e vai de novo;
+  no EPUB e no DOCX o cabeçalho e o rodapé ficam fora do corpo (o relatório diz quantos) e a
+  legenda sai como legenda; a imagem da página loga a falha e confere o `source_sha256` uma
+  vez (o PDF trocado no mesmo caminho não dá imagem); `page_id` casa o resultado com a página;
+  `faixas_do_estilo` é uma só; e há **uma `ExportOptions`** (a de `editorial_export`, com
+  `paginas` revisadas, fixada por teste), um `ExportReport` e um conjunto de formatos: a
+  janela passa a aplicar a revisão antes de chamar a fachada.
+  - O item do `page_id` não muda resultado: `from_pages` já recusa índice repetido e o
+    enriquecimento grava o índice por cima, de modo que não achei cenário que falhasse; ficou a
+    chave única pedida, e o teste (fora de ordem, com uma página que levanta) é guarda.
+  - `tests/test_pequenos_do_editorial.py`: contra o código de antes, oito dos onze falham (os
+    outros são guardas: sem identidade a imagem sai, o casamento por página, o JSON padrão). O
+    `test_pd21` que fixava as páginas cruas passa a fixar as revisadas. Suíte: 4072 passed.
+- `slow and not gui`: 11 passed. AbbyChessCraft contra o worktree: 2915 passed, 6 failed, os
+  mesmos seis da base (o `Paragrafo` ganhou um campo no fim, com padrão).
+- A Onda 7 está fechada. Próximo passo da revisão: a Onda 8 (RG-18 e RG-20, depois a RG-19).
 ### RG-18
 ### RG-20
 ### RG-19

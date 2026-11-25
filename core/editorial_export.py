@@ -43,10 +43,10 @@ class ExportOptions:
     source_pdf: str | Path | None = None
     title: str = ""
     #: As `PaginaExtraida` em que EPUB e DOCX se escrevem, **já com a revisão do
-    #: documento aplicada** (`editorial_legacy.aplicar_revisao`): quem tem as
-    #: páginas do leitor à mão é a fachada, e é ela que aplica. Vazio, as páginas
-    #: voltam do próprio IR (PD-21) — o mesmo arquivo, byte a byte, quando o IR
-    #: veio do leitor.
+    #: documento aplicada** (`editorial_legacy.aplicar_revisao`): quem as tem aplica e
+    #: passa. Vazio, a fachada aplica às da última leitura do seu `legacy_extractor`, e sem
+    #: leitura as páginas voltam do próprio IR (PD-21) — o mesmo arquivo, byte a byte,
+    #: quando o IR veio do leitor.
     paginas: Sequence[Any] = ()
     #: Como redesenhar o diagrama cujo FEN mudou ou que veio sem desenho
     #: (`editorial_legacy.OpcoesDeFigura`); `None` é o padrão do livro.
@@ -358,7 +358,8 @@ def trechos_em_negrito(texto: str, block: EditorialBlock) -> list[tuple[str, boo
     return saida
 
 
-def _faixas(block: EditorialBlock, chave: str) -> list[tuple[int, int]]:
+def faixas_do_estilo(block: EditorialBlock, chave: str) -> list[tuple[int, int]]:
+    """As faixas de `block.style[chave]` como o `Paragrafo` as guarda; a torta fica fora."""
     faixas = []
     for item in block.style.get(chave) or []:
         try:
@@ -374,10 +375,10 @@ def trechos_com_estilo(texto: str, block: EditorialBlock
     (PD-06). Sem `italic_spans` é o `trechos_em_negrito` de sempre."""
     from core.exportar import trechos_com_estilo as cortar
 
-    inclinados = _faixas(block, "italic_spans")
+    inclinados = faixas_do_estilo(block, "italic_spans")
     if not inclinados:
         return [(t, forte, False) for t, forte in trechos_em_negrito(texto, block)]
-    return cortar(texto, _faixas(block, "bold_spans"), inclinados)
+    return cortar(texto, faixas_do_estilo(block, "bold_spans"), inclinados)
 
 
 def _com_negrito(texto: str, block: EditorialBlock) -> str:
@@ -575,8 +576,12 @@ class EditorialExporter:
             escritor.setdefault("autor", autor)
         escritor.setdefault("idioma", document.language)
         exportar.exportar(paginas, str(target), formato=options.format, **escritor)
+        avisos = avisos_dos_diagramas(document)
+        fora = sum(1 for p in paginas for b in p.blocos if exportar.fora_do_corpo(b))
+        if fora:
+            avisos += (f"{fora} cabeçalho(s) e rodapé(s) de página fora do corpo do livro",)
         return ExportReport(options.format, (str(target),),
-                            warnings=avisos_dos_diagramas(document),
+                            warnings=avisos,
                             metadata={"mode": options.mode, "escritor": "exportar",
                                       "paginas": "leitor" if options.paginas else "ir"})
 
