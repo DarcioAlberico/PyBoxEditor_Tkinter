@@ -265,14 +265,15 @@ def test_o_instrumento_nao_copia_a_regra_da_fila():
 
     A trava é de **uso**, não de texto: comparar `LIMIAR_ALTO` num `if` é o que
     denuncia. Citá-lo dentro de uma f-string de rótulo é legítimo, e por isso a
-    varredura olha comparações e não menções.
+    varredura olha comparações e não menções. É uma regra sobre o arquivo
+    inteiro, como as outras varreduras por AST da suíte, e lê o arquivo do disco.
     """
     import ast
-    import inspect
+    from pathlib import Path
 
     from scripts.medidas import medir_cadeia
 
-    arvore = ast.parse(inspect.getsource(medir_cadeia))
+    arvore = ast.parse(Path(medir_cadeia.__file__).read_text(encoding="utf-8"))
     ofensas = []
     for no in ast.walk(arvore):
         if not isinstance(no, ast.Compare):

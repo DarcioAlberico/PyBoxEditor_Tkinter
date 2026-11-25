@@ -194,15 +194,20 @@ def test_motivo_do_metadado_ausente_e_especifico(tmp_path):
 # O modelo que está no repositório
 # ----------------------------------------------------------------------
 
-def test_o_treino_grava_os_campos_novos():
-    """Guarda contra alguém tirar os campos do `gravar_modelo`."""
-    import inspect
-    from core import neural_trainer
+def test_o_treino_grava_os_campos_novos(tmp_path):
+    """Guarda contra alguém tirar os campos do `gravar_modelo`: um treino de
+    verdade grava a versão do formato, as duas impressões e a data."""
+    import datetime
 
-    fonte = inspect.getsource(neural_trainer.NeuralTrainer.train)
-    for campo in ("schema_version", "modelo_sha256", "classes_sha256",
-                  "treinado_em"):
-        assert campo in fonte, f"o treino deixou de gravar {campo}"
+    from core.neural_trainer import impressao_das_classes, impressao_do_modelo
+    from tests.modelo_minusculo import ler_meta, treinar
+
+    modelo, meta = treinar(str(tmp_path))
+    dados = ler_meta(meta)
+    assert dados["schema_version"] == SCHEMA_META
+    assert dados["modelo_sha256"] == impressao_do_modelo(modelo)
+    assert dados["classes_sha256"] == impressao_das_classes(dados["idx_to_char"])
+    datetime.datetime.fromisoformat(dados["treinado_em"])
 
 
 def test_o_modelo_do_repositorio_carrega():
@@ -418,10 +423,11 @@ def test_todo_caminho_que_le_com_a_rede_confere_o_modelo():
 
     `_arbitro_de_corte` fica fora **de propósito**: ali a rede arbitra corte e
     não lê texto, e o recado fala de fila de revisão e roteamento. Ver o
-    docstring dele.
+    docstring dele. É uma regra sobre os quatro módulos inteiros, como as outras
+    varreduras por AST da suíte, e lê os arquivos do disco.
     """
     import ast
-    import inspect
+    from pathlib import Path
 
     import ui.documento
     import ui.main_window
@@ -429,7 +435,7 @@ def test_todo_caminho_que_le_com_a_rede_confere_o_modelo():
     import ui.treino
 
     # Os fluxos da janela moram em quatro modulos desde a PD-22: a pergunta vale para todos.
-    fonte = "\n".join(inspect.getsource(m)
+    fonte = "\n".join(Path(m.__file__).read_text(encoding="utf-8")
                       for m in (ui.main_window, ui.reconhecimento, ui.documento, ui.treino))
     tree = ast.parse(fonte)
     metodos = {m.name: m for no in ast.walk(tree)

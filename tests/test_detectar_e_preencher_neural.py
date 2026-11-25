@@ -12,7 +12,6 @@
    aplicava o parcial, o erro não aplicava nada.
 """
 
-import inspect
 import os
 import sys
 
@@ -147,21 +146,22 @@ def test_a_isencao_nao_solta_a_fonte_que_nao_esta_nela():
     assert "".join(c for _b, c, _cf, _f in saida) == "a0"
 
 
-def test_as_duas_acoes_isentam_so_o_easyocr():
+def test_as_duas_acoes_isentam_so_o_easyocr(monkeypatch):
     """
     Medido e ligado na F116: `_preencher_por_linha` é o laço das duas ações
     «Detectar e Preencher» (Neural e Híbrido), e passa `FONTES_SEM_TRAVA`.
     O PDF pesquisável fica de fora — o `reconhecer` dele não devolve a fonte,
-    então não há como isentar por fonte ali.
+    então não há como isentar por fonte ali: a trava vale para todo box.
     """
-    from core.searchable_pdf import _ler_boxes
+    from tests.acoes_falsas import ler_uma_linha_do_pdf, rodar_o_laco
     from ui.main_window import FONTES_SEM_TRAVA
-    from ui.reconhecimento import Reconhecimento
 
     assert FONTES_SEM_TRAVA == frozenset({"easyocr"})
-    assert "fontes_sem_trava=FONTES_SEM_TRAVA" in inspect.getsource(
-        Reconhecimento._preencher_por_linha)
-    assert "fontes_sem_trava" not in inspect.getsource(_ler_boxes)
+    _ordem, argumentos = rodar_o_laco(monkeypatch)
+    assert argumentos["fontes_sem_trava"] is FONTES_SEM_TRAVA
+
+    saida, _chamadas = ler_uma_linha_do_pdf(monkeypatch, [("a", 0.99), ("b", 0.20)], "xy")
+    assert saida == [("a", 0.99), ("y", 0.20)], "o PDF trocou um box acima da trava"
 
 
 # ----------------------------------------------------------------------
@@ -212,18 +212,29 @@ def test_sem_modelo_a_acao_neural_para_e_diz_por_que(monkeypatch):
             pass
 
 
-def test_o_trabalho_tambem_recusa_um_modelo_que_sumiu_no_caminho():
+def test_o_trabalho_tambem_recusa_um_modelo_que_sumiu_no_caminho(monkeypatch):
     """
     A conferência na thread da UI é a que o usuário vê; a de dentro de
     `preparar` é a rede de segurança para a carga que falha **depois** dela.
-    Ambas têm de estar na fonte — o caminho sem rede não pode existir.
+    Nas duas, o caminho sem rede não existe.
     """
+    from tests.acoes_falsas import janela_das_acoes, tarefa
+    from ui import reconhecimento
     from ui.reconhecimento import Reconhecimento
 
-    fonte = inspect.getsource(Reconhecimento.generate_and_fill_neural)
-    assert fonte.count("load_predictor()") >= 2
-    assert "motivo_do_modelo()" in fonte
-    assert "raise RuntimeError" in fonte
+    erros = []
+    monkeypatch.setattr(reconhecimento.messagebox, "showerror", lambda titulo, texto: erros.append(texto))
+    janela, pedidos = janela_das_acoes()
+    janela.learning_service.load_predictor = lambda: False
+    Reconhecimento(janela).generate_and_fill_neural()
+    assert erros == ["sem modelo"] and pedidos == [], "a ação seguiu sem a rede"
+
+    cargas = iter([True, False])
+    janela.learning_service.load_predictor = lambda: next(cargas)
+    Reconhecimento(janela).generate_and_fill_neural()
+    (_titulo, preparar, _resumo, _opcoes), = pedidos
+    with pytest.raises(RuntimeError, match="sem modelo"):
+        preparar(tarefa(), np.zeros((4, 4)), {}, {})
 
 
 @pytest.mark.parametrize("acao", [
@@ -268,24 +279,29 @@ def test_com_tarefa_em_andamento_os_boxes_nao_sao_regenerados(monkeypatch, acao)
 
 @pytest.mark.parametrize("acao", ["generate_and_fill_neural",
                                   "generate_and_fill_combined"])
-def test_a_altura_de_referencia_nao_e_lida_dentro_de_preparar(acao):
+def test_a_altura_de_referencia_nao_e_lida_dentro_de_preparar(acao, monkeypatch):
     """
     `preparar` roda na thread de trabalho, e `self.boxes` é da UI — o canvas
     continua editável durante a tarefa. A mesma razão pela qual `pagina` é
-    copiada antes do `_run_task`.
+    copiada antes do `_run_task`: a referência é medida antes, uma vez, e chega
+    pronta a cada leitura.
     """
-    import ast
-
+    from tests.acoes_falsas import janela_das_acoes, tarefa
+    from core import proporcao
     from ui.reconhecimento import Reconhecimento
 
-    fonte = inspect.getsource(getattr(Reconhecimento, acao))
-    tree = ast.parse(fonte.lstrip() if not fonte.startswith("def") else fonte)
-    metodo = tree.body[0]
-    preparar = next(n for n in ast.walk(metodo)
-                    if isinstance(n, ast.FunctionDef) and n.name == "preparar")
-    dentro = {n.attr for n in ast.walk(preparar) if isinstance(n, ast.Attribute)}
-    assert "altura_de_referencia" not in dentro
-    assert "altura_de_referencia" in fonte, "a referência continua sendo passada"
+    medidas = []
+    monkeypatch.setattr(proporcao, "altura_de_referencia",
+                        lambda boxes: (medidas.append(list(boxes)), 13.5)[1])
+    janela, pedidos = janela_das_acoes()
+    getattr(Reconhecimento(janela), acao)()
+    assert medidas == [janela.boxes]
+
+    (_titulo, preparar, _resumo, _opcoes), = pedidos
+    ler_caractere = preparar(tarefa(), np.zeros((60, 100)), {}, {})
+    ler_caractere(janela.boxes[0])
+    assert len(medidas) == 1, "preparar leu os boxes da UI na thread de trabalho"
+    assert janela.ocr_service.pedidos[-1]["altura_de_referencia"] == 13.5
 
 
 # ----------------------------------------------------------------------

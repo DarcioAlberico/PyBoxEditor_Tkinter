@@ -13,8 +13,10 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   `.venv\Scripts\python.exe -m pytest -q -m "not slow"` (uns cinco minutos) e, à parte,
   `-m "slow and not gui"`. Em testes avulsos, `-p no:cacheprovider` evita o cache de um
   processo anterior.
-- **Não edite arquivos enquanto a suíte roda**: `inspect.getsource` lê o arquivo novo
-  contra o módulo velho e o teste fica vermelho sem defeito nenhum.
+- Teste mede o que o código faz, nunca como ele está escrito: espião ou `monkeypatch`
+  sobre a chamada, e não `inspect.getsource` (`tests/test_grafia_nominal.py` recusa; os
+  dublês das ações da janela estão em `tests/acoes_falsas.py`). Regra sobre um arquivo
+  inteiro (as varreduras por AST) lê o arquivo do disco.
 - O gate da CI (`.github/workflows/ci.yml`) é `compileall`, `ruff check core ui appy.py
   config scripts tests` (E e F, 120 colunas), a coleta, o wheel conferido por
   `scripts/verificar_empacotamento.py --wheel` e os dois passos do pytest (`-m "not slow"`,

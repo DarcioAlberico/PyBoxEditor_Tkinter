@@ -195,15 +195,35 @@ def test_sem_imagem_nao_explode():
         raiz.destroy()
 
 
+class _Gravador:
+    """Grava cada método chamado nele, com os argumentos: `(nome, args)`."""
+
+    def __init__(self):
+        self.chamadas = []
+
+    def __getattr__(self, nome):
+        if nome.startswith("__"):
+            raise AttributeError(nome)
+        return lambda *a, **k: self.chamadas.append((nome, a))
+
+
 def test_selecao_nao_chama_mais_o_zoom():
-    """Guarda contra o `zoom_to_box` voltar para dentro de `select_box`."""
-    import inspect
+    """
+    Guarda contra o `zoom_to_box` voltar para dentro de `select_box`: a seleção
+    pede ao canvas só que o box fique visível, e o enquadramento fica como estava.
+    """
+    from types import SimpleNamespace
 
     from ui.main_window import MainWindow
 
-    fonte = inspect.getsource(MainWindow.select_box)
-    assert "garantir_visivel" in fonte
-    assert "self.canvas.zoom_to_box" not in fonte, \
+    canvas, campo = _Gravador(), _Gravador()
+    janela = SimpleNamespace(boxes=[BoxEntry("a", 0, 0, 10, 10), BoxEntry("b", 20, 0, 30, 10)],
+                             selected_index=-1, char_entry=campo, canvas=canvas,
+                             update_sidebar=lambda: None, update_canvas=lambda: None)
+    MainWindow.select_box(janela, 1)
+    assert janela.selected_index == 1
+    assert ("insert", (0, "b")) in campo.chamadas
+    assert canvas.chamadas == [("garantir_visivel", (1,))], \
         "o zoom automático voltou para a seleção — ver F4.3"
 
 
@@ -254,17 +274,30 @@ def test_ha_um_guard_so():
     """
     Havia dois guards no arquivo, um completo e o outro não. Guard duplicado é
     guard que sai de sincronia — foi como o do Ctrl+D ficou para trás.
+
+    Os três atalhos perguntam ao mesmo `_foco_em_campo_de_texto`: com ele dizendo
+    "campo", nenhum age; dizendo "não", os três agem — também com um `Entry` no
+    foco, que um `isinstance` próprio de qualquer um deles calaria.
     """
-    import inspect
+    from types import SimpleNamespace
 
     from ui.main_window import MainWindow
 
-    for metodo in (MainWindow._on_key_split_safe, MainWindow._on_tecla_digitacao,
-                   MainWindow._on_key_zoom):
-        fonte = inspect.getsource(metodo)
-        assert "_foco_em_campo_de_texto" in fonte, \
-            f"{metodo.__name__} não usa o guard comum"
-        assert "isinstance(foco" not in fonte and "isinstance(focus_widget" not in fonte
+    entry = tk.Entry.__new__(tk.Entry)          # sem Tk: ao guard só o tipo importa
+    for em_campo in (True, False):
+        feitos = []
+        janela = SimpleNamespace(
+            parent=SimpleNamespace(focus_get=lambda: entry),
+            _foco_em_campo_de_texto=lambda v=em_campo: v,
+            split_selected_box=lambda: feitos.append("dividir"),
+            selected_index=0, canvas=SimpleNamespace(zoom_to_box=lambda i: feitos.append("zoom")),
+            modo_digitacao=True, _mover_selecao=lambda passo: feitos.append("digitar"),
+            _status_digitacao=lambda: None)
+        espaco = SimpleNamespace(char=" ")
+        MainWindow._on_key_split_safe(janela, espaco)
+        MainWindow._on_key_zoom(janela, espaco)
+        MainWindow._on_tecla_digitacao(janela, espaco)
+        assert feitos == ([] if em_campo else ["dividir", "zoom", "digitar"]), em_campo
 
 
 def test_guard_sobrevive_a_focus_get_sem_foco():
@@ -272,21 +305,43 @@ def test_guard_sobrevive_a_focus_get_sem_foco():
     `focus_get()` levanta KeyError quando o foco está noutra aplicação. Sem
     tratamento, o atalho morreria com exceção em vez de simplesmente disparar.
     """
-    import inspect
+    from types import SimpleNamespace
 
     from ui.main_window import MainWindow
 
-    fonte = inspect.getsource(MainWindow._foco_em_campo_de_texto)
-    assert "KeyError" in fonte
+    def sem_foco():
+        raise KeyError("o foco está noutra aplicação")
+
+    janela = SimpleNamespace(parent=SimpleNamespace(focus_get=sem_foco),
+                             CAMPOS_DE_TEXTO=MainWindow.CAMPOS_DE_TEXTO)
+    assert MainWindow._foco_em_campo_de_texto(janela) is False
+    janela.parent.focus_get = lambda: tk.Text.__new__(tk.Text)
+    assert MainWindow._foco_em_campo_de_texto(janela) is True
 
 
 def test_f4_esta_ligado_ao_zoom():
-    import inspect
-
+    """F4 enquadra o box selecionado (F4.3), ligado na janela inteira."""
     from ui.main_window import MainWindow
 
-    fonte = inspect.getsource(MainWindow)
-    assert '"<F4>"' in fonte and "_on_key_zoom" in fonte
+    class _Ligacoes:
+        def __init__(self):
+            self.ligadas = {}
+
+        def bind(self, sequencia, handler):
+            self.ligadas[sequencia] = handler
+
+    class _Janela:
+        """Cada atributo que a janela não tem é o nome dele: o handler se reconhece."""
+
+        def __init__(self):
+            self.parent, self.char_entry = _Ligacoes(), _Ligacoes()
+
+        def __getattr__(self, nome):
+            return f"handler {nome}"
+
+    janela = _Janela()
+    MainWindow._bind_keys(janela)
+    assert janela.parent.ligadas["<F4>"] == "handler _on_key_zoom"
 
 
 # ----------------------------------------------------------------------

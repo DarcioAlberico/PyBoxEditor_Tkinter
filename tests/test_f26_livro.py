@@ -688,6 +688,38 @@ def test_a_acao_abre_a_caixa_com_o_que_ela_precisa_saber(monkeypatch):
         assert callable(recebido["configuracoes"])
 
 
+
+def test_a_exportacao_le_no_idioma_da_caixa(monkeypatch):
+    """
+    A F117 no caminho do livro: a sondagem pergunta o idioma pela camada de
+    texto **sem abrir caixa** (`perguntar=False`: ela roda fora da thread da
+    interface), e a leitura usa o idioma que a caixa devolveu, mesmo quando o
+    usuário trocou o detectado.
+    """
+    import dataclasses
+
+    recebido, perguntas = {}, []
+    monkeypatch.setattr(livro, "extrair", lambda *a, **k: (recebido.update(k), [])[1])
+    tmp = tempfile.mkdtemp()
+    entrada = os.path.join(tmp, "livro.pdf")
+    _pdf_de_uma_pagina(entrada, texto="The rook is bad. The rook is bad.")
+
+    with _App(entrada, os.path.join(tmp, "a.epub")) as app:
+        duble = app.win.DIALOGO_DE_EXPORTACAO
+        duble.resposta = dataclasses.replace(duble.resposta, idioma="pt")
+        original = app.win._idioma_do_livro
+
+        def perguntar_idioma(caminho, **opcoes):
+            perguntas.append((caminho, opcoes))
+            return original(caminho, **opcoes)
+
+        app.win._idioma_do_livro = perguntar_idioma
+        app.win.ocr_service.tesseract_disponivel = lambda idioma: (True, "")
+        app.rodar()
+        assert not app.erros, app.erros
+    assert perguntas == [(entrada, {"perguntar": False})]
+    assert recebido["idioma_ocr"] == "pt"
+
 def test_o_documento_editorial_em_epub_sai_pelo_escritor_historico(monkeypatch):
     """A mesma caixa serve o documento editorial: EPUB/DOCX saem do escritor
     histórico (`OEBPS/content.opf`, fonte de símbolos, diagrama redesenhado),

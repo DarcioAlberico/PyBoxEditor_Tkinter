@@ -9,7 +9,6 @@ livro em inglês. Aqui a máscara entra na cadeia com a forma do veto da F106
 para o k-NN, e a janela descobre o idioma uma vez por documento.
 """
 
-import inspect
 import os
 import sys
 
@@ -227,22 +226,27 @@ def test_as_duas_acoes_e_a_exportacao_passam_o_mesmo_idioma():
     """
     Uma pergunta só (`_idioma_do_livro`), três consumidores: a exportação e as
     duas ações «Detectar e Preencher». Um caminho sem `idioma=` seria a tela
-    voltando a competir com o `É` num livro em inglês.
+    voltando a competir com o `º` num livro em inglês. Aqui as duas ações; a
+    exportação está em `test_f26_livro` (`test_a_exportacao_le_no_idioma_da_caixa`),
+    que tem a janela montada.
     """
+    from types import SimpleNamespace
+
+    from tests.acoes_falsas import janela_das_acoes, tarefa
     from ui.reconhecimento import Reconhecimento
 
     for acao in ("generate_and_fill_neural", "generate_and_fill_combined"):
-        fonte = inspect.getsource(getattr(Reconhecimento, acao))
-        assert "idioma_da_sessao()" in fonte, acao
-        assert "idioma=idioma" in fonte, acao
-    assert "_idioma_do_livro(" in inspect.getsource(Reconhecimento.idioma_da_sessao)
-    # A exportação passa pela caixa única (2026-09-18): o idioma é detectado
-    # por `_idioma_do_livro(..., perguntar=False)` em `_preparar_exportacao`
-    # e chega a `livro.extrair` como `idioma_ocr=idioma`. O corpo mora em
-    # `ui.exportacao.Exportacao` desde o item 6 da análise de 2026-10-06; a
-    # janela só delega.
-    from ui.exportacao import Exportacao
+        janela, pedidos = janela_das_acoes()
+        janela.idioma_da_sessao = lambda: "pt"
+        getattr(Reconhecimento(janela), acao)()
+        (_titulo, preparar, resumo, _opcoes), = pedidos
+        preparar(tarefa(), np.zeros((60, 100)), {}, {})(janela.boxes[0])
+        assert janela.ocr_service.pedidos[-1]["idioma"] == "pt", acao
+        assert "Máscara de alfabeto: português" in resumo({}), acao
 
-    assert "_idioma_do_livro(entrada, perguntar=False)" in inspect.getsource(
-        Exportacao._preparar_exportacao)
-    assert "idioma_ocr=idioma" in inspect.getsource(Exportacao.exportar_livro_action)
+    perguntas = []
+    janela = SimpleNamespace(_idioma=None, session=SimpleNamespace(is_pdf=True, path="livro.pdf"),
+                             _idioma_do_livro=lambda caminho: (perguntas.append(caminho), ("pt", True))[1])
+    sessao = Reconhecimento(janela)
+    assert sessao.idioma_da_sessao() == "pt" and sessao.idioma_da_sessao() == "pt"
+    assert perguntas == ["livro.pdf"], "o idioma se pergunta uma vez por documento"

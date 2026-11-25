@@ -209,26 +209,42 @@ def test_a_troca_da_geometria_entra_sempre_na_fila_de_revisao():
         BoxEntry("o", 0, 0, 9, 9, confidence=0.99, source="neural")) is False
 
 
-def test_so_a_acao_neural_passa_a_poda():
+def test_so_a_acao_neural_passa_a_poda(monkeypatch):
     """
     O «Híbrido» não carrega a rede para ler, e as candidatas da troca são dela.
-    O neural a passa, com as candidatas pela porta do serviço, e o laço das
-    duas ações a entrega a `ler_pagina` depois de `preparar` carregar o modelo.
+    O neural a passa, com as candidatas pela porta do serviço, e o diálogo do
+    fim conta o que a geometria corrigiu.
     """
+    from tests.acoes_falsas import janela_das_acoes
     from ui.reconhecimento import Reconhecimento
 
-    neural = inspect.getsource(Reconhecimento.generate_and_fill_neural)
-    assert "poda_da_ancora(" in neural
-    assert "self.janela.learning_service.candidatas" in neural
-    assert "poda=poda" in neural
-    assert "Corrigidos pela geometria" in neural
-    assert "poda" not in inspect.getsource(Reconhecimento.generate_and_fill_combined)
+    janela, pedidos = janela_das_acoes()
+    Reconhecimento(janela).generate_and_fill_combined()
+    Reconhecimento(janela).generate_and_fill_neural()
+    (_t, _p, _r, hibrido), (_t, _p, resumo, neural) = pedidos
+    assert hibrido.get("poda") is None
 
-    laco = inspect.getsource(Reconhecimento._preencher_por_linha)
-    montagem = "podar=None if poda is None else poda(pagina)"
-    assert montagem in laco
-    assert laco.index("= preparar(h, pagina, faixas, margens)") < laco.index(
-        montagem), "a poda é montada depois de o modelo carregar"
+    monkeypatch.setattr(gl, "poda_da_ancora", lambda pagina, candidatas: ("poda", pagina, candidatas))
+    pagina = np.zeros((4, 4))
+    nome, recebida, candidatas = neural["poda"](pagina)
+    assert nome == "poda" and recebida is pagina
+    assert candidatas is janela.learning_service.candidatas
+    assert "Corrigidos pela geometria: 2" in resumo({"geometria": 2})
+
+
+def test_o_laco_monta_a_poda_depois_de_preparar(monkeypatch):
+    """
+    O laço das duas ações entrega a poda a `ler_pagina` **depois** de `preparar`
+    carregar o modelo de quem ela pede as candidatas; sem poda, `podar` é `None`.
+    """
+    from tests.acoes_falsas import rodar_o_laco
+
+    ordem, argumentos = rodar_o_laco(monkeypatch, poda=True)
+    assert ordem == ["preparar", "poda", "ler_pagina"], "a poda é montada depois de o modelo carregar"
+    assert argumentos["podar"] == "o podar da página"
+
+    ordem, argumentos = rodar_o_laco(monkeypatch)
+    assert ordem == ["preparar", "ler_pagina"] and argumentos["podar"] is None
 
 
 def test_o_instrumento_mede_a_acao_por_omissao():

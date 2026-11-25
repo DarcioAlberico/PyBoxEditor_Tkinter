@@ -342,15 +342,28 @@ def test_k_vizinhos_vale_em_tempo_de_chamada(tmp_path, monkeypatch):
 def test_o_instrumento_varre_o_voto_de_verdade():
     """
     `--k` só quer dizer alguma coisa se alguém chamar `voto`, e ninguém chamava.
-    Conferido na fonte porque montar a cadeia inteira aqui traria o EasyOCR.
+    O envelope do instrumento responde pelo voto entre os k, com a confiança do
+    1-NN — e passa adiante os vizinhos.
     """
-    import inspect
-
     from scripts.medidas import medir_cadeia
 
-    fonte = inspect.getsource(medir_cadeia)
-    assert "_MemoComVoto" in fonte
-    assert "self._memo.voto(" in fonte, "o envelope do voto parou de votar"
+    pedidos = []
+
+    class _Base:
+        def predict(self, recorte):
+            return "o mais próximo", 0.42
+
+        def voto(self, recorte, k):
+            pedidos.append(k)
+            return "o do voto"
+
+        def vizinhos(self, recorte, k=1):
+            return [("x", 0.1)] * k
+
+    memo = medir_cadeia._MemoComVoto(_Base(), 5)
+    assert memo.predict("recorte") == ("o do voto", 0.42), "o envelope do voto parou de votar"
+    assert pedidos == [5]
+    assert memo.vizinhos("recorte", k=2) == [("x", 0.1)] * 2
 
 
 # ----------------------------------------------------------------------

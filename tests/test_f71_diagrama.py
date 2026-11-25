@@ -138,15 +138,19 @@ def test_a_escala_nao_muda_a_pagina_de_texto():
     assert diagrama.localizar(boxes) == diagrama.localizar(boxes, escala=19)
 
 
-def test_ler_pagina_mede_a_escala_sozinha():
+def test_ler_pagina_mede_a_escala_sozinha(monkeypatch):
     """
     Quem tem a imagem passa a escala — é a regra que `descartar_blocos_nao_texto`
     já documentava, e que `localizar` era o único a não seguir.
     """
-    import inspect
-    fonte = inspect.getsource(diagrama.ler_pagina)
-    assert "escala_de_texto" in fonte
-    assert "escala=escala" in fonte
+    from core import preprocess
+
+    pedidos = []
+    monkeypatch.setattr(preprocess, "escala_de_texto", lambda binaria: 7.25)
+    monkeypatch.setattr(diagrama, "localizar", lambda boxes, **opcoes: (pedidos.append(opcoes), [])[1])
+    imagem = np.full((80, 80), 255, dtype=np.uint8)
+    assert diagrama.ler_pagina(imagem, [BoxEntry("a", 10, 10, 20, 30)]) == []
+    assert [opcoes["escala"] for opcoes in pedidos] == [7.25]
 
 
 # ----------------------------------------------------------------------

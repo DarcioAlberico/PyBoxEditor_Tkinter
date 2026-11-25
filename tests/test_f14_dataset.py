@@ -501,16 +501,25 @@ def test_metadado_do_modelo_corrigido():
     assert meta["label_map"]["ligature_f7"] == int(de_f7[0])
 
 
-def test_metadado_e_lido_como_utf8():
+def test_metadado_e_lido_como_utf8(tmp_path):
     """
     Era aberto sem encoding, caindo no cp1252 do Windows. Funcionava por acaso
     porque o json.dump padrão escapa tudo em ASCII; bastou gravar o arquivo em
-    UTF-8 de verdade para o carregamento do modelo quebrar.
+    UTF-8 de verdade para o carregamento do modelo quebrar. Aqui o metadado de
+    um treino de verdade ganha classes fora do ASCII, gravadas em UTF-8 cru, e
+    o modelo carrega com elas inteiras (em cp1252, `é` viraria `Ã©`; mojibake intencional).
     """
     from core.neural_trainer import NeuralPredictor
-    import inspect
-    fonte = inspect.getsource(NeuralPredictor.load)
-    assert 'encoding="utf-8"' in fonte, "load() voltou a abrir sem encoding"
+    from tests.modelo_minusculo import ler_meta, treinar
+
+    modelo, meta = treinar(str(tmp_path))
+    dados = ler_meta(meta)
+    dados["idx_to_char"] = {"0": "é", "1": "♞"}
+    with open(meta, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False)
+    rede = NeuralPredictor(modelo, meta)
+    assert rede.load(), rede.erro
+    assert rede.idx_to_char == {0: "é", 1: "♞"}, "load() voltou a abrir sem encoding"
 
 
 # ----------------------------------------------------------------------

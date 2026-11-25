@@ -233,7 +233,7 @@ def test_sem_o_filtro_a_mesma_linha_perde_a_figurina():
     assert [ch for _b, ch, _c, _f in saida] == ["B", "e", "4"]
 
 
-def test_nenhum_caminho_de_producao_filtra_a_linha():
+def test_nenhum_caminho_de_producao_filtra_a_linha(monkeypatch):
     """
     **Nada em produção passa `deslocam`, e é de propósito** — mesma forma que a
     F24 deu ao `voto` e à `margem_de_confianca`.
@@ -241,19 +241,19 @@ def test_nenhum_caminho_de_producao_filtra_a_linha():
     O filtro foi alimentado, medido nos dois caminhos e desligado: no neural ele
     quebra 6 caracteres para consertar 1. O teste existe porque a leitura óbvia
     do código é a oposta — o parâmetro está ali, a lista está ali, e ligá-los
-    parece um esquecimento. Conferido na fonte porque instanciar a janela traria
-    o Tk junto.
+    parece um esquecimento. Por isso o que ele olha é o pedido: a ação não dá
+    `deslocam` a `ler_pagina`, e o PDF pergunta `em_bloco` só pela linha e lê a
+    linha com figurina como qualquer outra.
     """
-    import inspect
+    from tests.acoes_falsas import ler_uma_linha_do_pdf, rodar_o_laco
 
-    from core.searchable_pdf import _ler_boxes
-    from ui.reconhecimento import Reconhecimento
+    _ordem, argumentos = rodar_o_laco(monkeypatch)
+    assert "deslocam" not in argumentos, "a ação voltou a filtrar a linha (ver F36)"
 
-    acao = inspect.getsource(Reconhecimento._preencher_por_linha)
-    assert "deslocam=" not in acao, "a ação voltou a filtrar a linha (ver F36)"
-
-    pdf = inspect.getsource(_ler_boxes)
-    assert "GLIFOS_QUE_DESLOCAM" not in pdf, "o PDF voltou a filtrar (ver F36)"
+    saida, chamadas = ler_uma_linha_do_pdf(monkeypatch, [("♘", 0.2), ("d", 0.2), ("7", 0.2)], "♞d7")
+    assert [(len(args), opcoes) for args, opcoes in chamadas] == [(1, {})], \
+        "o PDF voltou a filtrar (ver F36)"
+    assert [c for c, _conf in saida] == ["♞", "d", "7"]
 
 
 # ----------------------------------------------------------------------

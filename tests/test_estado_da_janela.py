@@ -120,11 +120,35 @@ def test_abrir_comeca_na_pasta_do_ultimo_documento(tmp_path, monkeypatch):
     assert _gravado(arquivo)["ultimo_diretorio_de_entrada"] == str(pasta)
 
 
-def test_o_appy_restaura_a_janela_ao_abrir():
+def test_o_appy_restaura_a_janela_ao_abrir(monkeypatch):
     """É no `appy.main` que a janela de verdade nasce; o `__init__` não
     restaura, para a janela retraída dos testes não ser maximizada pelo
-    `settings.json` de quem roda a suíte."""
-    import inspect
-
+    `settings.json` de quem roda a suíte. O `main` restaura depois de montar a
+    janela e antes do laço do Tk."""
     import appy
-    assert "restaurar_estado_da_janela" in inspect.getsource(appy.main)
+    import ui.main_window
+    from ui import tema
+
+    passos = []
+
+    class _Raiz:
+        def title(self, _titulo): pass
+        def geometry(self, _geometria): pass
+        def minsize(self, _largura, _altura): pass
+        def winfo_screenwidth(self): return 1920
+        def winfo_screenheight(self): return 1080
+        def mainloop(self): passos.append("mainloop")
+
+    class _Janela:
+        def __init__(self, _raiz): passos.append("janela")
+        def pack(self, **_opcoes): pass
+        def restaurar_estado_da_janela(self): passos.append("restaurar")
+
+    monkeypatch.setattr(appy.tk, "Tk", _Raiz)
+    monkeypatch.setattr(ui.main_window, "MainWindow", _Janela)
+    for nome in ("_configurar_log", "_declarar_dpi", "_ajustar_escala", "_instalar_relator_de_callbacks"):
+        monkeypatch.setattr(appy, nome, lambda *a, **k: None)
+    monkeypatch.setattr(appy, "_geometria_que_cabe", lambda raiz: "800x600")
+    monkeypatch.setattr(tema, "aplicar", lambda raiz: None)
+    appy.main([])
+    assert passos == ["janela", "restaurar", "mainloop"]

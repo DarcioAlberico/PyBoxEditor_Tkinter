@@ -311,19 +311,19 @@ def test_temperatura_nao_muda_o_caractere_lido():
     assert all(q <= n + 1e-9 for (_, n), (_, q) in zip(neutro, quente))
 
 
-def test_retreino_zera_a_temperatura_no_meta():
+def test_retreino_zera_a_temperatura_no_meta(tmp_path):
     """
     Uma temperatura é ajustada para UM conjunto de pesos.
 
     Herdar a do modelo anterior aplicaria uma correção medida sobre outra rede —
-    pior que não calibrar. O `gravar_modelo` do treino grava 1,0 de propósito.
+    pior que não calibrar. O `gravar_modelo` do treino grava 1,0 de propósito,
+    por cima do metadado calibrado que estava no destino.
     """
-    import inspect
+    from tests.modelo_minusculo import TEMPERATURA_ANTERIOR, ler_meta, treinar
 
-    from core.neural_trainer import NeuralTrainer
-
-    fonte = inspect.getsource(NeuralTrainer.train)
-    assert '"temperatura": 1.0' in fonte, \
+    assert TEMPERATURA_ANTERIOR != 1.0
+    _modelo, meta = treinar(str(tmp_path))
+    assert ler_meta(meta)["temperatura"] == 1.0, \
         "o treino deixou de zerar a temperatura ao gravar o metadado"
 
 

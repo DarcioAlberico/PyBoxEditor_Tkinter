@@ -453,34 +453,41 @@ def test_descarte_e_opcional_no_pipeline():
     assert len(com) <= len(sem)
 
 
-def test_descarte_acontece_depois_do_merge():
+def test_descarte_acontece_depois_do_merge(monkeypatch):
     """
     Ordem medida, não escolhida por gosto: o box do diagrama absorve os
     respingos à volta dele no `merge_vertical_boxes`, e descartá-lo depois leva
     o lixo junto. Descartando antes, os respingos sobram soltos — na página
     0108 os boxes espúrios iam de 11 para 29.
+
+    A ordem vale entre duas funções (a F2.6 extraiu o trecho até o merge para o
+    `diagrama.localizar`, que precisa das caixas nesse estágio), e por isso o
+    que se olha é a sequência das chamadas: o descarte recebe o que o merge
+    devolveu.
     """
-    import inspect
+    ordem = []
+    merge, descarte = BoxService.merge_vertical_boxes, BoxService.descartar_blocos_nao_texto
 
-    # A ordem passou a valer entre **duas** funções, e não dentro de uma: a F2.6
-    # extraiu do pipeline o trecho que vai até o merge, porque o
-    # `diagrama.localizar` precisa das caixas exatamente nesse estágio — o
-    # tabuleiro é o que o descarte joga fora. A propriedade é a mesma; o que
-    # mudou é onde ela se lê.
-    antes = inspect.getsource(BoxService.boxes_antes_do_descarte)
-    # Pelo nome, como abaixo: a chamada ganhou `escala` quando a mediana do
-    # merge passou a peneirar o ponto de trama.
-    assert "merge_vertical_boxes(boxes" in antes, \
-        "o merge saiu do estágio que termina antes do descarte"
+    def merge_espiao(boxes, *args, **opcoes):
+        saida = merge(boxes, *args, **opcoes)
+        ordem.append(("merge", len(saida)))
+        return saida
 
-    fonte = inspect.getsource(BoxService.generate_boxes_opencv)
-    # Pelo nome da função, e não pela chamada inteira: a assinatura ganhou
-    # `escala` na F11 e o teste quebrou sem que a ordem — que é o que ele cobra
-    # — tivesse mudado.
-    pos_merge = fonte.index("boxes_antes_do_descarte(")
-    pos_descarte = fonte.index("descartar_blocos_nao_texto(")
-    assert pos_merge < pos_descarte, \
+    def descarte_espiao(boxes, *args, **opcoes):
+        ordem.append(("descarte", len(boxes)))
+        return descarte(boxes, *args, **opcoes)
+
+    monkeypatch.setattr(BoxService, "merge_vertical_boxes", staticmethod(merge_espiao))
+    monkeypatch.setattr(BoxService, "descartar_blocos_nao_texto", staticmethod(descarte_espiao))
+    pagina = np.full((120, 300), 255, dtype=np.uint8)
+    for x in range(20, 260, 30):
+        pagina[60:90, x:x + 12] = 0          # a haste
+        pagina[44:50, x + 3:x + 9] = 0       # e o pingo, que o merge cola nela
+    BoxService.generate_boxes_opencv(Image.fromarray(pagina))
+    nomes = [nome for nome, _n in ordem]
+    assert nomes[:2] == ["merge", "descarte"], \
         "o descarte voltou para antes do merge — ver a medição na docstring"
+    assert ordem[0][1] == ordem[1][1], "o descarte não recebeu o que o merge devolveu"
 
 
 def test_pagina_real_descarte_nao_perde_caractere():
