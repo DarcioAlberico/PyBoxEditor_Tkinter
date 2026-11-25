@@ -1246,6 +1246,31 @@ idêntica (1,24%); varredura com e sem a regra em 118 páginas de cinco livros
 Chess Evolution 1, Calculation, A Estratégia no Xadrez, Xadrez Vitorioso): uma
 linha muda, neutra (`12) points Pass mark` → `12 points Pass mak`).
 
+### A fila do lance descritivo lida como letra
+
+Data: 2026-11-12. O *Xadrez Básico* está todo em notação descritiva portuguesa
+(`P4R`, `C3BR`, `TD1D`), e numa amostra de 60 páginas o que mais sobrava fora do
+léxico, tirando a própria notação e os nomes, era o lance com a fila lida como
+letra pelo motor: `TIBD; 2. TIC+, RIT` por `T1BD; 2. T1C+, R1T`, `BSCR` por
+`B5CR`, `DAT+` por `D4T+`, `PABD` por `P4BD`. O projeto não conhecia a notação
+descritiva — o lance algébrico tem `notacao.RE_CASA`; este não tinha nada.
+
+**A regra** (`_corrigir_lances_descritivos`, no corretor contextual, só em
+português): o token todo em maiúsculas que não é lance descritivo
+(`RE_LANCE_DESCRITIVO`: peça, ala ou coluna de origem opcional, fila, coluna de
+destino) e passa a ser trocando **um** caractere de `_FILA_CONFUNDIDA` (`I`/`l`
+→ `1`, `S` → `5`, `A` → `4`, `Z` → `2`; o `B` por `8` fica de fora, porque `B` é
+peça e coluna), com uma troca possível só. E só em linha de lances — com número
+de lance ou outro lance descritivo íntegro —, para que `DAD` ou `RIR` num título
+fiquem como estão. O peão não vai à primeira fila.
+
+**Medido.** Varredura com e sem a regra, 50 páginas do *Xadrez Básico* (1 em 12):
+66 trocas de token, 64 consertos (`R1C` ×6, `P5D` ×6, `R1T` ×5, `R1B` ×5, `C1R`,
+`D1B+`, `P4BR`, `TD1R`, `C5CD`…) e duas impossíveis, `PIC` → `P1C` e `PITR` →
+`P1TR`, que a régua do peão tirou. No *A Estratégia no Xadrez* e no *Xadrez
+Vitorioso* (32 páginas), nada. A rodada do corpus não passa por aqui (livros em
+inglês) e saiu idêntica.
+
 ### O traço espaçado e a marca de verificação: a p. 237 sai sem erro
 
 Data: 2026-11-12. Os dois pares que sobravam na p. 237 eram um só: `and wins

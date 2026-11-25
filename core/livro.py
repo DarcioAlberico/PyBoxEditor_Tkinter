@@ -2326,6 +2326,54 @@ def _corrigir_frases_de_prosa(texto: str) -> str:
     return re.sub(r"\bTused to think\b", "I used to think", texto)
 
 
+#: O lance em notação descritiva portuguesa: peça (Rei, Dama, Torre, Bispo,
+#: Cavalo, Peão), a ala ou a coluna de origem quando o livro a dá (`TD`, `PBD`),
+#: a fila e a coluna de destino (`4R`, `3BR`, `5C`, `1BD`) — `P4R`, `C3BR`,
+#: `TD1D`, `B5CR`, `D4T+`. A captura (`BxC`, `PxP`) não tem fila, e não entra.
+#: O peão nunca vai à primeira fila: `PIC` e `PITR` da amostra não são `P1C`
+#: nem `P1TR`, e o `I` ali é outra coisa.
+RE_LANCE_DESCRITIVO = re.compile(
+    r"(?:[RDTBC](?:[TCB]?[RD]|[TCB])?[1-8]|P(?:[TCB]?[RD]|[TCB])?[2-8])"
+    r"(?:[TCB][RD]?|[RD])[+#!?]*")
+#: O que o motor escreve no lugar da fila: o `1` lido `I` ou `l`, o `5` lido
+#: `S`, o `4` lido `A`, o `2` lido `Z`. O `8` lido `B` fica de fora — `B` é
+#: peça e coluna, e a troca seria um palpite.
+_FILA_CONFUNDIDA = {"I": "1", "l": "1", "|": "1", "S": "5", "A": "4", "Z": "2"}
+#: O que prova que a linha é de lances: o número de lance (`12.`) ou outro
+#: lance descritivo íntegro.
+_RE_CONTEXTO_DE_LANCE = re.compile(r"(?<![\w.])\d{1,3}\.(?!\d)")
+
+
+def _corrigir_lances_descritivos(texto: str) -> str:
+    """Devolve a fila ao lance descritivo que o motor leu com letra no lugar.
+
+    O *Xadrez Básico* inteiro está em notação descritiva, e o Tesseract lê a
+    fila como letra: `TIBD; 2. TIC+, RIT` por `T1BD; 2. T1C+, R1T`, `BSCR`
+    por `B5CR`, `DAT+` por `D4T+`, `PABD` por `P4BD` — 18 lances em 60
+    páginas da amostra. Troca **um** caractere de `_FILA_CONFUNDIDA`, e só
+    quando o token, todo em maiúsculas, não é lance descritivo e passa a ser
+    (`RE_LANCE_DESCRITIVO`). E só em linha de lances — com número de lance ou
+    outro lance descritivo íntegro —, para que um `DAD` ou um `RIR` de título
+    nunca vire `D4D` ou `R1R`.
+    """
+    tokens = texto.split(" ")
+    nucleos = [re.match(r"^(.*?)([,;:.)\]]*)$", t).groups() for t in tokens]
+    if not (_RE_CONTEXTO_DE_LANCE.search(texto)
+            or any(RE_LANCE_DESCRITIVO.fullmatch(n) for n, _p in nucleos)):
+        return texto
+    saida = []
+    for token, (nucleo, pontuacao) in zip(tokens, nucleos):
+        if (len(nucleo) >= 3 and not RE_LANCE_DESCRITIVO.fullmatch(nucleo)
+                and re.fullmatch(r"[A-Z|l1-8+#!?]+", nucleo)):
+            trocas = [nucleo[:i] + _FILA_CONFUNDIDA[c] + nucleo[i + 1:]
+                      for i, c in enumerate(nucleo) if c in _FILA_CONFUNDIDA]
+            validas = [t for t in trocas if RE_LANCE_DESCRITIVO.fullmatch(t)]
+            if len(validas) == 1:
+                token = validas[0] + pontuacao
+        saida.append(token)
+    return " ".join(saida)
+
+
 #: O traço entre palavras que tem espaço de um lado tem espaço dos dois. Na
 #: p. 237 do Nunn, `and wins – see diagram` saía `and wins —see diagram`: a
 #: cadeia e o motor perdem o espaço *depois* do traço — o vão ali é mais curto
@@ -2380,6 +2428,8 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
     texto = _corrigir_frases_de_prosa(texto)
     texto = re.sub(r"\s+", " ", texto).strip()
     chave_idioma = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
+    if chave_idioma == "pt":
+        texto = _corrigir_lances_descritivos(texto)
     # As trocas diretas são conhecimento desta fonte, não do vocabulário: elas
     # valem mesmo sem `wordfreq`/`rapidfuzz` instalados. Só a busca aproximada
     # depende dos dois, e sem eles ela é desligada em silêncio, como qualquer
