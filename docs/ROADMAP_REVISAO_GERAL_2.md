@@ -1281,6 +1281,14 @@ worktree.
   Suíte: 3964 passed. AbbyChessCraft contra o worktree (RG-15 e RG-16): 2915 passed, 6
   failed, os mesmos seis da base.
 ### RG-16b
+Estado: em andamento (2026-11-25). Base `831e012` (o trabalho do usuário que ela esperava está
+no master em `ffc3ec3`), o mesmo worktree.
+- Commit 1 (R-24, o cache): `livro._aproximar` lembra a resposta da busca aproximada por
+  palavra e idioma, presa ao vocabulário de que saiu, com teto. `tests/test_cache_do_corretor.py`:
+  a mesma resposta da busca em 120 palavras (as comuns e as deformadas delas), a repetida
+  perguntada uma vez, o idioma à parte. Saída idêntica nas quatro páginas (`RG-16b-antes`/
+  `RG-16b-cache`) e em 21 páginas do Aagaard (10–30), que caem de **74,0 para 55,0 s** (3,5 →
+  2,6 s por página), com a máquina quieta. Suíte: 3971 passed.
 ### RG-17
 ### RG-18
 ### RG-20

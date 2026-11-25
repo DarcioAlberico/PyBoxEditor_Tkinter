@@ -42,7 +42,7 @@ import itertools
 import os
 from dataclasses import dataclass, field
 from math import isnan, nan
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 
 import fitz
@@ -2392,6 +2392,50 @@ def _espacar_traco(texto: str) -> str:
     return RE_TRACO_COLADO_ANTES.sub(r" \1", texto)
 
 
+#: O que a busca aproximada respondeu, por idioma: `(vocabulário, {palavra: resposta})`. A
+#: resposta vale para o vocabulário de que saiu — o vocabulário trocado começa outra.
+_APROXIMACOES: Dict[str, Tuple[Sequence[str], Dict[str, str]]] = {}
+#: Palavras lembradas por idioma: um livro tem dezenas de milhares de formas, e o teto só
+#: existe para a sessão que lê muitos.
+TETO_DE_APROXIMACOES = 200_000
+
+
+def _aproximar(palavra: str, idioma: str, vocabulario: Sequence[str]) -> str:
+    """A palavra comum de que `palavra` é um erro claro, ou ela mesma.
+
+    Lembrada por palavra e idioma (RG-16b, R-24): a busca passa pelo vocabulário inteiro —
+    100 mil palavras, 10 ms cada —, e a prosa repete as mesmas palavras."""
+    lista, respostas = _APROXIMACOES.get(idioma, (None, {}))
+    if lista is not vocabulario or len(respostas) >= TETO_DE_APROXIMACOES:
+        respostas = {}
+        _APROXIMACOES[idioma] = (vocabulario, respostas)
+    if palavra not in respostas:
+        respostas[palavra] = _aproximar_sem_memoria(palavra, idioma, vocabulario)
+    return respostas[palavra]
+
+
+def _aproximar_sem_memoria(palavra: str, idioma: str, vocabulario: Sequence[str]) -> str:
+    from rapidfuzz import fuzz, process
+    from wordfreq import zipf_frequency
+
+    candidatos = process.extract(palavra, vocabulario, scorer=fuzz.ratio,
+                                 limit=3, score_cutoff=74)
+    if not candidatos:
+        return palavra
+    melhor, similaridade, _ = candidatos[0]
+    if (melhor == palavra
+            or similaridade < 74
+            or zipf_frequency(melhor, idioma) < 4.0
+            or zipf_frequency(melhor, idioma) <= zipf_frequency(palavra, idioma) + 0.3):
+        return palavra
+    # Ambiguidade lexical: não escolhe entre duas palavras igualmente
+    # próximas, pois isso seria pior que deixar a revisão sinalizar a forma.
+    if (len(candidatos) > 1 and candidatos[1][1] == similaridade
+            and zipf_frequency(candidatos[1][0], idioma) >= 4.0):
+        return palavra
+    return melhor
+
+
 def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
                                fuzzy: bool = True) -> str:
     """Corrige erros tipográficos claros usando um vocabulário de frequência.
@@ -2447,8 +2491,8 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
         _VOCABULARIO_OCR[chave_idioma] = vocabulario
     if vocabulario:
         try:
-            from rapidfuzz import fuzz, process
-            from wordfreq import zipf_frequency
+            import rapidfuzz  # noqa: F401 — só se há; quem usa é `_aproximar`
+            import wordfreq  # noqa: F401
         except Exception:
             uma_vez(log, "rapidfuzz", logging.WARNING,
                     "sem o rapidfuzz, o corretor de prosa não aproxima palavras")
@@ -2464,23 +2508,7 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
         if (not vocabulario or len(palavra) < 3 or palavra.isupper()
                 or palavra[:1].isupper() or not palavra.islower()):
             return palavra
-        candidatos = process.extract(palavra, vocabulario, scorer=fuzz.ratio,
-                                     limit=3, score_cutoff=74)
-        if not candidatos:
-            return palavra
-        melhor, similaridade, _ = candidatos[0]
-        if (melhor == palavra
-                or similaridade < 74
-                or zipf_frequency(melhor, chave_idioma) < 4.0
-                or zipf_frequency(melhor, chave_idioma)
-                <= zipf_frequency(palavra, chave_idioma) + 0.3):
-            return palavra
-        # Ambiguidade lexical: não escolhe entre duas palavras igualmente
-        # próximas, pois isso seria pior que deixar a revisão sinalizar a forma.
-        if (len(candidatos) > 1 and candidatos[1][1] == similaridade
-                and zipf_frequency(candidatos[1][0], chave_idioma) >= 4.0):
-            return palavra
-        return melhor
+        return _aproximar(palavra, chave_idioma, vocabulario)
 
     def corrigir_token(token: str) -> str:
         # Uma figurina isolada pode ser um falso positivo da cadeia no começo
