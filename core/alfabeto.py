@@ -36,6 +36,24 @@ ACENTUADAS = {
 }
 
 
+#: O código do Tesseract, de três letras, na chave daqui.
+_TRES_LETRAS = {"eng": "en", "por": "pt"}
+
+
+def idioma_normalizado(idioma: Optional[str]) -> Optional[str]:
+    """
+    A chave curta do idioma — `pt-BR`, `pt_BR`, `PT` e `por` são `"pt"` —, ou `None` sem
+    idioma (RG-16b, R-23).
+
+    Num lugar só: cada módulo cortava a sua (`startswith("pt")`, os dois primeiros
+    caracteres, a chave exata), e o mesmo `pt-BR` era português para um e idioma
+    desconhecido para outro. O idioma que o projeto não conhece sai como veio, em
+    minúsculas e sem a região.
+    """
+    curto = str(idioma or "").strip().lower().replace("_", "-").split("-")[0]
+    return _TRES_LETRAS.get(curto, curto) or None
+
+
 def _latina_estendida(c: str) -> bool:
     """Letra latina fora do ASCII — o que uma máscara de idioma julga."""
     return (ord(c) > 127 and c.isalpha()
@@ -51,7 +69,8 @@ def permitido(char: str, idioma: Optional[str]) -> bool:
     letra acentuada, e não ter opinião é responder que sim. A classe de
     ligadura (`ça`, `çã`) é julgada letra a letra, que é como ela sai no texto.
     """
-    if not idioma or idioma not in ACENTUADAS:
+    idioma = idioma_normalizado(idioma)
+    if idioma not in ACENTUADAS:
         return True
     proprias = ACENTUADAS[idioma]
     return all(not _latina_estendida(c) or c in proprias for c in char)

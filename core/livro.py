@@ -52,6 +52,7 @@ from PIL import Image
 
 from core import (diagrama, geometria_da_linha, lado_a_jogar as lado_jogar,
                   lexico, negrito, notacao, render_diagrama, vertical)
+from core.alfabeto import idioma_normalizado
 from core.box_model import BoxEntry
 from core.leitura_de_linha import MARGEM as MARGEM_DA_FAIXA, quebrar_em_linhas
 from core.ocr_result import RegionResult
@@ -2132,7 +2133,7 @@ def _corrigir_juncoes(texto: str, lex, idioma: str = "en") -> str:
         uma_vez(log, "wordfreq-juncoes", logging.WARNING,
                 "sem o wordfreq, a correção das junções do segmentador (PD-20) está desligada")
         return texto
-    chave = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
+    chave = "pt" if idioma_normalizado(idioma) == "pt" else "en"
     from core.ocr_language import TERMOS_XADREZ as termos
 
     def corrigir(achado: "re.Match[str]") -> str:
@@ -2303,28 +2304,37 @@ def reparar_pela_camada(pagina: "PaginaExtraida", texto_da_camada: str,
     return len(trocas)
 
 
-def _corrigir_frases_de_prosa(texto: str) -> str:
-    """Corrige padrões de frase que podem atravessar uma quebra impressa."""
-    texto = re.sub(r"\bwhere a a strike\b", "where a strike", texto)
-    texto = re.sub(r"\bit ss actually\b", "it is actually", texto)
-    texto = re.sub(r"\bremain an the bench\b", "remain on the bench", texto)
-    # A segmentação de caixas pode perder mais de um espaço dentro da mesma
-    # palavra. Estes padrões são frases editoriais observadas no Aagaard e
-    # permanecem deliberadamente específicos: não se deve separar nomes ou
-    # tokens de notação por uma heurística geral.
-    texto = re.sub(r"\bBlackhasto\b", "Black has to", texto)
-    texto = re.sub(r"\bBlackreturnsby\b", "Black returns by", texto)
-    texto = re.sub(r"\bstrongattack\b", "strong attack", texto)
-    texto = re.sub(r"\bandas\b", "and as", texto)
-    texto = re.sub(r"\bthiswas\b", "this was", texto)
-    texto = re.sub(r"\ba a (child|nice|strong|gain)\b", r"a \1", texto)
-    texto = re.sub(r"\bWhen I I finally\b", "When I finally", texto)
-    texto = re.sub(r"\bAack and Defence\b", "Attack and Defence", texto)
-    texto = re.sub(r"\bAgainnot\b", "Again not", texto)
-    texto = re.sub(r"\butonce\b", "once", texto)
-    texto = re.sub(r"\bBelow\s*! have\b", "Below I have", texto)
-    texto = re.sub(r"\bzame\b", "game", texto)
-    return re.sub(r"\bTused to think\b", "I used to think", texto)
+#: Os remendos de frase, por idioma (RG-16b, R-23): padrões observados na prosa **inglesa**
+#: do Aagaard e do Yusupov, que valiam para todo livro — `tu andas bem` saía `tu and as bem`.
+#:
+#: A segmentação de caixas pode perder mais de um espaço dentro da mesma palavra. São frases
+#: editoriais vistas no livro, e permanecem deliberadamente específicas: não se deve separar
+#: nomes ou tokens de notação por uma heurística geral.
+REMENDOS_DE_FRASE = {"en": tuple((re.compile(de), para) for de, para in (
+    (r"\bwhere a a strike\b", "where a strike"),
+    (r"\bit ss actually\b", "it is actually"),
+    (r"\bremain an the bench\b", "remain on the bench"),
+    (r"\bBlackhasto\b", "Black has to"),
+    (r"\bBlackreturnsby\b", "Black returns by"),
+    (r"\bstrongattack\b", "strong attack"),
+    (r"\bandas\b", "and as"),
+    (r"\bthiswas\b", "this was"),
+    (r"\ba a (child|nice|strong|gain)\b", r"a \1"),
+    (r"\bWhen I I finally\b", "When I finally"),
+    (r"\bAack and Defence\b", "Attack and Defence"),
+    (r"\bAgainnot\b", "Again not"),
+    (r"\butonce\b", "once"),
+    (r"\bBelow\s*! have\b", "Below I have"),
+    (r"\bzame\b", "game"),
+    (r"\bTused to think\b", "I used to think"),
+))}
+
+
+def _corrigir_frases_de_prosa(texto: str, idioma: str = "en") -> str:
+    """Corrige padrões de frase que podem atravessar uma quebra impressa, os do idioma."""
+    for padrao, troca in REMENDOS_DE_FRASE.get(idioma_normalizado(idioma) or "en", ()):
+        texto = padrao.sub(troca, texto)
+    return texto
 
 
 #: O lance em notação descritiva portuguesa: peça (Rei, Dama, Torre, Bispo,
@@ -2469,10 +2479,14 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
         # ``=`` e ``~`` soltos são resíduos da mesma textura; preservamos ``=``
         # quando a linha contém lances, onde ele pode ser promoção.
         texto = re.sub(r"(?<!\w)[=~|]+(?!\w)", " ", texto)
-    texto = re.sub(r"\bof['’]a\b", "of a", texto, flags=re.IGNORECASE)
-    texto = _corrigir_frases_de_prosa(texto)
+    idioma = idioma_normalizado(idioma) or "en"
+    if idioma == "en":
+        texto = re.sub(r"\bof['’]a\b", "of a", texto, flags=re.IGNORECASE)
+    texto = _corrigir_frases_de_prosa(texto, idioma)
     texto = re.sub(r"\s+", " ", texto).strip()
-    chave_idioma = "pt" if str(idioma or "en").lower().startswith("pt") else "en"
+    # As trocas diretas são deformações de palavras inglesas (`arc` → `are`).
+    erros = _ERROS_OCR_FREQUENTES if idioma == "en" else {}
+    chave_idioma = "pt" if idioma == "pt" else "en"
     if chave_idioma == "pt":
         texto = _corrigir_lances_descritivos(texto)
     # As trocas diretas são conhecimento desta fonte, não do vocabulário: elas
@@ -2500,7 +2514,7 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
 
     def corrigir(match: re.Match[str]) -> str:
         palavra = match.group(0)
-        direta = _ERROS_OCR_FREQUENTES.get(palavra.casefold())
+        direta = erros.get(palavra.casefold())
         if direta is not None:
             if palavra.isupper():
                 return direta.upper()
@@ -3218,7 +3232,8 @@ def _confirmar_titulos(pagina: PaginaExtraida) -> None:
 
 def _paragrafo_de(linhas: Sequence[Linha],
                   lex: Optional["lexico.Lexico"] = None,
-                  altura_de_referencia: Optional[float] = None) -> Paragrafo:
+                  altura_de_referencia: Optional[float] = None,
+                  idioma: str = "en") -> Paragrafo:
     """
     As linhas de um parágrafo, juntas — texto e espessuras no mesmo passo.
 
@@ -3277,7 +3292,7 @@ def _paragrafo_de(linhas: Sequence[Linha],
 
     # Algumas deformações só aparecem quando a palavra seguinte chega na linha
     # impressa seguinte; nesta altura o parágrafo já tem o contexto completo.
-    corrigido = _corrigir_frases_de_prosa(texto)
+    corrigido = _corrigir_frases_de_prosa(texto, idioma)
     if corrigido != texto:
         # O texto e as medidas andam juntos (RG-15, R-22): `Blackhasto move` ganhava dois
         # espaços e as espessuras ficavam para trás, e o negrito pulava o parágrafo.
@@ -3584,8 +3599,8 @@ def retirar_cabecalhos(paginas: Sequence[PaginaExtraida]
 
 def _agrupar_em_paragrafos(linhas: Sequence[Linha],
                            metricas: Optional[dict] = None,
-                           lex: Optional["lexico.Lexico"] = None
-                           ) -> List[Paragrafo]:
+                           lex: Optional["lexico.Lexico"] = None,
+                           idioma: str = "en") -> List[Paragrafo]:
     """
     Linhas → parágrafos.
 
@@ -3632,12 +3647,12 @@ def _agrupar_em_paragrafos(linhas: Sequence[Linha],
                   and linha.topo - anterior.topo
                   > passo * (1 + SALTO_DE_PARAGRAFO))
         if atual and (recuou or saltou or trocou):
-            paragrafos.append(_paragrafo_de(atual, lex, referencia(atual)))
+            paragrafos.append(_paragrafo_de(atual, lex, referencia(atual), idioma))
             atual = []
         atual.append(linha)
         anterior = linha
     if atual:
-        paragrafos.append(_paragrafo_de(atual, lex, referencia(atual)))
+        paragrafos.append(_paragrafo_de(atual, lex, referencia(atual), idioma))
     return paragrafos
 
 
@@ -4383,7 +4398,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
             if col != coluna or (ate is not None and d.topo >= ate):
                 restam.append((col, d))
                 continue
-            resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
+            resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex, idioma_ocr))
             corrente = []
             resultado.blocos.extend(blocos_de(d))
         pendentes = restam
@@ -4398,7 +4413,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         nonlocal corrente, tabela
         if tabela is None or (ate is not None and topo_da_tabela >= ate):
             return
-        resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
+        resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex, idioma_ocr))
         corrente = []
         resultado.blocos.append(tabela)
         tabela = None
@@ -4412,7 +4427,7 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
         soltar_tabela(ate=medida.topo)
         corrente.append(medida)
         coluna_anterior = medida.coluna
-    resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex))
+    resultado.blocos.extend(_agrupar_em_paragrafos(corrente, metricas, lex, idioma_ocr))
     corrente = []
     soltar_tabela()
     for _col, d in pendentes:

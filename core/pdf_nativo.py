@@ -55,6 +55,7 @@ from PIL import Image
 
 from core import lado_a_jogar as lado_jogar
 from core import lexico, render_diagrama
+from core.alfabeto import idioma_normalizado
 from core.leitura_comum import _assinatura, _candidato_a_cabecalho
 from core.log import logger
 from core.pagina import (COMO_NO_LIVRO, DPI_FIGURA, MARGEM_DE_PAGINA, MODOS_DE_DIAGRAMA,
@@ -2424,7 +2425,7 @@ def extrair_pagina(page: fitz.Page, *, numero: Optional[int] = None,
                          f"(use True, False ou {COMO_NO_LIVRO!r})")
     numero = page.number if numero is None else numero
     o = _Opcoes(dpi, dpi_figura, diagramas, coordenadas, fonte, lado_do_diagrama,
-                moldura, cantos, (idioma or "en").lower()[:2], lex)
+                moldura, cantos, idioma_normalizado(idioma) or "en", lex)
 
     glifos = _glifos(page)
     tabuleiros, pedacos, soltos = _tabuleiros(glifos)
@@ -2619,7 +2620,7 @@ def ligar_legendas(paginas: Sequence["PaginaExtraida"], *, idioma: str = "en",
     número do diagrama, pelo do exercício ou pela letra de lado. Devolve
     quantas legendas voltaram.
     """
-    idioma = (idioma or "en").lower()[:2]
+    idioma = idioma_normalizado(idioma) or "en"
     religadas = 0
     for atual, seguinte in zip(paginas, paginas[1:]):
         if (getattr(atual, "leitura", "") != LEITURA_CAMADA

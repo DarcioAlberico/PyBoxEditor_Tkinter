@@ -1281,7 +1281,7 @@ worktree.
   Suíte: 3964 passed. AbbyChessCraft contra o worktree (RG-15 e RG-16): 2915 passed, 6
   failed, os mesmos seis da base.
 ### RG-16b
-Estado: em andamento (2026-11-25). Base `831e012` (o trabalho do usuário que ela esperava está
+Estado: fechada (2026-11-25), em dois commits (`cbc549e` e o do R-23). Base `831e012` (o trabalho do usuário que ela esperava está
 no master em `ffc3ec3`), o mesmo worktree.
 - Commit 1 (R-24, o cache): `livro._aproximar` lembra a resposta da busca aproximada por
   palavra e idioma, presa ao vocabulário de que saiu, com teto. `tests/test_cache_do_corretor.py`:
@@ -1289,6 +1289,17 @@ no master em `ffc3ec3`), o mesmo worktree.
   perguntada uma vez, o idioma à parte. Saída idêntica nas quatro páginas (`RG-16b-antes`/
   `RG-16b-cache`) e em 21 páginas do Aagaard (10–30), que caem de **74,0 para 55,0 s** (3,5 →
   2,6 s por página), com a máquina quieta. Suíte: 3971 passed.
+- Commit 2 (R-23): `alfabeto.idioma_normalizado` (`pt-BR`, `pt_BR`, `PT` e `por` são `pt`) é a
+  chave em `alfabeto.permitido`, no corretor, nas junções, na legenda da camada e no pacote do
+  Tesseract; os remendos de frase (`REMENDOS_DE_FRASE`), o `of'a` e as trocas diretas
+  (`arc` → `are`) são do inglês e só valem nele; `_paragrafo_de` e `_agrupar_em_paragrafos`
+  recebem o idioma da leitura. `tests/test_idioma_num_lugar.py`: contra o código de antes, 25
+  dos 29 falham (os outros são o `pt` e o `en` curtos, que já davam certo). A/B idêntico
+  (`RG-16b-depois`); rodada `benchmarks/rodadas/2026-11-25-1703.json`, 0,91% página a página,
+  igual às duas bases; em português, *A Estratégia no Xadrez* pp. 40–70, nenhuma palavra muda:
+  nenhum dos padrões do inglês aparecia ali. Suíte: 4000 passed, e `slow and not gui` 11
+  passed. AbbyChessCraft: 2915 passed, 6 failed, os mesmos seis da base.
+- A Onda 6 está fechada. Próximo passo da revisão: a Onda 7 (RG-17, a exportação editorial).
 ### RG-17
 ### RG-18
 ### RG-20

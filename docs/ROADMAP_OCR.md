@@ -1367,6 +1367,14 @@ letra do texto. Yusupov inteiro: 82 parágrafos pulados → 0, e voltam o `S` de
 de `Exercises` e o `22` de um lance; as páginas de referência e o corpus ficam iguais (rodada
 `2026-11-25-1621`). Registro: RG-15 do `ROADMAP_REVISAO_GERAL_2.md`.
 
+### A trama, o cache do corretor e o idioma (RG-16 e RG-16b)
+
+Data: 2026-11-25. A limpeza da trama por tabela (p. 107 do Yusupov: 14,65 s → 0,024 s, a mesma
+máscara), o corretor que lembra a palavra (21 páginas do Aagaard, 74 → 55 s, o mesmo texto) e o
+idioma num lugar só (`alfabeto.idioma_normalizado`), com os remendos da prosa inglesa só no
+inglês. Páginas de referência e corpus idênticos (rodadas `2026-11-25-1636` e `2026-11-25-1703`,
+0,91%). Registro: RG-16 e RG-16b do `ROADMAP_REVISAO_GERAL_2.md`.
+
 ### Próximo passo
 
 Conferir as outras três referências contra o livro impresso continua em

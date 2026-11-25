@@ -355,12 +355,8 @@ class OCRService:
     @staticmethod
     def _idioma_tesseract(idioma: str = "en") -> str:
         """Converte o idioma curto do aplicativo para o pacote do Tesseract."""
-        return {
-            "en": "eng",
-            "pt": "por",
-            "eng": "eng",
-            "por": "por",
-        }.get(str(idioma or "en").lower(), str(idioma or "eng"))
+        return {"en": "eng", "pt": "por"}.get(
+            alfabeto.idioma_normalizado(idioma) or "en", str(idioma or "eng"))
 
     def _linhas_do_tesseract(self, imagem_np: np.ndarray, idioma: str,
                              psm: int) -> list[tuple]:
