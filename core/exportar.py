@@ -44,6 +44,10 @@ log = logger(__name__)
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+#: O título do arquivo quando não há nenhum.
+TITULO_PADRAO = "Livro"
+
+
 def largura_em_pt(figura: Figura, corpo_pt: float) -> Optional[float]:
     """
     A largura desta figura na página, em pontos — ou `None` se não dá para saber.
@@ -453,6 +457,24 @@ def simbolos_sem_fonte(texto: str) -> str:
     return "".join(c for c in precisa if c not in cobertos)
 
 
+def _filas_retangulares(tabela: Tabela) -> List[List[str]]:
+    """As filas da tabela com o mesmo número de células — o da maior —, as curtas completadas
+    com vazio; `[]` na tabela sem célula nenhuma, que não se escreve (RG-17, R-33). O DOCX
+    media a largura pela primeira fila: a fila mais longa perdia células, e a tabela vazia
+    levantava."""
+    colunas = max((len(fila) for fila in tabela.linhas), default=0)
+    if not colunas:
+        return []
+    return [list(fila) + [""] * (colunas - len(fila)) for fila in tabela.linhas]
+
+
+def _titulo_e_idioma(titulo: str, idioma: str) -> Tuple[str, str]:
+    """O título e o idioma que o arquivo declara, com o padrão no lugar do vazio (RG-17,
+    R-33): `<dc:title>` e `<dc:language>` vazios são EPUB inválido."""
+    return (str(titulo or "").strip() or TITULO_PADRAO,
+            str(idioma or "").strip() or IDIOMA_PADRAO)
+
+
 def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                      diagramas: str = "png", simbolos: str = "",
                      idioma: str = IDIOMA_PADRAO,
@@ -468,7 +490,7 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
             # toda tabela que começa com dado — e o leitor de tela anunciaria
             # "coluna: W: Win" como se fosse título (F72).
             filas = []
-            for fila in bloco.linhas:
+            for fila in _filas_retangulares(bloco):
                 # A linha da célula vira `<br/>` (PD-03): escapado antes, o
                 # `\n` não é marcação e o navegador o leria como espaço.
                 celulas = "".join(
@@ -477,6 +499,8 @@ def _xhtml_da_pagina(pagina: PaginaExtraida, imagens: Sequence[str],
                         for linha in aspas_curvas(c).split("\n")) + "</td>"
                     for c in fila)
                 filas.append(f"<tr>{celulas}</tr>")
+            if not filas:
+                continue
             corpo.append("<table>\n" + "\n".join(filas) + "\n</table>")
             primeiro = True
         elif isinstance(bloco, Figura):
@@ -620,7 +644,7 @@ def fontes_usadas(paginas: Sequence[PaginaExtraida]) -> dict:
 
 
 def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
-              titulo: str = "Livro", autor: str = "",
+              titulo: str = TITULO_PADRAO, autor: str = "",
               identificador: Optional[str] = None,
               diagramas: str = "png", idioma: str = IDIOMA_PADRAO,
               corpo_pt: float = CORPO_PADRAO_PT,
@@ -649,6 +673,7 @@ def para_epub(paginas: Sequence[PaginaExtraida], caminho: str, *,
     # pede ao renderizador); aqui ela só tem trabalho no modo de fonte. Mas é
     # conferida nos dois, para um erro de digitação não passar batido no livro
     # em que ela não teria efeito.
+    titulo, idioma = _titulo_e_idioma(titulo, idioma)
     moldura = normalizar_moldura(moldura)
     cantos = normalizar_cantos(cantos)
     corpo_pt = corpo_valido(corpo_pt)
@@ -1111,7 +1136,7 @@ def _idioma_do_estilo(estilo, idioma: str) -> None:
 
 
 def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
-              titulo: str = "Livro", autor: str = "",
+              titulo: str = TITULO_PADRAO, autor: str = "",
               largura_figura_cm: float = 9.0,
               diagramas: str = "png",
               corpo_pt: float = CORPO_PADRAO_PT,
@@ -1148,6 +1173,7 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
     if diagramas not in MODOS_DE_DIAGRAMA:
         raise ValueError(f"modo de diagrama inválido: {diagramas!r} "
                          f"(use um de {MODOS_DE_DIAGRAMA})")
+    titulo, idioma = _titulo_e_idioma(titulo, idioma)
     moldura = normalizar_moldura(moldura)
     # Conferido e não usado: **o Word não sabe arredondar borda de célula**, e a
     # caixa da `_caixa_do_diagrama` é uma célula. Onde a quina redonda aparece
@@ -1341,13 +1367,15 @@ def para_docx(paginas: Sequence[PaginaExtraida], caminho: str, *,
                 # `Table Grid` é o único estilo de grade que o template padrão
                 # do Word traz; sem estilo nenhum a tabela sai sem fio e o
                 # leitor não vê onde uma célula acaba.
-                t = doc.add_table(rows=len(bloco.linhas),
-                                  cols=len(bloco.linhas[0]))
+                filas = _filas_retangulares(bloco)
+                if not filas:
+                    continue
+                t = doc.add_table(rows=len(filas), cols=len(filas[0]))
                 try:
                     t.style = doc.styles["Table Grid"]
                 except KeyError:
                     log.warning("DOCX: o modelo não tem o estilo Table Grid; a tabela sai sem moldura")
-                for fila, textos in zip(t.rows, bloco.linhas):
+                for fila, textos in zip(t.rows, filas):
                     for celula, texto in zip(fila.cells, textos):
                         # Pelo mesmo caminho da prosa, e não por `celula.text`
                         # (F111): é o que põe a fonte na figurina da célula.

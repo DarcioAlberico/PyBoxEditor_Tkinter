@@ -1311,6 +1311,12 @@ Estado: em andamento (2026-11-25). Base `a56ebbc`, worktree `.claude/worktrees/o
   EPUB, o DOCX e o JSON; HTML, TXT e PDF já ordenavam. O `test_adapter_sem_perdas` que
   comparava byte a byte um EPUB de páginas fora de ordem passa a dá-las em ordem. Suíte: 4020
   passed.
+- Commit 2 (R-33): `exportar._filas_retangulares` (a largura da maior fila, as curtas
+  completadas, a tabela sem célula pulada) no EPUB e no DOCX; título e idioma vazios levam o
+  padrão (`TITULO_PADRAO`, `IDIOMA_PADRAO`) nos dois e no HTML, e o PDF de origem sem título
+  deixa o do documento. `tests/test_tabela_titulo_e_idioma.py`: contra o código de antes, os
+  dez falham (o `IndexError` da tabela vazia, a célula que sumia, o `<dc:title>` vazio). Suíte:
+  4030 passed.
 ### RG-18
 ### RG-20
 ### RG-19

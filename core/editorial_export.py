@@ -349,13 +349,19 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
     return body + _audit(block, options)
 
 
+def _titulo_do_documento(document: EditorialDocument, options: ExportOptions) -> str:
+    """O título pedido, o do documento ou o padrão: nenhum formato sai sem (RG-17, R-33)."""
+    from core.exportar import TITULO_PADRAO
+    return options.title.strip() or document.title.strip() or TITULO_PADRAO
+
+
 def _html_body(document: EditorialDocument, options: ExportOptions) -> str:
     pages = []
     for page in document.pages:
         blocks = "\n".join(_block_html(block, options)
                              for block in sorted(page.blocks, key=lambda item: item.order))
         pages.append(f'<section id="page-{page.page_index + 1}" data-page="{page.page_index + 1}">{blocks}</section>')
-    title = html.escape(options.title or document.title)
+    title = html.escape(_titulo_do_documento(document, options))
     language = html.escape(document.language or "und", quote=True)
     return (f'<!doctype html><html lang="{language}"><head><meta charset="utf-8">'
             f"<title>{title}</title><meta name=\"export-mode\" content=\"{options.mode}\">"
@@ -454,11 +460,12 @@ class EditorialExporter:
         paginas = list(options.paginas) or aplicar_revisao([], document, opcoes=options.figura)
         escritor = dict(options.escritor)
         if "titulo" not in escritor:
-            titulo, autor = options.title or document.title, ""
+            titulo, autor = _titulo_do_documento(document, options), ""
             origem = str(document.metadata.get("source_path") or "")
             if origem.lower().endswith(".pdf"):
                 try:
-                    titulo, autor = livro.titulo_e_autor(origem)
+                    do_pdf, autor = livro.titulo_e_autor(origem)
+                    titulo = do_pdf.strip() or titulo
                 except (OSError, RuntimeError, ValueError) as erro:
                     log.info("título e autor não lidos de %s (%s); fica o do documento",
                              origem, erro)
