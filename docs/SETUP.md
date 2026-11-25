@@ -105,12 +105,14 @@ python scripts/diagnostico_ambiente.py
 
 ```text
 python -m compileall -q appy.py core ui config scripts
-python -m ruff check core ui appy.py config scripts
+python -m ruff check core ui appy.py config scripts tests
 python -m pytest --collect-only -q
-python -m pytest -q -m "not ml and not gui"
-python -m pytest -q -p no:cacheprovider -o addopts="" tests/test_editor_ac_globais.py -m "not slow"
+python -m pytest -q -m "not slow"
+python -m pytest -q -m "slow and not gui"
 ```
 
-Os testes `ml` exigem PyTorch/modelos e os testes `gui` exigem um display
-Tkinter. O CI executa a parcela determinística sem GUI nem ML como verificação
-obrigatória.
+Os testes `ml` exigem o PyTorch e os testes `gui`, um display Tkinter; o que
+depende de dado fora do git (PDFs de livro, pesos treinados, a base de treino)
+pula com o motivo no resumo. A CI roda os dois passos do pytest em Linux sob
+Xvfb, com o Tesseract (eng, por), o Java do epubcheck, o torch do índice CPU e
+as versões de `constraints.txt`; os testes de janela entram no primeiro passo.

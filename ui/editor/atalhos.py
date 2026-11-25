@@ -194,6 +194,13 @@ NEUTRALIZADAS = ("<Key-Insert>", "<<PasteSelection>>")
 #: or keysym") e derruba a janela inteira — por isso `ligar` o deixa de fora fora do Windows.
 SO_NO_WINDOWS = frozenset({"<Key-App>"})
 
+#: O que o Tk do Windows põe nos eventos virtuais e o do X11 não: lá `<<SelectAll>>` é só
+#: `Ctrl+/` (o `Ctrl+A` vai à classe `Text`, que leva o cursor ao começo da linha, como no
+#: emacs) e `<<Redo>>` é `Ctrl+Shift+Z`. Fora do Windows, `ligar` liga também estes acordes ao
+#: despacho do evento virtual, e o `Ctrl+A` e o `Ctrl+Y` que o menu mostra valem nos dois.
+SO_FORA_DO_WINDOWS = {"<<SelectAll>>": ("<Control-a>", "<Control-Lock-A>"),
+                      "<<Redo>>": ("<Control-y>", "<Control-Lock-Y>")}
+
 
 # ----------------------------------------------------------------------
 # Consultas à tabela
@@ -332,23 +339,38 @@ def ligar(widget: tk.Misc, tabela: Sequence[Atalho], comandos: dict[str, Callabl
         return despachar
 
     handlers = {sequencia: fazer_handler(sequencia) for sequencia in sequencias}
-    fora = frozenset() if str(widget.tk.call("tk", "windowingsystem")) == "win32" else SO_NO_WINDOWS
+    ligacoes = sequencias_a_ligar(handlers, str(widget.tk.call("tk", "windowingsystem")))
     if frente:
         tags = list(widget.bindtags())
         if nome not in tags:
             tags.insert(1, nome)
             widget.bindtags(tuple(tags))
-        for sequencia, handler in handlers.items():
-            if sequencia not in fora:
-                widget.bind_class(nome, sequencia, handler)
+        for sequencia, handler in ligacoes:
+            widget.bind_class(nome, sequencia, handler)
         for sequencia in NEUTRALIZADAS:
             widget.bind_class(nome, sequencia, lambda e: "break")
     else:
-        for sequencia, handler in handlers.items():
-            if sequencia not in fora:
-                widget.bind(sequencia, handler)
+        for sequencia, handler in ligacoes:
+            widget.bind(sequencia, handler)
     return Ligacao(nome, sequencias, handlers)
 
 
+def sequencias_a_ligar(handlers: dict[str, Callable[[Any], str | None]],
+                       sistema: str) -> list[tuple[str, Callable[[Any], str | None]]]:
+    """
+    Os pares (sequência Tk, despacho) que `ligar` liga no `sistema` de janelas (`tk
+    windowingsystem`): no Windows, a tabela como está; fora dele, sem `SO_NO_WINDOWS` e com os
+    acordes de `SO_FORA_DO_WINDOWS` ligados ao despacho do evento virtual que eles disparam
+    no Windows.
+    """
+    if sistema == "win32":
+        return list(handlers.items())
+    pares = [(sequencia, h) for sequencia, h in handlers.items() if sequencia not in SO_NO_WINDOWS]
+    for virtual, acordes in SO_FORA_DO_WINDOWS.items():
+        if virtual in handlers:
+            pares += [(acorde, handlers[virtual]) for acorde in acordes]
+    return pares
+
+
 __all__ = ["Atalho", "TABELA", "AMBOS", "TEXTO", "CODIGO", "NEUTRALIZADAS", "GENERICAS", "ligar", "Ligacao",
-           "verificar_unicidade", "texto_de_ajuda", "acelerador", "por_comando"]
+           "sequencias_a_ligar", "verificar_unicidade", "texto_de_ajuda", "acelerador", "por_comando"]

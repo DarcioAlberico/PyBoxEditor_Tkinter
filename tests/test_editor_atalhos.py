@@ -124,12 +124,13 @@ class _JanelaDe:
 
     def __init__(self, sistema):
         self.tk = type("_Tk", (), {"call": staticmethod(lambda *a: sistema)})()
-        self.sistema, self.ligadas = sistema, []
+        self.sistema, self.ligadas, self.handlers = sistema, [], {}
 
     def bind(self, sequencia, handler):
         if sequencia == "<Key-App>" and self.sistema != "win32":
             raise tk.TclError('bad event type or keysym "App"')
         self.ligadas.append(sequencia)
+        self.handlers[sequencia] = handler
 
 
 def test_a_tecla_de_menu_do_windows_fica_de_fora_no_x11():
@@ -143,6 +144,29 @@ def test_a_tecla_de_menu_do_windows_fica_de_fora_no_x11():
         assert ("<Key-App>" in janela.ligadas) is com_app, sistema
         assert "<Key-Menu>" in janela.ligadas and "<Shift-F10>" in janela.ligadas, sistema
         assert "<Key-App>" in ligacao.handlers
+
+
+
+def test_no_x11_o_ctrl_a_e_o_ctrl_y_chamam_o_comando_do_evento_virtual():
+    """
+    No X11 o `<<SelectAll>>` do Tk é só `Ctrl+/` e o `<<Redo>>` é `Ctrl+Shift+Z`: o `Ctrl+A`
+    que o menu mostra caía na classe `Text` e levava o cursor ao começo da linha, e o `Ctrl+Y`
+    não refazia. Lá os dois acordes vão ao despacho do evento virtual; no Windows o próprio Tk
+    já os põe no evento, e ligá-los de novo chamaria o comando duas vezes.
+    """
+    for sistema in ("x11", "win32"):
+        janela, chamados = _JanelaDe(sistema), []
+        comandos = {"selecionar_tudo": lambda: chamados.append("tudo"), "refazer": lambda: chamados.append("refazer")}
+        atalhos.ligar(janela, atalhos.TABELA, comandos, escopos=("editor",), frente=False, bindtag="t")
+        fisicos = ("<Control-a>", "<Control-Lock-A>", "<Control-y>", "<Control-Lock-Y>")
+        if sistema == "win32":
+            assert not any(f in janela.ligadas for f in fisicos)
+            continue
+        assert all(f in janela.ligadas for f in fisicos)
+        assert janela.handlers["<Control-a>"] is janela.handlers["<<SelectAll>>"]
+        assert janela.handlers["<Control-a>"](_Evento("a", 65, 0x4)) == "break"
+        assert janela.handlers["<Control-Lock-Y>"](_Evento("Y", 89, 0x6)) == "break"
+        assert chamados == ["tudo", "refazer"]
 
 
 if __name__ == "__main__":
