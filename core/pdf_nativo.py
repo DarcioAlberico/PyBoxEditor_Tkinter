@@ -485,15 +485,26 @@ def texto_do_nome_de_glifo(nome: str) -> Optional[str]:
     return "".join(saida)
 
 
-#: `(arquivo, páginas, xref)` → os nomes dos glifos da fonte embutida, ou `None`.
-_nomes_de_glifo: Dict[Tuple[str, int, int], Optional[List[str]]] = {}
+#: `(arquivo, mtime, páginas, xref)` → os nomes dos glifos da fonte embutida, ou `None`.
+#: O `mtime` entra porque o PDF regravado no mesmo caminho é outro PDF (RG-16, R-25): os
+#: nomes do anterior davam a letra errada em silêncio.
+_nomes_de_glifo: Dict[Tuple[str, int, int, int], Optional[List[str]]] = {}
+
+
+def _mtime(caminho: str) -> int:
+    """O `mtime` em nanossegundos, ou 0 no PDF que não está no disco."""
+    try:
+        return os.stat(caminho).st_mtime_ns
+    except (OSError, ValueError):
+        return 0
 
 
 def _nomes_da_fonte(doc: fitz.Document, xref: int) -> Optional[List[str]]:
     """A ordem dos glifos da fonte embutida — o gid vira nome. Só TrueType/OpenType
     (o que o fontTools abre); a CFF nua e a fonte sem nomes (`post` 3) dão `None`
     ou `glyphNNNNN`, que `texto_do_nome_de_glifo` recusa."""
-    chave = (str(doc.name or ""), len(doc), int(xref))
+    arquivo = str(doc.name or "")
+    chave = (arquivo, _mtime(arquivo), len(doc), int(xref))
     if chave[0] and chave in _nomes_de_glifo:
         return _nomes_de_glifo[chave]
     nomes: Optional[List[str]] = None
@@ -800,8 +811,11 @@ def amostrar(caminho: str, paginas: int = 40) -> Tuple[int, int]:
     """
     with fitz.open(caminho) as doc:
         total = len(doc)
-        passo = max(1, total // max(1, paginas))
-        numeros = list(range(0, total, passo))[:paginas]
+        # O passo arredonda para cima, e a amostra cabe em `paginas` sem corte (RG-16,
+        # R-25): para baixo, o livro de 41 a 79 páginas tinha passo 1, e o corte tirava
+        # o fim dele inteiro da amostra.
+        passo = max(1, -(-total // max(1, paginas)))
+        numeros = list(range(0, total, passo))
         carimbo = produtor(doc)
         aceitas = sum(1 for n in numeros
                       if avaliar_pagina(doc[n], numero=n, produtor=carimbo).aceita)
@@ -3036,6 +3050,20 @@ def idioma_do_pdf(caminho: str, paginas: int = 40) -> Optional[str]:
     return primeiro if n1 >= VANTAGEM_DE_IDIOMA * max(1, n2) else None
 
 
+def paginas_pedidas(total: int, paginas: Optional[Sequence[int]]) -> List[int]:
+    """Os índices a ler — todos, se `paginas` é `None`. O índice fora do livro levanta
+    `ValueError` aqui, antes da primeira página (RG-16, R-25): o grande levantava no meio,
+    depois de lidas as outras, e o negativo lia do fim, calado."""
+    if paginas is None:
+        return list(range(total))
+    numeros = [int(n) for n in paginas]
+    fora = [n for n in numeros if not 0 <= n < total]
+    if fora:
+        raise ValueError(f"página fora do livro, que tem {total}: "
+                         f"{', '.join(str(n + 1) for n in fora[:5])}")
+    return numeros
+
+
 def avaliar_com_guarda(page, *, numero: int, produtor: str) -> Veredito:
     """`avaliar_pagina`, com a página que levanta recusada: ela vai ao OCR, e não derruba
     o livro (RG-14, R-20)."""
@@ -3080,7 +3108,7 @@ def extrair(caminho: str, paginas: Optional[Sequence[int]] = None, *,
     vereditos: List[Veredito] = []
     with fitz.open(caminho) as doc:
         carimbo = produtor(doc)
-        numeros = list(range(len(doc))) if paginas is None else list(paginas)
+        numeros = paginas_pedidas(len(doc), paginas)
         for i, numero in enumerate(numeros):
             if progress_callback:
                 progress_callback(i, len(numeros))

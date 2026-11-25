@@ -1250,7 +1250,8 @@ Estado: fechada (2026-11-25), num commit. Base `e5f6d31`, o worktree da RG-14; o
   `benchmarks/rodadas/2026-11-25-1621.json`, 0,91% página a página, igual às duas bases.
   Suíte: 3940 passed. AbbyChessCraft: na RG-16, com a mesma árvore.
 ### RG-16
-Estado: em andamento (2026-11-25). Base `3862d4a`, o mesmo worktree.
+Estado: fechada (2026-11-25), em dois commits (`2b91ad4` e o do R-25). Base `3862d4a`, o mesmo
+worktree.
 - Commit 1 (R-24, a trama): `ocr_service._sem_miudezas`, uma tabela por rótulo no lugar do
   laço que comparava a página com cada componente. `tests/test_trama_por_tabela.py`: a máscara
   byte a byte igual à do laço, em três densidades, e nenhuma comparação da página com rótulo.
@@ -1260,6 +1261,18 @@ Estado: em andamento (2026-11-25). Base `3862d4a`, o mesmo worktree.
   97 impressa, com 123 mil componentes. No livro inteiro são 30 páginas com trama; a mais
   pesada (107, 147 mil componentes), **14,65 s → 0,024 s** só da limpeza, com a mesma máscara.
   Suíte: 3944 passed.
+- Commit 2 (R-25): `amostrar` arredonda o passo para cima e não corta (o livro de 41 a 79
+  páginas entra até o fim); o Tesseract de um caractere aceita a confiança 0 (o -1 continua
+  sendo "não leu") e devolve o primeiro grafema, composto; o cache dos nomes de glifo leva o
+  `mtime`; `render_diagrama.esquecer` solta a largura da grade; `pdf_nativo.paginas_pedidas`
+  valida o intervalo antes da primeira página, nos dois `extrair` (o negativo lia do fim,
+  calado); a tabela da geometria que existe e não se lê fala uma vez (WARNING) e não fica no
+  cache. `tests/test_pequenos_da_leitura.py`: contra o código de antes, 14 dos 20 falham (os
+  outros seis são os totais que já davam certo e a tabela que não existe). A amostra nos 14
+  PDFs desta máquina dá o mesmo veredito (Dvoretsky 39/40 → 38/39, os outros 0); A/B idêntico
+  (`RG-16-depois2`); rodada `benchmarks/rodadas/2026-11-25-1636.json`, 0,91% página a página.
+  Suíte: 3964 passed. AbbyChessCraft contra o worktree (RG-15 e RG-16): 2915 passed, 6
+  failed, os mesmos seis da base.
 ### RG-16b
 ### RG-17
 ### RG-18

@@ -4525,7 +4525,7 @@ def extrair(input_pdf: str, classificar: Callable, *, dpi: int = 300,
     doc = fitz.open(input_pdf)
     try:
         carimbo = pdf_nativo.produtor(doc) if camada != "nunca" else ""
-        numeros = list(range(len(doc))) if paginas is None else list(paginas)
+        numeros = pdf_nativo.paginas_pedidas(len(doc), paginas)
         saida: List[PaginaExtraida] = []
         primeiro_erro: Optional[Exception] = None
         for i, numero in enumerate(numeros):

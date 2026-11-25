@@ -1,6 +1,7 @@
 import cv2
 import json
 import threading
+import unicodedata
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -179,6 +180,15 @@ def _idiomas_da_saida(saida: str) -> set:
             if re.fullmatch(r"[a-z_]+", linha.strip())}
 
 
+def _primeiro_grafema(texto: str) -> str:
+    """O primeiro caractere, com as marcas combinantes dele e composto (NFC): `texto[0]`
+    partia o `é` decomposto e devolvia o `e` (RG-16, R-25)."""
+    fim = 1
+    while fim < len(texto) and unicodedata.combining(texto[fim]):
+        fim += 1
+    return unicodedata.normalize("NFC", texto[:fim])
+
+
 #: A área, em pixels, abaixo da qual o componente da página texturizada é ponto da trama.
 AREA_DO_COMPONENTE_DA_TRAMA = 8
 
@@ -324,7 +334,9 @@ class OCRService:
             raise self._erro_do_tesseract(
                 pytesseract, erro, PRAZO_DO_CARACTERE_S) from erro
 
-        melhor, melhor_conf = "", 0.0
+        # A confiança 0 é uma leitura, e o -1 não (RG-16, R-25): o token de confiança 0
+        # era descartado como se não houvesse nada.
+        melhor, melhor_conf = "", -1.0
         for texto, conf in zip(dados.get("text", []), dados.get("conf", [])):
             texto = (texto or "").strip()
             if not texto:
@@ -334,7 +346,7 @@ class OCRService:
             except (TypeError, ValueError):
                 conf = -1.0
             if conf > melhor_conf:
-                melhor, melhor_conf = texto[0], conf
+                melhor, melhor_conf = _primeiro_grafema(texto), conf
 
         if not melhor:
             return "", 0.0

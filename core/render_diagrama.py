@@ -274,8 +274,10 @@ def sem_glifo(caminho: str, caracteres: Sequence[str]) -> List[str]:
 
 
 def esquecer() -> None:
-    """Descarta o cache — a suíte troca o JSON debaixo dele."""
+    """Descarta o cache — a suíte troca o JSON debaixo dele. A largura da grade sai com ele:
+    é medida na fonte, e a da fonte anterior ficava (RG-16, R-25)."""
     _cache.clear()
+    _LARGURA_DA_GRADE.clear()
 
 
 # ----------------------------------------------------------------------

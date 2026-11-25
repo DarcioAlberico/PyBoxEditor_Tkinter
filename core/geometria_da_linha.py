@@ -83,6 +83,7 @@ revisão a vê.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -93,6 +94,9 @@ import numpy as np
 
 from core.avaliacao_pagina import normalizar
 from core.box_model import BoxEntry
+from core.log import logger, uma_vez
+
+log = logger(__name__)
 
 #: Os grupos de mesmo desenho, que só a geometria separa.
 #:
@@ -226,13 +230,27 @@ def tabela_de(dados: Mapping) -> Dict[str, Classe]:
 
 
 @lru_cache(maxsize=4)
+def _ler_tabela(caminho: str) -> Dict[str, Classe]:
+    """A tabela do arquivo. O erro sobe, e o `lru_cache` não guarda o que levanta."""
+    with open(caminho, encoding="utf-8") as f:
+        return tabela_de(json.load(f))
+
+
 def carregar_tabela(caminho: str = CAMINHO_DA_TABELA) -> Dict[str, Classe]:
-    """A tabela gravada, ou vazia se não há arquivo — e sem tabela não há poda."""
+    """A tabela gravada, ou vazia se não há arquivo — e sem tabela não há poda. A que existe
+    e não se lê fala (RG-16, R-25): a poda sumia sem aviso, e o vazio ficava no cache mesmo
+    depois de o arquivo voltar."""
     try:
-        with open(caminho, encoding="utf-8") as f:
-            return tabela_de(json.load(f))
-    except (OSError, ValueError, TypeError, IndexError):
+        return _ler_tabela(caminho)
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError, TypeError, IndexError, AttributeError) as erro:
+        uma_vez(log, f"geometria:{caminho}", logging.WARNING,
+                f"a tabela da geometria não se lê ({caminho}: {erro}); a leitura segue sem a poda")
+        return {}
+
+
+carregar_tabela.cache_clear = _ler_tabela.cache_clear
 
 
 def estimar_tabela(linhas: Iterable[Sequence[Tuple[Glifo, str]]],
