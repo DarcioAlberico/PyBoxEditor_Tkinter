@@ -1250,6 +1250,16 @@ Estado: fechada (2026-11-25), num commit. Base `e5f6d31`, o worktree da RG-14; o
   `benchmarks/rodadas/2026-11-25-1621.json`, 0,91% página a página, igual às duas bases.
   Suíte: 3940 passed. AbbyChessCraft: na RG-16, com a mesma árvore.
 ### RG-16
+Estado: em andamento (2026-11-25). Base `3862d4a`, o mesmo worktree.
+- Commit 1 (R-24, a trama): `ocr_service._sem_miudezas`, uma tabela por rótulo no lugar do
+  laço que comparava a página com cada componente. `tests/test_trama_por_tabela.py`: a máscara
+  byte a byte igual à do laço, em três densidades, e nenhuma comparação da página com rótulo.
+  Saída idêntica nas quatro páginas (`RG-16-antes`/`RG-16-depois`) e na p. 96 (`RG-16-p96-*`);
+  tempo, com a máquina quieta: pp. 34 + 47 do Yusupov 39,4 → 23,4 s, p. 30 4,8 → 4,6, p. 237
+  4,0 → 4,1; a p. 96 do script (1,8 s nos dois) não tem trama — a da spec é o índice 96, a
+  97 impressa, com 123 mil componentes. No livro inteiro são 30 páginas com trama; a mais
+  pesada (107, 147 mil componentes), **14,65 s → 0,024 s** só da limpeza, com a mesma máscara.
+  Suíte: 3944 passed.
 ### RG-16b
 ### RG-17
 ### RG-18

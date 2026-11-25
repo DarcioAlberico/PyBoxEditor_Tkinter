@@ -179,6 +179,20 @@ def _idiomas_da_saida(saida: str) -> set:
             if re.fullmatch(r"[a-z_]+", linha.strip())}
 
 
+#: A área, em pixels, abaixo da qual o componente da página texturizada é ponto da trama.
+AREA_DO_COMPONENTE_DA_TRAMA = 8
+
+
+def _sem_miudezas(labels: np.ndarray, stats: np.ndarray, area: int) -> np.ndarray:
+    """A máscara (0/255) só com os componentes de `area` pixels ou mais, o fundo fora.
+
+    Uma tabela por rótulo, lida de uma vez (RG-16, R-24): o laço comparava a página
+    inteira com cada um dos componentes, e numa página de trama são dezenas de milhares."""
+    tabela = np.where(stats[:, cv2.CC_STAT_AREA] >= area, 255, 0).astype(np.uint8)
+    tabela[0] = 0
+    return tabela[labels]
+
+
 class OCRService:
     """
     Serviço puro para execução de OCR com Tesseract, EasyOCR e Rede Neural.
@@ -472,11 +486,7 @@ class OCRService:
         if n <= 20000:
             return []
 
-        limpa = np.zeros_like(mascara)
-        for i in range(1, n):
-            if stats[i, cv2.CC_STAT_AREA] >= 8:
-                limpa[labels == i] = 255
-        recuperada = 255 - limpa
+        recuperada = 255 - _sem_miudezas(labels, stats, AREA_DO_COMPONENTE_DA_TRAMA)
         # O PSM de página inteira ainda pode ignorar a coluna texturizada por
         # considerá-la um fundo. Lê-la como uma página independente preserva as
         # linhas e as coordenadas; o recorte cobre a coluna esquerda típica
