@@ -1173,7 +1173,7 @@ do R-19), no worktree da Onda 5, depois da RG-12.
   Suíte do worktree: 3859 passed, 26 skipped.
 - Próximo passo da revisão: a Onda 6 (a leitura: RG-14, RG-15, RG-16, RG-16b).
 ### RG-14
-Estado: fechada (2026-11-25), em dois commits (`3657a1a` e o do R-21). Base `ffc3ec3` — o trabalho do usuário em `core/livro.py`
+Estado: fechada (2026-11-25), em três commits (`3657a1a`, `e5f6d31` e o da junção). Base `ffc3ec3` — o trabalho do usuário em `core/livro.py`
 (o lance descritivo), commitado por ele ter aprovado na abertura da onda; não há diff dele na
 árvore, e o passo 9 deixa de valer. Worktree `.claude/worktrees/onda6` (destacado, com os
 pesos). Medidas de antes: `preview_ocr/ab/RG-14-antes` e `RG-14-antes2` (idênticas, só o
@@ -1226,6 +1226,13 @@ pesos). Medidas de antes: `preview_ocr/ab/RG-14-antes` e `RG-14-antes2` (idênti
   rodada da fase `benchmarks/rodadas/2026-11-25-1553.json` (0,91%, igual à base da revisão e à da fase).
   Suíte: 3930 passed.
 - AbbyChessCraft contra o worktree: 2915 passed, 6 failed, os mesmos seis da base.
+- Commit 3 (R-20, depois da RG-16: a medida em português que a RG-16b pede mostrou): no *A
+  Estratégia no Xadrez* pp. 40–80, quatro junções, duas boas (pp. 50 e 75; nesta, `bloqué` +
+  `do`, a palavra que a paginação partiu sem hífen) e duas coladas na legenda ou na sobra de
+  uma linha que fecha a página (`Cavalo bloqueia Rei bloqueia`, `,`). A página da imagem só
+  recebe a continuação num parágrafo de duas linhas impressas ou mais: remedido, ficam as
+  duas boas daqui e as três do Aagaard, e saem as duas coladas; o Yusupov segue com zero.
+  Suíte: 3966 passed.
 ### RG-15
 Estado: fechada (2026-11-25), num commit. Base `e5f6d31`, o worktree da RG-14; o "antes" é o
 "depois" dela (`RG-14-depois`, `RG-14-yusupov-depois2`, `RG-14-aagaard-depois`).

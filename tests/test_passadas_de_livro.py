@@ -150,12 +150,22 @@ def test_o_paragrafo_partido_entre_paginas_volta_a_ser_um_no_ocr(tmp_path, monke
 ])
 def test_o_titulo_sem_a_inicial_nao_continua_a_pagina_anterior(tmp_path, monkeypatch, comeco, lex):
     """Medido no Yusupov inteiro: as quatro junções da régua da minúscula eram títulos."""
-    a = PaginaExtraida(0, [Paragrafo("7...♔f4 8.♕h6#")])
+    a = PaginaExtraida(0, [Paragrafo("7...♔f4 8.♕h6#", inicios=[0, 8])])
     b = PaginaExtraida(1, [Paragrafo(comeco)])
     _paginas_falsas(monkeypatch, [a, b])
     livro.extrair(_pdf(tmp_path / "l.pdf", 2), _classificar, lex=lex)
     assert [p.texto for p in a.blocos] == ["7...♔f4 8.♕h6#"]
     assert [p.texto for p in b.blocos] == [comeco]
+
+
+@pytest.mark.parametrize("fim", ["Cavalo bloqueia Rei bloqueia", ","])
+def test_a_legenda_que_fecha_a_pagina_nao_recebe_a_frase(tmp_path, monkeypatch, fim):
+    """Medido no *A Estratégia no Xadrez* (pp. 55 e 63): uma linha só não é texto corrido."""
+    a = PaginaExtraida(0, [Paragrafo(fim, inicios=[0])])
+    b = PaginaExtraida(1, [Paragrafo("so the capítulo")])
+    _paginas_falsas(monkeypatch, [a, b])
+    livro.extrair(_pdf(tmp_path / "l.pdf", 2), _classificar, lex=_lexico())
+    assert [p.texto for p in a.blocos] == [fim]
 
 
 @pytest.mark.parametrize("fen, antes, depois, lado", [
@@ -199,10 +209,11 @@ def test_o_paragrafo_com_o_cabecalho_cortado_tambem_se_junta(tmp_path, monkeypat
     paginas = []
     for n in range(3):
         cabeca, corpo = "Attacking Manual ", "and so the game went on, as it was"
+        meio = len(cabeca) + corpo.index("went")
         texto = cabeca + corpo
         paginas.append(PaginaExtraida(n, [Paragrafo(
             texto, pesos=negrito.vetor([0.1] * len(texto)), lacunas=negrito.vetor([1.0] * len(texto)),
-            topo=5, pe=60, inicios=[0, len(cabeca)], registros=[0, 1])], altura=1000, largura=700))
+            topo=5, pe=60, inicios=[0, len(cabeca), meio], registros=[0, 1, 2])], altura=1000, largura=700))
     _paginas_falsas(monkeypatch, paginas)
     livro.extrair(_pdf(tmp_path / "l.pdf"), _classificar, lex=_lexico())
     junto = paginas[0].blocos[-1]

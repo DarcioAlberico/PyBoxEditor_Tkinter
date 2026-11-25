@@ -2780,13 +2780,20 @@ PALAVRAS_CURTAS = frozenset(
     "e o é à ao da de em eu já me na os se só te um".split())
 
 
-def _continua_de_verdade(depois: "Paragrafo", lex) -> bool:
-    """A primeira palavra do parágrafo lido da **imagem** é palavra do dicionário?
+def _continua_de_verdade(antes: "Paragrafo", depois: "Paragrafo", lex) -> bool:
+    """O parágrafo lido da **imagem** continua o da página anterior: o de antes é texto
+    corrido — duas linhas impressas ou mais —, e o de depois abre por palavra do dicionário.
+
+    A legenda de uma linha que fecha a página não é o fim da frase: no *A Estratégia no
+    Xadrez*, `Cavalo bloqueia Rei bloqueia` recebia o `este recurso, veja o capítulo` que
+    era de outro parágrafo.
 
     No OCR a minúscula que abre a página pode ser o título sem a inicial: no Yusupov
     inteiro, as quatro junções que a régua da minúscula fazia eram `olutions`, `xercises`
     (duas) e `nn` — nenhuma continuação de frase. A palavra de uma ou duas letras sai da
     lista, e não do dicionário, que tem `nn` e `ng`."""
+    if len(antes.inicios) < 2:
+        return False
     nucleo, _inicio = lexico.nucleo((depois.texto.split() or [""])[0])
     return nucleo in PALAVRAS_CURTAS if len(nucleo) < 3 else lex.conhece(nucleo)
 
@@ -2805,8 +2812,8 @@ def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"], *, lex=None) -> in
     `counter-` seria chute. Vale para a camada e para o OCR, que montam o
     mesmo `Paragrafo`. Devolve quantos parágrafos voltaram.
 
-    Com `lex`, a página lida da imagem só continua a anterior se abrir por palavra do
-    dicionário (`_continua_de_verdade`); sem ele, vale a régua da letra.
+    Com `lex`, a página lida da imagem só continua a anterior com a prova de
+    `_continua_de_verdade`; sem ele, vale a régua da letra.
     """
     juntados = 0
     for atual, seguinte in zip(paginas, paginas[1:]):
@@ -2822,7 +2829,7 @@ def juntar_entre_paginas(paginas: Sequence["PaginaExtraida"], *, lex=None) -> in
         if not fim or not comeco[:1].islower() or fim[-1] in ".!?:;-":
             continue
         if (lex is not None and getattr(seguinte, "leitura", LEITURA_IMAGEM) == LEITURA_IMAGEM
-                and not _continua_de_verdade(depois, lex)):
+                and not _continua_de_verdade(antes, depois, lex)):
             continue
         # As marcas de `depois` contam do texto dele com o espaço da esquerda.
         deslocamento = len(fim) + 1 - (len(depois.texto) - len(comeco))
