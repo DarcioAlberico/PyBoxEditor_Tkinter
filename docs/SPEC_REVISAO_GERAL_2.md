@@ -2,6 +2,7 @@
 
 Versão: 0.6 (veredito dos críticos e cinco re-análises aplicados)
 Data: 2026-11-20
+Estado: fechada em 2026-11-25 (R-39 e R-42 transferidos para a PD-26 e a PD-27)
 Base: `master` em `6627e30`; números de linha da árvore de trabalho do mesmo dia
 Roadmap: [ROADMAP_REVISAO_GERAL_2.md](ROADMAP_REVISAO_GERAL_2.md) (fases `RG-nn`)
 Antecessora: [ANALISE_GERAL_2026-10-06.md](ANALISE_GERAL_2026-10-06.md) (a revisão geral 1)

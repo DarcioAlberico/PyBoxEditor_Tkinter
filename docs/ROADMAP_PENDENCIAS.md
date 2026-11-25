@@ -1,8 +1,9 @@
 # Roadmap — o que sobrou dos outros roadmaps
 
-Versão: 1.0
-Data: 2026-09-29
-Status: em execução
+Versão: 1.1
+Data: 2026-09-29, revista em 2026-11-25
+Status: código fechado, salvo as PD abertas pela revisão geral 2 (PD-24 a PD-28, na tabela
+do registro); Onda 6 aberta (dado do usuário)
 
 Documento de fechamento. Reúne, num lugar só, o que os quatro roadmaps anteriores
 registraram como aberto e não retomaram:
@@ -411,3 +412,6 @@ horas do treino. A rodada pelo script refatorado repete a de 2026-11-07 página 
 | PD-23 (nova) | **feita** | 2026-11-12 | O treino pela janela guarda o par de produção com data antes de começar e, no fim, mede o novo contra ele no corpus de referência (`core/portao_do_modelo.py`, sobre `core/rodada.py`, o miolo que saiu do script da rodada); se ler pior, o novo vai para `_recusado` e o anterior volta. Provado com o peso de 2026-11-09: recusado com 1,24% → 1,47%, em 96 s. Sem corpus, o novo fica e o veredito diz que não mediu. |
 | PD-24 (nova) | **registrada** | 2026-11-21 | Aberta pela RG-10 da revisão geral 2 (R-26), na medida da ida e volta do corpus de EPUBs: o negrito em volta de uma ilha inline some, calado. É o `<b><span class="f9" data-imt-…>` que a extensão Immersive Translate põe — o `<span>` com atributo que o dialeto não conhece vira `Trecho.ilha`, e o `<b>` de fora não volta: 708 dos 728 `<b>` do Grooten (*Finais de xadrez*, NIC 2022). O requisito que cobriria: formato do trecho em volta de ilha inline (o escritor embrulhar a ilha no `<strong>`/`<em>` do trecho), com o teste `ler → escrever → ler` do caso. |
 | PD-25 (nova) | **registrada** | 2026-11-21 | Aberta pela RG-10 da revisão geral 2 (R-26), na mesma medida: o `nav.xhtml` de um livro de terceiro é regenerado pelo escritor (decisão da §10.1 da `SPEC_EDITOR.md`), e o que ele tinha além do sumário some sem aviso — no Grooten, 121 atributos (`lang`, `dir` e `data-imt-*` dos links, do `h1`, do `body` e do `html`), 4 `<style>` e 1 `<meta>` da cabeça. O requisito que cobriria: o relatório de conversão avisar que o nav de terceiro foi regenerado (a perda vira declarada), ou o escritor levar a cabeça e os atributos do nav de origem para o regenerado. |
+| PD-26 (nova) | **registrada** | 2026-11-25 | Transferida da RG-01b da revisão geral 2 (R-39): os 19 testes que conferem a grafia do código por `inspect.getsource` (27 chamadas) — os do falso vermelho quando se edita com a suíte rodando. Já entrou: a lista nominal, conferida por `tests/test_grafia_nominal.py` (um `getsource` fora dela falha). Falta: trocar cada um por espião ou `monkeypatch` onde a chamada é observável, a partir de `test_f43_navegacao` e `test_f123_poda_na_janela`, tirando-o da lista no mesmo commit; se ela zerar, a regra "não edite com a suíte rodando" sai do `CLAUDE.md`. |
+| PD-27 (nova) | **registrada** — espera o usuário | 2026-11-25 | Transferida da RG-02b da revisão geral 2 (R-42): a CI com `-c constraints.txt`, `epub-validacao`, `tesseract-ocr`, os testes `gui` sob Xvfb, `tests` no lint e o torch do índice CPU. O piso 3.11 e o `constraints.txt` já entraram (RG-02a). Falta a autorização para a série de pushes de prova: workflow só se testa no GitHub, e o push leva junto os commits locais. Risco: o Tesseract do apt pode ler diferente em oito testes. |
+| PD-28 (nova) | **registrada** — espera dado do usuário | 2026-11-25 | Aberta pela RG-07 da revisão geral 2: abrir um diário de revisão **real** gravado por uma versão anterior. Até 2026-11-25 não há nenhum `*.review.jsonl` nesta máquina; o formato antigo está coberto por um diário escrito pelo código da base (RG-07). |

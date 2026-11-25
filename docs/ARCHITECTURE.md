@@ -1,7 +1,7 @@
 # Arquitetura
 
-Como o PyBoxEditor está montado em 2026-10-06, depois das fases F0–F125 do `ROADMAP.md`,
-ED-00–ED-18 do editor e PD-00–PD-20 das pendências. O que cada peça mediu está nos
+Como o PyBoxEditor está montado em 2026-11-25, depois das fases F0–F125 do `ROADMAP.md`,
+ED-00–ED-18 do editor, PD-00–PD-23 das pendências e RG-01–RG-20 da revisão geral 2. O que cada peça mediu está nos
 roadmaps; aqui ficam as camadas, as fronteiras e o caminho que um livro percorre. A seção
 "Controladores da janela" é a nota original deste arquivo (fase 2 da F4) e continua valendo.
 
@@ -23,8 +23,8 @@ appy.py ──┬── ui/main_window.py ──── core/services/* ───
    Ela fala só com as fachadas de `core/services/`: `BoxService` (segmentação e geometria
    dos boxes), `OCRService` (a rede de glifos, o Tesseract, o EasyOCR, o leitor de linha),
    `LearningService` (modelos e bases de treino), `PDFService` (páginas por PyMuPDF),
-   `DocumentService` e `HistoryService` (o documento aberto e o desfazer), `TaskService`
-   (trabalho fora da thread do Tk). A janela é a composição — o estado, os controladores,
+   `DocumentSession` e `HistoryManager` (o documento aberto e o desfazer), `BackgroundTask`
+   (trabalho fora da thread do Tk, com `TaskController` na frente). A janela é a composição — o estado, os controladores,
    o layout, as teclas e a lista —, e os fluxos moram em módulos próprios, cada um uma
    classe com `janela` para a qual ela delega com o mesmo nome (PD-22): `ui/documento.py`
    (abrir, navegar, salvar, rascunho), `ui/reconhecimento.py` (boxes, OCR, diagramas,
@@ -44,6 +44,11 @@ appy.py ──┬── ui/main_window.py ──── core/services/* ───
    tipografia, sumário, índices, relatórios e validação —, e `ui/editor/` é a janela:
    `JanelaDoEditor`, o `TextoRico` do modo texto, o `EditorDeCodigo`, menus declarativos,
    painéis e diálogos atrás de um ponto de injeção (`dialogos.py`).
+
+**As funções únicas da fronteira** (revisão geral 2): `core/escrita_atomica.py` (todo arquivo
+do usuário), `core/caminho_seguro.py` e `core/teto_de_pacote.py` (o que vem de um pacote),
+`core/texto_legal.py` (o que XML e XHTML aceitam), `core/alfabeto.py` (o idioma normalizado) e
+`core/log.py`.
 
 `config/paths.py` resolve todo caminho de dado (pasta do usuário, modelos, bases de linhas,
 raízes de um wheel instalado) e `config/settings.py` guarda as preferências; nenhum módulo
@@ -65,7 +70,8 @@ A tabela completa, com quem chama cada etapa e o número medido, está em
 | A revisão | `editorial_review`, `editorial_suspeitas`, `ui/dialogo_revisao_editorial.py`; o FEN revisado volta ao livro por `editorial_legacy.aplicar_revisao` |
 | Escrever | EPUB e DOCX por `core/exportar.py` (embute a fonte dos símbolos, redesenha os diagramas, carimba no `alt` e na legenda o lado a jogar e o "não revisado" — e é por ele que o documento editorial sai nos dois formatos, pela fachada, desde a PD-21); HTML, TXT e PDF pesquisável por `editorial_export.py`; o PDF pesquisável do menu por `searchable_pdf.py` |
 | O editor | `core/editor/importar_ir.py` leva o documento editorial ao modelo do editor, com a origem de cada bloco |
-| Treino | `ocr_phase7.CorrectionDataset`, `ocr_training.treinar_pacote`, o portão `linha_trainer.modelo_utilizavel` |
+| Passadas de livro | `pdf_nativo.passadas_de_livro`, a mesma nos dois caminhos (camada e OCR): legendas, mobília, cabeçalhos, coladas, negrito, parágrafo partido entre páginas e lado a jogar |
+| Treino | `ocr_phase7.CorrectionDataset`, `ocr_training.treinar_pacote`, o portão `linha_trainer.modelo_utilizavel`; o peso novo da rede de glifos passa por `core/portao_do_modelo.py`, que o mede contra o anterior com `core/rodada.py` (o miolo da rodada do corpus) |
 
 **Biblioteca de inspeção, não produção:** o pacote `core/biblioteca/` — `ocr_phase3.py`,
 `ocr_phase4.py`, `ocr_layout.py` e `abbyy_ocr.py` (a integração com o FineReader, mantida
@@ -81,7 +87,7 @@ como opt-in.
 "Exportar → Documento editorial" num PDF digitalizado:
 
 1. A janela monta a fachada com `pipeline_de_producao` e roda numa tarefa do
-   `TaskService`, com cancelamento (`ocr_runtime.CancellationToken`).
+   `TaskController`, com cancelamento (`ocr_runtime.CancellationToken`).
 2. Para cada página, `livro.extrair` decide pela régua se a camada de texto do PDF é
    tipográfica (`pdf_nativo`) ou OCR de fábrica; se não é, segmenta a imagem, lê os glifos,
    chama o Tesseract na prosa e funde por palavra; acha e lê os diagramas.
@@ -115,12 +121,14 @@ importam módulos opcionais de OCR, Torch ou EasyOCR.
 
 ## Fronteiras e regras que os testes guardam
 
-- As dezesseis invariantes de `CONTEXT.md`: a imagem e o texto originais nunca são
+- As vinte invariantes de `CONTEXT.md`: a imagem e o texto originais nunca são
   destruídos; a correção manual tem precedência; notação e diagrama são domínios de xadrez;
   toda saída aponta de volta para a página e a região; confiança prioriza e não autoriza;
   a mesma decisão alimenta todos os formatos; o diário não apaga decisões; dado sintético
-  não contamina o holdout real; peso sem checksum não vai a produção.
-- Cores só em `ui/tema.py` (`tests/test_tema.py`); caminhos só por `config.paths`
+  não contamina o holdout real; peso sem checksum não vai a produção; gravação
+  interrompida deixa o arquivo de antes; nenhum caminho de pacote sai da raiz dele; o
+  diário é de um documento só; abrir e salvar sem editar não perde nada calado.
+- Cores só em `ui/tema.py` (`tests/test_tema.py`; o `ui/editor/` fica fora); caminhos só por `config.paths`
   (`tests/test_caminhos_do_treino_de_linhas.py`); a suíte não grava na pasta do usuário
   (`tests/conftest.py`); todo texto é UTF-8 sem BOM (`tests/test_codificacao.py`); a
   exportação é reprodutível com `SOURCE_DATE_EPOCH` (`tests/test_exportacao_reprodutivel.py`).
@@ -131,10 +139,13 @@ importam módulos opcionais de OCR, Torch ou EasyOCR.
 
 Medidas em `docs/ANALISE_GERAL_2026-10-06.md`: `MainWindow` com 170 métodos e 53
 importações do projeto (desde a PD-22, 1.961 linhas e 115 delegados, com os fluxos em
-módulos próprios), `TextoRico` com 202 e `JanelaDoEditor` com 175; dezessete ciclos
-diretos de importação (`livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram na PD-22;
-ficam `editorial_legacy` ↔ `editorial_pipeline`, `ui/editor/dialogos` ↔ seis vizinhos e
-os outros do grafo — 16, entre eles o `editorial_export` ↔ `editorial_legacy` que a PD-21 abriu por import tardio, e os de `core/services/box_service` com `leitura_de_linha` e `vertical`). A ordem do que fazer está no mesmo documento. O
+módulos próprios), `TextoRico` com 202 e `JanelaDoEditor` com 175. **Ciclos diretos de
+importação em 2026-11-25: 17, e nenhum no topo do módulo** — todos fecham por import tardio:
+`editorial_legacy` com `editorial_export` e `editorial_pipeline`; `box_service` com
+`leitura_de_linha` e `vertical`; `deteccao_de_tabuleiro` com `diagrama`; `linha_trainer` com
+`linha_sintetica` e `ocr_line_binding`; `portao_do_modelo` com `learning_service`; e, em
+`ui/editor/`, `dialogos` com seis vizinhos, `diagrama` com `objetos`, e `janela` com
+`operacoes` (`livro` ↔ `pdf_nativo` e `livro` ↔ `negrito` saíram na PD-22). A ordem do que fazer está no mesmo documento. O
 `core` sem logging foi resolvido no item 5: `core/log.py` é o tronco `pyboxeditor`, o
 arquivo `pyboxeditor.log` fica na pasta de dados, e os módulos do editor entram sob
 `pyboxeditor.editor`, que o painel Mensagens ecoa.

@@ -45,7 +45,8 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   ligue produto novo nele (`docs/ROADMAP_IMPLEMENTACAO_OCR.md`). EPUB e DOCX do OCR saem
   por `core/exportar.py`; os do editor, por `core/editor/` — dois escritores, por decisão
   medida (ED-12).
-- Cor de interface só em `ui/tema.py` (um teste recusa `#RRGGBB` à mão em `ui/*.py`);
+- Cor de interface só em `ui/tema.py` (um teste recusa `#RRGGBB` à mão em `ui/*.py`; o
+  `ui/editor/` fica fora do teste e tem as suas, do papel e do realce de sintaxe);
   caminho de dado só por `config.paths`, nunca um nome solto resolvido no cwd; a suíte
   nunca grava na pasta de dados do usuário (`tests/conftest.py` a reaponta).
 - Toda mudança na leitura vem com número: o A/B das páginas de referência
@@ -57,7 +58,7 @@ invariantes, em [CONTEXT.md](CONTEXT.md).
   `mojibake intencional` na linha. Patch com acento ou figurina vai por arquivo, nunca por
   heredoc no console cp1252. Script em Python que regrava texto abre com
   `newline="\n"`: o modo texto do Windows troca `\n` por CRLF e desfaz a normalização.
-- Trabalho pesado nunca toca em widget: passa por `TaskService`/`_run_task`, e o callback
+- Trabalho pesado nunca toca em widget: passa por `BackgroundTask`/`_run_task`, e o callback
   volta na thread do Tk.
 - Log, não `print`: `from core.log import logger` e `log = logger(__name__)` no módulo; o
   `except` que engole uma exceção diz no log o que deixou de fazer — WARNING se a saída

@@ -9,8 +9,8 @@ Quem lê depende de como ela é montada. **Em produção** — a janela,
 `scripts/processar_editorial.py` e `scripts/fila_de_suspeitas.py` — ela nasce
 de `core.editorial_legacy.pipeline_de_producao`, com o leitor medido de
 `core/livro.py` como ``legacy_extractor``. **Sem leitor**, ela atravessa a
-biblioteca de inspeção das Fases 3 e 4 (`core/ocr_phase3.py`,
-`core/ocr_phase4.py`, `core/ocr_layout.py`): lê a camada de texto de um PDF
+biblioteca de inspeção das Fases 3 e 4 (`core/biblioteca/ocr_phase3.py`,
+`ocr_phase4.py` e `ocr_layout.py`): lê a camada de texto de um PDF
 sem modelo nenhum e, numa página digitalizada, não lê texto — salvo com
 ``engine="tesseract"``, que é o Tesseract sozinho, sem a cadeia de glifos. É o
 caminho do ``inspect``, dos testes das fases e da comparação de motores por

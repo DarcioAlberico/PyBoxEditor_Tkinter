@@ -87,6 +87,23 @@ de implementação pertencem às specs e aos ADRs.
 - **Escrita atômica**: gravação por arquivo temporário na mesma pasta e troca no fim, de
   modo que o destino tem sempre o conteúdo antigo inteiro ou o novo inteiro
   (`core.escrita_atomica`, RG-03).
+- **Identidade do diário**: os doze primeiros dígitos do `source_sha256` do livro de
+  origem, no nome do diário de revisão (`<saida>.<sha12>.review.jsonl`); a versão do
+  pipeline não muda a identidade.
+- **Sessão de revisão**: a `ReviewSession` aberta sobre um documento editorial e o diário
+  dele (não confundir com a `DocumentSession` da janela principal).
+- **Rascunho**: o autosave da sessão de documento ou do editor.
+- **Ilha**: a parte do XHTML que o dialeto do editor não modela e guarda como veio (no
+  código, `IlhaBruta` no bloco e `Trecho.ilha` inline).
+- **Capítulo em modo código**: capítulo guardado inteiro como XHTML (`Capitulo.texto_cru`,
+  `blocos=[]`), porque não coube no dialeto ou foi editado no código.
+- **Dialeto**: o subconjunto de XHTML que o modelo do editor representa por blocos e
+  trechos.
+- **Passada de livro**: transformação que olha mais de uma página (juntar parágrafo
+  partido entre páginas, lado a jogar pelo lance seguinte).
+- **Medidas da linha**: os vetores paralelos ao texto de uma linha (`pesos`, `lacunas`,
+  `caixas`, `inicios`), um valor por caractere (não confundir com "medida", a medição de
+  uma fase).
 
 ## Invariantes do domínio
 

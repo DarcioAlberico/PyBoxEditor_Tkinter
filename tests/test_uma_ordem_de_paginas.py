@@ -5,14 +5,13 @@ chegava. Agora quem ordena é o `EditorialDocument`, na construção, `aplicar_r
 as páginas nessa ordem, e nenhum exportador reordena.
 """
 
-import inspect
 import json
 import zipfile
 
 import fitz
 import pytest
 
-from core import editorial_export, livro
+from core import livro
 from core.editorial_adapters import (documento_para_paginas_extraidas,
                                      paginas_extraidas_para_documento)
 from core.editorial_export import EditorialExporter, ExportOptions
@@ -109,6 +108,11 @@ def test_paginas_de_mesmo_indice_ficam_na_ordem_em_que_chegaram():
     assert [p.page_id for p in documento.pages] == [segunda.page_id, primeira.page_id]
 
 
-def test_nenhum_exportador_reordena_as_paginas():
-    fonte = inspect.getsource(editorial_export)
-    assert "item.page_index" not in fonte and "sorted(document.pages" not in fonte
+@pytest.mark.parametrize("formato", ["html", "txt"])
+def test_nenhum_exportador_reordena_as_paginas(tmp_path, formato):
+    """A ordem é do documento: com a lista dele virada à mão, o arquivo sai virado."""
+    documento = _documento()
+    documento.pages.reverse()
+    destino = tmp_path / f"livro.{formato}"
+    EditorialExporter().export(documento, destino, ExportOptions(format=formato))
+    assert _ordem(_texto(destino, formato)) == MARCAS[::-1]

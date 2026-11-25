@@ -52,10 +52,10 @@ no modo básico. Detalhes, extras e o wheel: [docs/SETUP.md](docs/SETUP.md).
 ```text
 python -m pytest -q -m "not slow"
 python -m pytest -q -m "slow and not gui"
-python -m ruff check core ui appy.py config scripts
+python -m ruff check core ui appy.py config scripts tests
 ```
 
-São cerca de 3.500 testes em cinco minutos; os lentos (medições de desempenho, o wheel
+São mais de quatro mil testes em cinco minutos; os lentos (medições de desempenho, o wheel
 instalado num venv limpo) rodam à parte, como na CI. Antes de um push, rode a suíte numa
 exportação limpa do `HEAD` (`git archive HEAD | tar -x -C pasta`): é a condição da CI, sem
 o modelo e sem o que a árvore tem a mais. Todo arquivo de texto é UTF-8 sem BOM e com LF;
@@ -64,9 +64,11 @@ o modelo e sem o que a árvore tem a mais. Todo arquivo de texto é UTF-8 sem BO
 ## O que está medido
 
 Os números vivem nos documentos, e cada fase do roadmap diz o que mediu antes de se dar por
-concluída. Em 2026-09-26, nas quatro páginas do corpus de referência (Aagaard, Nunn e
-Yusupov, a 300 dpi), o leitor de produção dava 1,59 % de erro por caractere ponderado;
-o livro nascido digital de Dvoretsky saía pela camada de texto em 815 de 816 páginas, com
+concluída. Na última rodada registrada (`benchmarks/rodadas/2026-11-25-1815.json`, de
+2026-11-25, corpus `6d187d98`), nas quatro páginas de referência (Aagaard, Nunn e Yusupov,
+a 300 dpi), o leitor de produção dá 0,91 % de erro por caractere ponderado. O 1,59 % de
+2026-09-26, que este arquivo citava, é de outro corpus e de outra régua de alinhamento: os
+dois números não se comparam. O livro nascido digital de Dvoretsky saía pela camada de texto em 815 de 816 páginas, com
 1.273 diagramas exatos; o tabuleiro inteiro acertava 92,5 % no corpus de diagramas. Como
 cada número foi obtido, e com que script, está em
 [docs/ROADMAP_IMPLEMENTACAO_OCR.md](docs/ROADMAP_IMPLEMENTACAO_OCR.md).
@@ -89,7 +91,7 @@ cada número foi obtido, e com que script, está em
 
 ## Documentos
 
-- [CONTEXT.md](CONTEXT.md): o vocabulário e as dezesseis invariantes do produto.
+- [CONTEXT.md](CONTEXT.md): o vocabulário e as vinte invariantes do produto.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): as camadas, o caminho de produção e as fronteiras.
 - [docs/SPEC.md](docs/SPEC.md), [docs/SPEC_OCR.md](docs/SPEC_OCR.md),
   [docs/SPEC_IMPLEMENTACAO_OCR.md](docs/SPEC_IMPLEMENTACAO_OCR.md),
@@ -102,5 +104,6 @@ cada número foi obtido, e com que script, está em
 - [docs/ANALISE_GERAL_2026-10-06.md](docs/ANALISE_GERAL_2026-10-06.md): o estado da base e o que fazer.
 - [docs/SPEC_REVISAO_GERAL_2.md](docs/SPEC_REVISAO_GERAL_2.md) (R) e
   [docs/ROADMAP_REVISAO_GERAL_2.md](docs/ROADMAP_REVISAO_GERAL_2.md) (RG): a revisão geral
-  2, de 2026-11-20 — os defeitos achados, o veredito do crítico e a ordem das fases.
+  2, de 2026-11-20 a 2026-11-25 — os defeitos achados, o veredito do crítico e o que cada
+  fase fez e mediu.
 - [CLAUDE.md](CLAUDE.md): as regras para quem (ou o que) trabalha neste repositório.

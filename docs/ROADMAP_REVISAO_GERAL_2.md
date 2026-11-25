@@ -2,6 +2,7 @@
 
 Versão: 0.6 (veredito dos críticos e cinco re-análises aplicados)
 Data: 2026-11-20
+Estado: fechada em 2026-11-25 (RG-01b e RG-02b transferidas para a PD-26 e a PD-27; o push, a pedir)
 Base: `master` em `6627e30`
 Spec: [SPEC_REVISAO_GERAL_2.md](SPEC_REVISAO_GERAL_2.md) (requisitos `R-nn`; veredito na §7)
 
@@ -615,6 +616,10 @@ os outros 5 dependem de arquivo rastreado ou de fonte do Windows, e rodam de ver
 - O `ci.yml:37` (o lint de `tests` na CI) fica para a RG-02b, como o roadmap diz.
 - Próximo passo da revisão: a RG-02a (a RG-01b corre fora do caminho crítico).
 ### RG-01b
+Estado: transferida: PD-26 (2026-11-25), na RG-19. Entrou a lista nominal, conferida por
+`tests/test_grafia_nominal.py`: 19 testes e 27 chamadas, as da spec (eram 20 e 28 na véspera: a
+RG-17 tinha acrescentado um, convertido para comportamento no mesmo commit). A conversão dos 19
+para espião fica na PD.
 ### RG-02a
 Estado: fechada (2026-11-20), em três commits (`f9d2095`, `de26c74` e o do R-08), levados
 ao `master` por `git merge --ff-only`. Base `70936c5`, no worktree `.claude/worktrees/rg02a` (destacado, com
@@ -655,6 +660,8 @@ idênticos, só o tempo do `relatorio.json` varia.
   seis da base.
 - Próximo passo da revisão: a RG-03 (a RG-01b e a RG-02b correm fora do caminho crítico).
 ### RG-02b
+Estado: transferida: PD-27 (2026-11-25), na RG-19: espera a autorização do usuário para os
+pushes de prova da CI. O piso 3.11 e o `constraints.txt` entraram na RG-02a.
 ### RG-03
 Estado: fechada (2026-11-21), em dois commits (`934e351` e o dos gravadores), levados ao
 `master` por `git merge --ff-only`. Base `b5f3dbd`, no worktree `.claude/worktrees/rg03` (destacado, com
@@ -833,7 +840,7 @@ Onda 2, depois da RG-05b; a onda inteira vai ao `master` por `git merge --ff-onl
   mesmas 6 falhas da base.
 - Próximo passo da revisão: a Onda 3 (RG-07 em diante, o diário de revisão).
 ### RG-07
-Estado: em andamento (2026-11-21). Base `1a923bb`, no worktree `.claude/worktrees/onda3`
+Estado: fechada (2026-11-21; ver o fim). Base `1a923bb`, no worktree `.claude/worktrees/onda3`
 (destacado, com os pesos copiados), o mesmo da RG-08.
 - Commit 1: `scripts/medidas/medir_lote_de_revisao.py` — 200 edições (`ReviewSession.edit`,
   diário em memória) num documento de 300 páginas × 12 parágrafos, com os ids de evento e
@@ -1390,6 +1397,48 @@ worktree.
 - A/B das quatro páginas idêntico (`RG-20-depois`). Suíte: 4105 passed. AbbyChessCraft: 2915
   passed, 6 failed, os mesmos seis da base.
 ### RG-19
+Estado: fechada (2026-11-25), num commit. Base `74cd52c`, o mesmo worktree.
+- Cada afirmação da lista do R-44 corrigida e conferida por `grep`: o CER do `README.md` e do
+  `ROADMAP_IMPLEMENTACAO_OCR.md` é o da última rodada (`2026-11-25-1815.json`, corpus
+  `6d187d98`, 0,91 %), com a ressalva de que o 1,59 % de 09-26 não se compara; os nomes de classe
+  são os reais; o `ARCHITECTURE.md` tem a data, os módulos novos, as passadas de livro e os
+  **17 ciclos diretos de hoje, nenhum no topo** (medidos por AST e nomeados); o docstring da
+  fachada aponta `core/biblioteca/`; o `ROADMAP_PENDENCIAS.md` diz "código fechado, salvo as PD
+  da revisão geral 2"; a exceção de cor do `ui/editor` está no `CLAUDE.md`; o `README.md` conta os
+  testes e as invariantes de hoje. O piso 3.11 já estava (RG-02a).
+- Conferência: as invariantes 17 a 20 estavam no `CONTEXT.md`; **oito dos nove termos do
+  glossário da §9 não estavam** — as fases não os levaram — e entraram aqui. O cabeçalho da
+  RG-07 ainda dizia "em andamento".
+- `tests/test_caminhos_nos_documentos.py`: os caminhos entre crases existem, e os nomes de
+  classe inventados não voltam.
+- Transferidas: RG-01b → PD-26, RG-02b → PD-27; aberta a PD-28 (o diário real da RG-07: não há
+  nenhum `*.review.jsonl` nesta máquina). A RG-10 teve o corpus; a RG-16b, o commit do usuário.
+- **A linha de base da §2, re-medida** (2026-11-20 → 2026-11-25):
+
+  | Medida | Antes | Agora |
+  |---|---|---|
+  | Suíte `-m "not slow"` numa exportação limpa | 3640 passed, 22 pulados, 6 min 19 s | 4111 passed, 29 pulados, 7 min 53 s com a cobertura ligada (5 min sem ela, na árvore) |
+  | `slow and not gui` | — | 11 passed, 7 pulados |
+  | `ruff` e `compileall` | limpos (sem `tests`) | limpos, com `tests` |
+  | Código de produto (sem `core/biblioteca/`) | 197 módulos, 95.808 linhas | 200 módulos, 98.347 linhas |
+  | Maiores módulos | `livro.py` 4.545, `texto_rico.py` 3.590, `janela.py` 3.057, `pdf_nativo.py` 3.045 | 4.664, 3.595, 3.160, 3.156 |
+  | Complexidade > 15 / > 25 | 81 / 17 | 83 / 18 |
+  | Funções com mais de 150 linhas | 18 | 18 |
+  | Cobertura de linhas | 88 % (53.567 instruções, 6.378 sem execução) | 88,9 % (55.050, 6.110) |
+  | CRAP > 10 / > 30 | 731 / 130 de 4.579 | 757 / 111 de 4.735 |
+  | Pior CRAP | `auto_fill_characters_linha_treinada` 319 | `busca.chave_do_cursor` 252 |
+  | Ciclos no topo do módulo | 0 (17 diretos, tardios) | 0 (17 diretos, tardios) |
+  | `except` (todos / que não relançam / sem log) | 573 / 514 / 459 | 605 / 537 / 438 |
+  | Wheel do `HEAD` | sem `fonts/`, `pieces/` e perfis | completo (`verificar_empacotamento.py --wheel`) |
+  | Testes que saem por `return` mudo | 27 | 0 (`test_testes_honestos.py`) |
+  | CER do corpus (régua de 11-19) | 0,91 % | 0,91 %, página a página |
+
+  A complexidade e o CRAP > 10 subiram um pouco: são os guardas que a revisão acrescentou. Os
+  pulados da exportação limpa são dado fora do git (livros, pesos, bases), com motivo. A suíte
+  limpa deixa um aviso de thread do Tk (`main thread is not in main loop`), que não investiguei.
+- AbbyChessCraft contra o worktree: 2915 passed, 6 failed, os mesmos seis da base.
+- **A revisão geral 2 fecha aqui**, com o push por pedir ao usuário: ele leva os commits locais,
+  e a CI se registra depois dele.
 
 ## Re-análises deste documento
 
