@@ -30,10 +30,12 @@ from typing import Any, Callable, List, Mapping, Optional, Sequence
 import chess
 import numpy as np
 
+from core import lado_a_jogar as lado_jogar
 from core import livro, render_diagrama
 from core.diagrama import Casa, Leitura
 from core.editorial_adapters import blocos_de_volta, montar_pagina_extraida
-from core.editorial_export import revisao_pendente
+from core.editorial_export import (lado_revisado, orientacao_revisada, posicao_do_fen,
+                                   posicao_revisada, revisao_pendente)
 
 
 @dataclass
@@ -401,7 +403,10 @@ def _redesenhar(figura: livro.Figura, fen: str, opcoes: OpcoesDeFigura) -> livro
         png, largura, altura = render_diagrama.desenhar(
             fen, fonte=opcoes.fonte, lado_px=opcoes.lado,
             coordenadas=bool(figura.coordenadas), moldura=opcoes.moldura,
-            cantos=opcoes.cantos, orientacao=orientacao)
+            cantos=opcoes.cantos, orientacao=orientacao,
+            # Como o leitor desenha: o indicador só do lado que se sabe, e as casas que o
+            # livro marcou. Sem os dois, redesenhar os apagava (RG-17, R-34).
+            lado_a_jogar=figura.lado_a_jogar, marcas=figura.marcas)
         objeto = render_diagrama.carregar(opcoes.fonte)
         linhas, emolduradas = render_diagrama.linhas_do_diagrama(
             fen, objeto, orientacao, opcoes.moldura, opcoes.cantos, bool(figura.coordenadas))
@@ -466,8 +471,7 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
             for block, bloco in blocos_de_volta(page, estado_da_revisao=True):
                 if bloco is None:
                     continue
-                if (isinstance(bloco, livro.Figura) and bloco.origem == "render"
-                        and bloco.fen and (not bloco.linhas or _fen_revisado(block))):
+                if isinstance(bloco, livro.Figura) and _desenho_velho(block, bloco):
                     bloco = _redesenhar(bloco, bloco.fen, opcoes)
                 blocos.append(bloco)
             destino = montar_pagina_extraida(page, blocos)
@@ -504,15 +508,23 @@ def aplicar_revisao(paginas: Sequence[livro.PaginaExtraida], documento: Any, *,
     return [saida[numero] for numero in sorted(ordem_das_paginas)]
 
 
-def _fen_revisado(block: Any) -> bool:
-    """O revisor trocou a posição deste diagrama? O IR guarda em
-    `decision.original_value` o valor de antes da primeira revisão (PD-21)."""
-    decisao = block.decision
-    valor, original = decisao.value, decisao.original_value
-    if (decisao.status != "reviewed" or not isinstance(valor, Mapping)
-            or not isinstance(original, Mapping)):
+def _desenho_velho(block: Any, figura: livro.Figura) -> bool:
+    """A figura que volta do IR traz um desenho que a revisão desmentiu? A mesma régua de
+    `_figura_revisada`, com o "antes" que o IR guarda em `decision.original_value` (PD-21); e
+    o diagrama que chegou sem as linhas da fonte (a Fase 4) se redesenha sempre."""
+    if not figura.fen:
         return False
-    return str(original.get("fen") or "") != str(valor.get("fen") or "")
+    if posicao_revisada(block):
+        return True
+    if figura.origem != "render":
+        return False
+    if not figura.linhas or orientacao_revisada(block):
+        return True
+    lado, original = lado_revisado(block), block.decision.original_value
+    if not lado or not isinstance(original, Mapping):
+        return False
+    return (str(original.get("side_to_move_source") or "assumed") != "assumed"
+            and str(original.get("side_to_move") or "") not in ("", lado))
 
 
 def _ordem_do_bloco(block_id: str) -> Optional[int]:
@@ -565,8 +577,36 @@ def _bloco_revisado(legado: Any, block: Any, opcoes: OpcoesDeFigura) -> Any:
         novo.linhas = filas
         return novo
     if isinstance(legado, livro.Figura) and isinstance(valor, Mapping):
-        fen = str(valor.get("fen") or "")
-        if fen and fen != (legado.fen or ""):
-            return _redesenhar(legado, fen, opcoes)
-        return legado
+        return _figura_revisada(legado, block, opcoes)
     return legado
+
+
+def _figura_revisada(legado: livro.Figura, block: Any, opcoes: OpcoesDeFigura) -> livro.Figura:
+    """
+    A figura com o FEN, o lado a jogar e a orientação que o revisor deu (RG-17, R-34).
+
+    **Só se redesenha o que o desenho passou a mentir**: a posição trocada, sempre; a
+    orientação e o lado, só na figura que já é desenho — a orientação muda as casas de
+    lugar, e o indicador desenhado é do lado de antes. O recorte do livro fica como o livro
+    o imprimiu: trocar de quem é a vez não é motivo para jogá-lo fora.
+    """
+    valor = block.decision.value
+    fen = str(valor.get("fen") or "") or (legado.fen or "")
+    lado = lado_revisado(block)
+    if fen and lado:
+        fen = lado_jogar.com_lado(fen, lado)
+    orientacao = str(valor.get("orientation") or "") or legado.orientacao
+    virou = orientacao != legado.orientacao
+    posicao_mudou = posicao_do_fen(fen) != posicao_do_fen(legado.fen)
+    lado_mudou = bool(lado) and (lado, "usuario") != (legado.lado_a_jogar, legado.lado_origem)
+    if not (virou or lado_mudou or posicao_mudou or fen != (legado.fen or "")):
+        return legado
+    nova = copy.copy(legado)
+    nova.fen, nova.orientacao = fen or None, orientacao
+    if lado_mudou:
+        nova.lado_a_jogar, nova.lado_origem = lado, "usuario"
+    indicador_velho = lado_mudou and legado.lado_a_jogar not in (None, lado)
+    if fen and (posicao_mudou or (legado.origem == "render" and (virou or indicador_velho))):
+        return _redesenhar(nova, fen, opcoes)
+    return nova
+

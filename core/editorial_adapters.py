@@ -40,6 +40,12 @@ _RE_CELULA = re.compile(r"^t(\d+)c(\d+)l(\d+)$")
 log = logger(__name__)
 
 
+#: De onde a `Figura` diz que o lado veio → como o IR diz. O que não está aqui é convenção
+#: (`assumed`). A volta é `_ORIGEM_DO_LADO`.
+_ORIGEM_NO_IR = {"legenda": "legend", "legalidade": "legalidade", "lance": "lance",
+                 "usuario": "manual"}
+
+
 def _kind(region_type: str) -> str:
     return {
         "body": "paragraph", "quote": "paragraph", "heading": "heading",
@@ -360,10 +366,7 @@ def pagina_extraida_para_pagina(pagina, *, document_id: str = "document") -> Edi
                 # repõe, e o FEN de um recorte nem sempre existe.
                 "side_to_move": (legado.lado_a_jogar
                                  or lado_jogar.do_fen(legado.fen or "") or "w"),
-                "side_to_move_source": {"legenda": "legend",
-                                         "legalidade": "legalidade",
-                                         "lance": "lance"}.get(
-                    legado.lado_origem, "assumed"),
+                "side_to_move_source": _ORIGEM_NO_IR.get(legado.lado_origem, "assumed"),
                 # As casas que o livro marcou (F110): sem elas, o diagrama que
                 # ia e voltava perdia o `x` das casas-chave no redesenho.
                 "marks": [str(casa) for casa in getattr(legado, "marcas", None) or []],
@@ -569,11 +572,17 @@ def _figura_do_valor(valor: Mapping[str, Any], block: EditorialBlock | None = No
         origem = "render"
         casas = largura * 8.0 / lado_efetivo(LADO_DO_DIAGRAMA_PX)
     lado = str(valor.get("side_to_move") or "")
-    origem_do_lado = str(valor.get("side_to_move_source") or "assumed")
+    lado_origem = _ORIGEM_DO_LADO.get(str(valor.get("side_to_move_source") or ""), "convencao")
+    fen = str(valor.get("fen") or "")
+    if block is not None:
+        from core.editorial_export import fen_do_bloco, lado_revisado
+        do_revisor = lado_revisado(block)
+        if do_revisor:
+            fen, lado, lado_origem = fen_do_bloco(block), do_revisor, "usuario"
     caixa = _caixa(valor.get("bbox"))
     return livro.Figura(
         png=png, largura=largura, altura=altura,
-        fen=str(valor.get("fen") or "") or None,
+        fen=fen or None,
         origem=origem,
         aviso=str(valor.get("warning") or "") or None,
         linhas=list(valor.get("lines") or []) or None,
@@ -585,9 +594,9 @@ def _figura_do_valor(valor: Mapping[str, Any], block: EditorialBlock | None = No
         caixa=caixa,
         # O lado só volta como leitura quando foi lido: o que o adapter
         # declarou convenção não pode voltar afirmado (DEC-06).
-        lado_a_jogar=(lado if lado in ("w", "b") and origem_do_lado != "assumed"
+        lado_a_jogar=(lado if lado in ("w", "b") and lado_origem != "convencao"
                       else None),
-        lado_origem=_ORIGEM_DO_LADO.get(origem_do_lado, "convencao"),
+        lado_origem=lado_origem,
         marcas=[str(casa) for casa in valor.get("marks") or []],
     )
 

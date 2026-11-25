@@ -1317,6 +1317,26 @@ Estado: em andamento (2026-11-25). Base `a56ebbc`, worktree `.claude/worktrees/o
   deixa o do documento. `tests/test_tabela_titulo_e_idioma.py`: contra o código de antes, os
   dez falham (o `IndexError` da tabela vazia, a célula que sumia, o `<dc:title>` vazio). Suíte:
   4030 passed.
+- Commit 3 (R-34): `editorial_export.lado_revisado`, `posicao_revisada` e
+  `orientacao_revisada` dizem o que o revisor mudou (contra `decision.original_value`), e valem
+  nos dois ramos (as páginas do leitor, `_figura_revisada`, e a volta do IR, `_desenho_velho`),
+  no HTML, no TXT e na importação do editor. O lado troca `lado_a_jogar`/`lado_origem` e o
+  campo do FEN sem redesenhar — com **uma exceção à letra da spec**: a figura que já é desenho
+  e traz o indicador do lado de antes se redesenha, senão o arquivo diria as duas coisas; o
+  recorte nunca. A orientação só redesenha o que é desenho, e a posição, sempre (no ramo do IR
+  o recorte com a posição trocada saía com o desenho velho; o HTML também). `_redesenhar` leva
+  o indicador e as marcas, que apagava. `revisao_pendente` pergunta primeiro à decisão; o mapa
+  do lado tem todas as origens (`"usuario"` ↔ `manual`), e o `ambiguous` não volta como lido.
+  - Achado: o diálogo da fila gravava só o `fen`, e o lado que o revisor marcava ficava no
+    campo dele, com o `side_to_move` velho ao lado. Os diários já gravados são assim, e por
+    isso o lado se deduz também do campo que **mudou** — o `w` que já estava é convenção; o
+    diálogo passa a gravar os campos (`com_fen_revisado`).
+  - `tests/test_revisao_do_diagrama.py`: contra o código de antes (com substitutos para os
+    nomes novos), 27 dos 31 falham; os outros são guardas (aceitar não inventa lado, o
+    pendente continua pendente, desfazer). Um teste do diálogo passa a esperar os campos do
+    lado. Numa execução avulsa, `test_dialogo_revisao_editorial` teve uma falha que não se
+    repetiu em dez (cinco no código novo, cinco no de antes) nem na suíte; a mensagem não foi
+    guardada. Suíte: 4061 passed.
 ### RG-18
 ### RG-20
 ### RG-19

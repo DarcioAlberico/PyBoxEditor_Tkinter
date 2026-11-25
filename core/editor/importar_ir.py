@@ -86,12 +86,17 @@ def _casa_valida(casa: str) -> bool:
     return len(casa) == 2 and casa[0] in "abcdefgh" and casa[1] in "12345678"
 
 
-def _lado_lido(valor: dict) -> str:
+def _lado_lido(valor: dict, block: EditorialBlock) -> str:
     """
-    O lado a jogar que o IR diz ter **lido** (a legenda, a revisão), ou `""`: o que o adapter
-    declarou convenção (`side_to_move_source == "assumed"`) continua desconhecido (DEC-06) — a
-    mesma regra da volta, `editorial_adapters._figura_do_valor`.
+    O lado a jogar que o IR diz ter **lido** (a legenda) ou que o revisor disse, ou `""`: o que
+    o adapter declarou convenção (`side_to_move_source == "assumed"`) continua desconhecido
+    (DEC-06) — a mesma regra da volta, `editorial_adapters._figura_do_valor`.
     """
+    from core.editorial_export import lado_revisado
+
+    do_revisor = lado_revisado(block)
+    if do_revisor:
+        return do_revisor
     lado = str(valor.get("side_to_move") or "")
     lido = str(valor.get("side_to_move_source") or "assumed") != "assumed"
     return lado if lado in ("w", "b") and lido else ""
@@ -213,7 +218,7 @@ class _Construtor:
             # O lado lido manda sobre o campo do FEN e leva o indicador: é o desenho que o
             # leitor fez (`livro.Figura.lado_a_jogar`) e que o arquivo exportado já mostra —
             # sem isto o editor, que redesenha, o tirava na primeira gravação.
-            lado = _lado_lido(valor)
+            lado = _lado_lido(valor, block)
             campos = _fen_completo(fen).split()
             if lado:
                 campos[1] = lado

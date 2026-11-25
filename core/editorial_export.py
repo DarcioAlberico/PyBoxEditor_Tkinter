@@ -13,6 +13,7 @@ modos e a auditoria, o TXT, o JSON e a camada de texto do PDF pesquisável.
 from __future__ import annotations
 
 import base64
+import copy
 import html
 import json
 import zipfile
@@ -90,6 +91,87 @@ def _fen(value: Any) -> str:
     return str(value.get("fen", "")) if isinstance(value, Mapping) else ""
 
 
+# ----------------------------------------------------------------------
+# O que o revisor mudou num diagrama (RG-17, R-34)
+# ----------------------------------------------------------------------
+
+#: As origens do lado a jogar que são decisão de quem revisa, e não leitura.
+LADO_DE_QUEM_REVISA = frozenset({"manual", "explicit", "explícito", "usuario"})
+
+
+def _de_e_para(block: EditorialBlock) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """`(valor de antes da primeira revisão, valor de agora)` do diagrama revisado; o
+    diagrama que ninguém revisou não mudou, e o primeiro sai vazio quando o IR não o tem."""
+    valor, original = block.decision.value, block.decision.original_value
+    if block.decision.status != "reviewed" or not isinstance(valor, Mapping):
+        return {}, {}
+    return (original if isinstance(original, Mapping) else {}), valor
+
+
+def posicao_do_fen(fen: Any) -> str:
+    """O campo das peças: o FEN muda de lado e de roque sem mudar de desenho."""
+    campos = str(fen or "").split()
+    return campos[0] if campos else ""
+
+
+def posicao_revisada(block: EditorialBlock) -> bool:
+    """O revisor trocou as peças deste diagrama?"""
+    original, valor = _de_e_para(block)
+    nova = posicao_do_fen(valor.get("fen"))
+    return bool(original and nova) and nova != posicao_do_fen(original.get("fen"))
+
+
+def orientacao_revisada(block: EditorialBlock) -> bool:
+    """O revisor virou o tabuleiro?"""
+    original, valor = _de_e_para(block)
+    return bool(original and valor.get("orientation")) and (
+        str(valor["orientation"]) != str(original.get("orientation") or "branca"))
+
+
+def lado_revisado(block: EditorialBlock) -> str | None:
+    """
+    O lado a jogar que o **revisor** disse (`"w"`/`"b"`), ou `None`.
+
+    Está em três lugares, conforme quem gravou: a origem manual no valor, o `side_to_move`
+    trocado, ou só o campo de lado do FEN — é o que o diálogo da fila grava desde sempre, e
+    o que os diários existentes têm. O `w` que já estava no FEN é convenção, e não decisão:
+    só conta o campo que **mudou**.
+    """
+    from core import lado_a_jogar as lado_jogar
+
+    original, valor = _de_e_para(block)
+    lado = str(valor.get("side_to_move") or "")
+    if lado in ("w", "b") and str(valor.get("side_to_move_source") or "") in LADO_DE_QUEM_REVISA:
+        return lado
+    antes = lado_jogar.do_fen(str(original.get("fen") or ""))
+    agora = lado_jogar.do_fen(str(valor.get("fen") or ""))
+    if antes and agora and antes != agora:
+        return agora
+    era = str(original.get("side_to_move") or "")
+    return lado if lado in ("w", "b") and era in ("w", "b") and era != lado else None
+
+
+def com_fen_revisado(valor: Mapping[str, Any], fen: str) -> dict[str, Any]:
+    """O valor do diagrama com o FEN que o revisor deu. Se ele trocou de quem é a vez, o lado
+    vai também para os campos dele, como decisão: no valor ficava o da leitura, e o diálogo
+    reaberto mostrava o lado velho."""
+    from core import lado_a_jogar as lado_jogar
+
+    novo = {**copy.deepcopy(dict(valor)), "fen": fen}
+    antes, agora = lado_jogar.do_fen(str(valor.get("fen") or "")), lado_jogar.do_fen(fen)
+    if antes and agora and antes != agora:
+        novo["side_to_move"], novo["side_to_move_source"] = agora, "manual"
+    return novo
+
+
+def fen_do_bloco(block: EditorialBlock) -> str:
+    """O FEN do diagrama, com o lado a jogar que o revisor disse."""
+    from core import lado_a_jogar as lado_jogar
+
+    fen, lado = _fen(block.decision.value), lado_revisado(block)
+    return lado_jogar.com_lado(fen, lado) if fen and lado else fen
+
+
 def texto_do_bloco(block: EditorialBlock) -> str:
     """
     A face de texto de um bloco: o que o PDF pesquisável põe na camada
@@ -104,7 +186,7 @@ def texto_do_bloco(block: EditorialBlock) -> str:
     """
     value = block.decision.value
     if block.kind == "diagram":
-        fen = _fen(value)
+        fen = fen_do_bloco(block)
         return f"FEN: {fen}" if fen else ""
     if block.kind == "table" and isinstance(value, Mapping):
         return "\n".join(" ".join(_text(celula).replace("\n", " ") for celula in fila)
@@ -136,8 +218,14 @@ def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
 
     ``origem`` é ``"recorte"`` (o que veio da página), ``"desenho"`` (feito do
     FEN) ou ``"nenhuma"`` — e a última vira aviso no relatório da exportação.
+
+    O diagrama cuja posição a revisão trocou sai desenhado (RG-17, R-34): a imagem
+    guardada é da posição de antes.
     """
     value = block.decision.value
+    desenhada = _imagem_desenhada(block) if posicao_revisada(block) else ""
+    if desenhada:
+        return desenhada, "desenho"
     candidatos = [block.metadata.get("png_base64")]
     if isinstance(value, Mapping):
         candidatos.append(value.get("png_base64"))
@@ -149,14 +237,23 @@ def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
         except (ValueError, TypeError):
             continue
         return str(encoded), "recorte"
-    fen = _fen(value)
+    desenhada = _imagem_desenhada(block)
+    return (desenhada, "desenho") if desenhada else ("", "nenhuma")
+
+
+def _imagem_desenhada(block: EditorialBlock) -> str:
+    """O PNG em base64 do diagrama desenhado do FEN, ou `""` sem FEN ou sem fonte."""
+    fen = fen_do_bloco(block)
     if not fen:
-        return "", "nenhuma"
+        return ""
+    value = block.decision.value
     try:
         from core import lado_a_jogar as lado_jogar
         from core import render_diagrama
         png, _largura, _altura = render_diagrama.desenhar(
             fen, lado_px=LADO_DO_DIAGRAMA_PX,
+            orientacao=("preta" if isinstance(value, Mapping)
+                        and value.get("orientation") == "preta" else "branca"),
             # O indicador de quem joga só entra quando o lado foi **lido**:
             # desenhá-lo a partir da convenção seria pôr no papel a afirmação
             # que o resto deste módulo existe para não fazer.
@@ -164,12 +261,14 @@ def imagem_do_diagrama(block: EditorialBlock) -> tuple[str, str]:
                           if origem_do_lado(block) != "assumed" else None))
     except Exception as erro:  # noqa: BLE001 — fonte ausente ou FEN torto não derruba a exportação
         log.warning("diagrama %s sem imagem na exportação: %s", block.id, erro)
-        return "", "nenhuma"
-    return base64.b64encode(png).decode("ascii"), "desenho"
+        return ""
+    return base64.b64encode(png).decode("ascii")
 
 
 def origem_do_lado(block: EditorialBlock) -> str:
     """``legend``, ``manual``, ``explicit`` ou ``assumed`` — a convenção."""
+    if lado_revisado(block):
+        return "manual"
     value = block.decision.value
     if isinstance(value, Mapping):
         origem = value.get("side_to_move_source")
@@ -192,7 +291,7 @@ def legenda_do_diagrama(block: EditorialBlock) -> str:
     """
     from core import lado_a_jogar as lado_jogar
 
-    fen = _fen(block.decision.value)
+    fen = fen_do_bloco(block)
     partes = [lado_jogar.marca(lado_jogar.do_fen(fen), origem_do_lado(block))]
     if revisao_pendente(block):
         partes.append(lado_jogar.NAO_REVISADO)
@@ -200,7 +299,10 @@ def legenda_do_diagrama(block: EditorialBlock) -> str:
 
 
 def revisao_pendente(block: EditorialBlock) -> bool:
-    """O diagrama ainda espera olho humano?"""
+    """O diagrama ainda espera olho humano? A decisão responde primeiro (RG-17, R-34): o
+    diagrama revisado não espera, mesmo com o `review_required` da leitura no valor."""
+    if block.decision.status in ("reviewed", "rejected"):
+        return False
     value = block.decision.value
     estado = ""
     if isinstance(value, Mapping):
@@ -305,7 +407,7 @@ def _block_html(block: EditorialBlock, options: ExportOptions) -> str:
         body = (f'<div{common} class="chess-sequence" aria-label="Sequência de xadrez">'
                 f"{html.escape(_text(value))}</div>")
     elif block.kind == "diagram":
-        fen = _fen(value)
+        fen = fen_do_bloco(block)
         data_fen = html.escape(fen, quote=True)
         ressalva = legenda_do_diagrama(block)
         alt = html.escape(str(block.metadata.get(

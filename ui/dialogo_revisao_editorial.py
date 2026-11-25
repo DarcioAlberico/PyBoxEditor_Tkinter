@@ -38,6 +38,7 @@ from typing import Any, Callable, Mapping, Optional
 import numpy as np
 from PIL import Image, ImageTk
 
+from core.editorial_export import com_fen_revisado
 from core.editorial_review import LinhaRevisao, ReviewItem, ReviewSession
 
 #: Largura máxima do recorte na tela, em pixels; a linha pode ser ampliada
@@ -105,7 +106,7 @@ def _valor_do_texto(item: ReviewItem, texto: str) -> Any:
             filas = [[c.strip() for c in linha.split("|")] for linha in texto.splitlines()]
             return {**copy.deepcopy(valor), "rows": filas}
         if "fen" in valor:
-            return {**copy.deepcopy(valor), "fen": texto.strip()}
+            return com_fen_revisado(valor, texto.strip())
     return texto
 
 
@@ -529,7 +530,7 @@ class DialogoRevisaoEditorial(tk.Toplevel):
         fen = self.abrir_diagrama(item, self._imagem(item))
         if not fen:
             return
-        valor = ({**copy.deepcopy(item.value), "fen": fen}
+        valor = (com_fen_revisado(item.value, fen)
                  if isinstance(item.value, Mapping) else fen)
         if valor == item.value:
             self.session.accept(item.target_id)

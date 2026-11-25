@@ -230,7 +230,10 @@ def test_o_valor_vai_e_volta_do_texto_para_tabela_e_diagrama():
     diagrama = ReviewItem(target_id="g", kind="diagram", value={"fen": "8/8 w", "origin": "render"},
                           **base)
     assert _texto_do_valor(diagrama) == "8/8 w"
-    assert _valor_do_texto(diagrama, " 4k3/8 b ") == {"fen": "4k3/8 b", "origin": "render"}
+    assert _valor_do_texto(diagrama, " 4k3/8 w ") == {"fen": "4k3/8 w", "origin": "render"}
+    # O lado que o revisor trocou vai também para os campos dele (RG-17, R-34).
+    assert _valor_do_texto(diagrama, " 4k3/8 b ") == {
+        "fen": "4k3/8 b", "origin": "render", "side_to_move": "b", "side_to_move_source": "manual"}
 
 
 def test_a_janela_tambem_abre_com_o_documento_de_uma_figura_sem_caixa():
