@@ -90,44 +90,67 @@ class OpcoesDeLeitura:
 def leitor_de_faixa_com_ensemble(leitor_principal: Callable,
                                  servico: Any, idioma: str, *,
                                  modelo_de_linha: bool = False,
-                                 minimo_consenso: int = 2) -> Callable:
+                                 minimo_consenso: int = 2,
+                                 motor_principal: str = "tesseract") -> Callable:
     """Envolve o leitor principal com o consenso comum a todos os fluxos.
 
     Com apenas uma engine disponível, preserva o leitor principal. Quando o
     consenso diverge do leitor principal, mantém a leitura já medida e marca
     a faixa para revisão; só usa o consenso quando ele é compatível.
+
+    **A evidência viaja no quinto campo do próprio registro** (RG-14, R-21), que é
+    o que `livro._registro_da_faixa` lê. Ela ia por um atributo da função
+    (`last_result`), que os invólucros da leitura não repassam: a divergência nunca
+    chegava à fila. Viaja a que tem o que conferir — engine que faltou, leituras que
+    não concordam — e a do consenso aceito; a faixa que o principal não leu leva a
+    dela num registro sem texto.
+
+    `motor_principal` é o nome do adapter que o leitor principal já é: a leitura dele
+    entra no ensemble como está, e o motor não é chamado duas vezes pela mesma faixa.
     """
-    from core.ocr_engines import EnsembleLineReader, OCRServiceAdapters
+    from core.ocr_engines import CallableAdapter, EnsembleLineReader, OCRServiceAdapters
 
     registro = OCRServiceAdapters.registry(
         servico, languages=(idioma,), language=idioma,
         trained_line=modelo_de_linha)
     ensemble = EnsembleLineReader(registro, minimum_support=minimo_consenso)
+    lida = {"texto": "", "confianca": 0.0}
+    registro.adapters = [
+        CallableAdapter(a.name, lambda _imagem: (lida["texto"], lida["confianca"]),
+                        metadata=a.metadata) if a.name == motor_principal else a
+        for a in registro.adapters]
 
     def ler_faixa(faixa):
-        principal = list(leitor_principal(faixa) or [])
+        principal = [tuple(r) for r in leitor_principal(faixa) or []]
+        com_texto = [r for r in principal if len(r) >= 3 and str(r[0] or "").strip()]
+        # A linha mais larga, que é a que `livro._registro_da_faixa` fica.
+        escolhida = max(com_texto, key=lambda r: r[2][2] - r[2][0], default=None)
+        lida["texto"] = str(escolhida[0]).strip() if escolhida else ""
+        lida["confianca"] = float(escolhida[1] or 0.0) if escolhida else 0.0
         consenso = ensemble(faixa)
         resultado = ensemble.last_result
-        if consenso and principal:
-            texto_principal = str(principal[0][0]).strip().casefold()
-            texto_consenso = str(consenso[0][0]).strip().casefold()
-            if texto_principal != texto_consenso and resultado is not None:
-                resultado = replace(
-                    resultado, review_required=True,
-                    reason_codes=tuple((*resultado.reason_codes,
-                                        "primary_disagreement")))
-                ensemble.last_result = resultado
-                ler_faixa.last_result = resultado
-                return principal
-        ler_faixa.last_result = resultado
-        if consenso:
+        diverge = bool(consenso and principal
+                       and str(principal[0][0]).strip().casefold()
+                       != str(consenso[0][0]).strip().casefold())
+        if diverge:
+            resultado = replace(
+                resultado, review_required=True,
+                reason_codes=(*resultado.reason_codes, "primary_disagreement"))
+        elif consenso:
             return consenso
-        if resultado is not None and len(resultado.hypotheses) >= 2:
-            return principal
+        if resultado.errors or (len(resultado.hypotheses) >= 2 and resultado.review_required):
+            return _com_evidencia(principal, resultado.to_dict())
         return principal
 
-    ler_faixa.last_result = None
     return ler_faixa
+
+
+def _com_evidencia(registros: Sequence[tuple], evidencia: dict) -> list[tuple]:
+    """Cada registro com a evidência do ensemble no quinto campo; sem registro nenhum, um
+    sem texto, só para ela."""
+    if not registros:
+        return [("", 0.0, (0, 0, 0, 0), (), evidencia)]
+    return [(*r[:3], r[3] if len(r) > 3 else (), evidencia) for r in registros]
 
 
 class ExtratorDeLivro:
@@ -185,7 +208,9 @@ class ExtratorDeLivro:
             ler_faixa = leitor_de_faixa_com_ensemble(
                 ler_faixa, servico, idioma,
                 modelo_de_linha=self.opcoes.modelo_de_linha,
-                minimo_consenso=self.opcoes.minimo_consenso)
+                minimo_consenso=self.opcoes.minimo_consenso,
+                motor_principal=("trained_line" if self.leitor_de_faixa == "modelo_de_linha"
+                                 else "tesseract"))
                 # Discordância não escolhe uma fonte silenciosamente. Quando
                 # há apenas uma engine disponível, preservamos o leitor
                 # principal já medido; com duas fontes conflitantes, a cadeia

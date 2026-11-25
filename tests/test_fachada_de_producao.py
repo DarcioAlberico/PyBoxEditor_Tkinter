@@ -59,6 +59,8 @@ def test_ensemble_de_producao_e_opt_in_e_so_aceita_consenso(monkeypatch):
     from core.ocr_result import OCRHypothesis
 
     class Registro:
+        adapters = ()
+
         def recognize(self, image, *, level):
             return EngineRun([
                 OCRHypothesis("texto", .6, "tesseract"),
@@ -89,6 +91,8 @@ def test_ensemble_preserva_leitor_principal_quando_consenso_diverge(monkeypatch)
     from core.ocr_result import OCRHypothesis
 
     class Registro:
+        adapters = ()
+
         def recognize(self, image, *, level):
             return EngineRun([
                 OCRHypothesis("consenso errado", .95, "tesseract"),
@@ -106,8 +110,62 @@ def test_ensemble_preserva_leitor_principal_quando_consenso_diverge(monkeypatch)
     resultado = leitor(np.zeros((12, 40), dtype=np.uint8))
 
     assert resultado[0][0] == "leitura principal"
-    assert leitor.last_result.review_required is True
-    assert "primary_disagreement" in leitor.last_result.reason_codes
+    # A evidência viaja no registro (RG-14, R-21), e não num atributo da função.
+    assert resultado[0][4]["review_required"] is True
+    assert "primary_disagreement" in resultado[0][4]["reason_codes"]
+
+
+class _ServicoDeEnsemble:
+    """Tesseract e EasyOCR que leem coisas diferentes, e o PaddleOCR que falta."""
+
+    def __init__(self, tesseract="Uma linha de prosa"):
+        self.tesseract, self.chamadas = tesseract, []
+
+    def tesseract_linha_conf(self, *a):
+        self.chamadas.append("tesseract")
+        return self.tesseract, .9
+
+    def faixa(self, imagem):
+        self.chamadas.append("tesseract")
+        h, w = imagem.shape[:2]
+        return [(self.tesseract, .9, (0, 0, w, h), ())] if self.tesseract else []
+
+    def easyocr_linha_conf(self, *a):
+        self.chamadas.append("easyocr")
+        return "Outra leitura", .8
+
+    def paddleocr_linha_conf(self, *a):
+        raise RuntimeError("não instalado")
+
+
+def test_o_motor_principal_e_chamado_uma_vez_por_faixa():
+    import numpy as np
+    from core.editorial_legacy import leitor_de_faixa_com_ensemble
+
+    servico = _ServicoDeEnsemble()
+    leitor = leitor_de_faixa_com_ensemble(servico.faixa, servico, "en")
+    [registro] = leitor(np.zeros((12, 40), dtype=np.uint8))
+    assert servico.chamadas == ["tesseract", "easyocr"]
+    assert registro[0] == "Uma linha de prosa"
+    assert registro[4]["consensus"] is False
+    assert {h["source"] for h in registro[4]["hypotheses"]} == {"tesseract", "easyocr"}
+    assert "paddleocr" in registro[4]["errors"]
+
+
+def test_a_estatistica_do_ensemble_chega_pelo_extrair(tmp_path):
+    from core import livro
+    from core.editorial_legacy import leitor_de_faixa_com_ensemble
+
+    for lido in ("Uma linha de prosa comum.", ""):      # o principal leu; o principal não leu
+        servico = _ServicoDeEnsemble(lido)
+        paginas = livro.extrair(
+            str(_pdf(tmp_path / f"livro{bool(lido)}.pdf")),
+            lambda recorte, referencia=None: ("a", 0.99), dpi=150,
+            ler_pagina=lambda imagem: [],
+            ler_faixa=leitor_de_faixa_com_ensemble(servico.faixa, servico, "en"))
+        com_evidencia = [r["ensemble"] for p in paginas for r in p.roteamento if "ensemble" in r]
+        assert com_evidencia, "a divergência do ensemble não chegou ao registro da linha"
+        assert all("Outra leitura" in {h["text"] for h in e["hypotheses"]} for e in com_evidencia)
 
 
 def _pdf(caminho, linhas=("Uma linha de prosa comum.", "E outra linha, igual."),

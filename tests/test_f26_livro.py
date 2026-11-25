@@ -828,9 +828,7 @@ def test_o_ensemble_da_caixa_chega_ao_leitor_de_livro(monkeypatch):
         app.rodar()
         assert not app.erros, app.erros
 
-    leitor = recebido["ler_faixa"]
-    assert hasattr(leitor, "last_result")
-    assert leitor.last_result is None
+    assert "leitor_de_faixa_com_ensemble" in recebido["ler_faixa"].__qualname__
 
 
 def test_a_fonte_a_moldura_e_o_corpo_chegam_aos_dois_lados(monkeypatch):

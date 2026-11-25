@@ -1173,7 +1173,7 @@ do R-19), no worktree da Onda 5, depois da RG-12.
   Suíte do worktree: 3859 passed, 26 skipped.
 - Próximo passo da revisão: a Onda 6 (a leitura: RG-14, RG-15, RG-16, RG-16b).
 ### RG-14
-Estado: em andamento (2026-11-25). Base `ffc3ec3` — o trabalho do usuário em `core/livro.py`
+Estado: fechada (2026-11-25), em dois commits (`3657a1a` e o do R-21). Base `ffc3ec3` — o trabalho do usuário em `core/livro.py`
 (o lance descritivo), commitado por ele ter aprovado na abertura da onda; não há diff dele na
 árvore, e o passo 9 deixa de valer. Worktree `.claude/worktrees/onda6` (destacado, com os
 pesos). Medidas de antes: `preview_ocr/ab/RG-14-antes` e `RG-14-antes2` (idênticas, só o
@@ -1213,6 +1213,19 @@ pesos). Medidas de antes: `preview_ocr/ab/RG-14-antes` e `RG-14-antes2` (idênti
     na fila e na conclusão, das passadas no OCR, do título sem inicial, do lance impossível e
     do cabeçalho cortado; os quatro que passam (o cancelamento no `livro.extrair`, o livro em
     que nada se lê e o `-1` no adaptador) são guardas. Suíte: 3928 passed.
+- Commit 2 (R-21): a evidência do ensemble viaja no quinto campo do registro da faixa, que
+  `_registro_da_faixa` já levava em `palavras.metadata` — a que tem o que conferir (engine
+  que faltou, leituras que não concordam) e a do consenso aceito; a faixa que o principal não
+  leu leva a dela num registro sem texto, que não entra na fusão. `_source_reader` e o atalho
+  por `last_result` saem. O motor principal é chamado uma vez por faixa: a leitura dele entra
+  no ensemble no lugar do adapter (que relia a faixa pelo `--psm 3`, e não pelo 7 medido).
+  `tests/test_fachada_de_producao.py`: contra o código de antes, os três falham (a divergência
+  fora do registro, o Tesseract chamado duas vezes, a estatística que não chega pelo
+  `extrair`); os dois testes que liam `last_result` passam a ler o registro. A/B idêntico
+  (`RG-14-depois`), corpus idêntico com e sem `--usar-ensemble` (`2026-11-25-1513.json`),
+  rodada da fase `benchmarks/rodadas/2026-11-25-1553.json` (0,91%, igual à base da revisão e à da fase).
+  Suíte: 3930 passed.
+- AbbyChessCraft contra o worktree: 2915 passed, 6 failed, os mesmos seis da base.
 ### RG-15
 ### RG-16
 ### RG-16b

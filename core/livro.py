@@ -1282,9 +1282,6 @@ def _ler_faixa_registrando(ler_faixa: Callable, falhas: List[str]) -> Callable:
             return []
         estado["seguidas"] = 0
         return registros
-    # Mantém a seam de evidência do leitor especializado para o chamador sem
-    # alterar o contrato antigo da função embrulhada.
-    ler._source_reader = ler_faixa
     return ler
 
 
@@ -1358,7 +1355,9 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
 
     Devolve `(texto, confiança, palavras, sobre trama?)`: o quarto é se a
     faixa foi limpa de meio-tom antes de ir ao motor (`_limpar_faixa_de_trama`),
-    que é o que autoriza a fusão a confiar no motor contra a âncora.
+    que é o que autoriza a fusão a confiar no motor contra a âncora. O quinto
+    campo do registro — a evidência do ensemble — vai em `palavras.metadata`; o
+    registro sem texto só existe para levá-la, e aí o texto sai vazio (R-21).
     """
     if not linha:
         return None
@@ -1391,10 +1390,12 @@ def _registro_da_faixa(img: np.ndarray, linha: Sequence[BoxEntry],
     # A falha do motor não é tratada aqui: `extrair_pagina` embrulha o
     # `ler_faixa` em `_ler_faixa_registrando`, que a anota na página e devolve
     # `[]` — a linha fica com a âncora, e a página sabe por quê.
-    registros = list(ler_faixa(faixa) or [])
-    registros = [r for r in registros if len(r) >= 3 and str(r[0] or "").strip()]
+    devolvidos = list(ler_faixa(faixa) or [])
+    registros = [r for r in devolvidos if len(r) >= 3 and str(r[0] or "").strip()]
     if not registros:
-        return None
+        evidencia = next((r[4] for r in devolvidos
+                          if len(r) > 4 and isinstance(r[4], dict)), None)
+        return None if evidencia is None else ("", 0.0, _DetalhesDaFaixa((), evidencia), trama)
     registro = max(registros, key=lambda r: r[2][2] - r[2][0])
     dx = x1 - m
     dy = topo - m
@@ -3923,21 +3924,13 @@ def _ler_linha(img: np.ndarray, linha: Sequence[BoxEntry], classificar: Callable
         # A passada de página não devolveu esta linha (ou devolveu a
         # errada): o motor lê a faixa dela sozinha. Só aqui, e não em toda
         # linha, porque é uma chamada de processo por faixa.
-        fonte_faixa = getattr(ler_faixa, "_source_reader", ler_faixa)
-        if hasattr(fonte_faixa, "last_result"):
-            fonte_faixa.last_result = None
         faixa = _registro_da_faixa(img, linha, ler_faixa)
-        resultado_ensemble = getattr(fonte_faixa, "last_result", None)
-        if (resultado_ensemble is not None
-                and (getattr(resultado_ensemble, "errors", ())
-                     or (len(getattr(resultado_ensemble, "hypotheses", ())) >= 2
-                         and getattr(resultado_ensemble, "review_required", False)))):
-            estatisticas["ensemble"] = resultado_ensemble.to_dict()
         if faixa is not None:
-            texto_ocr, confianca_ocr, detalhes_ocr, trama = faixa
-            evidencia_ensemble = getattr(detalhes_ocr, "metadata", None)
+            evidencia_ensemble = getattr(faixa[2], "metadata", None)
             if evidencia_ensemble:
                 estatisticas["ensemble"] = evidencia_ensemble
+        if faixa is not None and faixa[0]:
+            texto_ocr, confianca_ocr, detalhes_ocr, trama = faixa
             semelhanca, compativel = _compatibilidade_da_linha(
                 texto, texto_ocr, confianca_ocr, detalhes_ocr, fusao,
                 trama=trama)
