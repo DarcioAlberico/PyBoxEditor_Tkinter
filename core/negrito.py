@@ -49,6 +49,9 @@ import cv2
 import numpy as np
 
 from core import preprocess
+from core.log import logger
+
+log = logger(__name__)
 
 #: Pixels de tinta abaixo dos quais o recorte não tem o que medir.
 #:
@@ -310,9 +313,18 @@ def marcar(paginas, *, limiar: float = LIMIAR) -> int:
     """
     from core.pagina import Paragrafo
 
-    alvos = [b for p in paginas for b in p.blocos
-             if isinstance(b, Paragrafo) and not b.titulo
-             and b.pesos is not None and len(b.pesos) == len(b.texto)]
+    alvos = []
+    for pagina in paginas:
+        com_medida = [b for b in pagina.blocos
+                      if isinstance(b, Paragrafo) and not b.titulo and b.pesos is not None]
+        no_passo = [b for b in com_medida if len(b.pesos) == len(b.texto)]
+        if len(no_passo) < len(com_medida):
+            # Pular não deixava rastro (RG-15, R-22): a passada que muda o texto sem levar
+            # as medidas apagava o negrito do parágrafo em silêncio.
+            log.warning("Página %d: %d parágrafo(s) sem negrito — as medidas não têm o "
+                        "comprimento do texto.", pagina.numero + 1,
+                        len(com_medida) - len(no_passo))
+        alvos += no_passo
     for p in alvos:
         p.negrito = []
 

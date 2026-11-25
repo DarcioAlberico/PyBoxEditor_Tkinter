@@ -2504,25 +2504,38 @@ def _corrigir_prosa_contextual(texto: str, idioma: str = "en", *,
     return " ".join(corrigir_token(token) for token in texto.split(" "))
 
 
-def _transferir_medidas(texto_antigo: str, texto_novo: str,
-                        pesos: Sequence[Optional[float]],
-                        lacunas: Sequence[Optional[float]]):
-    """Alinha negrito/lacunas ao texto que ganhou contexto de palavra."""
-    novos_pesos: List[Optional[float]] = [None] * len(texto_novo)
-    novas_lacunas: List[Optional[float]] = [None] * len(texto_novo)
+def _origem_de_cada_caractere(texto_antigo: str, texto_novo: str) -> List[Optional[int]]:
+    """De que índice de `texto_antigo` veio cada caractere de `texto_novo` — `None` no que
+    a correção acrescentou."""
+    origem: List[Optional[int]] = [None] * len(texto_novo)
     matcher = SequenceMatcher(None, texto_antigo, texto_novo, autojunk=False)
     for _tag, inicio_a, fim_a, inicio_n, fim_n in matcher.get_opcodes():
         if inicio_a >= fim_a or inicio_n >= fim_n:
             continue
         for indice_novo in range(inicio_n, fim_n):
             proporcao = (indice_novo - inicio_n) / max(1, fim_n - inicio_n)
-            indice_antigo = min(fim_a - 1,
-                                inicio_a + int(proporcao * (fim_a - inicio_a)))
-            if indice_antigo < len(pesos):
-                novos_pesos[indice_novo] = pesos[indice_antigo]
-            if indice_antigo < len(lacunas):
-                novas_lacunas[indice_novo] = lacunas[indice_antigo]
-    return novos_pesos, novas_lacunas
+            origem[indice_novo] = min(fim_a - 1,
+                                      inicio_a + int(proporcao * (fim_a - inicio_a)))
+    return origem
+
+
+def _transferir_medidas(texto_antigo: str, texto_novo: str,
+                        *medidas: Sequence, vazio=None) -> Tuple[List, ...]:
+    """As medidas de `texto_antigo` (negrito, lacunas, o box de cada caractere) no passo de
+    `texto_novo`: uma lista por vetor, com `vazio` no caractere que a correção acrescentou
+    e no que o vetor não alcança."""
+    origem = _origem_de_cada_caractere(texto_antigo, texto_novo)
+    return tuple([vetor[o] if o is not None and o < len(vetor) else vazio for o in origem]
+                 for vetor in medidas)
+
+
+def _transferir_inicios(texto_antigo: str, texto_novo: str, inicios: Sequence[int]) -> List[int]:
+    """O começo de cada linha impressa, no passo do texto corrigido: o primeiro caractere
+    que veio dali ou de depois."""
+    origem = _origem_de_cada_caractere(texto_antigo, texto_novo)
+    return [0 if i == 0 else next((n for n, o in enumerate(origem) if o is not None and o >= i),
+                                  len(texto_novo))
+            for i in inicios]
 
 
 def _texto_da_linha(img: np.ndarray, linha: Sequence[BoxEntry],
@@ -3236,7 +3249,13 @@ def _paragrafo_de(linhas: Sequence[Linha],
 
     # Algumas deformações só aparecem quando a palavra seguinte chega na linha
     # impressa seguinte; nesta altura o parágrafo já tem o contexto completo.
-    texto = _corrigir_frases_de_prosa(texto)
+    corrigido = _corrigir_frases_de_prosa(texto)
+    if corrigido != texto:
+        # O texto e as medidas andam juntos (RG-15, R-22): `Blackhasto move` ganhava dois
+        # espaços e as espessuras ficavam para trás, e o negrito pulava o parágrafo.
+        todos, vaos = _transferir_medidas(texto, corrigido, todos, vaos)
+        inicios = _transferir_inicios(texto, corrigido, inicios)
+        texto = corrigido
 
     capitulo = DETECTAR_CAPITULOS and _e_titulo(linhas, altura_de_referencia)
     return Paragrafo(texto, titulo=capitulo, nivel=1 if capitulo else 2,
@@ -3325,6 +3344,11 @@ def _cortes_do_paragrafo(bloco: Paragrafo, lex: "lexico.Lexico",
     return cortes
 
 
+def _empurrado(indice: int, cortes: Sequence[int]) -> int:
+    """O índice depois de um espaço entrar em cada um de `cortes`."""
+    return indice + sum(1 for corte in cortes if corte <= indice)
+
+
 def partir_coladas(paginas: Sequence["PaginaExtraida"],
                    lex: Optional["lexico.Lexico"]) -> int:
     """
@@ -3379,6 +3403,11 @@ def partir_coladas(paginas: Sequence["PaginaExtraida"],
             bloco.texto = "".join(partes)
             bloco.pesos = negrito.vetor(pesos)
             bloco.lacunas = negrito.vetor(lacunas)
+            # Cada espaço que entrou empurra a linha impressa que começa nele ou depois
+            # (RG-15, R-22), e o trecho marcado.
+            bloco.inicios = [_empurrado(i, cortes) for i in bloco.inicios]
+            bloco.negrito = [(_empurrado(a, cortes), _empurrado(z - 1, cortes) + 1)
+                             for a, z in bloco.negrito]
             pagina.cortes += len(cortes)
             total += len(cortes)
     return total
@@ -4185,14 +4214,16 @@ def extrair_pagina(page: fitz.Page, classificar: Callable, *, numero: int = 0,
                 roteamento.append({**registro, "fragmento": True, "texto": ""})
                 continue
             if dominio != "notation":
-                texto = _corrigir_prosa_contextual(texto, idioma_ocr, fuzzy=False)
-                # A letra que o segmentador partiu em duas (PD-20), com as
-                # medidas acompanhando: `li` → `h` encurta o texto.
-                corrigido = _corrigir_juncoes(texto, lex, idioma_ocr)
+                # As trocas diretas e a letra que o segmentador partiu em duas
+                # (PD-20) mudam o comprimento — `knight ,` vira `knight,`, `li`
+                # vira `h` —, e as medidas e o box de cada caractere vão junto
+                # (RG-15, R-22): o negrito pula o parágrafo fora de passo, e o
+                # reparo de baixo indexa os boxes pelo caractere.
+                corrigido = _corrigir_juncoes(
+                    _corrigir_prosa_contextual(texto, idioma_ocr, fuzzy=False), lex, idioma_ocr)
                 if corrigido != texto:
-                    if pesos is not None and len(pesos) == len(texto):
-                        pesos, vaos = _transferir_medidas(texto, corrigido,
-                                                          pesos, vaos)
+                    pesos, vaos = _transferir_medidas(texto, corrigido, pesos, vaos)
+                    [caixas] = _transferir_medidas(texto, corrigido, caixas, vazio=-1)
                     texto = corrigido
         if provar is not None and texto and origem == "glyph":
             # O índice do box passa a ser o da **página**, que é onde a régua do

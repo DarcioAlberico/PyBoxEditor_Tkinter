@@ -1359,6 +1359,14 @@ lidos, os 6 certos pelo triângulo impresso (sem a prova, 9 com 3 errados), nenh
 junções verdadeiras. Uma página que levanta sai como imagem e vai para a fila, em vez de
 derrubar o livro. Registro: RG-14 do `ROADMAP_REVISAO_GERAL_2.md`.
 
+### O texto e as medidas da linha andam juntos (RG-15)
+
+Data: 2026-11-25. Três correções de texto deixavam para trás a espessura de cada caractere e o
+começo das linhas impressas: o negrito pulava o parágrafo e a retirada de cabeçalho cortava
+letra do texto. Yusupov inteiro: 82 parágrafos pulados → 0, e voltam o `S` de `Solutions`, o `E`
+de `Exercises` e o `22` de um lance; as páginas de referência e o corpus ficam iguais (rodada
+`2026-11-25-1621`). Registro: RG-15 do `ROADMAP_REVISAO_GERAL_2.md`.
+
 ### Próximo passo
 
 Conferir as outras três referências contra o livro impresso continua em

@@ -1227,6 +1227,28 @@ pesos). Medidas de antes: `preview_ocr/ab/RG-14-antes` e `RG-14-antes2` (idênti
   Suíte: 3930 passed.
 - AbbyChessCraft contra o worktree: 2915 passed, 6 failed, os mesmos seis da base.
 ### RG-15
+Estado: fechada (2026-11-25), num commit. Base `e5f6d31`, o worktree da RG-14; o "antes" é o
+"depois" dela (`RG-14-depois`, `RG-14-yusupov-depois2`, `RG-14-aagaard-depois`).
+- A linha da cadeia corrigida leva as medidas (`_transferir_medidas`, agora com quantos
+  vetores houver) e também o **box de cada caractere**, que o reparo de colagem indexa;
+  `_paragrafo_de` leva as medidas e os começos das linhas (`_transferir_inicios`);
+  `partir_coladas` empurra os começos e o negrito por cada espaço que entra; e
+  `negrito.marcar` conta e loga (WARNING) por página o parágrafo que pula.
+  `tests/test_texto_e_medidas.py`: os três cenários, o box, o pulo, e a P-2 conferida antes e
+  depois de **toda** passada, nos dois caminhos; contra o código de antes, oito dos dez falham
+  (os outros dois são o caminho da camada e a cadeia sem correção).
+- Medido no Yusupov inteiro: **82 parágrafos pulados → 0**, 4.172 → 4.294 trechos em negrito,
+  FEN e lados iguais; no Aagaard pp. 10–70, 2 → 0 e 1.299 → 1.320, texto igual. Negrito das
+  páginas de referência: p. 34 36 → 36, p. 47 45 → 45, p. 30 45 → 45, Nunn p. 237 8 → 8.
+  **E um achado**: os começos de linha velhos faziam `retirar_cabecalhos` cortar letra do
+  texto. Voltam o `S` de `Solutions` (pp. 95, 132), o `E` de `Exercises` (194, 212, 242), o
+  `22` de `22...♗a4` (88) e o `t` de `that` (38) — era a raiz das quatro junções falsas da
+  RG-14, que agora são zero também por isso. Em troca, quatro sobras de uma letra que o corte
+  errado levava ficam (`E` na 15, `nn` na 126, `s` na 236, `w` na 191), e o lixo de ornamento que
+  o corte levava junto com a inicial volta com ela.
+- A/B das quatro páginas idêntico (`RG-15-depois`); rodada
+  `benchmarks/rodadas/2026-11-25-1621.json`, 0,91% página a página, igual às duas bases.
+  Suíte: 3940 passed. AbbyChessCraft: na RG-16, com a mesma árvore.
 ### RG-16
 ### RG-16b
 ### RG-17
