@@ -2,7 +2,8 @@
 
 Versão: 0.6 (veredito dos críticos e cinco re-análises aplicados)
 Data: 2026-11-20
-Estado: fechada em 2026-11-25 (RG-01b e RG-02b transferidas para a PD-26 e a PD-27; push em 2026-11-25, CI verde)
+Estado: fechada em 2026-11-25, push com CI verde; as PD que ela abriu ou recebeu (PD-24 a PD-27)
+fecharam no mesmo dia, e só a PD-28 espera dado do usuário (ver "Depois do fecho", no fim do registro)
 Base: `master` em `6627e30`
 Spec: [SPEC_REVISAO_GERAL_2.md](SPEC_REVISAO_GERAL_2.md) (requisitos `R-nn`; veredito na §7)
 
@@ -619,7 +620,9 @@ os outros 5 dependem de arquivo rastreado ou de fonte do Windows, e rodam de ver
 Estado: transferida: PD-26 (2026-11-25), na RG-19. Entrou a lista nominal, conferida por
 `tests/test_grafia_nominal.py`: 19 testes e 27 chamadas, as da spec (eram 20 e 28 na véspera: a
 RG-17 tinha acrescentado um, convertido para comportamento no mesmo commit). A conversão dos 19
-para espião fica na PD.
+para espião fica na PD. **Fechada na PD-26** (`8287009`, 2026-11-25): os 19 convertidos, 26
+defeitos plantados e pegos, 27 chamadas → 0; a regra "não edite com a suíte rodando" saiu do
+`CLAUDE.md`.
 ### RG-02a
 Estado: fechada (2026-11-20), em três commits (`f9d2095`, `de26c74` e o do R-08), levados
 ao `master` por `git merge --ff-only`. Base `70936c5`, no worktree `.claude/worktrees/rg02a` (destacado, com
@@ -660,8 +663,12 @@ idênticos, só o tempo do `relatorio.json` varia.
   seis da base.
 - Próximo passo da revisão: a RG-03 (a RG-01b e a RG-02b correm fora do caminho crítico).
 ### RG-02b
-Estado: transferida: PD-27 (2026-11-25), na RG-19: espera a autorização do usuário para os
-pushes de prova da CI. O piso 3.11 e o `constraints.txt` entraram na RG-02a.
+Estado: transferida: PD-27 (2026-11-25), na RG-19. O piso 3.11 e o `constraints.txt` entraram
+na RG-02a. **Fechada na PD-27** (`7d3bebb`, 2026-11-25), com os pushes de prova autorizados pelo
+usuário: a CI instala com `-c constraints.txt` e o torch do índice CPU, com o Tesseract e o Java
+do epubcheck, faz o lint de `tests`, confere o wheel e roda os testes `gui` sob Xvfb; run
+45714384592 verde nas três versões, sem pulado de epubcheck, Java ou Tesseract. A primeira
+prova achou um defeito real: o Ctrl+A e o Ctrl+Y do editor no X11.
 ### RG-03
 Estado: fechada (2026-11-21), em dois commits (`934e351` e o dos gravadores), levados ao
 `master` por `git merge --ff-only`. Base `b5f3dbd`, no worktree `.claude/worktrees/rg03` (destacado, com
@@ -1053,7 +1060,8 @@ Estado: fechada (2026-11-21), em seis commits (`54813f1`, `a4ff7f2`, `5699a54`, 
     (vira `landmarks`) — conversão do EPUB 2 para o 3, não perda.
   As duas perdas não declaradas que sobram entraram no `ROADMAP_PENDENCIAS.md` como
   **PD-24** (o formato do trecho em volta de ilha inline) e **PD-25** (avisar, ou levar, o
-  que o nav de terceiro tinha além do sumário). `html_io.escrever_pasta` reconferida nos 12
+  que o nav de terceiro tinha além do sumário) — as duas fechadas em 2026-11-25 (`ae774cd` e
+`c1a6bd7`; ver "Depois do fecho"). `html_io.escrever_pasta` reconferida nos 12
   (`scratchpad\conferir_pasta_html.py`): todos viram pasta sem erro, e o `id` de item de
   lista que há no corpus (o do *100 Endgames*) chega à pasta.
 ### RG-11
@@ -1413,6 +1421,7 @@ Estado: fechada (2026-11-25), num commit. Base `74cd52c`, o mesmo worktree.
   classe inventados não voltam.
 - Transferidas: RG-01b → PD-26, RG-02b → PD-27; aberta a PD-28 (o diário real da RG-07: não há
   nenhum `*.review.jsonl` nesta máquina). A RG-10 teve o corpus; a RG-16b, o commit do usuário.
+  (As quatro PD de código fecharam depois, no mesmo dia: ver "Depois do fecho".)
 - **A linha de base da §2, re-medida** (2026-11-20 → 2026-11-25):
 
   | Medida | Antes | Agora |
@@ -1440,6 +1449,22 @@ Estado: fechada (2026-11-25), num commit. Base `74cd52c`, o mesmo worktree.
 - **A revisão geral 2 fecha aqui.** Push autorizado pelo usuário em 2026-11-25, `c1d8656..a4b339a`
   (69 commits); CI run 45708187952 verde de primeira em 3.11, 3.12 e 3.13: 4097 passed, 37
   pulados na suíte e 5 passed, 13 pulados nos de desempenho, em cada versão.
+
+### Depois do fecho
+
+O que a revisão deixou no `ROADMAP_PENDENCIAS.md`, em 2026-11-25, cada uma com o registro e a
+medida na linha dela:
+
+| PD | De onde veio | Commit | CI do push |
+|---|---|---|---|
+| PD-27, a CI roda o que a suíte tem | RG-02b | `7d3bebb` | 45714384592: 4109 passed, 32 pulados + 9 / 9 |
+| PD-26, teste de comportamento | RG-01b | `8287009` | 45718652706: 4111 passed, 32 pulados + 9 / 9 |
+| PD-24, o formato em volta da ilha inline | RG-10 | `ae774cd` | 45728666027: 4114 passed, 32 pulados + 9 / 9 |
+| PD-25, o nav de terceiro declara a perda | RG-10 | `c1a6bd7` | (o mesmo push) |
+| PD-28, um diário de revisão real | RG-07 | — | espera dado do usuário: os únicos `*.review.jsonl` da máquina são os da suíte |
+
+Os pulados da CI caíram de 37 + 13 para 32 + 9 com a PD-27 (os de epubcheck, Java e Tesseract
+somem); os que sobram são de dado fora do git.
 
 ## Re-análises deste documento
 

@@ -1,7 +1,7 @@
 # Arquitetura
 
 Como o PyBoxEditor está montado em 2026-11-25, depois das fases F0–F125 do `ROADMAP.md`,
-ED-00–ED-18 do editor, PD-00–PD-23 das pendências e RG-01–RG-20 da revisão geral 2. O que cada peça mediu está nos
+ED-00–ED-18 do editor, PD-00–PD-27 das pendências e RG-01–RG-20 da revisão geral 2. O que cada peça mediu está nos
 roadmaps; aqui ficam as camadas, as fronteiras e o caminho que um livro percorre. A seção
 "Controladores da janela" é a nota original deste arquivo (fase 2 da F4) e continua valendo.
 

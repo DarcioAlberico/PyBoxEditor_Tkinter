@@ -2,8 +2,8 @@
 
 Versão: 1.1
 Data: 2026-09-29, revista em 2026-11-25
-Status: código fechado, salvo as PD abertas pela revisão geral 2 (PD-24 a PD-28, na tabela
-do registro); Onda 6 aberta (dado do usuário)
+Status: código fechado — das PD da revisão geral 2 (PD-24 a PD-28), as quatro de código fecharam
+em 2026-11-25, e a PD-28 espera dado do usuário; Onda 6 aberta (dado do usuário)
 
 Documento de fechamento. Reúne, num lugar só, o que os quatro roadmaps anteriores
 registraram como aberto e não retomaram:
